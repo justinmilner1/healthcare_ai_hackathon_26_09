@@ -1,11 +1,12 @@
 // POST /api/book  { name, phone?, email?, providerId?, optIn?, apptAt? }
-// Creates a patient with a presigned intake token. Sends the SMS if opted in and Twilio is configured.
-// Returns { patientId, token, link, sms: { sent, error? } }. Owner: Justin.
+// Creates a patient with a presigned intake token and, if opted in, sends the link by SMS and/or email.
+// Returns { patientId, token, link, sms: {sent, error?}, email: {sent, error?} }. Owner: Justin.
 
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { intakeLink, sendSms } from "@/lib/sms";
+import { sendIntakeInvite } from "@/lib/notify";
+import { intakeLink } from "@/lib/sms";
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
@@ -32,8 +33,8 @@ export async function POST(req: Request) {
   const patient = await db.patient.create({
     data: {
       name: body.name,
-      phone: body.phone,
-      email: body.email,
+      phone: body.phone?.trim() || null,
+      email: body.email?.trim().toLowerCase() || null,
       providerId: provider.id,
       optIn: Boolean(body.optIn),
       apptAt: body.apptAt ? new Date(body.apptAt) : null,
@@ -41,11 +42,9 @@ export async function POST(req: Request) {
     },
   });
 
-  const link = intakeLink(token);
-  const sms =
-    body.optIn && body.phone
-      ? await sendSms(body.phone, `${provider.name}'s office: get ready for your visit in 5 minutes with Sweetie: ${link}`)
-      : { sent: false, error: "not opted in or no phone" };
-
-  return NextResponse.json({ patientId: patient.id, token, link, sms });
+  if (!body.optIn) {
+    return NextResponse.json({ patientId: patient.id, token, link: intakeLink(token), sms: { sent: false, error: "not opted in" }, email: { sent: false, error: "not opted in" } });
+  }
+  const result = await sendIntakeInvite({ ...patient, providerName: provider.name });
+  return NextResponse.json({ patientId: patient.id, token, ...result });
 }

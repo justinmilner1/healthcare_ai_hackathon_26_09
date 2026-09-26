@@ -17,6 +17,15 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState("");
+  const [invite, setInvite] = useState<string>("");
+
+  async function sendLink(patientId: string) {
+    setInvite("Sending…");
+    const res = await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId }) });
+    const d = await res.json();
+    const parts = [d.sms?.sent ? "texted" : `SMS: ${d.sms?.error}`, d.email?.sent ? "emailed" : `email: ${d.email?.error}`];
+    setInvite(`${parts.join(" · ")} · ${d.link}`);
+  }
 
   useEffect(() => {
     fetch(`/api/provider?id=${id}`).then((r) => r.json()).then(setProvider);
@@ -66,10 +75,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
           <div className="space-y-6">
             <header className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Sour 🍋 · {bundle.patient.name}</h2>
-              <button onClick={generate} disabled={busy} className="rounded bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50">
-                {busy ? "Summarizing…" : s ? "Regenerate" : "Generate summary"}
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => sendLink(bundle.patient.id)} className="rounded border px-3 py-1.5 text-sm">Send link</button>
+                <button onClick={generate} disabled={busy} className="rounded bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50">
+                  {busy ? "Summarizing…" : s ? "Regenerate" : "Generate summary"}
+                </button>
+              </div>
             </header>
+            {invite && <p className="break-all rounded bg-blue-50 p-2 text-xs text-gray-700">{invite}</p>}
 
             {s && (
               <div className="grid grid-cols-3 gap-3 text-center">

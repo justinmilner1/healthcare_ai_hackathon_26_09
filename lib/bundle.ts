@@ -7,9 +7,10 @@ import { matchSpikesToVisits } from "./match";
 import { SWEETIE_QUESTIONS } from "./prompts";
 import type { GlucoseReading, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
 
-export async function loadBundle(patientId: string): Promise<PatientBundle | null> {
-  const patient = await db.patient.findUnique({
-    where: { id: patientId },
+/** Accepts a patient id or their presigned token, so /patient/<token> works straight from the invite link. */
+export async function loadBundle(idOrToken: string): Promise<PatientBundle | null> {
+  const patient = await db.patient.findFirst({
+    where: { OR: [{ id: idOrToken }, { token: idOrToken }] },
     include: {
       provider: true,
       uploads: { orderBy: { createdAt: "desc" } },

@@ -54,10 +54,14 @@ OPENAI_BASE_URL="https://bedrock-mantle.us-east-2.api.aws/openai/v1"
 OPENAI_API_KEY="<BEDROCK_API_KEY>"        # Bedrock API key, not an OpenAI key
 BEDROCK_OPENAI_MODEL_ID="openai.gpt-5.5"  # or openai.gpt-5.4
 
-# Twilio (optional)
+# Twilio SMS (optional; trial accounts only text verified numbers)
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM=
+
+# Resend email (optional; free tier sends to the account owner's address)
+RESEND_API_KEY=
+EMAIL_FROM="Sweet Spot <onboarding@resend.dev>"
 
 # App
 DATABASE_URL="file:./dev.db"

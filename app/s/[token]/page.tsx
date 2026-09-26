@@ -66,6 +66,11 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
             {m.content}
           </div>
         ))}
+        {status?.done && (
+          <a href={`/patient/${token}`} className="block rounded bg-green-50 px-3 py-2 text-center text-sm underline">
+            All done. See your summary →
+          </a>
+        )}
         <div ref={bottom} />
       </div>
 
