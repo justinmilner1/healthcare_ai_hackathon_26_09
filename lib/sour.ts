@@ -135,7 +135,7 @@ export function buildSourInput(args: {
       minutesAbove180: above,
       after: s.visit?.place ?? null,
       placeLeftAt: s.visit ? localTime(s.visit.end) : null,
-      placeRelation: s.visit ? (Date.parse(s.visit.end) <= Date.parse(s.start) ? "after leaving" : "during a stay at") : null,
+      placeRelation: s.visit ? (Date.parse(s.visit.end) <= Date.parse(s.start) ? ("after leaving" as const) : ("during a stay at" as const)) : null,
       placeArrivedAt: s.visit ? localTime(s.visit.start) : null,
     };
   });
