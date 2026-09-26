@@ -59,12 +59,21 @@ export function detectSpikes(readings: GlucoseReading[]): Spike[] {
     for (let j = i + 1; j < rs.length && rs[j].ms - rs[i].ms <= WINDOW_MS; j++) {
       if (rs[j].mgdl > rs[peakIdx].mgdl) peakIdx = j;
     }
-    // Onset is the last trough before the peak, not the first point in the window.
-    let startIdx = i;
-    for (let j = i; j <= peakIdx; j++) if (rs[j].mgdl <= rs[startIdx].mgdl) startIdx = j;
-    const rise = rs[peakIdx].mgdl - rs[startIdx].mgdl;
+    // The 2 h window decides whether it is a spike; the reported peak is the true crest, so keep
+    // following the rise past the window until it turns down. Otherwise a slow dinner excursion
+    // reports 187 while the day's max is 214 half an hour later.
+    while (peakIdx + 1 < rs.length && rs[peakIdx + 1].mgdl >= rs[peakIdx].mgdl) peakIdx++;
+    // Baseline is the lowest reading before the peak in this window; onset is where the climb actually
+    // begins: the last reading before the peak still within 10% of the rise above that baseline. On a
+    // flat noisy baseline the raw minimum can sit an hour before the meal, which misplaces the spike.
+    let troughIdx = i;
+    for (let j = i; j <= peakIdx; j++) if (rs[j].mgdl <= rs[troughIdx].mgdl) troughIdx = j;
+    const from = rs[troughIdx].mgdl;
+    const rise = rs[peakIdx].mgdl - from;
     if (rise >= RISE_MGDL && rs[peakIdx].mgdl > PEAK_MIN) {
-      spikes.push({ start: rs[startIdx].t, peak: rs[peakIdx].t, from: rs[startIdx].mgdl, to: rs[peakIdx].mgdl });
+      let onsetIdx = troughIdx;
+      for (let j = troughIdx; j <= peakIdx; j++) if (rs[j].mgdl <= from + rise * 0.1) onsetIdx = j;
+      spikes.push({ start: rs[onsetIdx].t, peak: rs[peakIdx].t, from, to: rs[peakIdx].mgdl });
       i = peakIdx + 1;
     } else {
       i++;

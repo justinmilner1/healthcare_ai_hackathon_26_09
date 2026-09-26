@@ -462,7 +462,8 @@ export default function ProviderDashboard() {
                             >
                               Open in Sour
                             </Link>
-                          ) : patient.uploads.includes("dexcom") ? (
+                          ) : patient.uploads.includes("dexcom") ||
+                            patient.answered > 0 ? (
                             <Link
                               href={`/provider/${provider?.id}?patient=${patient.id}`}
                               className="ss-button"
@@ -641,15 +642,18 @@ function Metric({
 function Stage({ patient }: { patient: Row }) {
   const stage = patient.hasSummary
     ? "ready"
-    : patient.answered > 0 || patient.wrapped
+    : patient.wrapped
+      ? "finished"
+      : patient.answered > 0
       ? "chatting"
       : patient.uploads.length
         ? "uploading"
         : "invited";
   const labels = {
     ready: "Summary ready",
+    finished: "Intake finished",
     chatting: "Talking to Sweetie",
-    uploading: "Uploading data",
+    uploading: "Shared data",
     invited: "Invited",
   };
 

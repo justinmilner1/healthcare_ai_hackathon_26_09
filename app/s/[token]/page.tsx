@@ -1,7 +1,10 @@
 "use client";
 
+// Sweetie: voice-first intake, reached from the presigned link.
+// Typed and spoken transcripts use the same /api/sweetie transport.
+
 import Image from "next/image";
-import { use, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import type {
   ChatMessage,
@@ -10,8 +13,17 @@ import type {
   IntakeStatus,
   UploadKind,
 } from "@/lib/types";
+import {
+  explainMicError,
+  hush,
+  listenOnce,
+  say,
+  voiceSupport,
+  warmVoices,
+} from "@/lib/voice";
 
 type AgentInfo = { connected: boolean; model: string };
+type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
 export default function SweetiePage({
   params,
@@ -27,9 +39,18 @@ export default function SweetiePage({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState<UploadKind | null>(null);
+  const [mic, setMic] = useState<Mic>("off");
+  const [micNote, setMicNote] = useState("");
+  const [interim, setInterim] = useState("");
+  const [support, setSupport] = useState({ listen: false, speak: false });
   const bottom = useRef<HTMLDivElement>(null);
+  const micOn = useRef(false);
+  const done = useRef(false);
+  const listener = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
+    setSupport(voiceSupport());
+    warmVoices();
     fetch(`/api/sweetie?token=${encodeURIComponent(token)}`)
       .then((response) => response.json())
       .then((data) => {
@@ -38,46 +59,135 @@ export default function SweetiePage({
         setIntake(data.intake ?? null);
         setFields(data.intakeFields ?? []);
         setAgent(data.agent ?? null);
+        done.current = Boolean(data.status?.done && data.intake?.wrapped);
       });
+
+    return () => {
+      micOn.current = false;
+      listener.current?.stop();
+      hush();
+    };
   }, [token]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, busy]);
+  }, [messages, interim, busy]);
 
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    if (!text.trim() || busy) return;
-    const mine = text.trim();
+  const applyReply = useCallback(
+    (data: {
+      reply?: string;
+      status?: IntakeStatus;
+      intake?: IntakeState;
+      intakeFields?: IntakeFieldDef[];
+      agent?: AgentInfo;
+    }) => {
+      if (data.reply) {
+        setMessages((current) => [
+          ...current,
+          { role: "sweetie", content: data.reply! },
+        ]);
+      }
+      if (data.status) setStatus(data.status);
+      if (data.intake) setIntake(data.intake);
+      if (data.intakeFields) setFields(data.intakeFields);
+      if (data.agent) setAgent(data.agent);
+      done.current = Boolean(data.status?.done && data.intake?.wrapped);
+      return data.reply ?? "";
+    },
+    [],
+  );
+
+  const listen = useCallback(() => {
+    if (!micOn.current) return;
+    setMic("listening");
+    setMicNote("");
+    setInterim("");
+    listener.current = listenOnce({
+      onInterim: setInterim,
+      onSpeechStart: hush,
+      onFinal: (transcript) => {
+        setInterim("");
+        void send(transcript);
+      },
+      onEnd: () =>
+        setMic((current) => (current === "listening" ? "idle" : current)),
+      onError: (code) => {
+        setMicNote(explainMicError(code));
+        if (
+          code === "not-allowed" ||
+          code === "service-not-allowed" ||
+          code === "unsupported"
+        ) {
+          micOn.current = false;
+          setMic("off");
+        } else {
+          setMic("idle");
+        }
+      },
+    });
+    // send is a function declaration and intentionally shares the live voice loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const speakThenListen = useCallback(
+    async (line: string) => {
+      if (!micOn.current || !line) return;
+      setMic("speaking");
+      await say(line);
+      if (!micOn.current) return;
+      if (done.current) {
+        micOn.current = false;
+        setMic("off");
+        return;
+      }
+      listen();
+    },
+    [listen],
+  );
+
+  async function send(raw: string) {
+    const mine = raw.trim();
+    if (!mine || busy) return;
     setText("");
     setMessages((current) => [
       ...current,
       { role: "patient", content: mine },
     ]);
     setBusy(true);
+    if (micOn.current) setMic("thinking");
+
     try {
       const response = await fetch("/api/sweetie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, message: mine }),
       });
-      const data = await response.json();
+      const reply = applyReply(await response.json());
+      setBusy(false);
+      if (micOn.current) await speakThenListen(reply);
+    } catch {
+      const line = "I had trouble with that reply. Could you try once more?";
       setMessages((current) => [
         ...current,
-        {
-          role: "sweetie",
-          content:
-            data.reply ??
-            "I had trouble with that reply. Could you try once more?",
-        },
+        { role: "sweetie", content: line },
       ]);
-      setStatus(data.status);
-      if (data.intake) setIntake(data.intake);
-      if (data.intakeFields) setFields(data.intakeFields);
-      if (data.agent) setAgent(data.agent);
-    } finally {
       setBusy(false);
+      if (micOn.current) await speakThenListen(line);
     }
+  }
+
+  function toggleMic() {
+    if (micOn.current) {
+      micOn.current = false;
+      listener.current?.stop();
+      hush();
+      setInterim("");
+      setMic("off");
+      return;
+    }
+    micOn.current = true;
+    setMicNote("");
+    listen();
   }
 
   async function upload(kind: UploadKind, file: File) {
@@ -94,18 +204,21 @@ export default function SweetiePage({
       });
       const data = await response.json();
       if (!response.ok) {
+        const line = `That file didn't work: ${data.error}. Want to try again, or ask me how to export it?`;
         setMessages((current) => [
           ...current,
-          {
-            role: "sweetie",
-            content: `That file didn't work: ${data.error}. Want to try again, or ask me how to export it?`,
-          },
+          { role: "sweetie", content: line },
         ]);
+        if (micOn.current) await speakThenListen(line);
         return;
       }
       if (data.status) setStatus(data.status);
 
       setBusy(true);
+      if (micOn.current) {
+        listener.current?.stop();
+        setMic("thinking");
+      }
       const sweetieResponse = await fetch("/api/sweetie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -119,17 +232,9 @@ export default function SweetiePage({
           },
         }),
       });
-      const next = await sweetieResponse.json();
-      if (next.reply) {
-        setMessages((current) => [
-          ...current,
-          { role: "sweetie", content: next.reply },
-        ]);
-      }
-      if (next.status) setStatus(next.status);
-      if (next.intake) setIntake(next.intake);
-      if (next.intakeFields) setFields(next.intakeFields);
-      if (next.agent) setAgent(next.agent);
+      const reply = applyReply(await sweetieResponse.json());
+      setBusy(false);
+      if (micOn.current) await speakThenListen(reply);
     } finally {
       setUploading(null);
       setBusy(false);
@@ -140,16 +245,37 @@ export default function SweetiePage({
     const confidence = intake?.fields[field.id]?.confidence;
     return confidence === "medium" || confidence === "high";
   }).length;
-  const progress = fields.length
-    ? Math.round((completeFields / fields.length) * 100)
+  const finished = Boolean(status?.done || intake?.wrapped);
+  const totalSteps = fields.length + 1;
+  const completedSteps = completeFields + (finished ? 1 : 0);
+  const progress = totalSteps
+    ? Math.round((completedSteps / totalSteps) * 100)
     : 0;
+  const canVoice = support.speak && support.listen;
+  const micLabel =
+    mic === "listening"
+      ? "Listening… tap when you're done"
+      : mic === "speaking"
+        ? "Sweetie is speaking. Start talking to interrupt."
+        : mic === "thinking"
+          ? "Thinking…"
+          : mic === "idle"
+            ? "Tap the mic to talk"
+            : "";
 
   return (
     <main className="ss-page sweetie-theme sweetie-chat-page">
       <div className="ss-container sweetie-chat-container">
         <header className="ss-topbar sweetie-chat-topbar">
           <PersonaBrand persona="sweetie" context="Your pre-visit companion" />
-          <AgentBadge agent={agent} />
+          {agent && !agent.connected ? (
+            <span className="sweetie-agent-badge">Demo mode</span>
+          ) : (
+            <span className="sweetie-agent-badge sweetie-agent-connected">
+              <span />
+              Private &amp; secure
+            </span>
+          )}
         </header>
 
         <section className="sweetie-chat-shell ss-card ss-enter">
@@ -162,8 +288,8 @@ export default function SweetiePage({
                 <em>ready.</em>
               </h1>
               <p>
-                Share what you have. Sweetie will guide the rest one question
-                at a time.
+                Two quick questions, one at a time. Sharing health data is
+                optional.
               </p>
             </div>
 
@@ -186,12 +312,14 @@ export default function SweetiePage({
                 <span style={{ width: `${progress}%` }} />
               </div>
               <small>
-                {completeFields} of {fields.length || "—"} details collected
+                {finished
+                  ? "Your story is ready"
+                  : `${completeFields} of ${fields.length || "—"} questions answered`}
               </small>
             </div>
 
             <div className="sweetie-upload-list">
-              <p>Connected health data</p>
+              <p>Optional health data</p>
               <UploadButton
                 label="Dexcom"
                 detail="Glucose CSV"
@@ -234,8 +362,8 @@ export default function SweetiePage({
               <span className="sweetie-private">⌾ Private check-in</span>
             </header>
 
-            {intake && fields.length > 0 && (
-              <Progress intake={intake} fields={fields} />
+            {status && intake && fields.length > 0 && (
+              <Progress status={status} intake={intake} fields={fields} />
             )}
 
             <div className="sweetie-messages" aria-live="polite">
@@ -252,20 +380,27 @@ export default function SweetiePage({
                     <Image
                       src="/assets/sweetie/sweetie.png"
                       alt=""
-                      width={34}
-                      height={34}
+                      width={36}
+                      height={36}
                     />
                   )}
                   <div className="sweetie-message">{message.content}</div>
                 </div>
               ))}
+              {interim && (
+                <div className="sweetie-message-row sweetie-message-patient">
+                  <div className="sweetie-message sweetie-interim">
+                    {interim}…
+                  </div>
+                </div>
+              )}
               {busy && (
                 <div className="sweetie-message-row">
                   <Image
                     src="/assets/sweetie/sweetie.png"
                     alt=""
-                    width={34}
-                    height={34}
+                    width={36}
+                    height={36}
                   />
                   <div
                     className="sweetie-message sweetie-typing"
@@ -277,15 +412,14 @@ export default function SweetiePage({
                   </div>
                 </div>
               )}
-              {status?.done && (
-                <a
-                  href={`/patient/${token}`}
-                  className="sweetie-done-card"
-                >
+              {finished && (
+                <a href={`/patient/${token}`} className="sweetie-done-card">
                   <span>✓</span>
                   <div>
                     <strong>Your check-in is complete</strong>
-                    <small>See the summary you&apos;ll share with your doctor</small>
+                    <small>
+                      See the summary you&apos;ll share with your doctor
+                    </small>
                   </div>
                   <b aria-hidden="true">→</b>
                 </a>
@@ -293,25 +427,52 @@ export default function SweetiePage({
               <div ref={bottom} />
             </div>
 
-            <form onSubmit={send} className="sweetie-composer">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void send(text);
+              }}
+              className="sweetie-composer"
+            >
               <input
                 value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Type your reply…"
+                onChange={(event) => setText(event.target.value)}
+                placeholder={
+                  mic === "listening"
+                    ? interim
+                      ? ""
+                      : "Listening…"
+                    : "Type or tap the mic…"
+                }
                 disabled={busy}
                 aria-label="Reply to Sweetie"
               />
+              {canVoice && (
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  aria-pressed={mic !== "off"}
+                  aria-label={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+                  title={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+                  className={`sweetie-mic-button sweetie-mic-${mic}`}
+                >
+                  {mic === "speaking" ? <SpeakerIcon /> : <MicIcon />}
+                </button>
+              )}
               <button
+                type="submit"
                 disabled={busy || !text.trim()}
                 aria-label="Send message"
+                className="sweetie-send-button"
               >
                 <span>Send</span>
                 <b aria-hidden="true">↑</b>
               </button>
             </form>
             <p className="sweetie-composer-note">
-              Sweetie can help prepare for your visit, but cannot give medical
-              advice.
+              {micNote ||
+                micLabel ||
+                "Sweetie can prepare for your visit, but cannot give medical advice."}
             </p>
           </div>
         </section>
@@ -320,32 +481,40 @@ export default function SweetiePage({
   );
 }
 
-function AgentBadge({ agent }: { agent: AgentInfo | null }) {
-  if (!agent) {
-    return (
-      <div className="sweetie-agent-badge sweetie-agent-loading">
-        <span />
-        Making connection…
-      </div>
-    );
-  }
-
-  const explanation = agent.connected
-    ? `Sweetie sends each reply to ${agent.model} through Amazon Bedrock.`
-    : "Sweetie is using fixed fallback questions because no model API key is configured.";
-
+function MicIcon() {
   return (
-    <button
-      type="button"
-      className={`sweetie-agent-badge ${
-        agent.connected ? "sweetie-agent-connected" : ""
-      }`}
-      aria-label={explanation}
-      title={explanation}
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
     >
-      <span />
-      {agent.connected ? `Connected to ${agent.model}` : "Scripted demo mode"}
-    </button>
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" />
+    </svg>
   );
 }
 
@@ -382,10 +551,10 @@ function UploadButton({
         type="file"
         accept={kind === "timeline" ? ".json,application/json" : ".csv,text/csv"}
         disabled={loading}
-        onChange={(e) => {
-          const file = e.currentTarget.files?.[0];
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
           if (file) onFile(kind, file);
-          e.currentTarget.value = "";
+          event.currentTarget.value = "";
         }}
       />
     </label>
@@ -393,32 +562,60 @@ function UploadButton({
 }
 
 function Progress({
+  status,
   intake,
   fields,
 }: {
+  status: IntakeStatus;
   intake: IntakeState;
   fields: IntakeFieldDef[];
 }) {
+  const filled = (id: string) => {
+    const confidence = intake.fields[id]?.confidence ?? "unfilled";
+    return confidence === "medium" || confidence === "high";
+  };
+  const finished = intake.wrapped || status.done;
+  const firstOpen = fields.find((field) => !filled(field.id));
+  const currentKey = finished ? "done" : (firstOpen?.id ?? "done");
+  const steps = [
+    ...fields.map((field) => ({
+      key: field.id,
+      label: field.label,
+      done: filled(field.id),
+    })),
+    { key: "done", label: "Done", done: finished },
+  ];
+
   return (
-    <div className="sweetie-field-progress" aria-label="Topics covered">
-      {fields.map((field) => {
-        const confidence =
-          intake.fields[field.id]?.confidence ?? "unfilled";
-        const done = confidence === "medium" || confidence === "high";
+    <ol className="sweetie-field-progress" aria-label="Intake steps">
+      {steps.map((step, index) => {
+        const current = step.key === currentKey;
         return (
-          <span
-            key={field.id}
-            title={intake.fields[field.id]?.value ?? field.goal}
-            className={done ? "sweetie-field-done" : ""}
+          <li
+            key={step.key}
+            title={
+              step.key === "done"
+                ? "Check-in complete"
+                : intake.fields[step.key]?.value ??
+                  fields.find((field) => field.id === step.key)?.goal
+            }
+            className={
+              step.done
+                ? "sweetie-field-done"
+                : current
+                  ? "sweetie-field-current"
+                  : ""
+            }
+            aria-current={current ? "step" : undefined}
           >
-            {done ? "✓ " : ""}
-            {field.label}
-          </span>
+            <b>{step.done ? "✓" : index + 1}</b>
+            {step.label}
+          </li>
         );
       })}
       {intake.flagged && (
-        <span className="sweetie-field-flagged">Flagged for the office</span>
+        <li className="sweetie-field-flagged">Flagged for the office</li>
       )}
-    </div>
+    </ol>
   );
 }

@@ -125,7 +125,8 @@ If Timeline was off, write `data/visits.csv` by hand (`start,end,place,lat,lng`)
 ```
 app/
   page.tsx                      landing with links to every screen
-  s/[token]/page.tsx            Sweetie chat + upload buttons (presigned link) Nisarga
+  s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
+  s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
   patient/[id]/page.tsx         patient summary view                          Justin
   provider/page.tsx             practice dashboard: add patient, send links, stages Justin
   provider/signup/page.tsx      provider sign up (cookie, no password)        Justin
@@ -149,6 +150,7 @@ lib/
   prompts.ts                    Sour prompts                                  James
   sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
   providerSession.ts            cookie that remembers the provider (no login)  Justin
+  voice.ts                      browser speech synthesis + recognition for Sweetie Justin
   glucose.ts                    parse Clarity CSV, spikes, time in range      Nisarga
   location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
   match.ts                      link spikes to visits                         Robbert

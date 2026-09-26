@@ -4,7 +4,7 @@
 
 import { sendEmail, type SendResult } from "./email";
 import { intakeLink, sendSms } from "./sms";
-import type { Spike, Summary } from "./types";
+import type { Summary } from "./types";
 
 export type InviteResult = {
   link: string;
@@ -48,7 +48,10 @@ export async function sendIntakeInvite(p: {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Summary emails. Fired by POST /api/sour once both summaries are saved. Each channel fails soft.
+// Summary notifications. Fired by POST /api/sour once both summaries are saved. Each channel fails soft.
+// Deliberately short: no clinical data, no names beyond the patient's own first name in their own email.
+// The link is the delivery; the summary lives only on the site. (If a document is ever wanted in email,
+// it goes as an attachment, never as body text.)
 
 export type SummaryNotifyResult = { provider: SendResult; patient: SendResult };
 
@@ -63,52 +66,31 @@ export async function sendSummaryEmails(p: {
   const patientLink = `${base}/patient/${p.patient.token}`;
   const first = p.patient.name.split(" ")[0];
   const when = p.patient.apptAt ? p.patient.apptAt.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }) : null;
-  const s = p.providerSummary;
-  const pct = (x: number) => `${Math.round(x * 100)}%`;
-  const spikeLine = (x: Spike) =>
-    `${new Date(x.peak).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}: ${x.from} → ${x.to} mg/dL${x.visit ? ` after ${x.visit.place}` : ""}`;
 
   const providerText = [
-    `Sour 🍋 pre-visit summary · ${p.patient.name}${when ? ` · visit ${when}` : ""}`,
+    `A Sour pre-visit summary is ready${when ? ` for a visit on ${when}` : ""}.`,
     ``,
-    `Time in range ${pct(s.timeInRange)} · average ${s.avgGlucose} mg/dL · ${s.spikes.length} spikes`,
+    `Open it here: ${providerLink}`,
     ``,
-    `Spikes`,
-    ...(s.spikes.length ? s.spikes.map((x) => `  • ${spikeLine(x)}`) : ["  • none detected"]),
-    ``,
-    `Patterns`,
-    ...(s.patterns.length ? s.patterns.map((x) => `  • ${x}`) : ["  • none"]),
-    ``,
-    `Ask the patient`,
-    ...(s.questions.length ? s.questions.map((x, i) => `  ${i + 1}. ${x}`) : ["  none"]),
-    ``,
-    ...(s.patientNotes ? [`In the patient's words`, `  ${s.patientNotes.replace(/\n/g, "\n  ")}`, ``] : []),
-    `Full page with charts: ${providerLink}`,
-    ``,
-    `AI-generated from the patient's own uploads. Not reviewed by a clinician until you read it.`,
+    `This email carries no patient data. The summary is on the page, with charts and a place to ask Sour follow-up questions.`,
   ].join("\n");
 
-  const q = p.patientSummary;
   const patientText = [
     `Hi ${first},`,
     ``,
-    `Your week is ready${when ? ` ahead of your visit on ${when}` : ""}. You were in the 70 to 180 range ${pct(q.timeInRange)} of the time.`,
+    `Your summary is ready${when ? ` ahead of your visit on ${when}` : ""}.`,
     ``,
-    `What your week showed`,
-    ...(q.patterns.length ? q.patterns.map((x) => `  • ${x}`) : ["  • Your doctor will go over the details with you."]),
+    `See it here: ${patientLink}`,
     ``,
-    ...(q.questions.length ? [`Things you might ask your doctor`, ...q.questions.map((x, i) => `  ${i + 1}. ${x}`), ``] : []),
-    `See your charts: ${patientLink}`,
-    ``,
-    `This is a summary of your own data, not medical advice. ${p.provider.name}'s office`,
+    `The link is yours alone and needs no login. ${p.provider.name}'s office`,
   ].join("\n");
 
   const [provider, patient] = await Promise.all([
     p.provider.email
-      ? sendEmail(p.provider.email, `Sour: ${p.patient.name}${when ? ` · ${when}` : ""} · TIR ${pct(s.timeInRange)}`, providerText)
+      ? sendEmail(p.provider.email, `Sour: a pre-visit summary is ready${when ? ` (${when})` : ""}`, providerText)
       : Promise.resolve({ sent: false, error: "provider has no email" }),
     p.patient.email
-      ? sendEmail(p.patient.email, `Your week is ready, ${first}`, patientText)
+      ? sendEmail(p.patient.email, `Your summary is ready, ${first}`, patientText)
       : Promise.resolve({ sent: false, error: "patient has no email" }),
   ]);
   return { provider, patient };

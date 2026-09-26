@@ -1419,6 +1419,15 @@ textarea.ss-input {
   background: #4e9c5d;
 }
 
+.provider-stage-finished {
+  color: #47677b;
+  background: #e9f2f7;
+}
+
+.provider-stage-finished i {
+  background: #5d89a3;
+}
+
 .provider-stage-chatting {
   color: #6c5b25;
   background: #fff3c5;
@@ -2519,6 +2528,29 @@ textarea.ss-input {
   font-weight: 650;
 }
 
+.sour-answer-question {
+  margin: -5px -6px 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: rgba(41, 49, 38, 0.06);
+}
+
+.sour-answer-question p,
+.sour-answer-reply p {
+  margin: 0;
+}
+
+.sour-answer-reply {
+  padding-left: 11px;
+  border-left: 2px solid var(--sour-green);
+}
+
+.sour-chat-status {
+  margin: 11px 0 0;
+  color: #7d7a6c;
+  font-size: 12px;
+}
+
 .sour-disclaimer {
   padding: 5px 3px 0;
 }
@@ -2946,10 +2978,12 @@ textarea.ss-input {
   min-height: 41px;
   align-items: center;
   gap: 6px;
+  margin: 0;
   padding: 8px 22px;
   overflow-x: auto;
   border-bottom: 1px solid #f4ecef;
   background: rgba(255, 249, 251, 0.88);
+  list-style: none;
   scrollbar-width: none;
 }
 
@@ -2957,8 +2991,12 @@ textarea.ss-input {
   display: none;
 }
 
-.sweetie-field-progress > span {
+.sweetie-field-progress > span,
+.sweetie-field-progress > li {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
   padding: 5px 8px;
   border: 1px solid #eee4e8;
   border-radius: 99px;
@@ -2966,6 +3004,29 @@ textarea.ss-input {
   background: white;
   font-size: 11px;
   font-weight: 650;
+}
+
+.sweetie-field-progress > li > b {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 50%;
+  color: #8e8087;
+  background: #f2ecef;
+  font-size: 9px;
+}
+
+.sweetie-field-progress .sweetie-field-current {
+  border-color: #ee9eb3;
+  color: #b9365a;
+  background: #fff6f8;
+}
+
+.sweetie-field-progress .sweetie-field-current > b,
+.sweetie-field-progress .sweetie-field-done > b {
+  color: white;
+  background: var(--sweetie);
 }
 
 .sweetie-field-progress .sweetie-field-done {
@@ -3038,6 +3099,13 @@ textarea.ss-input {
   border-radius: 15px 15px 4px;
   color: white;
   background: linear-gradient(135deg, #f96482, #e8476d);
+}
+
+.sweetie-message-patient .sweetie-interim {
+  border-color: #eadde2;
+  color: #756970;
+  background: #f3edf0;
+  font-style: italic;
 }
 
 .sweetie-typing {
@@ -3186,6 +3254,39 @@ textarea.ss-input {
   border-radius: 6px;
   color: #e9476c;
   background: white;
+}
+
+.sweetie-composer .sweetie-mic-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #f0dce3;
+  border-radius: 11px;
+  color: #bd3d60;
+  background: #fff1f5;
+  box-shadow: none;
+}
+
+.sweetie-composer .sweetie-mic-listening {
+  border-color: #e75b5b;
+  color: white;
+  background: #df4a55;
+  animation: stagePulse 1.2s ease-in-out infinite;
+}
+
+.sweetie-composer .sweetie-mic-speaking {
+  color: white;
+  background: var(--sweetie);
+}
+
+.sweetie-composer .sweetie-mic-thinking {
+  color: white;
+  background: #a89ca2;
+}
+
+.sweetie-composer .sweetie-mic-idle {
+  background: #ffe6ed;
 }
 
 .sweetie-composer-note {

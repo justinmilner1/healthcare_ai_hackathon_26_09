@@ -31,6 +31,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [qa, setQa] = useState<{ q: string; a: string }[]>([]);
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [summaryError, setSummaryError] = useState("");
+  const activePatient = useRef<string | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const autoTried = useRef<string | null>(null);
 
@@ -50,34 +53,56 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   const load = useCallback(async (pid: string) => {
     setLoading(true);
-    const b = (await (await fetch(`/api/patient/${pid}`)).json()) as PatientBundle;
-    setBundle(b);
-    setLoading(false);
-    return b;
+    try {
+      const res = await fetch(`/api/patient/${pid}`);
+      if (!res.ok) throw new Error("Could not load this patient's summary.");
+      const b = (await res.json()) as PatientBundle;
+      if (activePatient.current === pid) setBundle(b);
+      return b;
+    } finally {
+      if (activePatient.current === pid) setLoading(false);
+    }
   }, []);
 
   const generate = useCallback(
     async (pid: string) => {
       setBusy(true);
-      await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
-      await load(pid);
-      setBusy(false);
+      setSummaryError("");
+      try {
+        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
+        if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
+        if (activePatient.current === pid) await load(pid);
+      } catch (e) {
+        if (activePatient.current === pid) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
+      } finally {
+        if (activePatient.current === pid) setBusy(false);
+      }
     },
     [load],
   );
 
   useEffect(() => {
     if (!selected) return;
+    activePatient.current = selected;
+    setBundle(null);
     setQa([]);
+    setQ("");
+    setAsking(false);
+    setBusy(false);
+    setChatError("");
+    setSummaryError("");
     setChecked(new Set());
     setInvite("");
     load(selected).then((b) => {
       // First open with data but no summary: generate without asking.
-      if (b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
+      if (activePatient.current === selected && b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
+    }).catch(() => {
+      if (activePatient.current === selected) setSummaryError("Could not load this patient. Please select them again.");
     });
+    return () => { activePatient.current = null; };
   }, [selected, load, generate]);
 
   async function sendLink(pid: string) {
@@ -89,13 +114,24 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   async function askSour(e: React.FormEvent) {
     e.preventDefault();
-    if (!selected || !q.trim()) return;
+    if (!selected || !q.trim() || asking) return;
+    const pid = selected;
     const question = q.trim();
-    setQ("");
     setAsking(true);
-    const d = await (await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: selected, question }) })).json();
-    setQa((x) => [...x, { q: question, a: d.answer ?? d.error ?? "" }]);
-    setAsking(false);
+    setChatError("");
+    try {
+      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid, question, history: qa.slice(-6) }) });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
+      if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");
+      if (activePatient.current !== pid) return;
+      setQa((x) => [...x, { q: question, a: d.answer }]);
+      setQ("");
+    } catch (e) {
+      if (activePatient.current === pid) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
+    } finally {
+      if (activePatient.current === pid) setAsking(false);
+    }
   }
 
   const visible = (provider?.patients ?? []).filter((p) => p.hasSummary || p.id === selected);
@@ -147,6 +183,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       </aside>
 
       <section className={`sour-summary-content ${loading && bundle ? "sour-content-loading" : ""}`}>
+        {summaryError && <p role="alert" className="ss-error">{summaryError}</p>}
         {!bundle ? (
           <div className="sour-select-empty">
             <span>🍋</span>
@@ -169,7 +206,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               <div className="sour-brief-actions print:hidden">
                 <button onClick={() => sendLink(bundle.patient.id)} className="ss-button">Send link</button>
                 <button onClick={() => window.print()} className="ss-button">Print</button>
-                <button onClick={() => generate(bundle.patient.id)} disabled={busy || !bundle.status.hasDexcom} className="ss-button ss-button-primary">
+                <button onClick={() => generate(bundle.patient.id)} disabled={busy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
                   {busy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
@@ -181,14 +218,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               </p>
             )}
 
-            {!bundle.status.hasDexcom ? (
+            {!bundle.status.hasDexcom && bundle.status.answered === 0 ? (
               <EmptyIntake bundle={bundle} />
             ) : (
               <>
                 <section className="sour-card sour-overview-card">
                   <div className="flex items-baseline justify-between gap-3">
                     <h3 className="text-sm font-semibold">Summary</h3>
-                    {st && (
+                    {st && bundle.status.hasDexcom && (
                       <p className="text-sm text-[var(--viz-ink-2)]">
                         In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg} · GMI {st.gmi.toFixed(1)}% · {bundle.spikes.length} spikes
                         {st.sleepAvgHours !== null && ` · sleep ${st.sleepAvgHours}h`}
@@ -247,7 +284,10 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </div>
                 </section>
 
-                {st && (
+                {!bundle.status.hasDexcom && (
+                  <p className="ss-notice">No glucose data was shared. This summary is from the conversation only.</p>
+                )}
+                {st && bundle.status.hasDexcom && (
                   <section className="sour-card sour-metrics-card">
                     <div className="flex flex-wrap items-end justify-between gap-4">
                       <div>
@@ -272,6 +312,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </section>
                 )}
 
+                {bundle.status.hasDexcom && (
                 <section className="sour-card sour-chart-card">
                   <h3 className="text-sm font-semibold">Glucose, last {st?.days ?? 7} days</h3>
                   <p className="text-xs text-[var(--viz-muted)]">Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.</p>
@@ -279,7 +320,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                     <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
                   </div>
                 </section>
+                )}
 
+                {bundle.status.hasDexcom && (
                 <div className="sour-card-grid">
                   <section className="sour-card">
                     <h3 className="text-sm font-semibold">Spikes linked to places</h3>
@@ -294,27 +337,36 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                     </div>
                   </section>
                 </div>
+                )}
 
                 <section className="sour-ask-card print:hidden">
                   <div className="sour-ask-heading">
                     <span>✦</span>
                     <div>
-                      <strong>Ask Sour</strong>
-                      <small>Follow up on this patient&apos;s data</small>
+                      <strong>Discuss with Sour</strong>
+                      <small>Ask about this patient&apos;s data · recent turns provide context</small>
                     </div>
                   </div>
-                  <form onSubmit={askSour}>
-                    <input className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Why was Tuesday different?" disabled={asking} />
-                    <button className="ss-button ss-button-accent" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Ask →"}</button>
-                  </form>
-                  <ul className="sour-answers">
+                  <ol aria-live="polite" className="sour-answers">
                     {qa.map((x, i) => (
                       <li key={i}>
-                        <small>{x.q}</small>
-                        <div>{x.a}</div>
+                        <div className="sour-answer-question">
+                          <small>You</small>
+                          <p className="mt-1 whitespace-pre-wrap break-words">{x.q}</p>
+                        </div>
+                        <div className="sour-answer-reply">
+                          <small>Sour</small>
+                          <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{x.a}</p>
+                        </div>
                       </li>
                     ))}
-                  </ul>
+                  </ol>
+                  {asking && <p role="status" className="sour-chat-status">Sour is reviewing your question…</p>}
+                  {chatError && <p role="alert" className="ss-error">{chatError}</p>}
+                  <form onSubmit={askSour}>
+                    <input aria-label="Message Sour" maxLength={4000} className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about the glucose spikes or sleep data…" disabled={asking} />
+                    <button className="ss-button ss-button-accent" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Send →"}</button>
+                  </form>
                 </section>
               </>
             )}
@@ -331,17 +383,18 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 }
 
 function EmptyIntake({ bundle }: { bundle: PatientBundle }) {
+  const total = bundle.intakeFields.length;
   const rows = [
-    ["Dexcom glucose", bundle.status.hasDexcom],
-    ["Location timeline", bundle.status.hasLocation],
-    ["WHOOP sleep", bundle.status.hasWhoop],
-    [`Sweetie questions (${bundle.status.answered} of 3)`, bundle.status.answered >= 3],
+    [`Sweetie conversation (${bundle.status.answered} of ${total} answered)`, bundle.status.answered >= total],
+    ["Dexcom glucose (optional)", bundle.status.hasDexcom],
+    ["Location timeline (optional)", bundle.status.hasLocation],
+    ["WHOOP sleep (optional)", bundle.status.hasWhoop],
   ] as const;
   return (
     <section className="sour-card sour-waiting">
       <span className="sour-waiting-icon">⌛</span>
       <h3>Waiting on the patient</h3>
-      <p>Nothing to summarize until glucose data arrives. Send the link again if they have not opened it.</p>
+      <p>Nothing to summarize until the patient has talked to Sweetie. Send the link again if they have not opened it.</p>
       <ul>
         {rows.map(([label, ok]) => (
           <li key={label} className={ok ? "sour-waiting-done" : ""}>
