@@ -59,6 +59,10 @@ export function detectSpikes(readings: GlucoseReading[]): Spike[] {
     for (let j = i + 1; j < rs.length && rs[j].ms - rs[i].ms <= WINDOW_MS; j++) {
       if (rs[j].mgdl > rs[peakIdx].mgdl) peakIdx = j;
     }
+    // The 2 h window decides whether it is a spike; the reported peak is the true crest, so keep
+    // following the rise past the window until it turns down. Otherwise a slow dinner excursion
+    // reports 187 while the day's max is 214 half an hour later.
+    while (peakIdx + 1 < rs.length && rs[peakIdx + 1].mgdl >= rs[peakIdx].mgdl) peakIdx++;
     // Onset is the last trough before the peak, not the first point in the window.
     let startIdx = i;
     for (let j = i; j <= peakIdx; j++) if (rs[j].mgdl <= rs[startIdx].mgdl) startIdx = j;
