@@ -13,7 +13,7 @@ import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake,
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
 
-const MAX_TURNS = 14;
+const MAX_TURNS = 6;
 
 type UploadEvent = { type: "upload"; kind: string; count: number; days?: number };
 

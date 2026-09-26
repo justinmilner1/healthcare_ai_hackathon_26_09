@@ -22,35 +22,64 @@ export const visitLabel = (id: string | null | undefined) => VISIT_TYPES.find((v
 export const visitPhrase = (id: string | null | undefined) =>
   ({ follow_up: "follow-up visit", new_patient: "first visit", medication: "medication check", post_hospital: "visit after the hospital", annual: "annual review" } as Record<string, string>)[id ?? ""] ?? "visit";
 
-// Five conversational steps for a ten-minute talk. Data sharing is not a step: it is optional, offered once at the end.
-const BASE: IntakeFieldDef[] = [
-  { id: "purpose", label: "Why you're here", goal: "Why they are coming in and what they most want out of the visit: the main concern in their words, since when, how much it bothers them", fallbackQuestion: "Let's start with what matters most to you. What's bringing you in, and what would you like to get out of this visit?", required: true },
-  { id: "changes", label: "What's changed", goal: "Notable events since they last saw the doctor or in the last few weeks: illness, travel, stress, a routine change, new medication, eating out more", fallbackQuestion: "Since you last saw the doctor, has anything notable happened? Illness, travel, stress, a change in routine or medication?", required: true },
-  { id: "feeling", label: "How you've felt", goal: "How they have been feeling day to day: any lows (shaky, sweaty), highs (thirsty, tired, foggy), energy, mood, sleep", fallbackQuestion: "How have you been feeling day to day? Any lows or highs, or times you felt off?", required: true },
-  { id: "daily", label: "Day to day", goal: "A typical day in broad strokes: roughly when and what they eat, how active they are; devices (CGM, pump, pens) if they mention them", fallbackQuestion: "Walk me through a typical day: roughly when you eat and how active you are.", required: true },
-];
-
-// One extra step for visit types that need it. Follow-ups get none.
-const EXTRAS: Record<string, IntakeFieldDef> = {
-  new_patient: { id: "history", label: "Your diabetes", goal: "Their diabetes story in brief: type, roughly when diagnosed, what they take for it, any complications they know of", fallbackQuestion: "Tell me a little about your diabetes: what type, roughly when you were diagnosed, and what you take for it now.", required: true },
-  medication: { id: "medications", label: "Your medications", goal: "How the current medication is going: missed doses, side effects, cost or supply problems, anything they started or stopped", fallbackQuestion: "How is your current medication going? Any missed doses, side effects, or trouble getting it?", required: true },
-  post_hospital: { id: "hospital", label: "The hospital visit", goal: "What happened at the hospital or ER, what they were told to do afterwards, and how they have been since", fallbackQuestion: "Can you tell me what happened at the hospital, what they asked you to do afterwards, and how you've been since?", required: true },
-  annual: { id: "checkups", label: "Check-ups", goal: "Recent eye exam, foot check, kidney or cholesterol labs, and other doctors seen this year", fallbackQuestion: "Have you had an eye exam, a foot check, or labs done this year, and seen any other doctors?", required: true },
+// Two exchanges for the demo: why you're here, then what's changed and how you've felt. The visit type shapes the
+// second question instead of adding one. Data sharing is optional and lives in its own panel; it is never a question.
+const PURPOSE: IntakeFieldDef = {
+  id: "purpose",
+  label: "Why you're here",
+  goal: "Why they are coming in and what they most want out of the visit: the main concern in their words, since when, how much it bothers them",
+  fallbackQuestion: "Let's start with what matters most to you. What's bringing you in, and what would you like to get out of this visit?",
+  required: true,
 };
 
-/** The template for this patient's visit. The reason they called about shapes the first question rather than adding a step. */
+const UPDATE: Record<string, IntakeFieldDef> = {
+  default: {
+    id: "update",
+    label: "Since last visit",
+    goal: "What has changed since they last saw the doctor and how they have been feeling: notable events (illness, travel, stress, routine or medication changes), any lows or highs, sleep, energy",
+    fallbackQuestion: "Since you last saw the doctor, what's changed, and how have you been feeling day to day?",
+    required: true,
+  },
+  new_patient: {
+    id: "update",
+    label: "Your diabetes",
+    goal: "Their diabetes story in brief (type, roughly when diagnosed, what they take for it, devices they use) and how they have been feeling lately",
+    fallbackQuestion: "Tell me a little about your diabetes: what type, roughly when you were diagnosed, what you take for it, and how you've been feeling lately.",
+    required: true,
+  },
+  medication: {
+    id: "update",
+    label: "Your medications",
+    goal: "How the current medication is going (missed doses, side effects, cost or supply problems, anything started or stopped) and how they have been feeling",
+    fallbackQuestion: "How is your current medication going, any missed doses or side effects, and how have you been feeling on it?",
+    required: true,
+  },
+  post_hospital: {
+    id: "update",
+    label: "The hospital visit",
+    goal: "What happened at the hospital or ER, what they were told to do afterwards, and how they have been since",
+    fallbackQuestion: "Can you tell me what happened at the hospital, what they asked you to do afterwards, and how you've been since?",
+    required: true,
+  },
+  annual: {
+    id: "update",
+    label: "This year",
+    goal: "How the year has gone: notable events, how they have been feeling, and recent check-ups (eyes, feet, labs, other doctors)",
+    fallbackQuestion: "How has the year been? Anything notable, how you've been feeling, and any check-ups like eyes, feet, or labs?",
+    required: true,
+  },
+};
+
+/** The two-step template for this patient's visit. The reason they called about shapes the first question. */
 export function fieldsFor(visitType: string | null | undefined, reason: string | null | undefined): IntakeFieldDef[] {
-  const [purpose, ...rest] = BASE;
   const first: IntakeFieldDef = reason?.trim()
     ? {
-        ...purpose,
+        ...PURPOSE,
         goal: `More about what they called in about ("${reason.trim()}"): what is happening, since when, how much it bothers them, and what they want out of the visit`,
         fallbackQuestion: `When you booked, you mentioned "${reason.trim()}". Tell me more about that, and what you'd like to get out of this visit.`,
       }
-    : purpose;
-  const extra = EXTRAS[visitType ?? ""];
-  // New patients tell their story first; other extras come after the main concern.
-  return visitType === "new_patient" && extra ? [extra, first, ...rest] : extra ? [first, extra, ...rest] : [first, ...rest];
+    : PURPOSE;
+  return [first, UPDATE[visitType ?? ""] ?? UPDATE.default];
 }
 
 const RANK: Record<Confidence, number> = { unfilled: 0, low: 1, medium: 2, high: 3 };
@@ -165,11 +194,9 @@ export type Target =
   | { kind: "field"; def: IntakeFieldDef }
   | { kind: "wrap" };
 
-export function nextTarget(state: IntakeState, defs: IntakeFieldDef[], status: Pick<IntakeStatus, "hasDexcom" | "hasLocation" | "hasWhoop">): Target {
+export function nextTarget(state: IntakeState, defs: IntakeFieldDef[], _status: Pick<IntakeStatus, "hasDexcom" | "hasLocation" | "hasWhoop">): Target {
   for (const f of defs) if (f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium) return { kind: "field", def: f };
-  for (const f of defs) if (!f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium && state.turns < 10) return { kind: "field", def: f };
-  // Optional: one offer to share the glucose export, accepted or declined in a single turn.
-  if (!status.hasDexcom && !state.skipped.includes("dexcom")) return { kind: "upload", which: "dexcom" };
+  for (const f of defs) if (!f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium && state.turns < 6) return { kind: "field", def: f };
   return { kind: "wrap" };
 }
 
@@ -201,7 +228,7 @@ export async function speak(p: {
       ? `Offer, once and lightly, that if ${p.firstName} has a Dexcom export handy they can add it in the optional "Share your data" section on this page, and it helps the doctor see the week in numbers. Make clear it is optional and a no is completely fine; if they decline or don't have it, thank them and move on.`
       : target.kind === "field"
         ? `Ask ONE question to learn: ${target.def.goal}. Do not ask about anything else, and do not chase small missing details; a broad answer is enough to move on.`
-        : `Wrap up: in two or three short sentences, say back the gist of what they told you, say their doctor will see a one-page summary before the visit, and say goodbye warmly. Do not mention data uploads or that anything was declined.`;
+        : `Wrap up: in two or three short sentences, say back the gist of what they told you, say their doctor will see a one-page summary before the visit, and say goodbye warmly.${p.status.hasDexcom ? "" : " In passing, one clause only, mention that if they have a Dexcom export handy they can add it in the optional section on this page, and that it is fine not to."} Do not ask any question.`;
 
   const system = `You are Sweetie 🍬, a warm assistant helping ${p.firstName} get ready for their ${visitPhrase(p.visit.visitType)} with ${p.providerName}, an endocrinologist.${p.visit.reason ? ` When they booked, the office noted the reason as: "${p.visit.reason}" (the scheduler's words, not the patient's).` : ""}
 You work the way a good clinic intake nurse does on the phone: acknowledge what they just said in a few words, then ask the next thing. Curious about notable events, concerns, and what they want from the visit. Never rushed, never chatty.
@@ -238,7 +265,7 @@ export function scripted(p: { firstName: string; target: Target; exportHelp: "de
 /** Opening line, before any model call. Names the visit and the reason, then asks the first question straight away. */
 export function greeting(firstName: string, providerName: string, visit: VisitContext, defs: IntakeFieldDef[]): string {
   const first = defs[0]?.fallbackQuestion ?? "What's bringing you in?";
-  return `Hi ${firstName}, I'm Sweetie 🍬. I help ${providerName} get ready for your ${visitPhrase(visit.visitType)}, so the appointment starts with your story already told. It's a short conversation, about ten minutes, and you can talk or type. ${first}`;
+  return `Hi ${firstName}, I'm Sweetie 🍬. I help ${providerName} get ready for your ${visitPhrase(visit.visitType)}, so the appointment starts with your story already told. It's just two quick questions, and you can talk or type. ${first}`;
 }
 
 // ---- What Sour reads ------------------------------------------------------------------------------------

@@ -288,7 +288,7 @@ function IntakeSteps({ status, intake, fields, onFile }: { status: IntakeStatus;
             <span className="font-semibold">{finished ? "All done" : `Step ${currentIndex + 1} of ${total}`}</span>
             {!finished && <span className="text-[var(--viz-ink-2)]"> · {steps[currentIndex].label}</span>}
           </p>
-          <p className="text-[11px] text-[var(--viz-muted)]">about 10 minutes</p>
+          <p className="text-[11px] text-[var(--viz-muted)]">two quick questions</p>
         </div>
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-black/5">
           <div className="h-full rounded-full bg-pink-500 transition-all" style={{ width: `${(doneCount / total) * 100}%` }} />
