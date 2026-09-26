@@ -74,8 +74,7 @@ export async function POST(req: Request) {
 
   // 2. What was Sweetie asking? Decided from the state before this message, so the extractor and the
   //    backstop both know which field the answer belongs to.
-  const before = await loadBundle(patient.id);
-  const askedTarget = nextTarget(state, defs, before!.status);
+  const askedTarget = nextTarget(state, defs);
   const askedId = askedTarget.kind === "field" ? askedTarget.def.id : null;
 
   // 3. Extract what the latest message tells us (model), then the deterministic backstop.
@@ -101,7 +100,7 @@ export async function POST(req: Request) {
   // 4. Decide direction from state + what has actually been uploaded.
   const bundle = await loadBundle(patient.id);
   const status = bundle!.status;
-  let target = nextTarget(state, defs, status);
+  let target = nextTarget(state, defs);
   if (state.turns >= MAX_TURNS && target.kind !== "wrap") target = { kind: "wrap" };
 
   // 5. Say it.

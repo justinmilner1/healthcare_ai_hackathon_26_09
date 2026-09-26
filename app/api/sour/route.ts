@@ -40,7 +40,7 @@ export async function POST(req: Request) {
         { effort: "low" },
       );
       if (!answer.trim()) throw new Error("Empty Sour reply");
-      return NextResponse.json({ answer: answer.trim() });
+      return NextResponse.json({ answer: plainAnswer(answer) });
     } catch (e) {
       if (e instanceof LLMUnavailable) return NextResponse.json({ error: "Sour chat is unavailable until the model is configured." }, { status: 503 });
       console.error("Sour chat failed:", e);
@@ -51,4 +51,33 @@ export async function POST(req: Request) {
   // Generation, save, and link emails live in lib/sourRun.ts so Sweetie can fire the same thing on wrap-up.
   const result = await runSour(ctx.bundle.patient.id, ctx);
   return NextResponse.json(result);
+}
+
+function plainAnswer(raw: string): string {
+  const text = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  if (!text.startsWith("{") || !text.endsWith("}")) return text;
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.answer === "string") return parsed.answer;
+
+    const prose = Object.values(parsed)
+      .flatMap((value) => {
+        if (typeof value === "string") return [value];
+        if (Array.isArray(value)) {
+          return value.filter((item): item is string => typeof item === "string");
+        }
+        return [];
+      })
+      .join(" ");
+
+    return prose || text;
+  } catch {
+    return text;
+  }
 }

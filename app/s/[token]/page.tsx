@@ -1,17 +1,35 @@
 "use client";
 
-// Sweetie: voice-first intake, reached from the presigned link. Owner: Justin (voice + brain), Nisarga (onboarding at /intake).
-// One mic in the chat bar toggles hands-free mode: tap, talk, Sweetie answers aloud and listens again. Tap again to stop.
-// A final transcript is posted to /api/sweetie exactly like typed text. Uses GET/POST /api/sweetie and POST /api/upload.
+// Sweetie: voice-first intake, reached from the presigned link.
+// Typed and spoken transcripts use the same /api/sweetie transport.
 
+import Image from "next/image";
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMessage, IntakeFieldDef, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
-import { explainMicError, hush, listenOnce, say, voiceSupport, warmVoices } from "@/lib/voice";
+import PersonaBrand from "@/components/PersonaBrand";
+import type {
+  ChatMessage,
+  IntakeFieldDef,
+  IntakeState,
+  IntakeStatus,
+  UploadKind,
+} from "@/lib/types";
+import {
+  explainMicError,
+  hush,
+  listenOnce,
+  say,
+  voiceSupport,
+  warmVoices,
+} from "@/lib/voice";
 
 type AgentInfo = { connected: boolean; model: string };
 type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
-export default function SweetiePage({ params }: { params: Promise<{ token: string }> }) {
+export default function SweetiePage({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
   const { token } = use(params);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
@@ -20,28 +38,30 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState<UploadKind | null>(null);
   const [mic, setMic] = useState<Mic>("off");
   const [micNote, setMicNote] = useState("");
   const [interim, setInterim] = useState("");
   const [support, setSupport] = useState({ listen: false, speak: false });
   const bottom = useRef<HTMLDivElement>(null);
-  const micOn = useRef(false); // hands-free mode; refs so the async loop never reads stale state
+  const micOn = useRef(false);
   const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
     setSupport(voiceSupport());
     warmVoices();
-    fetch(`/api/sweetie?token=${token}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setMessages(d.messages ?? []);
-        setStatus(d.status ?? null);
-        setIntake(d.intake ?? null);
-        setFields(d.intakeFields ?? []);
-        setAgent(d.agent ?? null);
-        done.current = Boolean(d.status?.done && d.intake?.wrapped);
+    fetch(`/api/sweetie?token=${encodeURIComponent(token)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        setMessages(data.messages ?? []);
+        setStatus(data.status ?? null);
+        setIntake(data.intake ?? null);
+        setFields(data.intakeFields ?? []);
+        setAgent(data.agent ?? null);
+        done.current = Boolean(data.status?.done && data.intake?.wrapped);
       });
+
     return () => {
       micOn.current = false;
       listener.current?.stop();
@@ -51,19 +71,31 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, interim]);
+  }, [messages, interim, busy]);
 
-  const applyReply = useCallback((d: { reply?: string; status?: IntakeStatus; intake?: IntakeState; intakeFields?: IntakeFieldDef[]; agent?: AgentInfo }) => {
-    if (d.reply) setMessages((m) => [...m, { role: "sweetie", content: d.reply! }]);
-    if (d.status) setStatus(d.status);
-    if (d.intake) setIntake(d.intake);
-    if (d.intakeFields) setFields(d.intakeFields);
-    if (d.agent) setAgent(d.agent);
-    done.current = Boolean(d.status?.done && d.intake?.wrapped);
-    return d.reply ?? "";
-  }, []);
-
-  // ---- hands-free loop -----------------------------------------------------------------------------------
+  const applyReply = useCallback(
+    (data: {
+      reply?: string;
+      status?: IntakeStatus;
+      intake?: IntakeState;
+      intakeFields?: IntakeFieldDef[];
+      agent?: AgentInfo;
+    }) => {
+      if (data.reply) {
+        setMessages((current) => [
+          ...current,
+          { role: "sweetie", content: data.reply! },
+        ]);
+      }
+      if (data.status) setStatus(data.status);
+      if (data.intake) setIntake(data.intake);
+      if (data.intakeFields) setFields(data.intakeFields);
+      if (data.agent) setAgent(data.agent);
+      done.current = Boolean(data.status?.done && data.intake?.wrapped);
+      return data.reply ?? "";
+    },
+    [],
+  );
 
   const listen = useCallback(() => {
     if (!micOn.current) return;
@@ -71,27 +103,35 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     setMicNote("");
     setInterim("");
     listener.current = listenOnce({
-      onInterim: (t) => setInterim(t),
-      onSpeechStart: () => hush(),
-      onFinal: (t) => {
+      onInterim: setInterim,
+      onSpeechStart: hush,
+      onFinal: (transcript) => {
         setInterim("");
-        void send(t);
+        void send(transcript);
       },
-      onEnd: () => setMic((m) => (m === "listening" ? "idle" : m)),
+      onEnd: () =>
+        setMic((current) => (current === "listening" ? "idle" : current)),
       onError: (code) => {
         setMicNote(explainMicError(code));
-        if (code === "not-allowed" || code === "service-not-allowed" || code === "unsupported") {
+        if (
+          code === "not-allowed" ||
+          code === "service-not-allowed" ||
+          code === "unsupported"
+        ) {
           micOn.current = false;
           setMic("off");
-        } else setMic("idle");
+        } else {
+          setMic("idle");
+        }
       },
     });
+    // send is a function declaration and intentionally shares the live voice loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const speakThenListen = useCallback(
     async (line: string) => {
-      if (!micOn.current) return;
+      if (!micOn.current || !line) return;
       setMic("speaking");
       await say(line);
       if (!micOn.current) return;
@@ -107,15 +147,33 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
   async function send(raw: string) {
     const mine = raw.trim();
-    if (!mine) return;
+    if (!mine || busy) return;
     setText("");
-    setMessages((m) => [...m, { role: "patient", content: mine }]);
+    setMessages((current) => [
+      ...current,
+      { role: "patient", content: mine },
+    ]);
     setBusy(true);
     if (micOn.current) setMic("thinking");
-    const res = await fetch("/api/sweetie", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, message: mine }) });
-    const reply = applyReply(await res.json());
-    setBusy(false);
-    if (micOn.current) await speakThenListen(reply);
+
+    try {
+      const response = await fetch("/api/sweetie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, message: mine }),
+      });
+      const reply = applyReply(await response.json());
+      setBusy(false);
+      if (micOn.current) await speakThenListen(reply);
+    } catch {
+      const line = "I had trouble with that reply. Could you try once more?";
+      setMessages((current) => [
+        ...current,
+        { role: "sweetie", content: line },
+      ]);
+      setBusy(false);
+      if (micOn.current) await speakThenListen(line);
+    }
   }
 
   function toggleMic() {
@@ -133,109 +191,309 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   }
 
   async function upload(kind: UploadKind, file: File) {
-    const fd = new FormData();
-    fd.set("token", token);
-    fd.set("kind", kind);
-    fd.set("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: fd });
-    const d = await res.json();
-    if (!res.ok) {
-      const line = `That file didn't work: ${d.error}. Want to try again, or ask me how to export it?`;
-      setMessages((m) => [...m, { role: "sweetie", content: line }]);
-      if (micOn.current) await speakThenListen(line);
-      return;
+    setUploading(kind);
+    const form = new FormData();
+    form.set("token", token);
+    form.set("kind", kind);
+    form.set("file", file);
+
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        const line = `That file didn't work: ${data.error}. Want to try again, or ask me how to export it?`;
+        setMessages((current) => [
+          ...current,
+          { role: "sweetie", content: line },
+        ]);
+        if (micOn.current) await speakThenListen(line);
+        return;
+      }
+      if (data.status) setStatus(data.status);
+
+      setBusy(true);
+      if (micOn.current) {
+        listener.current?.stop();
+        setMic("thinking");
+      }
+      const sweetieResponse = await fetch("/api/sweetie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          event: {
+            type: "upload",
+            kind,
+            count: data.count,
+            days: data.days,
+          },
+        }),
+      });
+      const reply = applyReply(await sweetieResponse.json());
+      setBusy(false);
+      if (micOn.current) await speakThenListen(reply);
+    } finally {
+      setUploading(null);
+      setBusy(false);
     }
-    if (d.status) setStatus(d.status);
-    setBusy(true);
-    if (micOn.current) {
-      listener.current?.stop();
-      setMic("thinking");
-    }
-    const r2 = await fetch("/api/sweetie", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, event: { type: "upload", kind, count: d.count, days: d.days } }),
-    });
-    const reply = applyReply(await r2.json());
-    setBusy(false);
-    if (micOn.current) await speakThenListen(reply);
   }
 
+  const completeFields = fields.filter((field) => {
+    const confidence = intake?.fields[field.id]?.confidence;
+    return confidence === "medium" || confidence === "high";
+  }).length;
+  const finished = Boolean(status?.done || intake?.wrapped);
+  const totalSteps = fields.length + 1;
+  const completedSteps = completeFields + (finished ? 1 : 0);
+  const progress = totalSteps
+    ? Math.round((completedSteps / totalSteps) * 100)
+    : 0;
   const canVoice = support.speak && support.listen;
-  const micLabel = mic === "listening" ? "Listening… tap when you're done" : mic === "speaking" ? "Sweetie is speaking. Start talking to interrupt." : mic === "thinking" ? "Thinking…" : mic === "idle" ? "Tap the mic to talk" : "";
+  const micLabel =
+    mic === "listening"
+      ? "Listening… tap when you're done"
+      : mic === "speaking"
+        ? "Sweetie is speaking. Start talking to interrupt."
+        : mic === "thinking"
+          ? "Thinking…"
+          : mic === "idle"
+            ? "Tap the mic to talk"
+            : "";
 
   return (
-    <main className="mx-auto flex h-screen max-w-md flex-col p-4">
-      <header className="flex items-baseline justify-between gap-3">
-        <h1 className="text-xl font-bold">Sweetie 🍬</h1>
-        {!agent?.connected && agent && <span className="text-[11px] text-[var(--viz-muted)]">demo mode</span>}
-      </header>
-
-      {status && intake && <IntakeSteps status={status} intake={intake} fields={fields} onFile={upload} />}
-
-      <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-1 py-2">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "sweetie" ? "justify-start" : "justify-end"}`}>
-            <div className={`max-w-[85%] px-3.5 py-2.5 text-[15px] leading-snug ${m.role === "sweetie" ? "rounded-2xl rounded-bl-md bg-pink-50 text-[var(--viz-ink)]" : "rounded-2xl rounded-br-md bg-black text-white"}`}>
-              {m.content}
-            </div>
-          </div>
-        ))}
-        {interim && (
-          <div className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-black/10 px-3.5 py-2.5 text-[15px] italic text-gray-600">{interim}…</div>
-          </div>
-        )}
-        {status?.done && (
-          <a href={`/patient/${token}`} className="block rounded bg-green-50 px-3 py-2 text-center text-sm underline">
-            All done. See your summary →
-          </a>
-        )}
-        <div ref={bottom} />
-      </div>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(text);
-        }}
-        className="mt-3"
-      >
-        <div className="flex items-center gap-2 rounded-full border border-black/15 bg-white py-1 pl-4 pr-1 focus-within:border-black/40">
-          <input
-            className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={mic === "listening" ? (interim ? "" : "Listening…") : "Type or tap the mic"}
-            disabled={busy}
-          />
-          {canVoice && (
-            <button
-              type="button"
-              onClick={toggleMic}
-              aria-pressed={mic !== "off"}
-              aria-label={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
-              title={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
-                mic === "listening" ? "animate-pulse bg-red-600 text-white" : mic === "speaking" ? "bg-pink-600 text-white" : mic === "thinking" ? "bg-gray-400 text-white" : mic === "idle" ? "bg-pink-100 text-pink-700" : "text-gray-500 hover:bg-black/5"
-              }`}
-            >
-              {mic === "speaking" ? <SpeakerIcon /> : <MicIcon />}
-            </button>
+    <main className="ss-page sweetie-theme sweetie-chat-page">
+      <div className="ss-container sweetie-chat-container">
+        <header className="ss-topbar sweetie-chat-topbar">
+          <PersonaBrand persona="sweetie" context="Your pre-visit companion" />
+          {agent && !agent.connected ? (
+            <span className="sweetie-agent-badge">Demo mode</span>
+          ) : (
+            <span className="sweetie-agent-badge sweetie-agent-connected">
+              <span />
+              Private &amp; secure
+            </span>
           )}
-          <button type="submit" disabled={busy || !text.trim()} className="h-9 rounded-full bg-black px-4 text-sm text-white disabled:opacity-30">
-            Send
-          </button>
-        </div>
-        <p className="mt-1 h-4 px-4 text-[11px] text-gray-500">{micNote || micLabel}</p>
-      </form>
+        </header>
+
+        <section className="sweetie-chat-shell ss-card ss-enter">
+          <aside className="sweetie-chat-sidebar">
+            <div className="sweetie-chat-intro">
+              <p className="ss-eyebrow">YOUR CHECK-IN</p>
+              <h1>
+                Let&apos;s get your story
+                <br />
+                <em>ready.</em>
+              </h1>
+              <p>
+                Two quick questions, one at a time. Sharing health data is
+                optional.
+              </p>
+            </div>
+
+            <div className="sweetie-chat-character">
+              <Image
+                src="/assets/sweetie/sweetie.png"
+                alt="Sweetie"
+                width={280}
+                height={280}
+                priority
+              />
+            </div>
+
+            <div className="sweetie-progress-card">
+              <div>
+                <span>Conversation progress</span>
+                <strong>{progress}%</strong>
+              </div>
+              <div className="sweetie-progress-track">
+                <span style={{ width: `${progress}%` }} />
+              </div>
+              <small>
+                {finished
+                  ? "Your story is ready"
+                  : `${completeFields} of ${fields.length || "—"} questions answered`}
+              </small>
+            </div>
+
+            <div className="sweetie-upload-list">
+              <p>Optional health data</p>
+              <UploadButton
+                label="Dexcom"
+                detail="Glucose CSV"
+                short="D"
+                kind="dexcom"
+                done={status?.hasDexcom}
+                loading={uploading === "dexcom"}
+                onFile={upload}
+              />
+              <UploadButton
+                label="Timeline"
+                detail="Google JSON"
+                short="M"
+                kind="timeline"
+                done={status?.hasLocation}
+                loading={uploading === "timeline"}
+                onFile={upload}
+              />
+              <UploadButton
+                label="WHOOP"
+                detail="Sleep CSV"
+                short="W"
+                kind="whoop"
+                done={status?.hasWhoop}
+                loading={uploading === "whoop"}
+                onFile={upload}
+              />
+            </div>
+          </aside>
+
+          <div className="sweetie-conversation">
+            <header className="sweetie-conversation-head">
+              <div>
+                <span className="sweetie-online-dot" />
+                <div>
+                  <strong>Sweetie</strong>
+                  <small>Here with you · one question at a time</small>
+                </div>
+              </div>
+              <span className="sweetie-private">⌾ Private check-in</span>
+            </header>
+
+            {status && intake && fields.length > 0 && (
+              <Progress status={status} intake={intake} fields={fields} />
+            )}
+
+            <div className="sweetie-messages" aria-live="polite">
+              {messages.map((message, index) => (
+                <div
+                  key={`${message.createdAt ?? "message"}-${index}`}
+                  className={`sweetie-message-row ${
+                    message.role === "patient"
+                      ? "sweetie-message-patient"
+                      : ""
+                  }`}
+                >
+                  {message.role === "sweetie" && (
+                    <Image
+                      src="/assets/sweetie/sweetie.png"
+                      alt=""
+                      width={36}
+                      height={36}
+                    />
+                  )}
+                  <div className="sweetie-message">{message.content}</div>
+                </div>
+              ))}
+              {interim && (
+                <div className="sweetie-message-row sweetie-message-patient">
+                  <div className="sweetie-message sweetie-interim">
+                    {interim}…
+                  </div>
+                </div>
+              )}
+              {busy && (
+                <div className="sweetie-message-row">
+                  <Image
+                    src="/assets/sweetie/sweetie.png"
+                    alt=""
+                    width={36}
+                    height={36}
+                  />
+                  <div
+                    className="sweetie-message sweetie-typing"
+                    aria-label="Sweetie is typing"
+                  >
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                </div>
+              )}
+              {finished && (
+                <a href={`/patient/${token}`} className="sweetie-done-card">
+                  <span>✓</span>
+                  <div>
+                    <strong>Your check-in is complete</strong>
+                    <small>
+                      See the summary you&apos;ll share with your doctor
+                    </small>
+                  </div>
+                  <b aria-hidden="true">→</b>
+                </a>
+              )}
+              <div ref={bottom} />
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void send(text);
+              }}
+              className="sweetie-composer"
+            >
+              <input
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder={
+                  mic === "listening"
+                    ? interim
+                      ? ""
+                      : "Listening…"
+                    : "Type or tap the mic…"
+                }
+                disabled={busy}
+                aria-label="Reply to Sweetie"
+              />
+              {canVoice && (
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  aria-pressed={mic !== "off"}
+                  aria-label={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+                  title={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+                  className={`sweetie-mic-button sweetie-mic-${mic}`}
+                >
+                  {mic === "speaking" ? <SpeakerIcon /> : <MicIcon />}
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={busy || !text.trim()}
+                aria-label="Send message"
+                className="sweetie-send-button"
+              >
+                <span>Send</span>
+                <b aria-hidden="true">↑</b>
+              </button>
+            </form>
+            <p className="sweetie-composer-note">
+              {micNote ||
+                micLabel ||
+                "Sweetie can prepare for your visit, but cannot give medical advice."}
+            </p>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
 
 function MicIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <rect x="9" y="2" width="6" height="12" rx="3" />
       <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8" />
     </svg>
@@ -244,90 +502,120 @@ function MicIcon() {
 
 function SpeakerIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" />
     </svg>
   );
 }
 
-function UploadButton({ label, kind, done, onFile }: { label: string; kind: UploadKind; done?: boolean; onFile: (k: UploadKind, f: File) => void }) {
+function UploadButton({
+  label,
+  detail,
+  short,
+  kind,
+  done,
+  loading,
+  onFile,
+}: {
+  label: string;
+  detail: string;
+  short: string;
+  kind: UploadKind;
+  done?: boolean;
+  loading: boolean;
+  onFile: (kind: UploadKind, file: File) => void;
+}) {
   return (
-    <label className={`cursor-pointer rounded border px-2 py-1 ${done ? "bg-green-100" : "bg-white"}`}>
-      {done ? "✓ " : ""}{label}
-      <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(kind, e.target.files[0])} />
+    <label
+      className={`sweetie-upload-card ${
+        done ? "sweetie-upload-done" : ""
+      }`}
+    >
+      <span className="sweetie-upload-icon">{short}</span>
+      <span>
+        <strong>{label}</strong>
+        <small>{loading ? "Adding file…" : done ? "Connected" : detail}</small>
+      </span>
+      <b>{loading ? "…" : done ? "✓" : "+"}</b>
+      <input
+        type="file"
+        accept={kind === "timeline" ? ".json,application/json" : ".csv,text/csv"}
+        disabled={loading}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          if (file) onFile(kind, file);
+          event.currentTarget.value = "";
+        }}
+      />
     </label>
   );
 }
 
-type Step = { key: string; label: string; state: "done" | "current" | "todo" };
-
-/** The intake as numbered steps, all visible at once: each field of the visit template, then done.
- * Sharing data is not a step; it sits below as an optional panel. */
-function IntakeSteps({ status, intake, fields, onFile }: { status: IntakeStatus; intake: IntakeState; fields: IntakeFieldDef[]; onFile: (k: UploadKind, f: File) => void }) {
+function Progress({
+  status,
+  intake,
+  fields,
+}: {
+  status: IntakeStatus;
+  intake: IntakeState;
+  fields: IntakeFieldDef[];
+}) {
   const filled = (id: string) => {
-    const c = intake.fields[id]?.confidence ?? "unfilled";
-    return c === "medium" || c === "high";
+    const confidence = intake.fields[id]?.confidence ?? "unfilled";
+    return confidence === "medium" || confidence === "high";
   };
   const finished = intake.wrapped || status.done;
-  const firstOpen = fields.find((f) => !filled(f.id));
+  const firstOpen = fields.find((field) => !filled(field.id));
   const currentKey = finished ? "done" : (firstOpen?.id ?? "done");
-  const steps: Step[] = [
-    ...fields.map<Step>((f) => ({ key: f.id, label: f.label, state: filled(f.id) ? "done" : f.id === currentKey ? "current" : "todo" })),
-    { key: "done", label: "Done", state: finished ? "done" : "todo" },
+  const steps = [
+    ...fields.map((field) => ({
+      key: field.id,
+      label: field.label,
+      done: filled(field.id),
+    })),
+    { key: "done", label: "Done", done: finished },
   ];
-  const total = steps.length;
-  const doneCount = steps.filter((x) => x.state === "done").length;
-  const currentIndex = Math.max(0, steps.findIndex((x) => x.key === currentKey));
-  const shared = [status.hasDexcom && "Dexcom", status.hasLocation && "Timeline", status.hasWhoop && "WHOOP"].filter(Boolean) as string[];
 
   return (
-    <section className="mt-3 space-y-2" aria-label="Intake progress">
-      <div className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-3">
-        <div className="flex items-baseline justify-between">
-          <p className="text-sm">
-            <span className="font-semibold">{finished ? "All done" : `Step ${currentIndex + 1} of ${total}`}</span>
-            {!finished && <span className="text-[var(--viz-ink-2)]"> · {steps[currentIndex].label}</span>}
-          </p>
-          <p className="text-[11px] text-[var(--viz-muted)]">two quick questions</p>
-        </div>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-black/5">
-          <div className="h-full rounded-full bg-pink-500 transition-all" style={{ width: `${(doneCount / total) * 100}%` }} />
-        </div>
-        <ol className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-          {steps.map((st, i) => (
-            <li
-              key={st.key}
-              aria-current={st.state === "current" ? "step" : undefined}
-              className={`flex items-center gap-1.5 rounded-full border px-2 py-1 ${
-                st.state === "done"
-                  ? "border-green-200 bg-green-50 text-green-800"
-                  : st.state === "current"
-                    ? "border-pink-300 bg-pink-50 font-medium text-pink-800"
-                    : "border-black/10 text-[var(--viz-muted)]"
-              }`}
-            >
-              <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${st.state === "done" ? "bg-green-600 text-white" : st.state === "current" ? "bg-pink-600 text-white" : "bg-black/10"}`}>
-                {st.state === "done" ? "✓" : i + 1}
-              </span>
-              {st.label}
-            </li>
-          ))}
-        </ol>
-        {intake.flagged && <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-800">Flagged for the office. Someone will follow up before the visit.</p>}
-      </div>
-
-      <details className="rounded-lg border border-dashed border-black/15 px-3 py-2 text-xs text-[var(--viz-ink-2)]">
-        <summary className="cursor-pointer select-none">
-          <span className="font-medium text-[var(--viz-ink)]">Optional:</span> share your data
-          {shared.length > 0 && <span className="text-green-700"> · {shared.join(", ")} added</span>}
-        </summary>
-        <p className="mt-2 text-[11px] text-[var(--viz-muted)]">If you have a Dexcom export handy, your doctor can see the week in numbers. Timeline and WHOOP add context. None of it is required.</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <UploadButton label="Dexcom CSV" kind="dexcom" done={status.hasDexcom} onFile={onFile} />
-          <UploadButton label="Maps Timeline JSON" kind="timeline" done={status.hasLocation} onFile={onFile} />
-          <UploadButton label="WHOOP CSV" kind="whoop" done={status.hasWhoop} onFile={onFile} />
-        </div>
-      </details>
-    </section>
+    <ol className="sweetie-field-progress" aria-label="Intake steps">
+      {steps.map((step, index) => {
+        const current = step.key === currentKey;
+        return (
+          <li
+            key={step.key}
+            title={
+              step.key === "done"
+                ? "Check-in complete"
+                : intake.fields[step.key]?.value ??
+                  fields.find((field) => field.id === step.key)?.goal
+            }
+            className={
+              step.done
+                ? "sweetie-field-done"
+                : current
+                  ? "sweetie-field-current"
+                  : ""
+            }
+            aria-current={current ? "step" : undefined}
+          >
+            <b>{step.done ? "✓" : index + 1}</b>
+            {step.label}
+          </li>
+        );
+      })}
+      {intake.flagged && (
+        <li className="sweetie-field-flagged">Flagged for the office</li>
+      )}
+    </ol>
   );
 }

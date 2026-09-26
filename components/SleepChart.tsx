@@ -6,12 +6,12 @@
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { SleepNight } from "@/lib/types";
 
-const INK2 = "#52514e";
-const MUTED = "#898781";
-const GRID = "#e1e0d9";
-const AXIS = "#c3c2b7";
-const SERIES = "#2a78d6";
-const SURFACE = "#fcfcfb";
+const INK2 = "var(--viz-ink-2)";
+const MUTED = "var(--viz-muted)";
+const GRID = "var(--viz-grid)";
+const AXIS = "var(--viz-axis)";
+const SERIES = "var(--viz-series)";
+const SURFACE = "var(--viz-surface)";
 
 export default function SleepChart({ nights, height = 200 }: { nights: SleepNight[]; height?: number }) {
   if (nights.length === 0) return <p className="text-sm text-[var(--viz-muted)]">No sleep data.</p>;

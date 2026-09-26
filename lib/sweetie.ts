@@ -194,7 +194,7 @@ export type Target =
   | { kind: "field"; def: IntakeFieldDef }
   | { kind: "wrap" };
 
-export function nextTarget(state: IntakeState, defs: IntakeFieldDef[], _status: Pick<IntakeStatus, "hasDexcom" | "hasLocation" | "hasWhoop">): Target {
+export function nextTarget(state: IntakeState, defs: IntakeFieldDef[]): Target {
   for (const f of defs) if (f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium) return { kind: "field", def: f };
   for (const f of defs) if (!f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium && state.turns < 6) return { kind: "field", def: f };
   return { kind: "wrap" };
