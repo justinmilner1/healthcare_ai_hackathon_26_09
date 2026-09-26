@@ -1,5 +1,6 @@
 // Sour: provider summary. Owner: James.
-// POST /api/sour { patientId }                 -> generates and saves provider + patient summaries, returns both
+// POST /api/sour { patientId }                 -> generates and saves provider + patient summaries, returns both,
+//                                                 then emails each to the provider and the patient (see lib/notify.ts)
 // POST /api/sour { patientId, question }       -> free-text follow-up ("why was Tuesday bad?") -> { answer }
 // Numbers (TIR, average, spikes) are computed deterministically; the model only writes patterns and questions.
 // Without an API key the summaries still return with placeholder patterns so the pages render.
@@ -8,6 +9,7 @@ import { NextResponse } from "next/server";
 import { baseSummary, loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { ask, LLMUnavailable } from "@/lib/llm";
+import { sendSummaryEmails, type SummaryNotifyResult } from "@/lib/notify";
 import { patientSummarySystem, sourSystem, sourUser } from "@/lib/prompts";
 import type { Summary } from "@/lib/types";
 
@@ -39,6 +41,7 @@ export async function POST(req: Request) {
 
   let provider: Summary;
   let patient: Summary;
+  let llmOk = true;
   try {
     const n = await ask<Narrative>(sourSystem(), sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep }), { json: true });
     provider = { ...base, patterns: (n.patterns ?? []).slice(0, 3), questions: (n.questions ?? []).slice(0, 3) };
@@ -46,6 +49,7 @@ export async function POST(req: Request) {
     patient = { ...base, patterns: (p.patterns ?? []).slice(0, 3), questions: (p.questions ?? []).slice(0, 3) };
   } catch (e) {
     if (!(e instanceof LLMUnavailable)) throw e;
+    llmOk = false;
     const note = "LLM not configured: set OPENAI_API_KEY to generate patterns and questions.";
     provider = { ...base, patterns: [note], questions: [] };
     patient = { ...base, patterns: [note], questions: [] };
@@ -57,5 +61,20 @@ export async function POST(req: Request) {
       { patientId: bundle.patient.id, audience: "patient", json: JSON.stringify(patient) },
     ],
   });
-  return NextResponse.json({ provider, patient });
+
+  // Trigger: both summaries saved -> email the provider and the patient. Skipped when the model was
+  // unavailable, so placeholder text never goes out. Fails soft; the result is reported, not thrown.
+  let notified: SummaryNotifyResult | { skipped: string } = { skipped: "LLM not configured" };
+  if (llmOk) {
+    const row = await db.patient.findUnique({ where: { id: bundle.patient.id }, include: { provider: true } });
+    if (row) {
+      notified = await sendSummaryEmails({
+        patient: { id: row.id, name: row.name, email: row.email, token: row.token, apptAt: row.apptAt },
+        provider: { id: row.provider.id, name: row.provider.name, email: row.provider.email, practice: row.provider.practice },
+        providerSummary: provider,
+        patientSummary: patient,
+      });
+    }
+  }
+  return NextResponse.json({ provider, patient, notified });
 }

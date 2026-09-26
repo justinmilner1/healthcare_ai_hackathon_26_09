@@ -34,7 +34,10 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       .then((r) => r.json())
       .then((p: Provider) => {
         setProvider(p);
-        if (p.patients?.length && !selected) setSelected(p.patients[0].id);
+        // ?patient=<id> deep-links from the summary email; otherwise open the first patient.
+        const wanted = new URLSearchParams(window.location.search).get("patient");
+        const first = p.patients?.find((x) => x.id === wanted)?.id ?? p.patients?.[0]?.id;
+        if (first && !selected) setSelected(first);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
