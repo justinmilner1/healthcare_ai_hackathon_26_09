@@ -32,10 +32,13 @@ Data is kept for life, so the summary gets better with every visit. Patients can
 git clone https://github.com/robbertstruyven/healthcare_ai_hackathon_26_09
 cd healthcare_ai_hackathon_26_09
 npm install
-cp .env.example .env    # fill in the values below
-npx prisma migrate dev --name init
+cp .env.example .env    # fill in the values below (works without an API key; agents fall back to scripted replies)
+npx prisma migrate dev
+npm run seed            # demo provider + patient with the sample files loaded; prints the three URLs
 npm run dev             # http://localhost:3000
 ```
+
+Checks: `npm run typecheck`, `npm run lint`, `npm run build`. Reset the DB with `npm run db:reset && npm run seed`.
 
 Phone access for the patient link (needs HTTPS):
 
@@ -116,40 +119,52 @@ If Timeline was off, write `data/visits.csv` by hand (`start,end,place,lat,lng`)
 
 ```
 app/
-  page.tsx                      landing
-  book/page.tsx                 patient booking + opt-in
-  s/[token]/page.tsx            Sweetie chat (presigned link)
-  patient/[id]/page.tsx         patient summary view
-  provider/signup/page.tsx      provider sign up
-  provider/[id]/page.tsx        Sour summary view
+  page.tsx                      landing with links to every screen
+  book/page.tsx                 patient booking + opt-in                      Justin
+  s/[token]/page.tsx            Sweetie chat + upload buttons (presigned link) Nisarga
+  patient/[id]/page.tsx         patient summary view                          Justin
+  provider/signup/page.tsx      provider sign up                              (open)
+  provider/[id]/page.tsx        patient list + Sour summary view              Justin
   api/
-    book/route.ts               create patient + send SMS
-    sweetie/route.ts            Sweetie chat turn
-    upload/route.ts             Dexcom / Timeline / WHOOP upload
-    sour/route.ts               generate provider summary
+    book/route.ts               POST create patient, send SMS                 Justin
+    sweetie/route.ts            GET transcript+status, POST chat turn         (open)
+    upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
+    sour/route.ts               POST generate summaries; POST with question   James
+    patient/[id]/route.ts       GET PatientBundle (everything a page needs)
+    provider/route.ts           POST sign up, GET provider + patients         (open)
+components/
+  GlucoseChart.tsx              Recharts line with spike pins                  Justin
 lib/
-  llm.ts                        Bedrock client + agent prompts
-  glucose.ts                    parse Clarity CSV, spikes, time in range
-  location.ts                   parse Timeline.json, last-7-day visits
-  match.ts                      link spikes to visits
-  sms.ts                        Twilio
-prisma/schema.prisma
-data/                           sample exports for the demo
+  types.ts                      the shared shapes; change with care
+  llm.ts                        ask(system, user, {json}) -> Bedrock Responses API
+  prompts.ts                    Sweetie + Sour prompts                        James (Sour)
+  glucose.ts                    parse Clarity CSV, spikes, time in range      Nisarga
+  location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
+  match.ts                      link spikes to visits                         Robbert
+  sleep.ts                      parse WHOOP CSV                               (open)
+  bundle.ts                     load a patient's data + status from the DB
+  sms.ts                        Twilio, falls back to showing the link        Justin
+  db.ts                         Prisma singleton
+prisma/schema.prisma            Provider, Patient, Upload, Message, Summary
+scripts/seed.ts                 demo data into the DB;  gen_samples.py regenerates data/
+data/                           synthetic 7-day exports (see data/README.md)
 ```
+
+Everything runs end to end today with scripted agent replies. Each owner replaces the stub in their file; the API contracts in `lib/types.ts` and the route comments are the interface between us.
 
 ## Product tasks
 
 **Front end**
-- [ ] Provider sign up
-- [ ] Patient chat with Sweetie and data upload
-- [ ] Provider view results (Sour)
-- [ ] Patient view results
+- [ ] Provider sign up (open)
+- [ ] Patient chat with Sweetie and data upload: Nisarga
+- [ ] Provider view results (Sour): Justin
+- [ ] Patient view results: Justin
 
 **Back end**
-- [ ] Sweetie (info-gathering agent)
-- [ ] Sour (summary agent)
-- [ ] Data upload and storage: Dexcom, location, WHOOP
-- [ ] Texting
+- [ ] Sweetie (info-gathering agent) (open)
+- [ ] Sour (summary agent), provider and patient versions: James
+- [ ] Data upload and storage: Dexcom Nisarga, location Robbert, WHOOP (open)
+- [ ] Texting / emailing: Justin
 
 ## 3h plan
 

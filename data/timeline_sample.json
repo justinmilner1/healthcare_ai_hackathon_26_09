@@ -1,0 +1,340 @@
+{
+ "semanticSegments": [
+  {
+   "startTime": "2026-09-19T08:15:00-07:00",
+   "endTime": "2026-09-19T08:40:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_bluebottle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7766,-122.4231"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T12:10:00-07:00",
+   "endTime": "2026-09-19T12:50:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_chipotle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7794,-122.4143"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T18:30:00-07:00",
+   "endTime": "2026-09-20T04:30:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_home_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7599,-122.4148"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-20T09:00:00-07:00",
+   "endTime": "2026-09-20T17:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_office_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7899,-122.4009"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-20T12:30:00-07:00",
+   "endTime": "2026-09-20T13:05:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_chipotle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7794,-122.4143"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-20T20:15:00-07:00",
+   "endTime": "2026-09-20T21:30:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_delfina_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7614,-122.4241"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-21T07:30:00-07:00",
+   "endTime": "2026-09-21T08:30:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_gym_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7691,-122.4312"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-21T09:00:00-07:00",
+   "endTime": "2026-09-21T17:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_office_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7899,-122.4009"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-21T19:00:00-07:00",
+   "endTime": "2026-09-22T05:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_home_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7599,-122.4148"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-22T08:20:00-07:00",
+   "endTime": "2026-09-22T08:40:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_bluebottle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7766,-122.4231"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-22T12:15:00-07:00",
+   "endTime": "2026-09-22T17:15:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_office_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7899,-122.4009"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-22T20:45:00-07:00",
+   "endTime": "2026-09-22T21:55:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_delfina_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7614,-122.4241"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-23T09:00:00-07:00",
+   "endTime": "2026-09-23T17:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_office_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7899,-122.4009"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-23T13:00:00-07:00",
+   "endTime": "2026-09-23T13:30:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_chipotle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7794,-122.4143"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-23T18:00:00-07:00",
+   "endTime": "2026-09-23T19:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_gym_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7691,-122.4312"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-24T10:00:00-07:00",
+   "endTime": "2026-09-24T15:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_home_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7599,-122.4148"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-24T14:00:00-07:00",
+   "endTime": "2026-09-24T14:30:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_bluebottle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7766,-122.4231"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-24T19:30:00-07:00",
+   "endTime": "2026-09-25T05:30:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_home_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7599,-122.4148"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-25T08:00:00-07:00",
+   "endTime": "2026-09-25T09:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_gym_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7691,-122.4312"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-25T12:00:00-07:00",
+   "endTime": "2026-09-25T16:00:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_home_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7599,-122.4148"
+     }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-25T18:15:00-07:00",
+   "endTime": "2026-09-25T18:55:00-07:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_chipotle_demo",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": {
+      "latLng": "geo:37.7794,-122.4143"
+     }
+    }
+   }
+  }
+ ]
+}

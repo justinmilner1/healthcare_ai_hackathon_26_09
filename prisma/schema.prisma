@@ -1,0 +1,76 @@
+// Sweet Spot data model. SQLite for the demo; swap provider to postgresql later.
+// Keep it small. Parsed uploads are stored as JSON strings in the shapes from lib/types.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Provider {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  practice  String?
+  createdAt DateTime  @default(now())
+  patients  Patient[]
+}
+
+model Patient {
+  id         String    @id @default(cuid())
+  providerId String
+  provider   Provider  @relation(fields: [providerId], references: [id])
+  name       String
+  phone      String?
+  email      String?
+  token      String    @unique // presigned link: /s/<token>
+  optIn      Boolean   @default(false)
+  apptAt     DateTime?
+  notes      String? // Sweetie's collected answers, plain text
+  createdAt  DateTime  @default(now())
+  uploads    Upload[]
+  messages   Message[]
+  summaries  Summary[]
+}
+
+// One uploaded file. `kind` is dexcom | timeline | whoop | visits.
+// `parsed` is JSON: GlucoseReading[] | Visit[] | SleepNight[] (see lib/types.ts).
+model Upload {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  kind      String
+  filename  String
+  raw       String
+  parsed    String
+  createdAt DateTime @default(now())
+
+  @@index([patientId, kind])
+}
+
+// Sweetie chat transcript. role is sweetie | patient.
+model Message {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([patientId])
+}
+
+// Generated summaries. audience is provider | patient. json is a Summary (lib/types.ts).
+model Summary {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  audience  String
+  json      String
+  createdAt DateTime @default(now())
+
+  @@index([patientId, audience])
+}

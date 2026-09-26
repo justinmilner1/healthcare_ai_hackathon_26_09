@@ -24,10 +24,13 @@ Optimize for a working demo in 3 hours, not for production. Prefer the boring op
 ```bash
 npm install
 npx prisma migrate dev
+npm run seed       # demo provider + patient with sample uploads; prints URLs
 npm run dev        # localhost:3000
 npm run lint
 npm run typecheck  # tsc --noEmit
 ```
+
+Without `OPENAI_API_KEY`, `lib/llm.ts` throws `LLMUnavailable` and the Sweetie and Sour routes fall back to scripted output, so the front end works offline. Data for a page comes from `GET /api/patient/[id]` (a `PatientBundle`, built in `lib/bundle.ts`); don't query Prisma from pages.
 
 ## Env vars
 
