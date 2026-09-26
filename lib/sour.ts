@@ -66,6 +66,7 @@ export type SourInput = {
   }[];
   nights: { nightOf: string; weekday: string; hours: number; recovery: number | null; lateDinnerBefore: string | null }[];
   patientNotes: string;
+  glucoseForFlags?: GlucoseReading[]; // kept so renderSourInput can print the safety flags; not sent raw
 };
 
 export function buildSourInput(args: {
@@ -177,6 +178,7 @@ export function buildSourInput(args: {
     spikes: spikeRows,
     nights,
     patientNotes: args.patientNotes,
+    glucoseForFlags: sorted,
   };
 }
 
@@ -213,9 +215,61 @@ export function renderSourInput(x: SourInput): string {
     for (const nt of x.nights) L.push(`  ${nt.weekday} ${nt.nightOf.slice(5)} | ${nt.hours} h | ${nt.recovery ?? "–"} | ${nt.lateDinnerBefore ?? "–"}`);
     L.push("");
   }
+  const flags = safetyFlags(x.glucoseForFlags ?? []);
+  if (flags.length) {
+    L.push("SAFETY FLAGS (computed, already shown to the clinician; reference them, do not restate as a pattern):");
+    for (const f of flags) L.push(`  ! ${f}`);
+    L.push("");
+  }
   L.push("PATIENT'S OWN WORDS (from the pre-visit chat):");
   L.push(x.patientNotes.trim() ? x.patientNotes.trim() : "  (nothing recorded)");
   return L.join("\n");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Safety flags. Deterministic, computed from the readings, shown to the clinician regardless of what the
+// narrative says. Thresholds follow the international CGM consensus targets: level 2 hypoglycemia <54,
+// time below 70 over 4%, and sustained time above 250. The model never decides these.
+
+const URGENT_LOW = 54;
+const HIGH_SUSTAINED = 250;
+const HIGH_SUSTAINED_MIN = 60;
+const TBR_LIMIT = 0.04;
+
+export function safetyFlags(glucose: GlucoseReading[]): string[] {
+  const rs = [...glucose].sort((a, b) => a.t.localeCompare(b.t));
+  if (rs.length === 0) return [];
+  const step = medianStepMinutes(rs);
+  const flags: string[] = [];
+
+  const lows = rs.filter((r) => r.mgdl < URGENT_LOW);
+  if (lows.length) {
+    const lowest = lows.reduce((m, r) => (r.mgdl < m.mgdl ? r : m), lows[0]);
+    const days = new Set(lows.map((r) => localDate(r.t))).size;
+    flags.push(`Glucose below ${URGENT_LOW} mg/dL on ${days} day${days > 1 ? "s" : ""} (${lows.length * step} min total; lowest ${lowest.mgdl} at ${localDayTime(lowest.t)}).`);
+  }
+
+  const tbr = rs.filter((r) => r.mgdl < LO).length / rs.length;
+  if (tbr > TBR_LIMIT) flags.push(`Time below 70 mg/dL is ${Math.round(tbr * 100)}% (target under 4%).`);
+
+  // Sustained highs: any run above 250 lasting at least an hour.
+  let runStart = -1;
+  const runs: { start: string; minutes: number; peak: number }[] = [];
+  for (let i = 0; i <= rs.length; i++) {
+    const above = i < rs.length && rs[i].mgdl > HIGH_SUSTAINED;
+    if (above && runStart < 0) runStart = i;
+    if (!above && runStart >= 0) {
+      const seg = rs.slice(runStart, i);
+      const minutes = seg.length * step;
+      if (minutes >= HIGH_SUSTAINED_MIN) runs.push({ start: seg[0].t, minutes, peak: Math.max(...seg.map((r) => r.mgdl)) });
+      runStart = -1;
+    }
+  }
+  if (runs.length) {
+    const longest = runs.reduce((m, r) => (r.minutes > m.minutes ? r : m), runs[0]);
+    flags.push(`Above ${HIGH_SUSTAINED} mg/dL for an hour or more on ${runs.length} occasion${runs.length > 1 ? "s" : ""} (longest ${longest.minutes} min from ${localDayTime(longest.start)}, peak ${longest.peak}).`);
+  }
+  return flags;
 }
 
 const MEAL_STAY_MS = 3 * 60 * 60 * 1000;

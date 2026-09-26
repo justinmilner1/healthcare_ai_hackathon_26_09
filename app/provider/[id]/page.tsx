@@ -202,6 +202,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                 <span className="font-semibold">Safety flag during intake:</span> {bundle.intake.flagged.replace(/_/g, " ")}. Sweetie stopped the interview and told the patient to call the office. Review before the visit.
               </p>
             )}
+            {s?.flags && s.flags.length > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                <div className="font-semibold">Glucose safety flags <span className="font-normal text-red-800/70">(computed from the readings, not by the model)</span></div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {s.flags.map((f, i) => <li key={i}>{f}</li>)}
+                </ul>
+              </div>
+            )}
 
             {!bundle.status.hasDexcom && bundle.status.answered === 0 ? (
               <EmptyIntake bundle={bundle} />

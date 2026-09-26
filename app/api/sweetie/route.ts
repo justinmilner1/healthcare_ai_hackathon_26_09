@@ -5,10 +5,11 @@
 // Every patient message goes through the deterministic red-flag scan before the model sees it.
 // Without an API key the same targets are spoken with fixed words, so the page works offline.
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { LLMUnavailable, MODEL } from "@/lib/llm";
+import { runSour } from "@/lib/sourRun";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
   const visit = { visitType: patient.visitType, reason: patient.reason };
   const defs = fieldsFor(visit.visitType, visit.reason);
   let state: IntakeState = parseIntake(patient.intake, defs);
+  const wasWrapped = state.wrapped;
   let reply: string;
   let exportHelp: "dexcom" | "timeline" | "whoop" | null = null;
 
@@ -63,7 +65,7 @@ export async function POST(req: Request) {
     if (flag) {
       state = { ...state, flagged: flag, wrapped: true };
       reply = redFlagReply(firstName, patient.provider.name);
-      return finish(patient.id, state, defs, visit, reply);
+      return finish(patient.id, state, defs, visit, reply, wasWrapped);
     }
   }
 
@@ -116,13 +118,26 @@ export async function POST(req: Request) {
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };
 
-  return finish(patient.id, state, defs, visit, reply);
+  return finish(patient.id, state, defs, visit, reply, wasWrapped);
 }
 
-async function finish(patientId: string, state: IntakeState, defs: IntakeFieldDef[], visit: VisitContext, reply: string) {
+async function finish(patientId: string, state: IntakeState, defs: IntakeFieldDef[], visit: VisitContext, reply: string, wasWrapped = false) {
   await db.message.create({ data: { patientId, role: "sweetie", content: reply } });
   await db.patient.update({ where: { id: patientId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, visit) } });
   const bundle = await loadBundle(patientId);
+
+  // Trigger: the turn that wraps the intake also kicks off Sour, after this reply is on its way, so the
+  // doctor's link email arrives while the patient is still reading Sweetie's goodbye. Once per wrap.
+  if (state.wrapped && !wasWrapped && bundle?.status.hasDexcom) {
+    after(async () => {
+      try {
+        await runSour(patientId);
+      } catch (e) {
+        console.error("Sour auto-run after intake failed:", e);
+      }
+    });
+  }
+
   return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 

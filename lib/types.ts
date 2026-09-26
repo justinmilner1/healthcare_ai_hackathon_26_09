@@ -28,6 +28,7 @@ export type Summary = {
   patterns: string[]; // max 3, plain language
   questions: string[]; // max 3, for the doctor to ask
   patientNotes: string; // from Sweetie chat
+  flags?: string[]; // deterministic safety flags computed in code (lib/sour.ts safetyFlags), never by the model
 };
 
 export type UploadKind = "dexcom" | "timeline" | "whoop" | "visits";
