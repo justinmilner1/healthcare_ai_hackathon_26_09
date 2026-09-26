@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     try {
       const answer = await ask(
         sourChatSystem(),
-        `Patient data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep })}\n\nRecent conversation (doctor q, Sour a):\n${JSON.stringify(history)}\n\nLatest doctor message:\n${body.question.trim()}`,
+        `Patient data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } })}\n\nRecent conversation (doctor q, Sour a):\n${JSON.stringify(history)}\n\nLatest doctor message:\n${body.question.trim()}`,
       );
       if (!answer.trim()) throw new Error("Empty Sour reply");
       return NextResponse.json({ answer: answer.trim() });
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   let patient: Summary;
   let llmOk = true;
   try {
-    const n = await ask<Narrative>(sourSystem(), sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep }), { json: true });
+    const n = await ask<Narrative>(sourSystem(), sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }), { json: true });
     provider = { ...base, patterns: (n.patterns ?? []).slice(0, 3), questions: (n.questions ?? []).slice(0, 3) };
     const p = await ask<Narrative>(patientSummarySystem(), JSON.stringify(provider), { json: true, effort: "low" });
     patient = { ...base, patterns: (p.patterns ?? []).slice(0, 3), questions: (p.questions ?? []).slice(0, 3) };

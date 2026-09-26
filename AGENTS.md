@@ -90,11 +90,15 @@ A spike matches a visit if the visit ended within 30 minutes before the spike st
 ## Agent prompts (`lib/prompts.ts`)
 
 **Sweetie** (patient-facing) lives in `lib/sweetie.ts`, not in `prompts.ts`.
-- Field-driven, like a clinical history template: `FIELDS` (meals, unusual week, symptoms, visit goal). Each patient
+- Field-driven, like a clinical history template: `fieldsFor(visitType, reason)` builds the template from base fields
+  (meals, unusual week, symptoms, visit goal) plus visit-type extras (new patient, medication check, post-hospital,
+  annual) and a first field about whatever the patient called in about. Each patient
   message goes through a deterministic red-flag regex scan first, then an extraction call fills fields with a
   confidence, then `nextTarget` picks the next thing to ask (dexcom upload, timeline upload unless declined, first
   unfilled field, optional WHOOP, wrap), then `speak` writes one short plain-text message toward that target.
-- Warm, short, one question at a time, no medical advice, no markdown. Knows how to export each file.
+- Speaks like an intake nurse: acknowledge, then one question; notable events, concerns, purpose of the visit. Plain
+  text because it is read aloud. Voice is the browser's own speech synthesis and recognition (`lib/voice.ts`); a final
+  transcript is posted to the route like typed text, so the brain does not know or care which one it was.
 - The route (`app/api/sweetie/route.ts`) is transport only. Upload events also go through it so Sweetie can
   acknowledge what arrived. `renderNotes` produces the text Sour reads from `Patient.notes`; the structured state is
   `Patient.intake` (JSON `IntakeState`).

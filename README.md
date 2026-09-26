@@ -125,10 +125,12 @@ If Timeline was off, write `data/visits.csv` by hand (`start,end,place,lat,lng`)
 ```
 app/
   page.tsx                      landing with links to every screen
-  s/[token]/page.tsx            Sweetie chat + upload buttons (presigned link) Nisarga
+  s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
+  s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
   patient/[id]/page.tsx         patient summary view                          Justin
-  provider/signup/page.tsx      provider sign up                              (open)
-  provider/[id]/page.tsx        patient list + Sour summary view              Justin
+  provider/page.tsx             practice dashboard: add patient, send links, stages Justin
+  provider/signup/page.tsx      provider sign up (cookie, no password)        Justin
+  provider/[id]/page.tsx        Sour summary view; sidebar lists ready summaries Justin
   api/
     book/route.ts               POST create patient + send invite (scheduling hook) Justin
     sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
@@ -146,7 +148,9 @@ lib/
   types.ts                      the shared shapes; change with care
   llm.ts                        ask(system, user, {json}) -> Bedrock Responses API
   prompts.ts                    Sour prompts                                  James
-  sweetie.ts                    Sweetie: fields, red-flag scan, extract, speak Justin
+  sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
+  providerSession.ts            cookie that remembers the provider (no login)  Justin
+  voice.ts                      browser speech synthesis + recognition for Sweetie Justin
   glucose.ts                    parse Clarity CSV, spikes, time in range      Nisarga
   location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
   match.ts                      link spikes to visits                         Robbert
@@ -164,7 +168,7 @@ Everything runs end to end today with scripted agent replies. Each owner replace
 ## Product tasks
 
 **Front end**
-- [ ] Provider sign up (open)
+- [x] Provider sign up and dashboard: Justin
 - [ ] Patient chat with Sweetie and data upload: Nisarga
 - [ ] Provider view results (Sour): Justin
 - [ ] Patient view results: Justin

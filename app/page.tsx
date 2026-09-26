@@ -12,8 +12,8 @@ export default function Home() {
       </header>
 
       <section className="grid gap-4 sm:grid-cols-2">
-        <Card href="/provider/signup" title="Provider sign up" body="Create a provider, add booked patients, and send each one their Sweetie link." />
-        <Card href="/demo" title="Demo provider" body="Dr. Demo Endo with the seeded sample patient (after npm run seed)." />
+        <Card href="/provider" title="Practice dashboard" body="Add booked patients, send Sweetie links, see who is ready, open summaries in Sour." />
+        <Card href="/demo" title="Demo provider" body="Sign in as Dr. Demo Endo with the seeded sample patient (after npm run seed)." />
       </section>
       <p className="text-sm text-[var(--viz-ink-2)]">
         Patients never visit this site on their own. A booked visit in the practice&apos;s scheduling system creates the patient here and sends a text or email with a presigned link. That link is the patient&apos;s only entry point.

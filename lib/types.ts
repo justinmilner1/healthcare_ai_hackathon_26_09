@@ -37,9 +37,10 @@ export type ChatMessage = { role: ChatRole; content: string; createdAt?: string 
 
 // Sweetie's structured intake. One entry per field she is trying to fill; the next question targets the
 // first required field that is still below "medium". Same shape of idea as a clinical history template.
-export type IntakeFieldId = "meals" | "unusual" | "symptoms" | "visit_goal";
+export type IntakeFieldId = string; // from the visit template: base fields plus visit-type extras (lib/sweetie.ts)
 export type Confidence = "unfilled" | "low" | "medium" | "high";
 export type IntakeFieldState = { value: string | null; confidence: Confidence };
+export type IntakeFieldDef = { id: IntakeFieldId; label: string; goal: string; fallbackQuestion: string; required: boolean };
 export type IntakeState = {
   fields: Record<IntakeFieldId, IntakeFieldState>;
   skipped: ("timeline" | "whoop")[]; // uploads the patient said they don't have; Sweetie stops asking
@@ -77,6 +78,8 @@ export type PatientBundle = {
     name: string;
     token: string;
     apptAt: string | null;
+    visitType: string | null;
+    reason: string | null;
     notes: string | null;
     provider: { id: string; name: string; practice: string | null };
   };
@@ -87,6 +90,7 @@ export type PatientBundle = {
   stats: GlucoseStats;
   status: IntakeStatus;
   intake: IntakeState;
+  intakeFields: IntakeFieldDef[]; // the template Sweetie is working from for this visit
   providerSummary: Summary | null;
   providerSummaryAt: string | null;
   patientSummary: Summary | null;
