@@ -52,7 +52,7 @@ export default function PatientPage({ params }: { params: Promise<{ id: string }
         <section className="rounded-lg border border-dashed border-black/20 p-5">
           <h2 className="font-semibold">We don&apos;t have your glucose data yet</h2>
           <p className="mt-1 text-sm text-[var(--viz-ink-2)]">Once you share your Dexcom export with Sweetie, your week will show up here.</p>
-          <a href={`/s/${bundle.patient.token}`} className="mt-3 inline-block rounded-md bg-black px-4 py-2 text-sm text-white">Open Sweetie</a>
+          <a href={`/s/${bundle.patient.token}/intake`} className="mt-3 inline-block rounded-md bg-black px-4 py-2 text-sm text-white">Open Sweetie</a>
         </section>
       ) : (
         <>
