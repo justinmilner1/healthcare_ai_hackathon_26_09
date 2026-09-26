@@ -285,10 +285,10 @@ export default function SweetiePage({
       if (!response.ok) throw new Error("We couldn't save your choice. Please try again.");
       const data = await response.json();
       if (data.skipRefused) {
-        // Nothing answered and nothing uploaded: Sweetie steers back to the first question instead.
-        setMessages((current) => [...current, { role: "sweetie", content: data.reply }]);
+        // Nothing answered and nothing uploaded: stay in the chat, point back at the first question.
         if (data.status) setStatus(data.status);
         if (data.intake) setIntake(data.intake);
+        setSkipError("Answer Sweetie's first question first, then you can skip the rest.");
         setSkipping(false);
         return;
       }

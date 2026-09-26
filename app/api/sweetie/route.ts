@@ -78,10 +78,8 @@ export async function POST(req: Request) {
     const soFar = await loadBundle(patient.id);
     const hasAnything = state.turns > 0 || Boolean(soFar?.status.hasDexcom || soFar?.status.hasLocation || soFar?.status.hasWhoop);
     if (!hasAnything) {
-      const firstQ = defs.find((d) => d.required)?.fallbackQuestion ?? "What would you like to get out of this visit?";
-      const nudge = `No problem, ${firstName}. Before I can put your week together I need at least a sentence from you. ${firstQ}`;
-      await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: nudge } });
-      return NextResponse.json({ reply: nudge, skipRefused: true, status: soFar?.status, intake: soFar?.intake, intakeFields: soFar?.intakeFields, agent: agentInfo() });
+      // No chat message: the greeting already asked the first question. The page shows a short inline hint.
+      return NextResponse.json({ skipRefused: true, status: soFar?.status, intake: soFar?.intake, intakeFields: soFar?.intakeFields, agent: agentInfo() });
     }
     return finish(patient.id, skipQuestions(state), defs, visit,
       "You've skipped the remaining questions. Anything you've already shared is saved for your care team. You can view your week now.", wasWrapped);

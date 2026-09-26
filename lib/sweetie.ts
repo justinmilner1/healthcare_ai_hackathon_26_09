@@ -273,13 +273,17 @@ export function scripted(p: { isSandbox?: boolean; firstName: string; target: Ta
   return parts.join(" ");
 }
 
-/** Opening line names the visit and asks the first question; uploads are optional. */
+/** The single opening message: who Sweetie is, a nudge to add health data, then the first history question.
+ *  Everything a new patient needs to start is in this one bubble; there is no second prompt. */
 export function greeting(firstName: string, providerName: string, visit: VisitContext, defs: IntakeFieldDef[], hasDexcom = false): string {
   const first = defs[0]?.fallbackQuestion ?? "What's bringing you in?";
   if (visit.isSandbox) {
     return `Hi ${firstName}, this is a synthetic Dexcom demo. ${hasDexcom ? "Your demo glucose readings are ready." : "You can optionally use the Connect Dexcom sandbox link to import demo glucose readings."} No Timeline or WHOOP uploads are needed. Using fictional answers, ${first}`;
   }
-  return `Hi ${firstName}, I'm Sweetie 🍬. I help ${providerName} get ready for your ${visitPhrase(visit.visitType)}, so the appointment starts with your story already told. It's just two quick questions, and you can talk or type. ${first}`;
+  const data = hasDexcom
+    ? "Your glucose data is already in, thank you."
+    : "If you can, add your Dexcom export with the button on the left, and your Google Maps Timeline or WHOOP data too if you have them. It gives your doctor the full picture.";
+  return `Hi ${firstName}, I'm Sweetie 🍬. I help ${providerName} get ready for your ${visitPhrase(visit.visitType)}, so the appointment starts with your story already told. ${data} Then it's just two quick questions, and you can talk or type. First: ${first}`;
 }
 
 // ---- What Sour reads ------------------------------------------------------------------------------------
