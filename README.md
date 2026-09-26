@@ -54,14 +54,16 @@ OPENAI_BASE_URL="https://bedrock-mantle.us-east-2.api.aws/openai/v1"
 OPENAI_API_KEY="<BEDROCK_API_KEY>"        # Bedrock API key, not an OpenAI key
 BEDROCK_OPENAI_MODEL_ID="openai.gpt-5.5"  # or openai.gpt-5.4
 
-# Twilio SMS (optional; trial accounts only text verified numbers)
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_FROM=
+# Sending the link (all optional; see .env.example for the sandbox rules of each)
+AWS_DEFAULT_REGION=us-east-1        # with AWS keys set, email goes via SES and SMS via SNS
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+EMAIL_FROM=you@example.com          # must be a verified SES identity
+TWILIO_ACCOUNT_SID=, TWILIO_AUTH_TOKEN=, TWILIO_FROM=      # Twilio wins over SNS when set
+RESEND_API_KEY=                                            # Resend wins over SES when set
+```
 
-# Resend email (optional; free tier sends to the account owner's address)
-RESEND_API_KEY=
-EMAIL_FROM="Sweet Spot <onboarding@resend.dev>"
+Test a real send from the terminal: `npm run send:test -- --email you@example.com --phone +1415...`
 
 # App
 DATABASE_URL="file:./dev.db"
