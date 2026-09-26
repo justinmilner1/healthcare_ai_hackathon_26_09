@@ -12,9 +12,12 @@ export default function Home() {
       </header>
 
       <section className="grid gap-4 sm:grid-cols-2">
-        <Card href="/book" title="Book a visit" body="Patient books, opts in, gets a text with their Sweetie link." />
-        <Card href="/provider/signup" title="Provider sign up" body="Create a provider and see your patient list." />
+        <Card href="/provider/signup" title="Provider sign up" body="Create a provider, add booked patients, and send each one their Sweetie link." />
+        <Card href="/demo" title="Demo provider" body="Dr. Demo Endo with the seeded sample patient (after npm run seed)." />
       </section>
+      <p className="text-sm text-[var(--viz-ink-2)]">
+        Patients never visit this site on their own. A booked visit in the practice&apos;s scheduling system creates the patient here and sends a text or email with a presigned link. That link is the patient&apos;s only entry point.
+      </p>
 
       <section className="rounded-lg border p-4 text-sm text-gray-600">
         <p className="font-medium text-gray-800">Dev shortcuts</p>
@@ -23,6 +26,9 @@ export default function Home() {
             Run <code>npm run seed</code> to create a demo provider and patient with sample data loaded.
           </li>
           <li>The seed prints the Sweetie link, the provider page, and the patient page.</li>
+          <li>
+            <code>POST /api/book</code> is the scheduling-system hook: it creates the patient and sends the invite. The provider page&apos;s Add patient form calls it.
+          </li>
         </ol>
       </section>
     </main>

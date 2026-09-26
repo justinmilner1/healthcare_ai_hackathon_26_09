@@ -74,6 +74,28 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     });
   }, [selected, load, generate]);
 
+  const [adding, setAdding] = useState(false);
+  const [newP, setNewP] = useState({ name: "", phone: "", email: "", apptAt: "", optIn: true });
+  const [addNote, setAddNote] = useState("");
+
+  async function addPatient(e: React.FormEvent) {
+    e.preventDefault();
+    setAddNote("Adding…");
+    const res = await fetch("/api/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...newP, providerId: id, apptAt: newP.apptAt || undefined }),
+    });
+    const d = await res.json();
+    if (!res.ok) return setAddNote(d.error ?? "Could not add patient.");
+    const parts = [d.sms?.sent ? "texted" : null, d.email?.sent ? "emailed" : null].filter(Boolean);
+    setAddNote(parts.length ? `Invite ${parts.join(" and ")}.` : `Added. Link: ${d.link}`);
+    setNewP({ name: "", phone: "", email: "", apptAt: "", optIn: true });
+    const p = (await (await fetch(`/api/provider?id=${id}`)).json()) as Provider;
+    setProvider(p);
+    setSelected(d.patientId);
+  }
+
   async function sendLink(pid: string) {
     setInvite("Sending…");
     const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
@@ -117,8 +139,31 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               </button>
             </li>
           ))}
-          {provider && provider.patients.length === 0 && <li className="text-sm text-[var(--viz-muted)]">No patients yet. Book one at /book.</li>}
+          {provider && provider.patients.length === 0 && <li className="text-sm text-[var(--viz-muted)]">No patients yet.</li>}
         </ul>
+
+        <div className="mt-5 border-t border-black/10 pt-4">
+          <button onClick={() => setAdding((a) => !a)} className="text-sm font-medium underline-offset-2 hover:underline">
+            {adding ? "Close" : "+ Add patient"}
+          </button>
+          <p className="mt-0.5 text-[11px] text-[var(--viz-muted)]">Stands in for the scheduling system: a booked visit becomes a patient here, and the invite goes out.</p>
+          {adding && (
+            <form onSubmit={addPatient} className="mt-3 space-y-2 text-sm">
+              <input required placeholder="Patient name" className="w-full rounded-md border border-black/15 px-2 py-1.5" value={newP.name} onChange={(e) => setNewP({ ...newP, name: e.target.value })} />
+              <input placeholder="Mobile, +1415…" className="w-full rounded-md border border-black/15 px-2 py-1.5" value={newP.phone} onChange={(e) => setNewP({ ...newP, phone: e.target.value })} />
+              <input type="email" placeholder="Email" className="w-full rounded-md border border-black/15 px-2 py-1.5" value={newP.email} onChange={(e) => setNewP({ ...newP, email: e.target.value })} />
+              <label className="block text-xs text-[var(--viz-ink-2)]">
+                Visit date
+                <input type="datetime-local" className="mt-0.5 w-full rounded-md border border-black/15 px-2 py-1.5 text-sm" value={newP.apptAt} onChange={(e) => setNewP({ ...newP, apptAt: e.target.value })} />
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={newP.optIn} onChange={(e) => setNewP({ ...newP, optIn: e.target.checked })} /> Patient opted in to pre-visit texts
+              </label>
+              <button className="w-full rounded-md bg-black px-3 py-1.5 text-white">Add and send invite</button>
+              {addNote && <p className="break-all text-xs text-[var(--viz-ink-2)]">{addNote}</p>}
+            </form>
+          )}
+        </div>
       </aside>
 
       <section className={loading && bundle ? "opacity-60 transition-opacity" : ""}>

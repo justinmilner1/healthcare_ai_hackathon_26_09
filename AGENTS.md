@@ -119,4 +119,4 @@ See README. Put parsers in `lib/`, keep API routes thin, keep pages thin. Sample
 
 ## Done means
 
-`npm run dev` starts, `/book` creates a patient, `/s/<token>` chats and accepts uploads, `/provider/<id>` shows a `Summary` rendered from real uploaded files, and `npm run typecheck` passes.
+`npm run dev` starts, Add patient on the provider page creates a patient and sends the link, `/s/<token>` chats and accepts uploads, `/provider/<id>` shows a `Summary` rendered from real uploaded files, and `npm run typecheck` passes.

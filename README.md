@@ -8,7 +8,7 @@ Healthcare AI Hackathon, 26 Sep 2026. Built in 3 hours on Next.js and GPT-5.5 vi
 
 ## Flow
 
-1. **Booking.** A new diabetes patient books an endo appointment. If they opt in, they get a text with a presigned link to the site.
+1. **Booking.** A new diabetes patient books an endo appointment in the practice's scheduling system. That creates the patient here (demo: the provider page's Add patient form, or `POST /api/book`). If they opted in, they get a text or email with a presigned link. Patients never come to the site on their own.
 2. **Before the visit (Sweetie 🍬).** The patient opens the link and chats with Sweetie, the patient-facing agent. Sweetie asks them to connect Dexcom, WHOOP and Google Maps location, then asks a few quick questions about meals and symptoms.
 3. **During the visit (Sour 🍋).** The doctor opens Sour, the provider-facing agent. Sour gives a one-page summary: glucose trends, spikes linked to places, sleep, and key questions to ask the patient.
 
@@ -125,13 +125,12 @@ If Timeline was off, write `data/visits.csv` by hand (`start,end,place,lat,lng`)
 ```
 app/
   page.tsx                      landing with links to every screen
-  book/page.tsx                 patient booking + opt-in                      Justin
   s/[token]/page.tsx            Sweetie chat + upload buttons (presigned link) Nisarga
   patient/[id]/page.tsx         patient summary view                          Justin
   provider/signup/page.tsx      provider sign up                              (open)
   provider/[id]/page.tsx        patient list + Sour summary view              Justin
   api/
-    book/route.ts               POST create patient, send SMS                 Justin
+    book/route.ts               POST create patient + send invite (scheduling hook) Justin
     sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
     sour/route.ts               POST generate summaries; POST with question   James
@@ -192,7 +191,7 @@ Everything runs end to end today with scripted agent replies. Each owner replace
 
 ## Demo script
 
-1. Book an appointment on the phone, opt in, receive the text.
+1. On the provider page, add the booked patient and send the invite; the phone buzzes.
 2. Open the link, Sweetie says hi, upload Dexcom CSV and Timeline.json, answer two questions.
 3. Switch to the provider screen. Sour shows: time in range, 3 spikes pinned to places ("Chipotle 12:10 → 210 mg/dL at 13:05"), one sleep pattern, 3 questions for the visit.
 4. Ask Sour "why was Tuesday bad?"
