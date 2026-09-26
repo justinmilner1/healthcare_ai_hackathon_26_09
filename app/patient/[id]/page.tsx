@@ -6,7 +6,6 @@
 import Image from "next/image";
 import { use, useEffect, useState } from "react";
 import Disclaimer from "@/components/Disclaimer";
-import { DemoReturnLink } from "@/components/DexcomDemoLink";
 import GlucoseChart from "@/components/GlucoseChart";
 import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
@@ -69,7 +68,6 @@ export default function PatientPage({
         {bundle.patient.isSandbox && (
           <div role="note" className="rounded-lg border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
             <strong>Synthetic data — Dexcom sandbox demo only.</strong> This is a dedicated demo patient, not a real patient record. Do not use these data for care decisions.
-            <div><DemoReturnLink token={bundle.patient.token} /></div>
           </div>
         )}
 

@@ -708,8 +708,32 @@
   white-space: nowrap;
 }
 
+.accountConnect {
+  padding: 10px 12px;
+  border: 1px solid #ed6688;
+  border-radius: 10px;
+  background: #fff0f4;
+  color: #a82e50;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.accountConnect:hover { background: #ffe4ed; }
+.accountConnect:disabled, .sourceAction:disabled { opacity: 0.5; cursor: not-allowed; }
+.connectionHint {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid #f0e9ed;
+  color: #8c7b84;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .sourceActions {
   display: flex;
+  flex-wrap: wrap;
   flex-direction: column;
   align-items: center;
   gap: 6px;

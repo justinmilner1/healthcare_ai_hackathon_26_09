@@ -7,7 +7,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
-import DexcomDemoLink, { DemoReturnLink } from "@/components/DexcomDemoLink";
+import DexcomDemoLink from "@/components/DexcomDemoLink";
 import type {
   ChatMessage,
   IntakeFieldDef,
@@ -336,12 +336,6 @@ export default function SweetiePage({
           )}
         </header>
 
-        {sandboxPatient && (
-          <div role="note" className="mb-4 rounded-lg border-2 border-amber-400 bg-amber-50 p-3 text-sm text-amber-950">
-            <strong>Synthetic data — Dexcom sandbox demo only.</strong> Do not upload real patient data or use these data for care decisions.
-            <div><DemoReturnLink token={token} /></div>
-          </div>
-        )}
         {sandboxPatient === false && <DexcomDemoLink token={token} disabled={busy || Boolean(uploading) || skipping} />}
         {sandboxPatient === true && (
           <p className="mb-4 text-sm">

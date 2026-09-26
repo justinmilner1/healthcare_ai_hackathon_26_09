@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import DexcomDemoLink, { DemoReturnLink } from "@/components/DexcomDemoLink";
+import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { IntakeStatus, UploadKind } from "@/lib/types";
@@ -387,7 +387,6 @@ export default function SweetieIntakePage({
               <div role="note" className={styles.demoNotice}>
                 <strong>Demo mode · Synthetic data only</strong>
                 Your patient record stays unchanged. Not for care decisions.
-                <div><DemoReturnLink token={token} /></div>
               </div>
             )}
             {dexcomMessage && <p role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">{dexcomMessage}</p>}
@@ -457,43 +456,25 @@ export default function SweetieIntakePage({
                     <BackIcon />
                     Back
                   </button>
-                  <p className={styles.eyebrow}>{dexcomStatus?.sandboxPatient ? "EXPLORE THE DEMO" : "CONNECT YOUR HEALTH DATA"}</p>
+                  <p className={styles.eyebrow}>CONNECT YOUR HEALTH DATA</p>
                   <h1 className={`${styles.title} ${styles.connectTitle}`}>
-                    {dexcomStatus?.sandboxPatient ? "Try a week with Dexcom." : "Bring the last 7 days into focus."}
+                    Bring the last 7 days into focus.
                   </h1>
                   <p className={styles.lede}>
                     {dexcomStatus?.sandboxPatient
-                      ? "Connect Dexcom’s sandbox to import synthetic glucose readings for this demo."
-                      : "Add any exports you have. You can replace or remove them at any time."}
+                      ? "Demo mode: connect Dexcom to explore synthetic readings. Other sources are available in your regular intake."
+                      : "Connect Dexcom or upload a file. Add sleep and location for more context."}
                   </p>
                 </div>
 
                 {!dexcomStatus && !dexcomError && <p role="status">Checking data connections…</p>}
-                {dexcomStatus?.sandboxPatient && (
-                  <form action="/api/dexcom/connect" method="POST" className={styles.sandboxCard}>
-                    <input type="hidden" name="token" value={token} />
-                    <div className={styles.sandboxHeader}>
-                      <span className={styles.sandboxIcon}><SourceIcon kind="dexcom" /></span>
-                      <div><h2>Dexcom sandbox</h2><p>Seven days of synthetic glucose readings</p></div>
-                    </div>
-                    <p className={styles.sandboxBody}>Authorize access on Dexcom, then return here to explore your demo glucose trends.</p>
-                    {dexcomStatus.connected && (
-                      <p role="status" className={styles.sandboxResult}>
-                        <strong>{dexcomStatus.count.toLocaleString()} synthetic glucose readings imported.</strong>
-                        {dexcomStatus.start && dexcomStatus.end && (
-                          <span className="block">{formatImportDate(dexcomStatus.start)} – {formatImportDate(dexcomStatus.end)}</span>
-                        )}
-                      </p>
-                    )}
-                    {!dexcomStatus.configured && <p className="text-sm">Sandbox connection is not configured yet. Ask the demo organizer to finish setup.</p>}
-                    <button type="submit" className={styles.primaryButton} disabled={!dexcomStatus.configured}>
-                      {dexcomStatus.connected ? "Reconnect and import" : "Connect Dexcom — Sandbox"}
-                    </button>
-                  </form>
-                )}
                 <div className={styles.sourceList}>
-                  {dexcomStatus?.sandboxPatient === false && SOURCES.map((source) => {
-                    const connection = connections[source.kind];
+                  {dexcomStatus && SOURCES.map((source) => {
+                    const sandbox = dexcomStatus.sandboxPatient;
+                    const unavailable = sandbox && source.kind !== "dexcom";
+                    const connection: Connection = sandbox
+                      ? { state: source.kind === "dexcom" && dexcomStatus.connected ? "connected" : "idle" }
+                      : connections[source.kind];
                     return (
                       <div
                         key={source.kind}
@@ -511,7 +492,7 @@ export default function SweetieIntakePage({
                         <span className={styles.sourceCopy}>
                           <span className={styles.sourceHeading}>
                             <strong>{source.name}</strong>
-                            <SourceStatus connection={connection} />
+                            {!unavailable && <SourceStatus connection={connection} />}
                           </span>
                           <span className={styles.sourceDescription}>
                             {source.description}
@@ -523,14 +504,25 @@ export default function SweetieIntakePage({
                                 : ""
                             }`}
                           >
-                            {connection.detail ?? source.format}
+                            {unavailable ? "File uploads are unavailable in demo mode" : sandbox ? (dexcomStatus.connected ? `${dexcomStatus.count.toLocaleString()} demo readings imported` : "Dexcom account · Synthetic demo data") : connection.detail ?? source.format}
                           </span>
                         </span>
                         <div className={styles.sourceActions}>
+                          {source.kind === "dexcom" && (sandbox ? (
+                            <form action="/api/dexcom/connect" method="POST">
+                              <input type="hidden" name="token" value={token} />
+                              <button type="submit" className={styles.accountConnect} disabled={!dexcomStatus.configured || isFinishing}>
+                                {dexcomStatus.connected ? "Reconnect Dexcom · Demo" : "Connect Dexcom · Demo"}
+                              </button>
+                            </form>
+                          ) : <DexcomDemoLink token={token} compact buttonClassName={styles.accountConnect} disabled={!dexcomStatus.configured || isUploading || isFinishing} />)}
+                          {sandbox ? (
+                            <button type="button" className={styles.sourceAction} disabled title="Use your regular patient intake for real uploads">{source.kind === "timeline" ? "Upload JSON" : "Upload CSV"}</button>
+                          ) : <>
                           <label className={styles.sourceAction}>
                             {connection.state === "uploading"
                               ? "Adding…"
-                              : connection.state === "connected" ? "Replace" : "Choose file"}
+                              : connection.state === "connected" ? "Replace file" : source.kind === "timeline" ? "Upload JSON" : "Upload CSV"}
                             <input
                               className={styles.fileInput}
                               type="file"
@@ -555,11 +547,16 @@ export default function SweetieIntakePage({
                               {removing === source.kind ? "Removing…" : "Remove"}
                             </button>
                           )}
+                          </>}
                         </div>
                         {source.kind === "dexcom" && (
-                          <div className="col-span-full w-full">
-                            <DexcomDemoLink token={token} disabled={isUploading || isFinishing} />
-                          </div>
+                          <p className={styles.connectionHint}>
+                            {!dexcomStatus.configured ? "Dexcom connection is not configured yet. CSV upload is still available outside demo mode."
+                              : sandbox && dexcomStatus.connected && dexcomStatus.start && dexcomStatus.end
+                                ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)} · Synthetic readings`
+                                : sandbox ? "Authorize on Dexcom and return here. Only synthetic readings are imported."
+                                  : "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."}
+                          </p>
                         )}
                         {confirmRemoval === source.kind && (
                           <div className={styles.removeConfirmation}>
@@ -583,7 +580,7 @@ export default function SweetieIntakePage({
 
                 <div className={styles.connectFooter}>
                   <div className={styles.connectionCount}>
-                    <span>{connectedCount}</span> of {dexcomStatus?.sandboxPatient ? 1 : 3} connected
+                    <span>{connectedCount}</span> of 3 connected{dexcomStatus?.sandboxPatient ? " · Dexcom-only demo" : ""}
                   </div>
                   <div className={styles.connectActions}>
                     <button
