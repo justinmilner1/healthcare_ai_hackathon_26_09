@@ -1,15 +1,19 @@
 "use client";
 
-// Provider view (Sour): patient list + the one-page summary the endocrinologist reads during the visit. Owner: Justin.
+// Sour view: the one-page summary the endocrinologist reads during the visit, with a sidebar of ready summaries.
+// Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour, POST /api/invite. Print gives the one-pager.
 
+import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { rememberProvider } from "@/lib/providerSession";
 import Disclaimer from "@/components/Disclaimer";
 import GlucoseChart from "@/components/GlucoseChart";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
+import { visitLabel } from "@/lib/sweetie";
 import type { PatientBundle } from "@/lib/types";
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
@@ -35,8 +39,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       .then((p: Provider) => {
         setProvider(p);
         // ?patient=<id> deep-links from the summary email; otherwise open the first patient.
+        rememberProvider(id);
         const wanted = new URLSearchParams(window.location.search).get("patient");
-        const first = p.patients?.find((x) => x.id === wanted)?.id ?? p.patients?.[0]?.id;
+        const first = p.patients?.find((x) => x.id === wanted)?.id ?? p.patients?.find((x) => x.hasSummary)?.id;
         if (first && !selected) setSelected(first);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,28 +79,6 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     });
   }, [selected, load, generate]);
 
-  const [adding, setAdding] = useState(false);
-  const [newP, setNewP] = useState({ name: "", phone: "", email: "", apptAt: "", optIn: true });
-  const [addNote, setAddNote] = useState("");
-
-  async function addPatient(e: React.FormEvent) {
-    e.preventDefault();
-    setAddNote("Adding…");
-    const res = await fetch("/api/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...newP, providerId: id, apptAt: newP.apptAt || undefined }),
-    });
-    const d = await res.json();
-    if (!res.ok) return setAddNote(d.error ?? "Could not add patient.");
-    const parts = [d.sms?.sent ? "texted" : null, d.email?.sent ? "emailed" : null].filter(Boolean);
-    setAddNote(parts.length ? `Invite ${parts.join(" and ")}.` : `Added. Link: ${d.link}`);
-    setNewP({ name: "", phone: "", email: "", apptAt: "", optIn: true });
-    const p = (await (await fetch(`/api/provider?id=${id}`)).json()) as Provider;
-    setProvider(p);
-    setSelected(d.patientId);
-  }
-
   async function sendLink(pid: string) {
     setInvite("Sending…");
     const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
@@ -114,6 +97,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     setAsking(false);
   }
 
+  const visible = (provider?.patients ?? []).filter((p) => p.hasSummary || p.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
   const sources = bundle ? [bundle.status.hasDexcom && "Dexcom", bundle.status.hasLocation && "Timeline", bundle.status.hasWhoop && "WHOOP"].filter(Boolean).join(" · ") : "";
@@ -121,10 +105,12 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   return (
     <main className="mx-auto grid max-w-6xl gap-8 p-6 md:grid-cols-[240px_1fr] print:block print:p-0">
       <aside className="print:hidden">
-        <h1 className="text-lg font-bold">{provider?.name ?? "…"}</h1>
+        <Link href="/provider" className="text-xs text-[var(--viz-muted)] hover:underline">← All patients</Link>
+        <h1 className="mt-1 text-lg font-bold">{provider?.name ?? "…"}</h1>
         <p className="text-sm text-[var(--viz-ink-2)]">{provider?.practice}</p>
-        <ul className="mt-4 space-y-1">
-          {provider?.patients.map((p) => (
+        <p className="mt-3 text-[11px] uppercase tracking-wide text-[var(--viz-muted)]">Summaries ready</p>
+        <ul className="mt-1 space-y-1">
+          {visible.map((p) => (
             <li key={p.id}>
               <button
                 onClick={() => setSelected(p.id)}
@@ -139,31 +125,13 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               </button>
             </li>
           ))}
-          {provider && provider.patients.length === 0 && <li className="text-sm text-[var(--viz-muted)]">No patients yet.</li>}
+          {provider && visible.length === 0 && (
+            <li className="text-sm text-[var(--viz-muted)]">
+              No summaries yet. <Link href="/provider" className="underline">Manage patients</Link>.
+            </li>
+          )}
         </ul>
 
-        <div className="mt-5 border-t border-black/10 pt-4">
-          <button onClick={() => setAdding((a) => !a)} className="text-sm font-medium underline-offset-2 hover:underline">
-            {adding ? "Close" : "+ Add patient"}
-          </button>
-          <p className="mt-0.5 text-[11px] text-[var(--viz-muted)]">Stands in for the scheduling system: a booked visit becomes a patient here, and the invite goes out.</p>
-          {adding && (
-            <form onSubmit={addPatient} className="mt-3 space-y-2 text-sm">
-              <input required placeholder="Patient name" className="w-full rounded-md border border-black/15 px-2 py-1.5" value={newP.name} onChange={(e) => setNewP({ ...newP, name: e.target.value })} />
-              <input placeholder="Mobile, +1415…" className="w-full rounded-md border border-black/15 px-2 py-1.5" value={newP.phone} onChange={(e) => setNewP({ ...newP, phone: e.target.value })} />
-              <input type="email" placeholder="Email" className="w-full rounded-md border border-black/15 px-2 py-1.5" value={newP.email} onChange={(e) => setNewP({ ...newP, email: e.target.value })} />
-              <label className="block text-xs text-[var(--viz-ink-2)]">
-                Visit date
-                <input type="datetime-local" className="mt-0.5 w-full rounded-md border border-black/15 px-2 py-1.5 text-sm" value={newP.apptAt} onChange={(e) => setNewP({ ...newP, apptAt: e.target.value })} />
-              </label>
-              <label className="flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={newP.optIn} onChange={(e) => setNewP({ ...newP, optIn: e.target.checked })} /> Patient opted in to pre-visit texts
-              </label>
-              <button className="w-full rounded-md bg-black px-3 py-1.5 text-white">Add and send invite</button>
-              {addNote && <p className="break-all text-xs text-[var(--viz-ink-2)]">{addNote}</p>}
-            </form>
-          )}
-        </div>
       </aside>
 
       <section className={loading && bundle ? "opacity-60 transition-opacity" : ""}>
@@ -176,10 +144,12 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                 <div className="text-xs uppercase tracking-wide text-[var(--viz-muted)]">Sour 🍋 pre-visit summary</div>
                 <h2 className="text-2xl font-bold">{bundle.patient.name}</h2>
                 <p className="text-sm text-[var(--viz-ink-2)]">
-                  {bundle.patient.apptAt ? `Visit ${new Date(bundle.patient.apptAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : "No visit date"}
+                  {visitLabel(bundle.patient.visitType)}
+                  {bundle.patient.apptAt ? ` · ${new Date(bundle.patient.apptAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : " · no visit date"}
                   {st && st.readings > 0 && ` · ${st.days} days · ${st.readings.toLocaleString()} readings`}
                   {sources && ` · ${sources}`}
                 </p>
+                {bundle.patient.reason && <p className="mt-0.5 text-sm">Called about: <span className="font-medium">{bundle.patient.reason}</span></p>}
               </div>
               <div className="flex gap-2 print:hidden">
                 <button onClick={() => sendLink(bundle.patient.id)} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Send link</button>
@@ -200,6 +170,68 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               <EmptyIntake bundle={bundle} />
             ) : (
               <>
+                <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="text-sm font-semibold">Summary</h3>
+                    {st && (
+                      <p className="text-sm text-[var(--viz-ink-2)]">
+                        In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg} · GMI {st.gmi.toFixed(1)}% · {bundle.spikes.length} spikes
+                        {st.sleepAvgHours !== null && ` · sleep ${st.sleepAvgHours}h`}
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <h3 className="text-sm font-semibold">Patterns</h3>
+                    {!s ? (
+                      <p className="mt-1 text-sm text-[var(--viz-muted)]">{busy ? "Sour is reading the data…" : "No summary yet."}</p>
+                    ) : (
+                      <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm leading-snug">
+                        {s.patterns.map((p, i) => <li key={i}>{p}</li>)}
+                        {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">None found.</li>}
+                      </ol>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Ask the patient</h3>
+                    {!s ? (
+                      <p className="mt-1 text-sm text-[var(--viz-muted)]">—</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-sm leading-snug">
+                        {s.questions.map((qq, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              className="mt-1 print:hidden"
+                              checked={checked.has(i)}
+                              onChange={(e) => {
+                                const n = new Set(checked);
+                                if (e.target.checked) n.add(i);
+                                else n.delete(i);
+                                setChecked(n);
+                              }}
+                            />
+                            <span className={checked.has(i) ? "text-[var(--viz-muted)] line-through" : ""}>{qq}</span>
+                          </li>
+                        ))}
+                        {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">None.</li>}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <h3 className="text-sm font-semibold">In the patient&apos;s words</h3>
+                  {bundle.patient.notes ? (
+                    <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-black/15 pl-3 text-sm italic text-[var(--viz-ink-2)]">{bundle.patient.notes}</blockquote>
+                  ) : (
+                    <p className="mt-1 text-sm text-[var(--viz-muted)]">Sweetie has not collected answers yet.</p>
+                  )}
+                </div>
+                  </div>
+                </section>
+
                 {st && (
                   <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
                     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -247,55 +279,6 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                     </div>
                   </section>
                 </div>
-
-                <section className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <h3 className="text-sm font-semibold">Patterns</h3>
-                    {!s ? (
-                      <p className="mt-1 text-sm text-[var(--viz-muted)]">{busy ? "Sour is reading the data…" : "No summary yet."}</p>
-                    ) : (
-                      <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm leading-snug">
-                        {s.patterns.map((p, i) => <li key={i}>{p}</li>)}
-                        {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">None found.</li>}
-                      </ol>
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold">Ask the patient</h3>
-                    {!s ? (
-                      <p className="mt-1 text-sm text-[var(--viz-muted)]">—</p>
-                    ) : (
-                      <ul className="mt-2 space-y-2 text-sm leading-snug">
-                        {s.questions.map((qq, i) => (
-                          <li key={i} className="flex items-start gap-2">
-                            <input
-                              type="checkbox"
-                              className="mt-1 print:hidden"
-                              checked={checked.has(i)}
-                              onChange={(e) => {
-                                const n = new Set(checked);
-                                if (e.target.checked) n.add(i);
-                                else n.delete(i);
-                                setChecked(n);
-                              }}
-                            />
-                            <span className={checked.has(i) ? "text-[var(--viz-muted)] line-through" : ""}>{qq}</span>
-                          </li>
-                        ))}
-                        {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">None.</li>}
-                      </ul>
-                    )}
-                  </div>
-                </section>
-
-                <section>
-                  <h3 className="text-sm font-semibold">In the patient&apos;s words</h3>
-                  {bundle.patient.notes ? (
-                    <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-black/15 pl-3 text-sm italic text-[var(--viz-ink-2)]">{bundle.patient.notes}</blockquote>
-                  ) : (
-                    <p className="mt-1 text-sm text-[var(--viz-muted)]">Sweetie has not collected answers yet.</p>
-                  )}
-                </section>
 
                 <section className="print:hidden">
                   <form onSubmit={askSour} className="flex gap-2">

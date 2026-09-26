@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     try {
       const answer = await ask(
         sourSystem() + "\nAnswer the doctor's question in 3 sentences or fewer, citing the data.",
-        `Data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep })}\n\nQuestion: ${body.question}`,
+        `Data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } })}\n\nQuestion: ${body.question}`,
       );
       return NextResponse.json({ answer });
     } catch (e) {
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   let patient: Summary;
   let llmOk = true;
   try {
-    const n = await ask<Narrative>(sourSystem(), sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep }), { json: true });
+    const n = await ask<Narrative>(sourSystem(), sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }), { json: true });
     provider = { ...base, patterns: (n.patterns ?? []).slice(0, 3), questions: (n.questions ?? []).slice(0, 3) };
     const p = await ask<Narrative>(patientSummarySystem(), JSON.stringify(provider), { json: true, effort: "low" });
     patient = { ...base, patterns: (p.patterns ?? []).slice(0, 3), questions: (p.questions ?? []).slice(0, 3) };

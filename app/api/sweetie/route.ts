@@ -9,8 +9,9 @@ import { NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { LLMUnavailable, MODEL } from "@/lib/llm";
-import { extract, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
-import type { ChatMessage, IntakeState } from "@/lib/types";
+import { extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
+import type { VisitContext } from "@/lib/sweetie";
+import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
 
 const MAX_TURNS = 14;
 
@@ -31,12 +32,11 @@ export async function GET(req: Request) {
   const rows = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
   if (messages.length === 0) {
-    const first = patient.name.split(" ")[0];
-    const hello = `Hi ${first}, I'm Sweetie 🍬. I help ${patient.provider.name} get ready for your visit, so the appointment starts with your story already told. It takes about five minutes. First, could you upload your Dexcom export with the Dexcom button below? If you're not sure how to get it, just ask.`;
+    const hello = greeting(patient.name.split(" ")[0], patient.provider.name, { visitType: patient.visitType, reason: patient.reason });
     await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, intake: bundle?.intake, agent: agentInfo() });
+  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 export async function POST(req: Request) {
@@ -48,7 +48,9 @@ export async function POST(req: Request) {
   if (!message && !event) return NextResponse.json({ error: "message or event is required" }, { status: 400 });
 
   const firstName = patient.name.split(" ")[0];
-  let state: IntakeState = parseIntake(patient.intake);
+  const visit = { visitType: patient.visitType, reason: patient.reason };
+  const defs = fieldsFor(visit.visitType, visit.reason);
+  let state: IntakeState = parseIntake(patient.intake, defs);
   let reply: string;
   let exportHelp: "dexcom" | "timeline" | "whoop" | null = null;
 
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
     if (flag) {
       state = { ...state, flagged: flag, wrapped: true };
       reply = redFlagReply(firstName, patient.provider.name);
-      return finish(patient.id, state, reply);
+      return finish(patient.id, state, defs, visit, reply);
     }
   }
 
@@ -72,7 +74,7 @@ export async function POST(req: Request) {
   let llm = true;
   if (message) {
     try {
-      const ex = await extract(state, transcript, message);
+      const ex = await extract(state, defs, transcript, message);
       state = merge(state, ex);
       exportHelp = ex.asks_export_help;
     } catch (e) {
@@ -85,14 +87,14 @@ export async function POST(req: Request) {
   // 3. Decide direction from state + what has actually been uploaded.
   const bundle = await loadBundle(patient.id);
   const status = bundle!.status;
-  let target = nextTarget(state, status);
+  let target = nextTarget(state, defs, status);
   if (state.turns >= MAX_TURNS && target.kind !== "wrap") target = { kind: "wrap" };
 
   // 4. Say it.
   const uploadEvent = event ? { kind: event.kind, count: event.count, days: event.days } : undefined;
   if (llm) {
     try {
-      reply = await speak({ firstName, providerName: patient.provider.name, state, status, target, transcript, exportHelp, uploadEvent });
+      reply = await speak({ firstName, providerName: patient.provider.name, visit, state, defs, status, target, transcript, exportHelp, uploadEvent });
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
       reply = scripted({ firstName, target, exportHelp, uploadEvent });
@@ -102,14 +104,14 @@ export async function POST(req: Request) {
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };
 
-  return finish(patient.id, state, reply);
+  return finish(patient.id, state, defs, visit, reply);
 }
 
-async function finish(patientId: string, state: IntakeState, reply: string) {
+async function finish(patientId: string, state: IntakeState, defs: IntakeFieldDef[], visit: VisitContext, reply: string) {
   await db.message.create({ data: { patientId, role: "sweetie", content: reply } });
-  await db.patient.update({ where: { id: patientId }, data: { intake: JSON.stringify(state), notes: renderNotes(state) } });
+  await db.patient.update({ where: { id: patientId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, visit) } });
   const bundle = await loadBundle(patientId);
-  return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, agent: agentInfo() });
+  return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 function guessExportHelp(text: string): "dexcom" | "timeline" | "whoop" | null {

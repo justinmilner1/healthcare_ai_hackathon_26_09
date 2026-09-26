@@ -1,4 +1,4 @@
-// POST /api/book  { name, phone?, email?, providerId?, optIn?, apptAt? }
+// POST /api/book  { name, phone?, email?, providerId?, optIn?, apptAt?, visitType?, reason? }
 // Creates a patient with a presigned intake token and, if opted in, sends the link by SMS and/or email.
 // Returns { patientId, token, link, sms: {sent, error?}, email: {sent, error?} }. Owner: Justin.
 
@@ -16,6 +16,8 @@ export async function POST(req: Request) {
     providerId?: string;
     optIn?: boolean;
     apptAt?: string;
+    visitType?: string;
+    reason?: string;
   };
   if (!body.name) return NextResponse.json({ error: "name is required" }, { status: 400 });
 
@@ -38,6 +40,8 @@ export async function POST(req: Request) {
       providerId: provider.id,
       optIn: Boolean(body.optIn),
       apptAt: body.apptAt ? new Date(body.apptAt) : null,
+      visitType: body.visitType?.trim() || null,
+      reason: body.reason?.trim() || null,
       token,
     },
   });

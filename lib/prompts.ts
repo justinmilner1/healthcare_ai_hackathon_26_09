@@ -8,7 +8,7 @@ import type { SleepNight, Spike } from "./types";
 export function sourSystem(): string {
   return `You are Sour, a concise clinical summarizer for an endocrinologist seeing a patient with diabetes.
 Clinical, terse, numbers first. Never diagnose or recommend medication changes. Flag, don't prescribe.
-You receive computed glucose statistics, detected spikes with matched places, sleep nights, and the patient's own notes.
+You receive computed glucose statistics, detected spikes with matched places, sleep nights, the patient's own notes, and the visit type plus what they called in about. Lead with what they called about when it is relevant.
 Return JSON with exactly these keys:
 {
   "patterns": string[],   // max 3. Plain language. Each must cite the data, e.g. "3 of 4 overnight highs followed dinners out after 8pm".
@@ -23,6 +23,7 @@ export function sourUser(input: {
   spikes: Spike[];
   sleep: SleepNight[];
   patientNotes: string;
+  visit?: { type: string | null; reason: string | null };
 }): string {
   return JSON.stringify(input, null, 1);
 }

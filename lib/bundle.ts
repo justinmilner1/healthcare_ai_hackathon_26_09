@@ -4,7 +4,7 @@ import { db } from "./db";
 import { averageGlucose, detectSpikes, downsample, timeInRange } from "./glucose";
 import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
-import { answeredCount, FIELDS, parseIntake } from "./sweetie";
+import { answeredCount, fieldsFor, parseIntake, requiredCount } from "./sweetie";
 import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
 
 /** Accepts a patient id or their presigned token, so /patient/<token> works straight from the invite link. */
@@ -29,9 +29,10 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
 
   const spikes: Spike[] = matchSpikesToVisits(detectSpikes(glucose), visits).slice(0, 5);
 
-  const intake = parseIntake(patient.intake);
-  const answered = answeredCount(intake);
-  const required = FIELDS.filter((f) => f.required).length;
+  const intakeFields = fieldsFor(patient.visitType, patient.reason);
+  const intake = parseIntake(patient.intake, intakeFields);
+  const answered = answeredCount(intake, intakeFields);
+  const required = requiredCount(intakeFields);
   const status: IntakeStatus = {
     hasDexcom: glucose.length > 0,
     hasLocation: visits.length > 0,
@@ -50,6 +51,8 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
       name: patient.name,
       token: patient.token,
       apptAt: patient.apptAt?.toISOString() ?? null,
+      visitType: patient.visitType,
+      reason: patient.reason,
       notes: patient.notes,
       provider: { id: patient.provider.id, name: patient.provider.name, practice: patient.provider.practice },
     },
@@ -60,6 +63,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     stats: computeStats(glucose, sleep),
     status,
     intake,
+    intakeFields,
     providerSummary: prov ? parseOr<Summary | null>(prov.json, null) : null,
     providerSummaryAt: prov?.createdAt.toISOString() ?? null,
     patientSummary: pat ? parseOr<Summary | null>(pat.json, null) : null,

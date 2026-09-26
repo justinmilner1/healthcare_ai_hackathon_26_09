@@ -4,7 +4,7 @@
 // Uses GET/POST /api/sweetie and POST /api/upload. This is a working skeleton; make it pretty.
 
 import { use, useEffect, useRef, useState } from "react";
-import type { ChatMessage, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
+import type { ChatMessage, IntakeFieldDef, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
 
 type AgentInfo = { connected: boolean; model: string };
 
@@ -13,6 +13,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
   const [intake, setIntake] = useState<IntakeState | null>(null);
+  const [fields, setFields] = useState<IntakeFieldDef[]>([]);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,6 +26,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         setMessages(d.messages ?? []);
         setStatus(d.status ?? null);
         setIntake(d.intake ?? null);
+        setFields(d.intakeFields ?? []);
         setAgent(d.agent ?? null);
       });
   }, [token]);
@@ -45,6 +47,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     setMessages((m) => [...m, { role: "sweetie", content: d.reply }]);
     setStatus(d.status);
     if (d.intake) setIntake(d.intake);
+    if (d.intakeFields) setFields(d.intakeFields);
     if (d.agent) setAgent(d.agent);
     setBusy(false);
   }
@@ -72,6 +75,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     if (d2.reply) setMessages((m) => [...m, { role: "sweetie", content: d2.reply }]);
     if (d2.status) setStatus(d2.status);
     if (d2.intake) setIntake(d2.intake);
+    if (d2.intakeFields) setFields(d2.intakeFields);
     if (d2.agent) setAgent(d2.agent);
     setBusy(false);
   }
@@ -87,7 +91,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <UploadButton label="Maps Timeline JSON" kind="timeline" done={status?.hasLocation} onFile={upload} />
         <UploadButton label="WHOOP CSV" kind="whoop" done={status?.hasWhoop} onFile={upload} />
       </div>
-      {intake && <Progress intake={intake} />}
+      {intake && fields.length > 0 && <Progress intake={intake} fields={fields} />}
 
       <div className="mt-4 flex-1 space-y-2 overflow-y-auto rounded border p-3">
         {messages.map((m, i) => (
@@ -151,17 +155,15 @@ function UploadButton({ label, kind, done, onFile }: { label: string; kind: Uplo
   );
 }
 
-const FIELD_LABELS: Record<keyof IntakeState["fields"], string> = { meals: "Meals", unusual: "This week", symptoms: "How you feel", visit_goal: "For the doctor" };
-
-function Progress({ intake }: { intake: IntakeState }) {
+function Progress({ intake, fields }: { intake: IntakeState; fields: IntakeFieldDef[] }) {
   return (
     <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-      {(Object.keys(FIELD_LABELS) as (keyof IntakeState["fields"])[]).map((k) => {
-        const c = intake.fields[k]?.confidence ?? "unfilled";
+      {fields.map((f) => {
+        const c = intake.fields[f.id]?.confidence ?? "unfilled";
         const done = c === "medium" || c === "high";
         return (
-          <span key={k} title={intake.fields[k]?.value ?? ""} className={`rounded-full px-2 py-0.5 ${done ? "bg-green-100 text-green-800" : c === "low" ? "bg-amber-50 text-amber-800" : "bg-gray-100 text-gray-500"}`}>
-            {done ? "✓ " : ""}{FIELD_LABELS[k]}
+          <span key={f.id} title={intake.fields[f.id]?.value ?? f.goal} className={`rounded-full px-2 py-0.5 ${done ? "bg-green-100 text-green-800" : c === "low" ? "bg-amber-50 text-amber-800" : f.required ? "bg-gray-100 text-gray-500" : "bg-gray-50 text-gray-400"}`}>
+            {done ? "✓ " : ""}{f.label}
           </span>
         );
       })}

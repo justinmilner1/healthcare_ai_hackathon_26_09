@@ -90,7 +90,9 @@ A spike matches a visit if the visit ended within 30 minutes before the spike st
 ## Agent prompts (`lib/prompts.ts`)
 
 **Sweetie** (patient-facing) lives in `lib/sweetie.ts`, not in `prompts.ts`.
-- Field-driven, like a clinical history template: `FIELDS` (meals, unusual week, symptoms, visit goal). Each patient
+- Field-driven, like a clinical history template: `fieldsFor(visitType, reason)` builds the template from base fields
+  (meals, unusual week, symptoms, visit goal) plus visit-type extras (new patient, medication check, post-hospital,
+  annual) and a first field about whatever the patient called in about. Each patient
   message goes through a deterministic red-flag regex scan first, then an extraction call fills fields with a
   confidence, then `nextTarget` picks the next thing to ask (dexcom upload, timeline upload unless declined, first
   unfilled field, optional WHOOP, wrap), then `speak` writes one short plain-text message toward that target.
