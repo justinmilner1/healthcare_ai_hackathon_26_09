@@ -1,45 +1,173 @@
+import Image from "next/image";
 import Link from "next/link";
+import PersonaBrand from "@/components/PersonaBrand";
 
-// Landing. Links to every screen so anyone can reach their page without a booking flow.
 export default function Home() {
   return (
-    <main className="mx-auto max-w-2xl p-8 space-y-8">
-      <header>
-        <h1 className="text-4xl font-bold">Sweet Spot 🍬🍋</h1>
-        <p className="mt-2 text-lg text-gray-600">
-          Sweetie talks to the patient before the visit. Sour hands the endocrinologist a one-page summary.
-        </p>
-      </header>
+    <main className="ss-page sweetie-theme home-page">
+      <div className="ss-container">
+        <header className="ss-topbar">
+          <PersonaBrand
+            persona="sweetie"
+            context="One clearer conversation"
+          />
+          <nav className="home-nav" aria-label="Main navigation">
+            <Link href="/provider" className="ss-button">
+              Practice dashboard
+            </Link>
+            <Link href="/demo" className="ss-button ss-button-primary">
+              Open demo
+              <span aria-hidden="true">→</span>
+            </Link>
+          </nav>
+        </header>
 
-      <section className="grid gap-4 sm:grid-cols-2">
-        <Card href="/provider" title="Practice dashboard" body="Add booked patients, send Sweetie links, see who is ready, open summaries in Sour." />
-        <Card href="/demo" title="Demo provider" body="Sign in as Dr. Demo Endo with the seeded sample patient (after npm run seed)." />
-      </section>
-      <p className="text-sm text-[var(--viz-ink-2)]">
-        Patients never visit this site on their own. A booked visit in the practice&apos;s scheduling system creates the patient here and sends a text or email with a presigned link. That link is the patient&apos;s only entry point.
-      </p>
+        <section className="home-hero ss-card ss-enter">
+          <div className="home-copy">
+            <p className="ss-eyebrow">BEFORE THE VISIT · DURING THE VISIT</p>
+            <h1 className="ss-display">
+              A whole week of context.
+              <br />
+              One <em>better</em> conversation.
+            </h1>
+            <p className="ss-lede">
+              Sweetie gathers the patient&apos;s glucose, sleep, places, and
+              story. Sour turns it into the one-page brief their
+              endocrinologist actually needs.
+            </p>
+            <div className="home-actions">
+              <Link href="/demo" className="ss-button ss-button-primary">
+                Explore the provider demo
+                <span aria-hidden="true">→</span>
+              </Link>
+              <Link href="/provider/signup" className="ss-text-button">
+                Set up a practice
+              </Link>
+            </div>
+            <div className="home-trust">
+              <span>7 days of context</span>
+              <i />
+              <span>5-minute intake</span>
+              <i />
+              <span>1-page summary</span>
+            </div>
+          </div>
 
-      <section className="rounded-lg border p-4 text-sm text-gray-600">
-        <p className="font-medium text-gray-800">Dev shortcuts</p>
-        <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>
-            Run <code>npm run seed</code> to create a demo provider and patient with sample data loaded.
-          </li>
-          <li>The seed prints the Sweetie link, the provider page, and the patient page.</li>
-          <li>
-            <code>POST /api/book</code> is the scheduling-system hook: it creates the patient and sends the invite. The provider page&apos;s Add patient form calls it.
-          </li>
-        </ol>
-      </section>
+          <div className="home-visual" aria-label="Meet Sweetie and Sour">
+            <div className="home-glow home-glow-pink" />
+            <div className="home-glow home-glow-yellow" />
+            <figure className="home-character home-character-sweetie ss-float">
+              <Image
+                src="/assets/sweetie/sweetie.png"
+                alt="Sweetie, the friendly patient intake assistant"
+                width={440}
+                height={440}
+                priority
+              />
+              <figcaption>
+                <strong>Sweetie</strong>
+                <span>Patient intake</span>
+              </figcaption>
+            </figure>
+            <figure className="home-character home-character-sour ss-float">
+              <Image
+                src="/assets/sour/sour.png"
+                alt="Sour, the concise provider summary assistant"
+                width={440}
+                height={440}
+                priority
+              />
+              <figcaption>
+                <strong>Sour</strong>
+                <span>Provider brief</span>
+              </figcaption>
+            </figure>
+            <div className="home-handoff">
+              <span>Patient story</span>
+              <b>→</b>
+              <span>Clinical signal</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="home-journey" aria-labelledby="journey-title">
+          <div className="home-section-heading">
+            <div>
+              <p className="ss-eyebrow">ONE CONNECTED CARE JOURNEY</p>
+              <h2 className="ss-title" id="journey-title">
+                Built for both sides of the room.
+              </h2>
+            </div>
+            <p>
+              Patients arrive remembered. Providers start with the signal,
+              not the search.
+            </p>
+          </div>
+
+          <div className="home-lanes">
+            <article className="home-lane home-lane-sweetie">
+              <div className="home-lane-number">01</div>
+              <div className="home-lane-icon">
+                <Image
+                  src="/assets/sweetie/sweetie.png"
+                  alt=""
+                  width={62}
+                  height={62}
+                />
+              </div>
+              <p className="ss-eyebrow">FOR PATIENTS</p>
+              <h3>Sweetie makes sharing feel human.</h3>
+              <p>
+                A warm, one-question-at-a-time conversation gathers uploads
+                and the details people forget in the exam room.
+              </p>
+              <ul>
+                <li>Dexcom, Timeline, and WHOOP</li>
+                <li>Meals, symptoms, and visit goals</li>
+                <li>A secure link—no account required</li>
+              </ul>
+            </article>
+
+            <article className="home-lane home-lane-sour">
+              <div className="home-lane-number">02</div>
+              <div className="home-lane-icon">
+                <Image
+                  src="/assets/sour/sour.png"
+                  alt=""
+                  width={62}
+                  height={62}
+                />
+              </div>
+              <p className="ss-eyebrow">FOR CARE TEAMS</p>
+              <h3>Sour gets straight to what matters.</h3>
+              <p>
+                A terse, data-first brief surfaces glucose patterns, context,
+                and specific questions for the visit.
+              </p>
+              <ul>
+                <li>Time in range and glucose trends</li>
+                <li>Spikes linked to places and sleep</li>
+                <li>Patient-specific questions to ask</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <details className="home-dev ss-card">
+          <summary>Developer shortcuts</summary>
+          <div>
+            Run <code>npm run seed</code>, then open{" "}
+            <Link href="/demo">the seeded provider demo</Link>. The practice
+            dashboard&apos;s Add patient flow calls <code>POST /api/book</code>{" "}
+            and sends the patient&apos;s presigned Sweetie link.
+          </div>
+        </details>
+
+        <footer className="home-footer">
+          <span>Sweet Spot · Healthcare AI Hackathon</span>
+          <span>Demo only · Not medical advice</span>
+        </footer>
+      </div>
     </main>
-  );
-}
-
-function Card({ href, title, body }: { href: string; title: string; body: string }) {
-  return (
-    <Link href={href} className="rounded-lg border p-4 hover:bg-gray-50">
-      <h2 className="text-xl font-semibold">{title}</h2>
-      <p className="mt-1 text-sm text-gray-600">{body}</p>
-    </Link>
   );
 }

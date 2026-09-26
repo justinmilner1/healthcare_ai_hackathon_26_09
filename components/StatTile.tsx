@@ -2,7 +2,7 @@
 
 export default function StatTile({ label, value, unit, hint }: { label: string; value: string; unit?: string; hint?: string }) {
   return (
-    <div className="rounded-lg border border-black/10 bg-[var(--viz-surface)] px-4 py-3">
+    <div className="summary-stat-tile">
       <div className="text-xs text-[var(--viz-ink-2)]">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-[var(--viz-ink)]">
         {value}

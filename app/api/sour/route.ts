@@ -10,7 +10,12 @@ import { baseSummary, loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { ask, LLMUnavailable } from "@/lib/llm";
 import { sendSummaryEmails, type SummaryNotifyResult } from "@/lib/notify";
-import { patientSummarySystem, sourSystem, sourUser } from "@/lib/prompts";
+import {
+  patientSummarySystem,
+  sourQuestionSystem,
+  sourSystem,
+  sourUser,
+} from "@/lib/prompts";
 import type { Summary } from "@/lib/types";
 
 type Narrative = { patterns: string[]; questions: string[] };
@@ -29,10 +34,10 @@ export async function POST(req: Request) {
   if (body.question) {
     try {
       const answer = await ask(
-        sourSystem() + "\nAnswer the doctor's question in 3 sentences or fewer, citing the data.",
+        sourQuestionSystem(),
         `Data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } })}\n\nQuestion: ${body.question}`,
       );
-      return NextResponse.json({ answer });
+      return NextResponse.json({ answer: plainAnswer(answer) });
     } catch (e) {
       if (e instanceof LLMUnavailable) return NextResponse.json({ answer: "(LLM not configured) " + e.message });
       throw e;
@@ -77,4 +82,33 @@ export async function POST(req: Request) {
     }
   }
   return NextResponse.json({ provider, patient, notified });
+}
+
+function plainAnswer(raw: string): string {
+  const text = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  if (!text.startsWith("{") || !text.endsWith("}")) return text;
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.answer === "string") return parsed.answer;
+
+    const prose = Object.values(parsed)
+      .flatMap((value) => {
+        if (typeof value === "string") return [value];
+        if (Array.isArray(value)) {
+          return value.filter((item): item is string => typeof item === "string");
+        }
+        return [];
+      })
+      .join(" ");
+
+    return prose || text;
+  } catch {
+    return text;
+  }
 }

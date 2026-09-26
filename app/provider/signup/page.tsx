@@ -1,38 +1,211 @@
 "use client";
 
-// Provider sign up. POST /api/provider, remember the provider, go to the dashboard. Owner: Justin.
-
+import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import PersonaBrand from "@/components/PersonaBrand";
 import { rememberProvider } from "@/lib/providerSession";
 
 export default function ProviderSignup() {
   const router = useRouter();
+  const [step, setStep] = useState(0);
   const [form, setForm] = useState({ name: "", email: "", practice: "" });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
+
+    if (step === 0) {
+      setStep(1);
+      return;
+    }
+
     setBusy(true);
-    const res = await fetch("/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-    const p = await res.json();
-    rememberProvider(p.id);
-    router.push("/provider");
+    try {
+      const res = await fetch("/api/provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const provider = await res.json();
+      if (!res.ok) {
+        throw new Error(provider.error ?? "Could not create the practice.");
+      }
+      rememberProvider(provider.id);
+      router.push("/provider");
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not create the practice.",
+      );
+      setBusy(false);
+    }
   }
 
   return (
-    <main className="mx-auto max-w-md space-y-6 p-8">
-      <h1 className="text-2xl font-bold">Provider sign up</h1>
-      <p className="text-sm text-[var(--viz-ink-2)]">Demo only: no password. Your email identifies the practice.</p>
-      <form onSubmit={submit} className="space-y-4">
-        {(["name", "email", "practice"] as const).map((k) => (
-          <label key={k} className="block">
-            <span className="text-sm capitalize">{k}</span>
-            <input className="mt-1 w-full rounded-md border border-black/15 p-2" required={k !== "practice"} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
-          </label>
-        ))}
-        <button disabled={busy} className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-50">{busy ? "Creating…" : "Create"}</button>
-      </form>
+    <main className="ss-page sour-theme">
+      <div className="ss-container">
+        <header className="ss-topbar">
+          <PersonaBrand persona="sour" context="Provider workspace" />
+          <div className="ss-stepper" aria-label="Setup progress">
+            {["You", "Practice"].map((label, index) => (
+              <div
+                key={label}
+                className={`ss-step ${
+                  index === step ? "ss-step-active" : ""
+                } ${index < step ? "ss-step-done" : ""}`}
+              >
+                <span>{index < step ? "✓" : index + 1}</span>
+                <em>{label}</em>
+              </div>
+            ))}
+          </div>
+          <Link href="/provider" className="ss-text-button">
+            Back to practices
+          </Link>
+        </header>
+
+        <section className="onboard-card ss-card">
+          <aside className="onboard-art">
+            <p className="onboard-art-eyebrow">MEET SOUR</p>
+            <h1>
+              Clear data.
+              <br />
+              Better <em>visits.</em>
+            </h1>
+            <div className="onboard-character ss-float">
+              <Image
+                src="/assets/sour/sour.png"
+                alt="Sour, the provider's concise clinical assistant"
+                width={500}
+                height={500}
+                priority
+              />
+            </div>
+            <div className="onboard-quote">
+              <span>✦</span>
+              <p>
+                I&apos;ll keep the numbers first and the noise out of the way.
+              </p>
+            </div>
+          </aside>
+
+          <form className="onboard-content" onSubmit={submit}>
+            {error && (
+              <div className="ss-error" role="alert">
+                {error}
+              </div>
+            )}
+
+            {step === 0 ? (
+              <div className="onboard-step ss-enter" key="identity">
+                <div>
+                  <p className="ss-eyebrow">YOUR PROVIDER PROFILE</p>
+                  <h2 className="ss-title">First, tell Sour who you are.</h2>
+                  <p className="ss-lede">
+                    This demo uses your email to remember the practice. No
+                    password or setup call required.
+                  </p>
+                </div>
+                <div className="onboard-fields">
+                  <label className="ss-label">
+                    <span>Your name</span>
+                    <input
+                      className="ss-input"
+                      required
+                      autoFocus
+                      autoComplete="name"
+                      placeholder="Dr. Maya Chen"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm({ ...form, name: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="ss-label">
+                    <span>Work email</span>
+                    <input
+                      className="ss-input"
+                      required
+                      type="email"
+                      autoComplete="email"
+                      placeholder="maya@practice.com"
+                      value={form.email}
+                      onChange={(e) =>
+                        setForm({ ...form, email: e.target.value })
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <div className="onboard-step ss-enter" key="practice">
+                <div>
+                  <p className="ss-eyebrow">YOUR PRACTICE</p>
+                  <h2 className="ss-title">Give the workspace a home.</h2>
+                  <p className="ss-lede">
+                    Patients will see this practice name in their invite and
+                    pre-visit check-in.
+                  </p>
+                </div>
+                <div className="onboard-fields">
+                  <label className="ss-label">
+                    <span>Practice name</span>
+                    <input
+                      className="ss-input"
+                      autoFocus
+                      autoComplete="organization"
+                      placeholder="Northstar Endocrinology"
+                      value={form.practice}
+                      onChange={(e) =>
+                        setForm({ ...form, practice: e.target.value })
+                      }
+                    />
+                  </label>
+                  <div className="onboard-review">
+                    <div className="onboard-review-avatar">
+                      {form.name.trim().charAt(0).toUpperCase() || "D"}
+                    </div>
+                    <div>
+                      <strong>{form.name}</strong>
+                      <span>
+                        {form.practice || "Independent practice"} · {form.email}
+                      </span>
+                    </div>
+                    <span className="ss-pill ss-pill-info">Ready</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="onboard-actions">
+              {step > 0 ? (
+                <button
+                  type="button"
+                  className="ss-text-button"
+                  onClick={() => setStep(0)}
+                >
+                  ← Back
+                </button>
+              ) : (
+                <span className="onboard-hint">Takes less than a minute</span>
+              )}
+              <button
+                className="ss-button ss-button-primary"
+                disabled={busy}
+              >
+                {busy
+                  ? "Creating workspace…"
+                  : step === 0
+                    ? "Continue →"
+                    : "Create workspace →"}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
     </main>
   );
 }

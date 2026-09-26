@@ -6,13 +6,13 @@
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
-const INK2 = "#52514e";
-const MUTED = "#898781";
-const GRID = "#e1e0d9";
-const AXIS = "#c3c2b7";
-const SERIES = "#2a78d6";
-const CRITICAL = "#d03b3b";
-const SURFACE = "#fcfcfb";
+const INK2 = "var(--viz-ink-2)";
+const MUTED = "var(--viz-muted)";
+const GRID = "var(--viz-grid)";
+const AXIS = "var(--viz-axis)";
+const SERIES = "var(--viz-series)";
+const CRITICAL = "var(--viz-critical)";
+const SURFACE = "var(--viz-surface)";
 
 export default function GlucoseChart({ readings, spikes, height = 280 }: { readings: GlucoseReading[]; spikes: Spike[]; height?: number }) {
   const data = readings.map((r) => ({ t: Date.parse(r.t), mgdl: r.mgdl }));

@@ -9,6 +9,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import { rememberProvider } from "@/lib/providerSession";
 import Disclaimer from "@/components/Disclaimer";
 import GlucoseChart from "@/components/GlucoseChart";
+import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
@@ -103,65 +104,79 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const sources = bundle ? [bundle.status.hasDexcom && "Dexcom", bundle.status.hasLocation && "Timeline", bundle.status.hasWhoop && "WHOOP"].filter(Boolean).join(" · ") : "";
 
   return (
-    <main className="mx-auto grid max-w-6xl gap-8 p-6 md:grid-cols-[240px_1fr] print:block print:p-0">
-      <aside className="print:hidden">
-        <Link href="/provider" className="text-xs text-[var(--viz-muted)] hover:underline">← All patients</Link>
-        <h1 className="mt-1 text-lg font-bold">{provider?.name ?? "…"}</h1>
-        <p className="text-sm text-[var(--viz-ink-2)]">{provider?.practice}</p>
-        <p className="mt-3 text-[11px] uppercase tracking-wide text-[var(--viz-muted)]">Summaries ready</p>
-        <ul className="mt-1 space-y-1">
+    <main className="ss-page sour-theme sour-summary-page print:block print:p-0">
+      <div className="sour-summary-layout">
+      <aside className="sour-summary-sidebar print:hidden">
+        <PersonaBrand persona="sour" context="Clinical summary" href="/provider" />
+        <Link href="/provider" className="sour-back-link">← All patients</Link>
+        <div className="sour-practice">
+          <span>Practice</span>
+          <h1>{provider?.name ?? "…"}</h1>
+          <p>{provider?.practice}</p>
+        </div>
+        <p className="sour-sidebar-label">Summaries ready</p>
+        <ul className="sour-patient-list">
           {visible.map((p) => (
             <li key={p.id}>
               <button
                 onClick={() => setSelected(p.id)}
-                className={`w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-black/5 ${selected === p.id ? "bg-black/5 font-medium" : ""}`}
+                className={selected === p.id ? "sour-patient-active" : ""}
               >
-                <div>{p.name}</div>
-                <div className="text-xs text-[var(--viz-muted)]">
+                <span className="sour-patient-initial">{p.name.charAt(0)}</span>
+                <span>
+                <strong>{p.name}</strong>
+                <small>
                   {p.apptAt ? new Date(p.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
                   {p.uploads.length ? ` · ${p.uploads.length} source${p.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
-                  {p.hasSummary ? " · summary" : ""}
-                </div>
+                </small>
+                </span>
+                {p.hasSummary && <i>✓</i>}
               </button>
             </li>
           ))}
           {provider && visible.length === 0 && (
-            <li className="text-sm text-[var(--viz-muted)]">
+            <li className="sour-sidebar-empty">
               No summaries yet. <Link href="/provider" className="underline">Manage patients</Link>.
             </li>
           )}
         </ul>
-
+        <div className="sour-sidebar-note">
+          <span>✦</span>
+          <p>Numbers first. Patterns second. Always verify with the patient.</p>
+        </div>
       </aside>
 
-      <section className={loading && bundle ? "opacity-60 transition-opacity" : ""}>
+      <section className={`sour-summary-content ${loading && bundle ? "sour-content-loading" : ""}`}>
         {!bundle ? (
-          <p className="text-[var(--viz-muted)]">{loading ? "Loading…" : "Select a patient."}</p>
+          <div className="sour-select-empty">
+            <span>🍋</span>
+            <p>{loading ? "Sour is reading the week…" : "Select a patient summary."}</p>
+          </div>
         ) : (
-          <article className="space-y-6">
-            <header className="flex flex-wrap items-start justify-between gap-3">
+          <article className="sour-brief ss-enter">
+            <header className="sour-brief-header">
               <div>
-                <div className="text-xs uppercase tracking-wide text-[var(--viz-muted)]">Sour 🍋 pre-visit summary</div>
-                <h2 className="text-2xl font-bold">{bundle.patient.name}</h2>
-                <p className="text-sm text-[var(--viz-ink-2)]">
+                <div className="ss-eyebrow">SOUR · PRE-VISIT SUMMARY</div>
+                <h2>{bundle.patient.name}</h2>
+                <p>
                   {visitLabel(bundle.patient.visitType)}
                   {bundle.patient.apptAt ? ` · ${new Date(bundle.patient.apptAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : " · no visit date"}
                   {st && st.readings > 0 && ` · ${st.days} days · ${st.readings.toLocaleString()} readings`}
                   {sources && ` · ${sources}`}
                 </p>
-                {bundle.patient.reason && <p className="mt-0.5 text-sm">Called about: <span className="font-medium">{bundle.patient.reason}</span></p>}
+                {bundle.patient.reason && <p className="sour-called-about">Called about: <strong>{bundle.patient.reason}</strong></p>}
               </div>
-              <div className="flex gap-2 print:hidden">
-                <button onClick={() => sendLink(bundle.patient.id)} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Send link</button>
-                <button onClick={() => window.print()} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Print</button>
-                <button onClick={() => generate(bundle.patient.id)} disabled={busy || !bundle.status.hasDexcom} className="rounded-md bg-black px-3 py-1.5 text-sm text-white disabled:opacity-40">
+              <div className="sour-brief-actions print:hidden">
+                <button onClick={() => sendLink(bundle.patient.id)} className="ss-button">Send link</button>
+                <button onClick={() => window.print()} className="ss-button">Print</button>
+                <button onClick={() => generate(bundle.patient.id)} disabled={busy || !bundle.status.hasDexcom} className="ss-button ss-button-primary">
                   {busy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
             </header>
-            {invite && <p className="break-all rounded-md bg-blue-50 px-3 py-2 text-xs text-[var(--viz-ink-2)] print:hidden">{invite}</p>}
+            {invite && <p className="ss-notice sour-invite-note print:hidden">{invite}</p>}
             {bundle.intake?.flagged && (
-              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+              <p className="ss-error sour-safety-flag">
                 <span className="font-semibold">Safety flag during intake:</span> {bundle.intake.flagged.replace(/_/g, " ")}. Sweetie stopped the interview and told the patient to call the office. Review before the visit.
               </p>
             )}
@@ -170,7 +185,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               <EmptyIntake bundle={bundle} />
             ) : (
               <>
-                <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                <section className="sour-card sour-overview-card">
                   <div className="flex items-baseline justify-between gap-3">
                     <h3 className="text-sm font-semibold">Summary</h3>
                     {st && (
@@ -233,7 +248,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                 </section>
 
                 {st && (
-                  <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                  <section className="sour-card sour-metrics-card">
                     <div className="flex flex-wrap items-end justify-between gap-4">
                       <div>
                         <div className="text-xs text-[var(--viz-ink-2)]">Time in range</div>
@@ -257,7 +272,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </section>
                 )}
 
-                <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                <section className="sour-card sour-chart-card">
                   <h3 className="text-sm font-semibold">Glucose, last {st?.days ?? 7} days</h3>
                   <p className="text-xs text-[var(--viz-muted)]">Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.</p>
                   <div className="mt-2">
@@ -265,14 +280,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </div>
                 </section>
 
-                <div className="grid gap-6 md:grid-cols-2">
-                  <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                <div className="sour-card-grid">
+                  <section className="sour-card">
                     <h3 className="text-sm font-semibold">Spikes linked to places</h3>
                     <div className="mt-2">
                       <SpikeTable spikes={bundle.spikes} />
                     </div>
                   </section>
-                  <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                  <section className="sour-card">
                     <h3 className="text-sm font-semibold">Sleep</h3>
                     <div className="mt-2">
                       <SleepChart nights={bundle.sleep} />
@@ -280,16 +295,23 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </section>
                 </div>
 
-                <section className="print:hidden">
-                  <form onSubmit={askSour} className="flex gap-2">
-                    <input className="flex-1 rounded-md border border-black/15 px-3 py-2 text-sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Sour: why was Tuesday bad?" disabled={asking} />
-                    <button className="rounded-md border border-black/15 px-3 text-sm hover:bg-black/5 disabled:opacity-40" disabled={asking || !q.trim()}>{asking ? "…" : "Ask"}</button>
+                <section className="sour-ask-card print:hidden">
+                  <div className="sour-ask-heading">
+                    <span>✦</span>
+                    <div>
+                      <strong>Ask Sour</strong>
+                      <small>Follow up on this patient&apos;s data</small>
+                    </div>
+                  </div>
+                  <form onSubmit={askSour}>
+                    <input className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Why was Tuesday different?" disabled={asking} />
+                    <button className="ss-button ss-button-accent" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Ask →"}</button>
                   </form>
-                  <ul className="mt-3 space-y-2">
+                  <ul className="sour-answers">
                     {qa.map((x, i) => (
-                      <li key={i} className="rounded-md bg-yellow-50 px-3 py-2 text-sm">
-                        <div className="text-xs text-[var(--viz-ink-2)]">{x.q}</div>
-                        <div className="mt-0.5">{x.a}</div>
+                      <li key={i}>
+                        <small>{x.q}</small>
+                        <div>{x.a}</div>
                       </li>
                     ))}
                   </ul>
@@ -297,12 +319,13 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               </>
             )}
 
-            <footer className="border-t border-black/10 pt-3">
+            <footer className="sour-disclaimer">
               <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} />
             </footer>
           </article>
         )}
       </section>
+      </div>
     </main>
   );
 }
@@ -315,14 +338,15 @@ function EmptyIntake({ bundle }: { bundle: PatientBundle }) {
     [`Sweetie questions (${bundle.status.answered} of 3)`, bundle.status.answered >= 3],
   ] as const;
   return (
-    <section className="rounded-lg border border-dashed border-black/20 p-5">
-      <h3 className="font-semibold">Waiting on the patient</h3>
-      <p className="mt-1 text-sm text-[var(--viz-ink-2)]">Nothing to summarize until glucose data arrives. Send the link again if they have not opened it.</p>
-      <ul className="mt-3 space-y-1 text-sm">
+    <section className="sour-card sour-waiting">
+      <span className="sour-waiting-icon">⌛</span>
+      <h3>Waiting on the patient</h3>
+      <p>Nothing to summarize until glucose data arrives. Send the link again if they have not opened it.</p>
+      <ul>
         {rows.map(([label, ok]) => (
-          <li key={label} className="flex items-center gap-2">
-            <span className={`inline-block h-2 w-2 rounded-full ${ok ? "bg-[var(--viz-good)]" : "bg-black/15"}`} />
-            <span className={ok ? "" : "text-[var(--viz-muted)]"}>{label}</span>
+          <li key={label} className={ok ? "sour-waiting-done" : ""}>
+            <span>{ok ? "✓" : ""}</span>
+            <em>{label}</em>
           </li>
         ))}
       </ul>
