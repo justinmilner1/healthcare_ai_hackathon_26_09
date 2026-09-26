@@ -309,7 +309,7 @@ function IntakeSteps({ status, intake, fields, onFile }: { status: IntakeStatus;
 
   const rowRef = useRef<HTMLOListElement>(null);
   useEffect(() => {
-    rowRef.current?.querySelector<HTMLElement>("[data-current='true']")?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    rowRef.current?.querySelector<HTMLElement>("[data-current='true']")?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
   }, [currentKey]);
 
   return (
