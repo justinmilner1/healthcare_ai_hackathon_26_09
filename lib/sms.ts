@@ -55,5 +55,5 @@ async function viaSns(to: string, body: string): Promise<SendResult> {
 
 export function intakeLink(token: string): string {
   const base = process.env.APP_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/$/, "")}/s/${token}`;
+  return `${base.replace(/\/$/, "")}/s/${token}/intake`;
 }
