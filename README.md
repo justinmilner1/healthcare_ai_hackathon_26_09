@@ -61,14 +61,13 @@ AWS_SECRET_ACCESS_KEY=
 EMAIL_FROM=you@example.com          # must be a verified SES identity
 TWILIO_ACCOUNT_SID=, TWILIO_AUTH_TOKEN=, TWILIO_FROM=      # Twilio wins over SNS when set
 RESEND_API_KEY=                                            # Resend wins over SES when set
-```
-
-Test a real send from the terminal: `npm run send:test -- --email you@example.com --phone +1415...`
 
 # App
 DATABASE_URL="file:./dev.db"
-APP_URL="https://<your-ngrok>.ngrok.app"
+APP_URL="https://<your-ngrok>.ngrok.app"    # the link in texts and emails points here
 ```
+
+Test a real send from the terminal: `npm run send:test -- --email you@example.com --phone +1415...`
 
 ### Calling GPT-5.5 on Bedrock
 
