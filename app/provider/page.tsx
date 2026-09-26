@@ -187,7 +187,7 @@ export default function ProviderDashboard() {
   async function copyIntakeLink(patient: Row) {
     const link = `${window.location.origin}/s/${encodeURIComponent(
       patient.token,
-    )}/intake`;
+    )}`;
     let copied = false;
 
     try {

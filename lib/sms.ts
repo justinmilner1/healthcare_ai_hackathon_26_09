@@ -53,7 +53,9 @@ async function viaSns(to: string, body: string): Promise<SendResult> {
   return { sent: true, provider: "sns" };
 }
 
+/** The presigned link in every invite. Lands directly in the Sweetie chat, which is where onboarding happens;
+ *  uploads live in the chat's sidebar, so no intermediate page. */
 export function intakeLink(token: string): string {
   const base = process.env.APP_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/$/, "")}/s/${token}/intake`;
+  return `${base.replace(/\/$/, "")}/s/${token}`;
 }

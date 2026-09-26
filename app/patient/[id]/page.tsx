@@ -105,7 +105,7 @@ export default function PatientPage({
                 into a clear picture for you and your doctor.
               </p>
               <a
-                href={`/s/${bundle.patient.token}/intake`}
+                href={`/s/${bundle.patient.token}`}
                 className="ss-button ss-button-primary"
               >
                 Connect Dexcom
