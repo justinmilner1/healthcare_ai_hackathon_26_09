@@ -6,6 +6,28 @@ import { useRouter } from "next/navigation";
 import type { IntakeStatus, UploadKind } from "@/lib/types";
 import styles from "./intake.module.css";
 
+type DexcomStatus = {
+  sandboxPatient: boolean;
+  configured: boolean;
+  connected: boolean;
+  count: number;
+  start: string | null;
+  end: string | null;
+};
+
+const DEXCOM_MESSAGES: Record<string, string> = {
+  connected: "Dexcom sandbox connected. Imported synthetic readings are shown below.",
+  cancelled: "Dexcom sandbox connection was cancelled. You can try again when ready.",
+  expired: "The Dexcom sandbox connection request expired. Please start a new connection.",
+  failed: "We could not connect or import Dexcom sandbox data. Please try again.",
+  no_data: "Dexcom sandbox returned no glucose readings to import. You can reconnect and try again.",
+};
+
+function formatImportDate(value: string | null) {
+  if (!value || !Number.isFinite(Date.parse(value))) return "Date unavailable";
+  return new Date(value).toLocaleString();
+}
+
 type DataKind = Extract<UploadKind, "dexcom" | "whoop" | "timeline">;
 type Connection = {
   state: "idle" | "uploading" | "connected" | "error";
@@ -68,6 +90,46 @@ export default function SweetieIntakePage({
   const [removing, setRemoving] = useState<DataKind | null>(null);
   const [confirmRemoval, setConfirmRemoval] = useState<DataKind | null>(null);
   const [connectionNotice, setConnectionNotice] = useState("");
+  const [dexcomStatus, setDexcomStatus] = useState<DexcomStatus | null>(null);
+  const [dexcomError, setDexcomError] = useState("");
+  const [dexcomMessage, setDexcomMessage] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDexcomStatus(null);
+    setDexcomError("");
+    const outcome = new URLSearchParams(window.location.search).get("dexcom");
+    setDexcomMessage("");
+    if (outcome && Object.prototype.hasOwnProperty.call(DEXCOM_MESSAGES, outcome)) {
+      setDexcomMessage(DEXCOM_MESSAGES[outcome]);
+      setStep(1);
+    }
+
+    fetch(`/api/dexcom/status?token=${encodeURIComponent(token)}`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Status unavailable");
+        const data = await response.json();
+        if (
+          typeof data?.sandboxPatient !== "boolean" ||
+          typeof data?.configured !== "boolean" ||
+          typeof data?.connected !== "boolean" ||
+          !Number.isInteger(data?.count) || data.count < 0 ||
+          !(data.start === null || typeof data.start === "string") ||
+          !(data.end === null || typeof data.end === "string")
+        ) throw new Error("Invalid status");
+        if (!controller.signal.aborted) setDexcomStatus(data as DexcomStatus);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setDexcomError("We could not check data connections. Reload this page to try again. File uploads are hidden until the patient type is confirmed.");
+        }
+      });
+
+    return () => controller.abort();
+  }, [token]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,7 +171,7 @@ export default function SweetieIntakePage({
   }, [token]);
 
   async function upload(kind: DataKind, file: File) {
-    if (isUploading || isFinishing) return;
+    if (!dexcomStatus || dexcomStatus.sandboxPatient || isUploading || isFinishing) return;
     const previous = connections[kind];
     setConnectionNotice("");
     setConfirmRemoval(null);
@@ -157,7 +219,7 @@ export default function SweetieIntakePage({
   }
 
   async function removeSource(kind: DataKind) {
-    if (isUploading || isFinishing) return;
+    if (!dexcomStatus || dexcomStatus.sandboxPatient || isUploading || isFinishing) return;
     setRemoving(kind);
     setPageError("");
     setConnectionNotice("");
@@ -196,9 +258,11 @@ export default function SweetieIntakePage({
     }
   }
 
-  const connectedCount = Object.values(connections).filter(
-    (connection) => connection.state === "connected",
-  ).length;
+  const connectedCount = dexcomStatus?.sandboxPatient
+    ? Number(dexcomStatus.connected)
+    : Object.values(connections).filter(
+        (connection) => connection.state === "connected",
+      ).length;
   const isUploading = removing !== null || Object.values(connections).some(
     (connection) => connection.state === "uploading",
   );
@@ -316,6 +380,13 @@ export default function SweetieIntakePage({
           </aside>
 
           <div className={styles.contentPanel}>
+            {dexcomStatus?.sandboxPatient && (
+              <div role="note" className="mb-4 rounded-lg border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+                <strong>Synthetic data — Dexcom sandbox demo only.</strong> This dedicated demo patient accepts sandbox imports only. Do not upload real patient data or use these data for care decisions.
+              </div>
+            )}
+            {dexcomMessage && <p role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">{dexcomMessage}</p>}
+            {dexcomError && <p role="alert" className={styles.pageError}>{dexcomError}</p>}
             {pageError && (
               <div className={styles.pageError} role="alert">
                 {pageError}
@@ -364,7 +435,7 @@ export default function SweetieIntakePage({
                     <ArrowIcon />
                   </button>
                   <span className={styles.actionHint}>
-                    No passwords needed for this demo
+                    {dexcomStatus?.sandboxPatient ? "Synthetic data only for this demo" : "No passwords needed for this demo"}
                   </span>
                 </div>
               </div>
@@ -386,12 +457,34 @@ export default function SweetieIntakePage({
                     Bring the last 7 days into focus.
                   </h1>
                   <p className={styles.lede}>
-                    Add any exports you have. You can replace or remove them at any time.
+                    {dexcomStatus?.sandboxPatient
+                      ? "Connect Dexcom’s sandbox to import synthetic glucose readings for this demo."
+                      : "Add any exports you have. You can replace or remove them at any time."}
                   </p>
                 </div>
 
+                {!dexcomStatus && !dexcomError && <p role="status">Checking data connections…</p>}
+                {dexcomStatus?.sandboxPatient && (
+                  <form action="/api/dexcom/connect" method="POST" className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+                    <input type="hidden" name="token" value={token} />
+                    <h2 className="font-semibold">Dexcom sandbox</h2>
+                    <p className="text-sm">You will leave this page to authorize a sandbox import, then return here. Only synthetic demo data is supported.</p>
+                    {dexcomStatus.connected && (
+                      <p role="status" className="text-sm">
+                        <strong>{dexcomStatus.count.toLocaleString()} synthetic glucose readings imported.</strong>
+                        {dexcomStatus.start && dexcomStatus.end && (
+                          <span className="block">{formatImportDate(dexcomStatus.start)} – {formatImportDate(dexcomStatus.end)}</span>
+                        )}
+                      </p>
+                    )}
+                    {!dexcomStatus.configured && <p className="text-sm">Sandbox connection is not configured yet. Ask the demo organizer to finish setup.</p>}
+                    <button type="submit" className={styles.primaryButton} disabled={!dexcomStatus.configured}>
+                      {dexcomStatus.connected ? "Reconnect and import" : "Connect Dexcom — Sandbox"}
+                    </button>
+                  </form>
+                )}
                 <div className={styles.sourceList}>
-                  {SOURCES.map((source) => {
+                  {dexcomStatus?.sandboxPatient === false && SOURCES.map((source) => {
                     const connection = connections[source.kind];
                     return (
                       <div
@@ -477,7 +570,7 @@ export default function SweetieIntakePage({
 
                 <div className={styles.connectFooter}>
                   <div className={styles.connectionCount}>
-                    <span>{connectedCount}</span> of 3 connected
+                    <span>{connectedCount}</span> of {dexcomStatus?.sandboxPatient ? 1 : 3} connected
                   </div>
                   <div className={styles.connectActions}>
                     <button
@@ -528,7 +621,9 @@ export default function SweetieIntakePage({
                           ? `${connectedCount} data ${
                               connectedCount === 1 ? "source" : "sources"
                             } connected`
-                          : "No data connected yet"}
+                          : dexcomStatus?.sandboxPatient
+                            ? "You can connect the sandbox later"
+                            : "No data connected yet"}
                       </strong>
                       <small>You can return to connections to add more data.</small>
                     </span>

@@ -37,6 +37,27 @@ model Patient {
   uploads    Upload[]
   messages   Message[]
   summaries  Summary[]
+  isSandbox Boolean @default(false)
+  dexcomConnection DexcomConnection?
+  dexcomOAuthStates DexcomOAuthState[]
+}
+
+// OAuth secrets never leave the server. Tokens are encrypted in lib/dexcom.ts.
+model DexcomConnection {
+  patientId String @id
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encryptedTokens String
+  expiresAt DateTime
+  importedAt DateTime?
+}
+
+// One-use state, bound to an HttpOnly browser cookie; only hashes are stored.
+model DexcomOAuthState {
+  stateHash String @id
+  browserHash String
+  patientId String
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
 }
 
 // One uploaded file. `kind` is dexcom | timeline | whoop | visits.
