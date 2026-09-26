@@ -145,6 +145,11 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               </div>
             </header>
             {invite && <p className="break-all rounded-md bg-blue-50 px-3 py-2 text-xs text-[var(--viz-ink-2)] print:hidden">{invite}</p>}
+            {bundle.intake?.flagged && (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                <span className="font-semibold">Safety flag during intake:</span> {bundle.intake.flagged.replace(/_/g, " ")}. Sweetie stopped the interview and told the patient to call the office. Review before the visit.
+              </p>
+            )}
 
             {!bundle.status.hasDexcom ? (
               <EmptyIntake bundle={bundle} />

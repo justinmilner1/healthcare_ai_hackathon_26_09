@@ -35,6 +35,19 @@ export type UploadKind = "dexcom" | "timeline" | "whoop" | "visits";
 export type ChatRole = "sweetie" | "patient";
 export type ChatMessage = { role: ChatRole; content: string; createdAt?: string };
 
+// Sweetie's structured intake. One entry per field she is trying to fill; the next question targets the
+// first required field that is still below "medium". Same shape of idea as a clinical history template.
+export type IntakeFieldId = "meals" | "unusual" | "symptoms" | "visit_goal";
+export type Confidence = "unfilled" | "low" | "medium" | "high";
+export type IntakeFieldState = { value: string | null; confidence: Confidence };
+export type IntakeState = {
+  fields: Record<IntakeFieldId, IntakeFieldState>;
+  skipped: ("timeline" | "whoop")[]; // uploads the patient said they don't have; Sweetie stops asking
+  flagged: string | null; // red-flag id if the safety scan fired
+  turns: number; // patient messages so far
+  wrapped: boolean; // Sweetie has said goodbye
+};
+
 // What Sweetie knows about the patient's progress. Drives which question comes next.
 export type IntakeStatus = {
   hasDexcom: boolean;
@@ -73,6 +86,7 @@ export type PatientBundle = {
   spikes: Spike[];
   stats: GlucoseStats;
   status: IntakeStatus;
+  intake: IntakeState;
   providerSummary: Summary | null;
   providerSummaryAt: string | null;
   patientSummary: Summary | null;

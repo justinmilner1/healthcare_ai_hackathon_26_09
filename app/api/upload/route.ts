@@ -40,5 +40,9 @@ export async function POST(req: Request) {
     data: { patientId: patient.id, kind, filename: file.name, raw, parsed: JSON.stringify(parsed) },
   });
   const bundle = await loadBundle(patient.id);
-  return NextResponse.json({ kind, count: parsed.length, status: bundle?.status });
+  // Day span for glucose uploads, so Sweetie can say "about 7 days" when she thanks the patient.
+  const days = kind === "dexcom" && parsed.length > 1
+    ? Math.max(1, Math.round((Date.parse((parsed[parsed.length - 1] as { t: string }).t) - Date.parse((parsed[0] as { t: string }).t)) / 86400000))
+    : undefined;
+  return NextResponse.json({ kind, count: parsed.length, days, status: bundle?.status });
 }

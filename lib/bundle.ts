@@ -4,7 +4,7 @@ import { db } from "./db";
 import { averageGlucose, detectSpikes, downsample, timeInRange } from "./glucose";
 import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
-import { SWEETIE_QUESTIONS } from "./prompts";
+import { answeredCount, FIELDS, parseIntake } from "./sweetie";
 import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
 
 /** Accepts a patient id or their presigned token, so /patient/<token> works straight from the invite link. */
@@ -29,13 +29,15 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
 
   const spikes: Spike[] = matchSpikesToVisits(detectSpikes(glucose), visits).slice(0, 5);
 
-  const answered = patient.messages.filter((m) => m.role === "patient").length;
+  const intake = parseIntake(patient.intake);
+  const answered = answeredCount(intake);
+  const required = FIELDS.filter((f) => f.required).length;
   const status: IntakeStatus = {
     hasDexcom: glucose.length > 0,
     hasLocation: visits.length > 0,
     hasWhoop: sleep.length > 0,
-    answered: Math.min(answered, SWEETIE_QUESTIONS.length),
-    done: glucose.length > 0 && answered >= SWEETIE_QUESTIONS.length,
+    answered,
+    done: glucose.length > 0 && (answered >= required || intake.wrapped),
   };
 
   const pick = (aud: string) => patient.summaries.find((x) => x.audience === aud);
@@ -57,6 +59,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     spikes,
     stats: computeStats(glucose, sleep),
     status,
+    intake,
     providerSummary: prov ? parseOr<Summary | null>(prov.json, null) : null,
     providerSummaryAt: prov?.createdAt.toISOString() ?? null,
     patientSummary: pat ? parseOr<Summary | null>(pat.json, null) : null,

@@ -132,7 +132,7 @@ app/
   provider/[id]/page.tsx        patient list + Sour summary view              Justin
   api/
     book/route.ts               POST create patient, send SMS                 Justin
-    sweetie/route.ts            GET transcript+status, POST chat turn         (open)
+    sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
     sour/route.ts               POST generate summaries; POST with question   James
     patient/[id]/route.ts       GET PatientBundle (everything a page needs)
@@ -146,7 +146,8 @@ components/
 lib/
   types.ts                      the shared shapes; change with care
   llm.ts                        ask(system, user, {json}) -> Bedrock Responses API
-  prompts.ts                    Sweetie + Sour prompts                        James (Sour)
+  prompts.ts                    Sour prompts                                  James
+  sweetie.ts                    Sweetie: fields, red-flag scan, extract, speak Justin
   glucose.ts                    parse Clarity CSV, spikes, time in range      Nisarga
   location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
   match.ts                      link spikes to visits                         Robbert
@@ -170,7 +171,7 @@ Everything runs end to end today with scripted agent replies. Each owner replace
 - [ ] Patient view results: Justin
 
 **Back end**
-- [ ] Sweetie (info-gathering agent) (open)
+- [x] Sweetie (info-gathering agent): Justin
 - [ ] Sour (summary agent), provider and patient versions: James
 - [ ] Data upload and storage: Dexcom Nisarga, location Robbert, WHOOP (open)
 - [ ] Texting / emailing: Justin

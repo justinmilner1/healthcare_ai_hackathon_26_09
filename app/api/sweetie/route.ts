@@ -1,26 +1,27 @@
-// Sweetie chat. Owner: (unassigned; Nisarga owns the page that calls this).
-// GET  /api/sweetie?token=...            -> { patientId, name, messages, status }
-// POST /api/sweetie { token, message }   -> { reply, status }
-// Without an API key, Sweetie falls back to a scripted flow so the front end still works.
+// Sweetie chat. Owner: Justin. Brain in lib/sweetie.ts; this route is transport.
+// GET  /api/sweetie?token=...                                   -> { patientId, name, messages, status, intake, agent }
+// POST /api/sweetie { token, message }                          -> { reply, status, intake, agent }
+// POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
+// Every patient message goes through the deterministic red-flag scan before the model sees it.
+// Without an API key the same targets are spoken with fixed words, so the page works offline.
 
 import { NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
-import { ask, LLMUnavailable, MODEL } from "@/lib/llm";
-import { SWEETIE_QUESTIONS, sweetieSystem } from "@/lib/prompts";
-import type { ChatMessage, IntakeStatus } from "@/lib/types";
+import { LLMUnavailable, MODEL } from "@/lib/llm";
+import { extract, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
+import type { ChatMessage, IntakeState } from "@/lib/types";
+
+const MAX_TURNS = 14;
+
+type UploadEvent = { type: "upload"; kind: string; count: number; days?: number };
 
 async function patientByToken(token: string | null) {
   if (!token) return null;
-  return db.patient.findUnique({ where: { token } });
+  return db.patient.findUnique({ where: { token }, include: { provider: true } });
 }
 
-function agentInfo() {
-  return {
-    connected: Boolean(process.env.OPENAI_API_KEY),
-    model: MODEL(),
-  };
-}
+const agentInfo = () => ({ connected: Boolean(process.env.OPENAI_API_KEY), model: MODEL() });
 
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
@@ -30,45 +31,92 @@ export async function GET(req: Request) {
   const rows = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
   if (messages.length === 0) {
-    const hello = `Hi ${patient.name.split(" ")[0]}, I'm Sweetie 🍬. I'll help you get ready for your visit. First, could you upload your Dexcom export using the button below?`;
+    const first = patient.name.split(" ")[0];
+    const hello = `Hi ${first}, I'm Sweetie 🍬. I help ${patient.provider.name} get ready for your visit, so the appointment starts with your story already told. It takes about five minutes. First, could you upload your Dexcom export with the Dexcom button below? If you're not sure how to get it, just ask.`;
     await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, agent: agentInfo() });
+  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, intake: bundle?.intake, agent: agentInfo() });
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string };
+  const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent };
   const patient = await patientByToken(body.token ?? null);
   if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
-  if (!body.message?.trim()) return NextResponse.json({ error: "message is required" }, { status: 400 });
+  const message = body.message?.trim();
+  const event = body.event?.type === "upload" ? body.event : undefined;
+  if (!message && !event) return NextResponse.json({ error: "message or event is required" }, { status: 400 });
 
-  await db.message.create({ data: { patientId: patient.id, role: "patient", content: body.message.trim() } });
+  const firstName = patient.name.split(" ")[0];
+  let state: IntakeState = parseIntake(patient.intake);
+  let reply: string;
+  let exportHelp: "dexcom" | "timeline" | "whoop" | null = null;
 
-  const bundle = await loadBundle(patient.id);
-  const status = bundle!.status;
+  if (message) {
+    await db.message.create({ data: { patientId: patient.id, role: "patient", content: message } });
+    state = { ...state, turns: state.turns + 1 };
+
+    // 1. Safety first, before any model call.
+    const flag = scanRedFlags(message);
+    if (flag) {
+      state = { ...state, flagged: flag, wrapped: true };
+      reply = redFlagReply(firstName, patient.provider.name);
+      return finish(patient.id, state, reply);
+    }
+  }
+
   const history = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
   const transcript = history.map((m) => `${m.role === "sweetie" ? "Sweetie" : "Patient"}: ${m.content}`).join("\n");
 
-  let reply: string;
-  try {
-    reply = await ask(sweetieSystem(status), `Conversation so far:\n${transcript}\n\nWrite Sweetie's next message.`, { effort: "low" });
-  } catch (e) {
-    if (!(e instanceof LLMUnavailable)) throw e;
-    reply = scriptedReply(status);
+  // 2. Extract what the latest message tells us (model), or skip for upload events.
+  let llm = true;
+  if (message) {
+    try {
+      const ex = await extract(state, transcript, message);
+      state = merge(state, ex);
+      exportHelp = ex.asks_export_help;
+    } catch (e) {
+      if (!(e instanceof LLMUnavailable)) throw e;
+      llm = false;
+      exportHelp = guessExportHelp(message);
+    }
   }
 
-  await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: reply } });
-  // Keep the patient's answers on the record for Sour.
-  const answers = history.filter((m) => m.role === "patient").map((m) => m.content).join("\n");
-  await db.patient.update({ where: { id: patient.id }, data: { notes: answers } });
+  // 3. Decide direction from state + what has actually been uploaded.
+  const bundle = await loadBundle(patient.id);
+  const status = bundle!.status;
+  let target = nextTarget(state, status);
+  if (state.turns >= MAX_TURNS && target.kind !== "wrap") target = { kind: "wrap" };
 
-  return NextResponse.json({ reply, status, agent: agentInfo() });
+  // 4. Say it.
+  const uploadEvent = event ? { kind: event.kind, count: event.count, days: event.days } : undefined;
+  if (llm) {
+    try {
+      reply = await speak({ firstName, providerName: patient.provider.name, state, status, target, transcript, exportHelp, uploadEvent });
+    } catch (e) {
+      if (!(e instanceof LLMUnavailable)) throw e;
+      reply = scripted({ firstName, target, exportHelp, uploadEvent });
+    }
+  } else {
+    reply = scripted({ firstName, target, exportHelp, uploadEvent });
+  }
+  if (target.kind === "wrap") state = { ...state, wrapped: true };
+
+  return finish(patient.id, state, reply);
 }
 
-function scriptedReply(s: IntakeStatus): string {
-  if (!s.hasDexcom) return "Thanks! Could you upload your Dexcom Clarity CSV with the Dexcom button? That's the most important one.";
-  if (!s.hasLocation) return "Got your glucose data. Next, could you upload your Google Maps Timeline export? It helps us connect meals to places.";
-  if (s.answered < SWEETIE_QUESTIONS.length) return SWEETIE_QUESTIONS[s.answered];
-  return "That's everything I need. Your doctor will see a one-page summary before your visit. See you soon!";
+async function finish(patientId: string, state: IntakeState, reply: string) {
+  await db.message.create({ data: { patientId, role: "sweetie", content: reply } });
+  await db.patient.update({ where: { id: patientId }, data: { intake: JSON.stringify(state), notes: renderNotes(state) } });
+  const bundle = await loadBundle(patientId);
+  return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, agent: agentInfo() });
+}
+
+function guessExportHelp(text: string): "dexcom" | "timeline" | "whoop" | null {
+  const t = text.toLowerCase();
+  if (!/how|where|get|find|export|download/.test(t)) return null;
+  if (/dexcom|clarity|glucose|cgm/.test(t)) return "dexcom";
+  if (/timeline|maps|location/.test(t)) return "timeline";
+  if (/whoop|sleep/.test(t)) return "whoop";
+  return null;
 }

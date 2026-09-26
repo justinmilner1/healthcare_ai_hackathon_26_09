@@ -1,30 +1,9 @@
 // Agent prompts. Sweetie is patient-facing, Sour is provider-facing. See AGENTS.md "Agent prompts".
-// Owner: Sweetie -> (unassigned), Sour -> James.
+// Owner: Sweetie -> Justin (lib/sweetie.ts), Sour -> James.
 
-import type { IntakeStatus, SleepNight, Spike } from "./types";
+import type { SleepNight, Spike } from "./types";
 
-export const SWEETIE_QUESTIONS = [
-  "What does a typical day of meals look like for you?",
-  "Anything unusual this week? Travel, illness, a change in routine, eating out more than usual?",
-  "What do you most want to bring up with your doctor at this visit?",
-];
-
-export function sweetieSystem(status: IntakeStatus): string {
-  const missing = [
-    !status.hasDexcom && "Dexcom glucose export (CSV)",
-    !status.hasLocation && "Google Maps Timeline export (JSON)",
-    !status.hasWhoop && "WHOOP sleep export (CSV, optional)",
-  ].filter(Boolean) as string[];
-
-  return `You are Sweetie, a warm assistant helping a person with diabetes get ready for an endocrinology visit.
-Rules: short messages, one question at a time, no medical advice, never interpret their numbers.
-Your job in order: (1) get their data uploaded using the upload buttons on this page, (2) ask these three questions one at a time:
-${SWEETIE_QUESTIONS.map((q, i) => `${i + 1}. ${q}`).join("\n")}
-(3) end by confirming what was collected and that their doctor will see a summary before the visit.
-
-Current status: uploads still missing: ${missing.length ? missing.join(", ") : "none"}. Questions answered so far: ${status.answered} of ${SWEETIE_QUESTIONS.length}.
-If uploads are missing, gently ask for the next one and say which button to use. If all uploads are in, ask the next unanswered question. If everything is done, wrap up in two sentences.`;
-}
+// Sweetie's prompts live in lib/sweetie.ts (field-driven; see FIELDS there).
 
 export function sourSystem(): string {
   return `You are Sour, a concise clinical summarizer for an endocrinologist seeing a patient with diabetes.

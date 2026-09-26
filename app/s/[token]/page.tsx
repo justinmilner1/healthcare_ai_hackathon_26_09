@@ -4,7 +4,7 @@
 // Uses GET/POST /api/sweetie and POST /api/upload. This is a working skeleton; make it pretty.
 
 import { use, useEffect, useRef, useState } from "react";
-import type { ChatMessage, IntakeStatus, UploadKind } from "@/lib/types";
+import type { ChatMessage, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
 
 type AgentInfo = { connected: boolean; model: string };
 
@@ -12,6 +12,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   const { token } = use(params);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
+  const [intake, setIntake] = useState<IntakeState | null>(null);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,6 +24,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
       .then((d) => {
         setMessages(d.messages ?? []);
         setStatus(d.status ?? null);
+        setIntake(d.intake ?? null);
         setAgent(d.agent ?? null);
       });
   }, [token]);
@@ -42,6 +44,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     const d = await res.json();
     setMessages((m) => [...m, { role: "sweetie", content: d.reply }]);
     setStatus(d.status);
+    if (d.intake) setIntake(d.intake);
     if (d.agent) setAgent(d.agent);
     setBusy(false);
   }
@@ -53,9 +56,24 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     fd.set("file", file);
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const d = await res.json();
-    const note = res.ok ? `Uploaded ${kind}: ${d.count} rows.` : `Upload failed: ${d.error}`;
-    setMessages((m) => [...m, { role: "sweetie", content: note }]);
+    if (!res.ok) {
+      setMessages((m) => [...m, { role: "sweetie", content: `That file didn't work: ${d.error}. Want to try again, or ask me how to export it?` }]);
+      return;
+    }
     if (d.status) setStatus(d.status);
+    // Tell Sweetie, so she can acknowledge what arrived and ask for the next thing.
+    setBusy(true);
+    const r2 = await fetch("/api/sweetie", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, event: { type: "upload", kind, count: d.count, days: d.days } }),
+    });
+    const d2 = await r2.json();
+    if (d2.reply) setMessages((m) => [...m, { role: "sweetie", content: d2.reply }]);
+    if (d2.status) setStatus(d2.status);
+    if (d2.intake) setIntake(d2.intake);
+    if (d2.agent) setAgent(d2.agent);
+    setBusy(false);
   }
 
   return (
@@ -69,6 +87,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <UploadButton label="Maps Timeline JSON" kind="timeline" done={status?.hasLocation} onFile={upload} />
         <UploadButton label="WHOOP CSV" kind="whoop" done={status?.hasWhoop} onFile={upload} />
       </div>
+      {intake && <Progress intake={intake} />}
 
       <div className="mt-4 flex-1 space-y-2 overflow-y-auto rounded border p-3">
         {messages.map((m, i) => (
@@ -129,5 +148,24 @@ function UploadButton({ label, kind, done, onFile }: { label: string; kind: Uplo
       {done ? "✓ " : ""}{label}
       <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(kind, e.target.files[0])} />
     </label>
+  );
+}
+
+const FIELD_LABELS: Record<keyof IntakeState["fields"], string> = { meals: "Meals", unusual: "This week", symptoms: "How you feel", visit_goal: "For the doctor" };
+
+function Progress({ intake }: { intake: IntakeState }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+      {(Object.keys(FIELD_LABELS) as (keyof IntakeState["fields"])[]).map((k) => {
+        const c = intake.fields[k]?.confidence ?? "unfilled";
+        const done = c === "medium" || c === "high";
+        return (
+          <span key={k} title={intake.fields[k]?.value ?? ""} className={`rounded-full px-2 py-0.5 ${done ? "bg-green-100 text-green-800" : c === "low" ? "bg-amber-50 text-amber-800" : "bg-gray-100 text-gray-500"}`}>
+            {done ? "✓ " : ""}{FIELD_LABELS[k]}
+          </span>
+        );
+      })}
+      {intake.flagged && <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-800">Flagged for the office</span>}
+    </div>
   );
 }
