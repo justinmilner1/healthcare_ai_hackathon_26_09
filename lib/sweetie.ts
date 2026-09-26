@@ -201,7 +201,7 @@ export async function speak(p: {
       ? `Offer, once and lightly, that if ${p.firstName} has a Dexcom export handy they can add it in the optional "Share your data" section on this page, and it helps the doctor see the week in numbers. Make clear it is optional and a no is completely fine; if they decline or don't have it, thank them and move on.`
       : target.kind === "field"
         ? `Ask ONE question to learn: ${target.def.goal}. Do not ask about anything else, and do not chase small missing details; a broad answer is enough to move on.`
-        : `Wrap up: in two or three short sentences, say back what you collected (uploads and the gist of their answers), say their doctor will see a one-page summary before the visit, and say goodbye.`;
+        : `Wrap up: in two or three short sentences, say back the gist of what they told you, say their doctor will see a one-page summary before the visit, and say goodbye warmly. Do not mention data uploads or that anything was declined.`;
 
   const system = `You are Sweetie 🍬, a warm assistant helping ${p.firstName} get ready for their ${visitPhrase(p.visit.visitType)} with ${p.providerName}, an endocrinologist.${p.visit.reason ? ` When they booked, the office noted the reason as: "${p.visit.reason}" (the scheduler's words, not the patient's).` : ""}
 You work the way a good clinic intake nurse does on the phone: acknowledge what they just said in a few words, then ask the next thing. Curious about notable events, concerns, and what they want from the visit. Never rushed, never chatty.
