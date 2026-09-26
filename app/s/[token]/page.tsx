@@ -166,20 +166,26 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
   return (
     <main className="mx-auto flex h-screen max-w-md flex-col p-4">
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex items-baseline justify-between gap-3">
         <h1 className="text-xl font-bold">Sweetie 🍬</h1>
-        <AgentBadge agent={agent} />
+        {!agent?.connected && agent && <span className="text-[11px] text-[var(--viz-muted)]">demo mode</span>}
       </header>
 
       {status && intake && <IntakeSteps status={status} intake={intake} fields={fields} onFile={upload} />}
 
-      <div className="mt-4 flex-1 space-y-2 overflow-y-auto rounded border p-3">
+      <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-1 py-2">
         {messages.map((m, i) => (
-          <div key={i} className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${m.role === "sweetie" ? "bg-pink-50" : "ml-auto bg-gray-100"}`}>
-            {m.content}
+          <div key={i} className={`flex ${m.role === "sweetie" ? "justify-start" : "justify-end"}`}>
+            <div className={`max-w-[85%] px-3.5 py-2.5 text-[15px] leading-snug ${m.role === "sweetie" ? "rounded-2xl rounded-bl-md bg-pink-50 text-[var(--viz-ink)]" : "rounded-2xl rounded-br-md bg-black text-white"}`}>
+              {m.content}
+            </div>
           </div>
         ))}
-        {interim && <div className="ml-auto max-w-[85%] rounded-lg bg-gray-50 px-3 py-2 text-sm italic text-gray-500">{interim}…</div>}
+        {interim && (
+          <div className="flex justify-end">
+            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-black/10 px-3.5 py-2.5 text-[15px] italic text-gray-600">{interim}…</div>
+          </div>
+        )}
         {status?.done && (
           <a href={`/patient/${token}`} className="block rounded bg-green-50 px-3 py-2 text-center text-sm underline">
             All done. See your summary →
@@ -241,33 +247,6 @@ function SpeakerIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" />
     </svg>
-  );
-}
-
-function AgentBadge({ agent }: { agent: AgentInfo | null }) {
-  if (!agent) {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-        Making connection…
-      </div>
-    );
-  }
-  const explanation = agent.connected
-    ? `Sweetie sends each reply to ${agent.model} through Amazon Bedrock.`
-    : "Sweetie is using fixed fallback questions instead of an AI model because no model API key is configured. To connect the model, set OPENAI_API_KEY in .env and restart the development server.";
-  return (
-    <button
-      type="button"
-      className={`group relative flex cursor-help items-center gap-1.5 rounded-full px-2.5 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${agent.connected ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}
-      aria-label={explanation}
-    >
-      <span className={`h-2 w-2 rounded-full ${agent.connected ? "bg-green-500" : "bg-gray-400"}`} />
-      {agent.connected ? `Connected to ${agent.model}` : "Scripted demo mode"}
-      <span className="pointer-events-none absolute right-0 top-full z-10 mt-2 hidden w-72 rounded-lg bg-gray-900 p-3 text-left text-xs leading-relaxed text-white shadow-lg group-hover:block group-focus:block">
-        {explanation}
-      </span>
-    </button>
   );
 }
 
