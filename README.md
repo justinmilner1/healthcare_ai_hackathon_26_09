@@ -91,7 +91,7 @@ const res = await client.responses.create({
 console.log(res.output_text);
 ```
 
-GPT-5.5 is only in us-east-2 (Ohio). Only the Responses API is supported, not chat completions.
+GPT-5.5 and 5.4 answered from both us-east-1 and us-east-2 on 26 Sep. Short-term Bedrock API keys are scoped to the region they were generated in, so `OPENAI_BASE_URL` must use that same region or every call returns 401 "Credential should be scoped to a valid region". Only the Responses API is supported, not chat completions.
 
 ### Codex on Bedrock
 
