@@ -48,21 +48,49 @@ function pickVoice(): SpeechSynthesisVoice | null {
   return voices.find((v) => v.lang.startsWith("en") && v.default) ?? voices.find((v) => v.lang.startsWith("en")) ?? null;
 }
 
-/** Speak text aloud. Resolves when finished or cancelled. Strips emoji so the voice does not say "candy". */
+let current: SpeechSynthesisUtterance | null = null; // keep a reference: Chrome drops GC'd utterances mid-sentence
+
+/** Speak text aloud. Resolves when finished, cancelled, or when the browser goes quiet without saying so.
+ * Chrome quirks handled: speaking immediately after cancel() can silently drop the utterance; long utterances
+ * pause unless resume() is poked; onend sometimes never fires. */
 export function say(text: string): Promise<void> {
   return new Promise((resolve) => {
-    if (!("speechSynthesis" in window)) return resolve();
-    window.speechSynthesis.cancel();
-    const clean = text.replace(/[\p{Extended_Pictographic}️]/gu, "").replace(/\s+/g, " ").trim();
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return resolve();
+    const synth = window.speechSynthesis;
+    const clean = text.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/\s+/g, " ").trim();
     if (!clean) return resolve();
+    synth.cancel();
     const u = new SpeechSynthesisUtterance(clean);
+    current = u;
     const v = pickVoice();
-    if (v) u.voice = v;
+    if (v) {
+      u.voice = v;
+      u.lang = v.lang;
+    }
     u.rate = 1.0;
     u.pitch = 1.0;
-    u.onend = () => resolve();
-    u.onerror = () => resolve();
-    window.speechSynthesis.speak(u);
+    let settled = false;
+    let started = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(tick);
+      clearTimeout(guard);
+      if (current === u) current = null;
+      resolve();
+    };
+    u.onstart = () => {
+      started = true;
+    };
+    u.onend = finish;
+    u.onerror = finish;
+    // Fallback: roughly 15 chars/sec plus slack. If the browser never reports the end, we still move on.
+    const guard = setTimeout(finish, 1500 + clean.length * 80);
+    const tick = setInterval(() => {
+      if (started && !synth.speaking && !synth.pending) finish();
+      else if (synth.paused) synth.resume();
+    }, 250);
+    setTimeout(() => synth.speak(u), 80);
   });
 }
 
@@ -71,6 +99,15 @@ export function hush() {
 }
 
 /** One listening turn. Calls onInterim while the person talks and onFinal once with the finished sentence. */
+/** Human-readable reason a listen failed, for the UI. */
+export function explainMicError(code: string): string {
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone is blocked. Allow it in the address bar, then tap the mic again.";
+  if (code === "audio-capture") return "No microphone found.";
+  if (code === "network") return "Speech recognition needs an internet connection.";
+  if (code === "unsupported") return "This browser cannot listen. Try Chrome or Safari, or type instead.";
+  return `Couldn't hear you (${code}). Tap the mic to try again.`;
+}
+
 export function listenOnce(handlers: { onInterim?: (t: string) => void; onFinal: (t: string) => void; onEnd?: () => void; onSpeechStart?: () => void; onError?: (code: string) => void }): { stop: () => void } {
   const Ctor = RecognitionCtor();
   if (!Ctor) {
@@ -97,6 +134,9 @@ export function listenOnce(handlers: { onInterim?: (t: string) => void; onFinal:
   };
   r.onerror = (e) => {
     if (e.error !== "no-speech" && e.error !== "aborted") handlers.onError?.(e.error);
+  };
+  (r as unknown as { onnomatch: (() => void) | null }).onnomatch = () => {
+    /* treated like no-speech: onend follows */
   };
   r.onend = () => {
     if (done) return;

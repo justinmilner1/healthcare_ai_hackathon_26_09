@@ -28,6 +28,7 @@ export type Summary = {
   patterns: string[]; // max 3, plain language
   questions: string[]; // max 3, for the doctor to ask
   patientNotes: string; // from Sweetie chat
+  flags?: string[]; // deterministic safety flags computed in code (lib/sour.ts safetyFlags), never by the model
 };
 
 export type UploadKind = "dexcom" | "timeline" | "whoop" | "visits";
@@ -43,7 +44,7 @@ export type IntakeFieldState = { value: string | null; confidence: Confidence };
 export type IntakeFieldDef = { id: IntakeFieldId; label: string; goal: string; fallbackQuestion: string; required: boolean };
 export type IntakeState = {
   fields: Record<IntakeFieldId, IntakeFieldState>;
-  skipped: ("timeline" | "whoop")[]; // uploads the patient said they don't have; Sweetie stops asking
+  skipped: ("dexcom" | "timeline" | "whoop")[]; // uploads the patient declined or doesn't have; Sweetie stops asking
   flagged: string | null; // red-flag id if the safety scan fired
   turns: number; // patient messages so far
   wrapped: boolean; // Sweetie has said goodbye

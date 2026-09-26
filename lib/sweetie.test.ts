@@ -4,8 +4,6 @@ import { answeredCount, emptyIntake, fieldsFor, nextTarget, parseIntake, renderN
 
 const visit = { visitType: "follow_up", reason: null };
 const defs = fieldsFor(visit.visitType, visit.reason);
-const noUploads = { hasDexcom: false, hasLocation: false, hasWhoop: false };
-
 test("skipping questions preserves unanswered fields and persists across reloads", () => {
   const initial = emptyIntake(defs);
   const skipped = skipQuestions(initial);
@@ -15,13 +13,13 @@ test("skipping questions preserves unanswered fields and persists across reloads
   assert.deepEqual(skipped.fields, initial.fields);
   assert.equal(initial.questionsSkipped, undefined);
   const restored = parseIntake(JSON.stringify(skipped), defs);
-  assert.deepEqual(nextTarget(restored, defs, noUploads), { kind: "wrap" });
+  assert.deepEqual(nextTarget(restored, defs), { kind: "wrap" });
   assert.match(renderNotes(restored, defs, visit), /Unanswered items were not assessed/);
 });
 
 test("skipping preserves existing answers, declined uploads, and safety flags", () => {
   const state = emptyIntake(defs);
-  state.fields.meals = { value: "Breakfast at home", confidence: "high" };
+  state.fields.purpose = { value: "Breakfast at home", confidence: "high" };
   state.skipped = ["whoop"];
   state.flagged = "severe_hypo";
   state.turns = 3;
@@ -38,7 +36,6 @@ test("skipping preserves existing answers, declined uploads, and safety flags", 
 
 test("legacy intake still follows the normal question flow", () => {
   const state = parseIntake(null, defs);
-  assert.deepEqual(nextTarget(state, defs, noUploads), { kind: "upload", which: "dexcom" });
-  assert.equal(nextTarget(state, defs, { ...noUploads, hasDexcom: true, hasLocation: true }).kind, "field");
+  assert.deepEqual(nextTarget(state, defs), { kind: "field", def: defs[0] });
   assert.doesNotMatch(renderNotes(state, defs, visit), /skip remaining/);
 });

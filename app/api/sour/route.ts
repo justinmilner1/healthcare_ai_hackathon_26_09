@@ -1,19 +1,18 @@
-// Sour: provider summary. Owner: James.
+// Sour: provider summary. Owner: Justin (taken over from the scaffold; James did not land changes).
 // POST /api/sour { patientId }                 -> generates and saves provider + patient summaries, returns both,
 //                                                 then emails each to the provider and the patient (see lib/notify.ts)
 // POST /api/sour { patientId, question }       -> free-text follow-up ("why was Tuesday bad?") -> { answer }
-// Numbers (TIR, average, spikes) are computed deterministically; the model only writes patterns and questions.
+// All numbers are computed deterministically in lib/sour.ts and handed to the model as a local-time brief
+// (per-day rows, time-of-day windows, spikes with places, nights labeled by the evening before).
+// The model only writes patterns and questions. Safety flags (lows <54, TBR >4%, sustained >250) are
+// computed in code and attached to the provider summary regardless of the narrative.
 // Without an API key the summaries still return with placeholder patterns so the pages render.
+// The same generation runs from the Sweetie route when intake wraps up (lib/sourRun.ts).
 
 import { NextResponse } from "next/server";
-import { baseSummary, loadBundle } from "@/lib/bundle";
-import { db } from "@/lib/db";
 import { ask, LLMUnavailable } from "@/lib/llm";
-import { sendSummaryEmails, type SummaryNotifyResult } from "@/lib/notify";
-import { patientSummarySystem, sourChatSystem, sourSystem, sourUser } from "@/lib/prompts";
-import type { Summary } from "@/lib/types";
-
-type Narrative = { patterns: string[]; questions: string[] };
+import { sourChatSystem } from "@/lib/prompts";
+import { loadSourContext, runSour } from "@/lib/sourRun";
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as { patientId?: string; question?: unknown; history?: unknown } | null;
@@ -29,22 +28,19 @@ export async function POST(req: Request) {
       }
     }
   }
-  const bundle = await loadBundle(body.patientId);
-  if (!bundle) return NextResponse.json({ error: "patient not found" }, { status: 404 });
-
-  // Full-resolution glucose for the numbers (bundle.glucose is downsampled for charts).
-  const dex = await db.upload.findFirst({ where: { patientId: bundle.patient.id, kind: "dexcom" }, orderBy: { createdAt: "desc" } });
-  const glucose = dex ? (JSON.parse(dex.parsed) as Summary["spikes"] extends never ? never : { t: string; mgdl: number }[]) : [];
-  const base = baseSummary(glucose, bundle.spikes, bundle.patient.notes ?? "");
+  const ctx = await loadSourContext(body.patientId);
+  if (!ctx) return NextResponse.json({ error: "patient not found" }, { status: 404 });
+  const { brief } = ctx;
 
   if (typeof body.question === "string") {
     try {
       const answer = await ask(
         sourChatSystem(),
-        `Patient data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } })}\n\nRecent conversation (doctor q, Sour a):\n${JSON.stringify(history)}\n\nLatest doctor message:\n${body.question.trim()}`,
+        `PATIENT DATA\n${brief}\n\nRECENT CONVERSATION (doctor q, Sour a):\n${history.map((h) => `Q: ${h.q}\nA: ${h.a}`).join("\n") || "(none)"}\n\nLATEST DOCTOR MESSAGE:\n${body.question.trim()}`,
+        { effort: "low" },
       );
       if (!answer.trim()) throw new Error("Empty Sour reply");
-      return NextResponse.json({ answer: answer.trim() });
+      return NextResponse.json({ answer: plainAnswer(answer) });
     } catch (e) {
       if (e instanceof LLMUnavailable) return NextResponse.json({ error: "Sour chat is unavailable until the model is configured." }, { status: 503 });
       console.error("Sour chat failed:", e);
@@ -52,42 +48,36 @@ export async function POST(req: Request) {
     }
   }
 
-  let provider: Summary;
-  let patient: Summary;
-  let llmOk = true;
+  // Generation, save, and link emails live in lib/sourRun.ts so Sweetie can fire the same thing on wrap-up.
+  const result = await runSour(ctx.bundle.patient.id, ctx);
+  return NextResponse.json(result);
+}
+
+function plainAnswer(raw: string): string {
+  const text = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  if (!text.startsWith("{") || !text.endsWith("}")) return text;
+
   try {
-    const n = await ask<Narrative>(sourSystem(), sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }), { json: true });
-    provider = { ...base, patterns: (n.patterns ?? []).slice(0, 3), questions: (n.questions ?? []).slice(0, 3) };
-    const p = await ask<Narrative>(patientSummarySystem(), JSON.stringify(provider), { json: true, effort: "low" });
-    patient = { ...base, patterns: (p.patterns ?? []).slice(0, 3), questions: (p.questions ?? []).slice(0, 3) };
-  } catch (e) {
-    if (!(e instanceof LLMUnavailable)) throw e;
-    llmOk = false;
-    const note = "LLM not configured: set OPENAI_API_KEY to generate patterns and questions.";
-    provider = { ...base, patterns: [note], questions: [] };
-    patient = { ...base, patterns: [note], questions: [] };
-  }
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.answer === "string") return parsed.answer;
 
-  await db.summary.createMany({
-    data: [
-      { patientId: bundle.patient.id, audience: "provider", json: JSON.stringify(provider) },
-      { patientId: bundle.patient.id, audience: "patient", json: JSON.stringify(patient) },
-    ],
-  });
+    const prose = Object.values(parsed)
+      .flatMap((value) => {
+        if (typeof value === "string") return [value];
+        if (Array.isArray(value)) {
+          return value.filter((item): item is string => typeof item === "string");
+        }
+        return [];
+      })
+      .join(" ");
 
-  // Trigger: both summaries saved -> email the provider and the patient. Skipped when the model was
-  // unavailable, so placeholder text never goes out. Fails soft; the result is reported, not thrown.
-  let notified: SummaryNotifyResult | { skipped: string } = { skipped: "LLM not configured" };
-  if (llmOk) {
-    const row = await db.patient.findUnique({ where: { id: bundle.patient.id }, include: { provider: true } });
-    if (row) {
-      notified = await sendSummaryEmails({
-        patient: { id: row.id, name: row.name, email: row.email, token: row.token, apptAt: row.apptAt },
-        provider: { id: row.provider.id, name: row.provider.name, email: row.provider.email, practice: row.provider.practice },
-        providerSummary: provider,
-        patientSummary: patient,
-      });
-    }
+    return prose || text;
+  } catch {
+    return text;
   }
-  return NextResponse.json({ provider, patient, notified });
 }
