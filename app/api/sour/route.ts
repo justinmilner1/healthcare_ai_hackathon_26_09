@@ -10,14 +10,25 @@ import { baseSummary, loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { ask, LLMUnavailable } from "@/lib/llm";
 import { sendSummaryEmails, type SummaryNotifyResult } from "@/lib/notify";
-import { patientSummarySystem, sourSystem, sourUser } from "@/lib/prompts";
+import { patientSummarySystem, sourChatSystem, sourSystem, sourUser } from "@/lib/prompts";
 import type { Summary } from "@/lib/types";
 
 type Narrative = { patterns: string[]; questions: string[] };
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { patientId?: string; question?: string };
-  if (!body.patientId) return NextResponse.json({ error: "patientId is required" }, { status: 400 });
+  const body = (await req.json().catch(() => null)) as { patientId?: string; question?: unknown; history?: unknown } | null;
+  if (!body || typeof body.patientId !== "string" || !body.patientId) return NextResponse.json({ error: "patientId is required" }, { status: 400 });
+  if (body.question !== undefined && (typeof body.question !== "string" || !body.question.trim() || body.question.length > 4000)) {
+    return NextResponse.json({ error: "question must be non-empty text of at most 4000 characters" }, { status: 400 });
+  }
+  const history: { q: string; a: string }[] = [];
+  if (Array.isArray(body.history)) {
+    for (const turn of body.history.slice(-6)) {
+      if (turn && typeof turn.q === "string" && typeof turn.a === "string") {
+        history.push({ q: turn.q.slice(0, 4000), a: turn.a.slice(0, 4000) });
+      }
+    }
+  }
   const bundle = await loadBundle(body.patientId);
   if (!bundle) return NextResponse.json({ error: "patient not found" }, { status: 404 });
 
@@ -26,16 +37,18 @@ export async function POST(req: Request) {
   const glucose = dex ? (JSON.parse(dex.parsed) as Summary["spikes"] extends never ? never : { t: string; mgdl: number }[]) : [];
   const base = baseSummary(glucose, bundle.spikes, bundle.patient.notes ?? "");
 
-  if (body.question) {
+  if (typeof body.question === "string") {
     try {
       const answer = await ask(
-        sourSystem() + "\nAnswer the doctor's question in 3 sentences or fewer, citing the data.",
-        `Data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep })}\n\nQuestion: ${body.question}`,
+        sourChatSystem(),
+        `Patient data:\n${sourUser({ ...base, readingCount: glucose.length, sleep: bundle.sleep })}\n\nRecent conversation (doctor q, Sour a):\n${JSON.stringify(history)}\n\nLatest doctor message:\n${body.question.trim()}`,
       );
-      return NextResponse.json({ answer });
+      if (!answer.trim()) throw new Error("Empty Sour reply");
+      return NextResponse.json({ answer: answer.trim() });
     } catch (e) {
-      if (e instanceof LLMUnavailable) return NextResponse.json({ answer: "(LLM not configured) " + e.message });
-      throw e;
+      if (e instanceof LLMUnavailable) return NextResponse.json({ error: "Sour chat is unavailable until the model is configured." }, { status: 503 });
+      console.error("Sour chat failed:", e);
+      return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
     }
   }
 

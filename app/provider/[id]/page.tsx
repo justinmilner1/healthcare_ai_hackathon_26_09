@@ -26,6 +26,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [qa, setQa] = useState<{ q: string; a: string }[]>([]);
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [summaryError, setSummaryError] = useState("");
+  const activePatient = useRef<string | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const autoTried = useRef<string | null>(null);
 
@@ -44,34 +47,56 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   const load = useCallback(async (pid: string) => {
     setLoading(true);
-    const b = (await (await fetch(`/api/patient/${pid}`)).json()) as PatientBundle;
-    setBundle(b);
-    setLoading(false);
-    return b;
+    try {
+      const res = await fetch(`/api/patient/${pid}`);
+      if (!res.ok) throw new Error("Could not load this patient's summary.");
+      const b = (await res.json()) as PatientBundle;
+      if (activePatient.current === pid) setBundle(b);
+      return b;
+    } finally {
+      if (activePatient.current === pid) setLoading(false);
+    }
   }, []);
 
   const generate = useCallback(
     async (pid: string) => {
       setBusy(true);
-      await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
-      await load(pid);
-      setBusy(false);
+      setSummaryError("");
+      try {
+        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
+        if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
+        if (activePatient.current === pid) await load(pid);
+      } catch (e) {
+        if (activePatient.current === pid) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
+      } finally {
+        if (activePatient.current === pid) setBusy(false);
+      }
     },
     [load],
   );
 
   useEffect(() => {
     if (!selected) return;
+    activePatient.current = selected;
+    setBundle(null);
     setQa([]);
+    setQ("");
+    setAsking(false);
+    setBusy(false);
+    setChatError("");
+    setSummaryError("");
     setChecked(new Set());
     setInvite("");
     load(selected).then((b) => {
       // First open with data but no summary: generate without asking.
-      if (b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
+      if (activePatient.current === selected && b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
+    }).catch(() => {
+      if (activePatient.current === selected) setSummaryError("Could not load this patient. Please select them again.");
     });
+    return () => { activePatient.current = null; };
   }, [selected, load, generate]);
 
   const [adding, setAdding] = useState(false);
@@ -105,13 +130,24 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   async function askSour(e: React.FormEvent) {
     e.preventDefault();
-    if (!selected || !q.trim()) return;
+    if (!selected || !q.trim() || asking) return;
+    const pid = selected;
     const question = q.trim();
-    setQ("");
     setAsking(true);
-    const d = await (await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: selected, question }) })).json();
-    setQa((x) => [...x, { q: question, a: d.answer ?? d.error ?? "" }]);
-    setAsking(false);
+    setChatError("");
+    try {
+      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid, question, history: qa.slice(-6) }) });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
+      if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");
+      if (activePatient.current !== pid) return;
+      setQa((x) => [...x, { q: question, a: d.answer }]);
+      setQ("");
+    } catch (e) {
+      if (activePatient.current === pid) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
+    } finally {
+      if (activePatient.current === pid) setAsking(false);
+    }
   }
 
   const s = bundle?.providerSummary;
@@ -167,6 +203,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       </aside>
 
       <section className={loading && bundle ? "opacity-60 transition-opacity" : ""}>
+        {summaryError && <p role="alert" className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-800">{summaryError}</p>}
         {!bundle ? (
           <p className="text-[var(--viz-muted)]">{loading ? "Loading…" : "Select a patient."}</p>
         ) : (
@@ -297,19 +334,29 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   )}
                 </section>
 
-                <section className="print:hidden">
-                  <form onSubmit={askSour} className="flex gap-2">
-                    <input className="flex-1 rounded-md border border-black/15 px-3 py-2 text-sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Sour: why was Tuesday bad?" disabled={asking} />
-                    <button className="rounded-md border border-black/15 px-3 text-sm hover:bg-black/5 disabled:opacity-40" disabled={asking || !q.trim()}>{asking ? "…" : "Ask"}</button>
-                  </form>
-                  <ul className="mt-3 space-y-2">
+                <section className="rounded-lg border border-black/10 p-4 print:hidden">
+                  <h3 className="text-sm font-semibold">Discuss with Sour</h3>
+                  <p className="mt-1 text-xs text-[var(--viz-muted)]">Ask about this patient&apos;s data. Recent turns provide context; this conversation resets when you switch patients or reload.</p>
+                  <ol aria-live="polite" className="mt-4 space-y-4">
                     {qa.map((x, i) => (
-                      <li key={i} className="rounded-md bg-yellow-50 px-3 py-2 text-sm">
-                        <div className="text-xs text-[var(--viz-ink-2)]">{x.q}</div>
-                        <div className="mt-0.5">{x.a}</div>
+                      <li key={i} className="space-y-2 text-sm">
+                        <div className="rounded-md bg-black/5 px-3 py-2">
+                          <div className="text-xs font-semibold text-[var(--viz-ink-2)]">You</div>
+                          <p className="mt-1 whitespace-pre-wrap break-words">{x.q}</p>
+                        </div>
+                        <div className="border-l-2 border-black/15 pl-3">
+                          <div className="text-xs font-semibold text-[var(--viz-ink-2)]">Sour</div>
+                          <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{x.a}</p>
+                        </div>
                       </li>
                     ))}
-                  </ul>
+                  </ol>
+                  {asking && <p role="status" className="mt-3 text-sm text-[var(--viz-muted)]">Sour is reviewing your question…</p>}
+                  {chatError && <p role="alert" className="mt-3 text-sm text-red-700">{chatError}</p>}
+                  <form onSubmit={askSour} className="mt-4 flex gap-2">
+                    <input aria-label="Message Sour" maxLength={4000} className="min-w-0 flex-1 rounded-md border border-black/15 px-3 py-2 text-sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about the glucose spikes or sleep data…" disabled={asking} />
+                    <button className="rounded-md border border-black/15 px-3 text-sm hover:bg-black/5 disabled:opacity-40" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Send"}</button>
+                  </form>
                 </section>
               </>
             )}
