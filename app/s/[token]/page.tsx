@@ -23,7 +23,9 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
       });
   }, [token]);
 
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [messages]);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
