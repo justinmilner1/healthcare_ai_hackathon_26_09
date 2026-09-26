@@ -1,12 +1,15 @@
 "use client";
 
-// Sweetie chat + data upload, reached from the presigned link. Owner: Nisarga.
-// Uses GET/POST /api/sweetie and POST /api/upload. This is a working skeleton; make it pretty.
+// Sweetie: voice-first intake, reached from the presigned link. Owner: Justin (voice + brain), Nisarga (onboarding at /intake).
+// Voice mode: Sweetie speaks each message aloud and listens for the reply; a final transcript is posted to
+// /api/sweetie like typed text. Typing always works too. Uses GET/POST /api/sweetie and POST /api/upload.
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, IntakeFieldDef, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
+import { hush, listenOnce, say, voiceSupport } from "@/lib/voice";
 
 type AgentInfo = { connected: boolean; model: string };
+type VoiceState = "off" | "speaking" | "listening" | "thinking" | "idle";
 
 export default function SweetiePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -17,9 +20,15 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [voice, setVoice] = useState<VoiceState>("off");
+  const [interim, setInterim] = useState("");
+  const [support, setSupport] = useState({ listen: false, speak: false });
   const bottom = useRef<HTMLDivElement>(null);
+  const voiceOn = useRef(false);
+  const listener = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
+    setSupport(voiceSupport());
     fetch(`/api/sweetie?token=${token}`)
       .then((r) => r.json())
       .then((d) => {
@@ -29,27 +38,85 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         setFields(d.intakeFields ?? []);
         setAgent(d.agent ?? null);
       });
+    return () => {
+      voiceOn.current = false;
+      listener.current?.stop();
+      hush();
+    };
   }, [token]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, interim]);
 
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    if (!text.trim()) return;
-    const mine = text.trim();
-    setText("");
-    setMessages((m) => [...m, { role: "patient", content: mine }]);
-    setBusy(true);
-    const res = await fetch("/api/sweetie", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, message: mine }) });
-    const d = await res.json();
-    setMessages((m) => [...m, { role: "sweetie", content: d.reply }]);
-    setStatus(d.status);
+  const applyReply = useCallback((d: { reply?: string; status?: IntakeStatus; intake?: IntakeState; intakeFields?: IntakeFieldDef[]; agent?: AgentInfo }) => {
+    if (d.reply) setMessages((m) => [...m, { role: "sweetie", content: d.reply! }]);
+    if (d.status) setStatus(d.status);
     if (d.intake) setIntake(d.intake);
     if (d.intakeFields) setFields(d.intakeFields);
     if (d.agent) setAgent(d.agent);
+    return d.reply ?? "";
+  }, []);
+
+  // ---- voice loop: speak the last Sweetie line, then listen, then send, then repeat ------------------------
+
+  const listen = useCallback(() => {
+    if (!voiceOn.current) return;
+    setVoice("listening");
+    setInterim("");
+    listener.current = listenOnce({
+      onInterim: (t) => setInterim(t),
+      onSpeechStart: () => hush(),
+      onFinal: (t) => {
+        setInterim("");
+        void sendMessage(t, true);
+      },
+      onEnd: () => {
+        // No speech caught: stay in the loop but don't hammer the mic. The person can tap the mic again.
+        setVoice((v) => (v === "listening" ? "idle" : v));
+      },
+      onError: () => setVoice("idle"),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const speakThenListen = useCallback(
+    async (line: string) => {
+      if (!voiceOn.current) return;
+      setVoice("speaking");
+      await say(line);
+      if (voiceOn.current && !(status?.done && intake?.wrapped)) listen();
+      else setVoice("idle");
+    },
+    [listen, status?.done, intake?.wrapped],
+  );
+
+  async function sendMessage(raw: string, spoken = false) {
+    const mine = raw.trim();
+    if (!mine) return;
+    setText("");
+    setMessages((m) => [...m, { role: "patient", content: mine }]);
+    setBusy(true);
+    if (voiceOn.current) setVoice("thinking");
+    const res = await fetch("/api/sweetie", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, message: mine }) });
+    const d = await res.json();
+    const reply = applyReply(d);
     setBusy(false);
+    if (voiceOn.current && (spoken || voice !== "off")) await speakThenListen(reply);
+  }
+
+  async function startVoice() {
+    voiceOn.current = true;
+    const last = [...messages].reverse().find((m) => m.role === "sweetie")?.content ?? "";
+    await speakThenListen(last);
+  }
+
+  function stopVoice() {
+    voiceOn.current = false;
+    listener.current?.stop();
+    hush();
+    setInterim("");
+    setVoice("off");
   }
 
   async function upload(kind: UploadKind, file: File) {
@@ -60,25 +127,28 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const d = await res.json();
     if (!res.ok) {
-      setMessages((m) => [...m, { role: "sweetie", content: `That file didn't work: ${d.error}. Want to try again, or ask me how to export it?` }]);
+      const line = `That file didn't work: ${d.error}. Want to try again, or ask me how to export it?`;
+      setMessages((m) => [...m, { role: "sweetie", content: line }]);
+      if (voiceOn.current) await speakThenListen(line);
       return;
     }
     if (d.status) setStatus(d.status);
-    // Tell Sweetie, so she can acknowledge what arrived and ask for the next thing.
     setBusy(true);
+    if (voiceOn.current) {
+      listener.current?.stop();
+      setVoice("thinking");
+    }
     const r2 = await fetch("/api/sweetie", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, event: { type: "upload", kind, count: d.count, days: d.days } }),
     });
-    const d2 = await r2.json();
-    if (d2.reply) setMessages((m) => [...m, { role: "sweetie", content: d2.reply }]);
-    if (d2.status) setStatus(d2.status);
-    if (d2.intake) setIntake(d2.intake);
-    if (d2.intakeFields) setFields(d2.intakeFields);
-    if (d2.agent) setAgent(d2.agent);
+    const reply = applyReply(await r2.json());
     setBusy(false);
+    if (voiceOn.current) await speakThenListen(reply);
   }
+
+  const canVoice = support.speak && support.listen;
 
   return (
     <main className="mx-auto flex h-screen max-w-md flex-col p-4">
@@ -86,6 +156,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <h1 className="text-xl font-bold">Sweetie 🍬</h1>
         <AgentBadge agent={agent} />
       </header>
+
       <div className="mt-2 flex flex-wrap gap-2 text-xs">
         <UploadButton label="Dexcom CSV" kind="dexcom" done={status?.hasDexcom} onFile={upload} />
         <UploadButton label="Maps Timeline JSON" kind="timeline" done={status?.hasLocation} onFile={upload} />
@@ -99,6 +170,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
             {m.content}
           </div>
         ))}
+        {interim && <div className="ml-auto max-w-[85%] rounded-lg bg-gray-50 px-3 py-2 text-sm italic text-gray-500">{interim}…</div>}
         {status?.done && (
           <a href={`/patient/${token}`} className="block rounded bg-green-50 px-3 py-2 text-center text-sm underline">
             All done. See your summary →
@@ -107,11 +179,51 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <div ref={bottom} />
       </div>
 
-      <form onSubmit={send} className="mt-3 flex gap-2">
-        <input className="flex-1 rounded border p-2" value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a reply…" disabled={busy} />
+      <div className="mt-3 flex items-center gap-2">
+        {canVoice ? (
+          voice === "off" ? (
+            <button type="button" onClick={startVoice} className="flex items-center gap-2 rounded-full bg-pink-600 px-4 py-2 text-sm font-medium text-white">
+              <MicIcon /> Talk to Sweetie
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => (voice === "listening" ? listener.current?.stop() : voice === "speaking" ? (hush(), listen()) : listen())}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-white ${voice === "listening" ? "animate-pulse bg-red-600" : voice === "speaking" ? "bg-pink-600" : voice === "thinking" ? "bg-gray-500" : "bg-pink-600"}`}
+                title={voice === "listening" ? "Tap when you're done" : voice === "speaking" ? "Tap to skip and answer" : "Tap to talk"}
+              >
+                <MicIcon />
+                {voice === "listening" ? "Listening…" : voice === "speaking" ? "Sweetie is talking" : voice === "thinking" ? "Thinking…" : "Tap to talk"}
+              </button>
+              <button type="button" onClick={stopVoice} className="rounded-full border border-black/15 px-3 py-2 text-xs">Switch to typing</button>
+            </>
+          )
+        ) : (
+          <span className="text-xs text-gray-500">Voice needs Chrome or Safari. You can type below.</span>
+        )}
+      </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void sendMessage(text);
+        }}
+        className="mt-2 flex gap-2"
+      >
+        <input className="flex-1 rounded border p-2" value={text} onChange={(e) => setText(e.target.value)} placeholder={voice === "off" ? "Type a reply…" : "Or type instead…"} disabled={busy} />
         <button className="rounded bg-black px-4 text-white disabled:opacity-50" disabled={busy}>Send</button>
       </form>
     </main>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8" />
+    </svg>
   );
 }
 
@@ -124,17 +236,13 @@ function AgentBadge({ agent }: { agent: AgentInfo | null }) {
       </div>
     );
   }
-
   const explanation = agent.connected
     ? `Sweetie sends each reply to ${agent.model} through Amazon Bedrock.`
     : "Sweetie is using fixed fallback questions instead of an AI model because no model API key is configured. To connect the model, set OPENAI_API_KEY in .env and restart the development server.";
-
   return (
     <button
       type="button"
-      className={`group relative flex cursor-help items-center gap-1.5 rounded-full px-2.5 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
-        agent.connected ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"
-      }`}
+      className={`group relative flex cursor-help items-center gap-1.5 rounded-full px-2.5 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${agent.connected ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}
       aria-label={explanation}
     >
       <span className={`h-2 w-2 rounded-full ${agent.connected ? "bg-green-500" : "bg-gray-400"}`} />
