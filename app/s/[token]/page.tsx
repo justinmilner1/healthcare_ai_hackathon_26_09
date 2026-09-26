@@ -171,12 +171,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <AgentBadge agent={agent} />
       </header>
 
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        <UploadButton label="Dexcom CSV" kind="dexcom" done={status?.hasDexcom} onFile={upload} />
-        <UploadButton label="Maps Timeline JSON" kind="timeline" done={status?.hasLocation} onFile={upload} />
-        <UploadButton label="WHOOP CSV" kind="whoop" done={status?.hasWhoop} onFile={upload} />
-      </div>
-      {intake && fields.length > 0 && <Progress intake={intake} fields={fields} />}
+      {status && intake && <IntakeSteps status={status} intake={intake} fields={fields} onFile={upload} />}
 
       <div className="mt-4 flex-1 space-y-2 overflow-y-auto rounded border p-3">
         {messages.map((m, i) => (
@@ -285,19 +280,95 @@ function UploadButton({ label, kind, done, onFile }: { label: string; kind: Uplo
   );
 }
 
-function Progress({ intake, fields }: { intake: IntakeState; fields: IntakeFieldDef[] }) {
+type Step = { key: string; label: string; state: "done" | "current" | "todo" | "skipped"; optional?: boolean };
+
+/** The intake as numbered steps, in the order Sweetie asks: data first, then each field of the visit template, then done. */
+function IntakeSteps({ status, intake, fields, onFile }: { status: IntakeStatus; intake: IntakeState; fields: IntakeFieldDef[]; onFile: (k: UploadKind, f: File) => void }) {
+  const filled = (id: string) => {
+    const c = intake.fields[id]?.confidence ?? "unfilled";
+    return c === "medium" || c === "high";
+  };
+  const dataDone = status.hasDexcom;
+  const firstOpenField = fields.find((f) => f.required && !filled(f.id)) ?? fields.find((f) => !f.required && !filled(f.id));
+  const currentKey = !dataDone ? "data" : intake.wrapped || status.done ? "done" : (firstOpenField?.id ?? "done");
+
+  const steps: Step[] = [
+    { key: "data", label: "Share your data", state: dataDone ? "done" : "current" },
+    ...fields.map<Step>((f) => ({
+      key: f.id,
+      label: f.label,
+      optional: !f.required,
+      state: filled(f.id) ? "done" : f.id === currentKey ? "current" : intake.wrapped && !f.required ? "skipped" : "todo",
+    })),
+    { key: "done", label: "Done", state: currentKey === "done" ? "done" : "todo" },
+  ];
+  const total = steps.length;
+  const doneCount = steps.filter((x) => x.state === "done").length;
+  const currentIndex = Math.max(0, steps.findIndex((x) => x.key === currentKey));
+  const current = steps[currentIndex];
+
+  const rowRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    rowRef.current?.querySelector<HTMLElement>("[data-current='true']")?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [currentKey]);
+
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-      {fields.map((f) => {
-        const c = intake.fields[f.id]?.confidence ?? "unfilled";
-        const done = c === "medium" || c === "high";
-        return (
-          <span key={f.id} title={intake.fields[f.id]?.value ?? f.goal} className={`rounded-full px-2 py-0.5 ${done ? "bg-green-100 text-green-800" : c === "low" ? "bg-amber-50 text-amber-800" : f.required ? "bg-gray-100 text-gray-500" : "bg-gray-50 text-gray-400"}`}>
-            {done ? "✓ " : ""}{f.label}
-          </span>
-        );
-      })}
-      {intake.flagged && <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-800">Flagged for the office</span>}
-    </div>
+    <section className="mt-3 rounded-lg border border-black/10 bg-[var(--viz-surface)] p-3" aria-label="Intake progress">
+      <div className="flex items-baseline justify-between">
+        <p className="text-sm">
+          <span className="font-semibold">Step {Math.min(currentIndex + 1, total)} of {total}</span>
+          <span className="text-[var(--viz-ink-2)]"> · {current.label}</span>
+        </p>
+        <p className="text-[11px] text-[var(--viz-muted)]">{doneCount === total ? "All done" : `${doneCount} done`}</p>
+      </div>
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-black/5">
+        <div className="h-full rounded-full bg-pink-500 transition-all" style={{ width: `${(doneCount / total) * 100}%` }} />
+      </div>
+
+      <ol ref={rowRef} className="mt-2 flex gap-1.5 overflow-x-auto pb-1 text-[11px] [scrollbar-width:none]">
+        {steps.map((st, i) => (
+          <li
+            key={st.key}
+            data-current={st.state === "current"}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 ${
+              st.state === "done"
+                ? "border-green-200 bg-green-50 text-green-800"
+                : st.state === "current"
+                  ? "border-pink-300 bg-pink-50 font-medium text-pink-800"
+                  : "border-black/10 text-[var(--viz-muted)]"
+            }`}
+          >
+            <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${st.state === "done" ? "bg-green-600 text-white" : st.state === "current" ? "bg-pink-600 text-white" : "bg-black/10"}`}>
+              {st.state === "done" ? "✓" : i + 1}
+            </span>
+            {st.label}
+            {st.optional && st.state !== "done" && <span className="opacity-60">(optional)</span>}
+          </li>
+        ))}
+      </ol>
+
+      {currentKey === "data" ? (
+        <div className="mt-2 rounded-md border border-dashed border-pink-200 bg-white p-2">
+          <p className="text-xs text-[var(--viz-ink-2)]">Your Dexcom export is the one we need. The others help if you have them.</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <UploadButton label="Dexcom CSV" kind="dexcom" done={status.hasDexcom} onFile={onFile} />
+            <UploadButton label="Maps Timeline JSON" kind="timeline" done={status.hasLocation} onFile={onFile} />
+            <UploadButton label="WHOOP CSV" kind="whoop" done={status.hasWhoop} onFile={onFile} />
+          </div>
+        </div>
+      ) : (
+        <details className="mt-2 text-[11px] text-[var(--viz-muted)]">
+          <summary className="cursor-pointer">
+            Data: {[status.hasDexcom && "Dexcom", status.hasLocation && "Timeline", status.hasWhoop && "WHOOP"].filter(Boolean).join(", ") || "none yet"} · add more
+          </summary>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <UploadButton label="Dexcom CSV" kind="dexcom" done={status.hasDexcom} onFile={onFile} />
+            <UploadButton label="Maps Timeline JSON" kind="timeline" done={status.hasLocation} onFile={onFile} />
+            <UploadButton label="WHOOP CSV" kind="whoop" done={status.hasWhoop} onFile={onFile} />
+          </div>
+        </details>
+      )}
+      {intake.flagged && <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-800">Flagged for the office. Someone will follow up before the visit.</p>}
+    </section>
   );
 }
