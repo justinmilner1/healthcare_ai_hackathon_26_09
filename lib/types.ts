@@ -43,7 +43,7 @@ export type IntakeFieldState = { value: string | null; confidence: Confidence };
 export type IntakeFieldDef = { id: IntakeFieldId; label: string; goal: string; fallbackQuestion: string; required: boolean };
 export type IntakeState = {
   fields: Record<IntakeFieldId, IntakeFieldState>;
-  skipped: ("timeline" | "whoop")[]; // uploads the patient said they don't have; Sweetie stops asking
+  skipped: ("dexcom" | "timeline" | "whoop")[]; // uploads the patient declined or doesn't have; Sweetie stops asking
   flagged: string | null; // red-flag id if the safety scan fired
   turns: number; // patient messages so far
   wrapped: boolean; // Sweetie has said goodbye

@@ -212,7 +212,7 @@ export default function ProviderDashboard() {
                       <button onClick={() => sendLink(p)} className="rounded-md border border-black/15 px-2 py-1 text-xs hover:bg-black/5">Send link</button>
                       {p.hasSummary ? (
                         <Link href={`/provider/${provider.id}?patient=${p.id}`} className="rounded-md bg-black px-2 py-1 text-xs text-white">Open in Sour</Link>
-                      ) : p.uploads.includes("dexcom") ? (
+                      ) : p.uploads.includes("dexcom") || p.answered > 0 ? (
                         <Link href={`/provider/${provider.id}?patient=${p.id}`} className="rounded-md border border-black/15 px-2 py-1 text-xs hover:bg-black/5">Summarize</Link>
                       ) : null}
                     </div>
@@ -232,8 +232,8 @@ export default function ProviderDashboard() {
 }
 
 function Stage({ p }: { p: Row }) {
-  const s = p.hasSummary ? "ready" : p.answered > 0 || p.wrapped ? "chatting" : p.uploads.length ? "uploading" : "invited";
-  const cls = { ready: "bg-green-100 text-green-800", chatting: "bg-blue-50 text-blue-800", uploading: "bg-amber-50 text-amber-800", invited: "bg-black/5 text-[var(--viz-ink-2)]" }[s];
-  const label = { ready: "Summary ready", chatting: "Talking to Sweetie", uploading: "Uploading data", invited: "Invited" }[s];
+  const s = p.hasSummary ? "ready" : p.wrapped ? "finished" : p.answered > 0 ? "chatting" : p.uploads.length ? "uploading" : "invited";
+  const cls = { ready: "bg-green-100 text-green-800", finished: "bg-blue-100 text-blue-900", chatting: "bg-blue-50 text-blue-800", uploading: "bg-amber-50 text-amber-800", invited: "bg-black/5 text-[var(--viz-ink-2)]" }[s];
+  const label = { ready: "Summary ready", finished: "Intake finished", chatting: "Talking to Sweetie", uploading: "Shared data", invited: "Invited" }[s];
   return <span className={`rounded-full px-2 py-0.5 text-[11px] ${cls}`}>{label}</span>;
 }

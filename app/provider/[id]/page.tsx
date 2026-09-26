@@ -191,7 +191,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               <div className="flex gap-2 print:hidden">
                 <button onClick={() => sendLink(bundle.patient.id)} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Send link</button>
                 <button onClick={() => window.print()} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Print</button>
-                <button onClick={() => generate(bundle.patient.id)} disabled={busy || !bundle.status.hasDexcom} className="rounded-md bg-black px-3 py-1.5 text-sm text-white disabled:opacity-40">
+                <button onClick={() => generate(bundle.patient.id)} disabled={busy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="rounded-md bg-black px-3 py-1.5 text-sm text-white disabled:opacity-40">
                   {busy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
@@ -203,14 +203,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               </p>
             )}
 
-            {!bundle.status.hasDexcom ? (
+            {!bundle.status.hasDexcom && bundle.status.answered === 0 ? (
               <EmptyIntake bundle={bundle} />
             ) : (
               <>
                 <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
                   <div className="flex items-baseline justify-between gap-3">
                     <h3 className="text-sm font-semibold">Summary</h3>
-                    {st && (
+                    {st && bundle.status.hasDexcom && (
                       <p className="text-sm text-[var(--viz-ink-2)]">
                         In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg} · GMI {st.gmi.toFixed(1)}% · {bundle.spikes.length} spikes
                         {st.sleepAvgHours !== null && ` · sleep ${st.sleepAvgHours}h`}
@@ -269,7 +269,10 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </div>
                 </section>
 
-                {st && (
+                {!bundle.status.hasDexcom && (
+                  <p className="rounded-md border border-black/10 bg-[var(--viz-surface)] px-3 py-2 text-sm text-[var(--viz-ink-2)]">No glucose data was shared. This summary is from the conversation only.</p>
+                )}
+                {st && bundle.status.hasDexcom && (
                   <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
                     <div className="flex flex-wrap items-end justify-between gap-4">
                       <div>
@@ -294,6 +297,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                   </section>
                 )}
 
+                {bundle.status.hasDexcom && (
                 <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
                   <h3 className="text-sm font-semibold">Glucose, last {st?.days ?? 7} days</h3>
                   <p className="text-xs text-[var(--viz-muted)]">Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.</p>
@@ -301,7 +305,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                     <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
                   </div>
                 </section>
+                )}
 
+                {bundle.status.hasDexcom && (
                 <div className="grid gap-6 md:grid-cols-2">
                   <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
                     <h3 className="text-sm font-semibold">Spikes linked to places</h3>
@@ -316,6 +322,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                     </div>
                   </section>
                 </div>
+                )}
 
                 <section className="rounded-lg border border-black/10 p-4 print:hidden">
                   <h3 className="text-sm font-semibold">Discuss with Sour</h3>
@@ -355,16 +362,17 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 }
 
 function EmptyIntake({ bundle }: { bundle: PatientBundle }) {
+  const total = bundle.intakeFields.length;
   const rows = [
-    ["Dexcom glucose", bundle.status.hasDexcom],
-    ["Location timeline", bundle.status.hasLocation],
-    ["WHOOP sleep", bundle.status.hasWhoop],
-    [`Sweetie questions (${bundle.status.answered} of 3)`, bundle.status.answered >= 3],
+    [`Sweetie conversation (${bundle.status.answered} of ${total} answered)`, bundle.status.answered >= total],
+    ["Dexcom glucose (optional)", bundle.status.hasDexcom],
+    ["Location timeline (optional)", bundle.status.hasLocation],
+    ["WHOOP sleep (optional)", bundle.status.hasWhoop],
   ] as const;
   return (
     <section className="rounded-lg border border-dashed border-black/20 p-5">
       <h3 className="font-semibold">Waiting on the patient</h3>
-      <p className="mt-1 text-sm text-[var(--viz-ink-2)]">Nothing to summarize until glucose data arrives. Send the link again if they have not opened it.</p>
+      <p className="mt-1 text-sm text-[var(--viz-ink-2)]">Nothing to summarize until the patient has talked to Sweetie. Send the link again if they have not opened it.</p>
       <ul className="mt-3 space-y-1 text-sm">
         {rows.map(([label, ok]) => (
           <li key={label} className="flex items-center gap-2">

@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   const rows = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
   if (messages.length === 0) {
-    const hello = greeting(patient.name.split(" ")[0], patient.provider.name, { visitType: patient.visitType, reason: patient.reason });
+    const hello = greeting(patient.name.split(" ")[0], patient.provider.name, { visitType: patient.visitType, reason: patient.reason }, fieldsFor(patient.visitType, patient.reason));
     await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
