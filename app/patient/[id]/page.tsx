@@ -6,6 +6,7 @@
 import Image from "next/image";
 import { use, useEffect, useState } from "react";
 import Disclaimer from "@/components/Disclaimer";
+import { DemoReturnLink } from "@/components/DexcomDemoLink";
 import GlucoseChart from "@/components/GlucoseChart";
 import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
@@ -65,6 +66,13 @@ export default function PatientPage({
           </a>
         </header>
 
+        {bundle.patient.isSandbox && (
+          <div role="note" className="rounded-lg border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+            <strong>Synthetic data — Dexcom sandbox demo only.</strong> This is a dedicated demo patient, not a real patient record. Do not use these data for care decisions.
+            <div><DemoReturnLink token={bundle.patient.token} /></div>
+          </div>
+        )}
+
         <section className="patient-summary-hero ss-enter">
           <div className="patient-summary-hero-copy">
             <p className="ss-eyebrow">YOUR WEEK WITH SWEETIE</p>
@@ -101,8 +109,9 @@ export default function PatientPage({
               <span aria-hidden="true">↗</span>
               <h2>Your glucose story is ready for its first chapter</h2>
               <p>
-                Connect your Dexcom export and Sweetie will turn the past week
-                into a clear picture for you and your doctor.
+                {bundle.patient.isSandbox
+                  ? "Connect Dexcom sandbox in Sweetie to import synthetic demo readings."
+                  : "Connect your Dexcom export and Sweetie will turn the past week into a clear picture for you and your doctor."}
               </p>
               <a
                 href={`/s/${bundle.patient.token}`}

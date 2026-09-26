@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
+import DexcomDemoLink, { DemoReturnLink } from "@/components/DexcomDemoLink";
 import type {
   ChatMessage,
   IntakeFieldDef,
@@ -37,6 +38,8 @@ export default function SweetiePage({
   const [skipping, setSkipping] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
+  const [sandboxPatient, setSandboxPatient] = useState<boolean | null>(null);
+  const [dexcomStatusError, setDexcomStatusError] = useState(false);
   const [intake, setIntake] = useState<IntakeState | null>(null);
   const [fields, setFields] = useState<IntakeFieldDef[]>([]);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
@@ -51,6 +54,23 @@ export default function SweetiePage({
   const micOn = useRef(false);
   const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setSandboxPatient(null);
+    setDexcomStatusError(false);
+    fetch(`/api/dexcom/status?token=${encodeURIComponent(token)}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Status unavailable");
+        const data = await response.json();
+        if (typeof data?.sandboxPatient !== "boolean") throw new Error("Invalid status");
+        if (!controller.signal.aborted) setSandboxPatient(data.sandboxPatient);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setDexcomStatusError(true);
+      });
+    return () => controller.abort();
+  }, [token]);
 
   useEffect(() => {
     setSupport(voiceSupport());
@@ -196,7 +216,7 @@ export default function SweetiePage({
   }
 
   async function upload(kind: UploadKind, file: File) {
-    if (busy || uploading || skipping) return;
+    if (sandboxPatient !== false || busy || uploading || skipping) return;
     setUploading(kind);
     const form = new FormData();
     form.set("token", token);
@@ -316,6 +336,25 @@ export default function SweetiePage({
           )}
         </header>
 
+        {sandboxPatient && (
+          <div role="note" className="mb-4 rounded-lg border-2 border-amber-400 bg-amber-50 p-3 text-sm text-amber-950">
+            <strong>Synthetic data — Dexcom sandbox demo only.</strong> Do not upload real patient data or use these data for care decisions.
+            <div><DemoReturnLink token={token} /></div>
+          </div>
+        )}
+        {sandboxPatient === false && <DexcomDemoLink token={token} disabled={busy || Boolean(uploading) || skipping} />}
+        {sandboxPatient === true && (
+          <p className="mb-4 text-sm">
+            <a href={`/s/${token}/intake`} className="underline">Connect Dexcom sandbox</a>
+            {" "}— only the dedicated demo patient is permitted.
+          </p>
+        )}
+        {sandboxPatient === null && (
+          <p role="status" className="mb-4 text-sm">
+            {dexcomStatusError ? "Could not check connections. Reload to try again; file uploads are hidden until the patient type is confirmed." : "Checking data connections…"}
+          </p>
+        )}
+
         <section className="sweetie-chat-shell ss-card ss-enter">
           <aside className="sweetie-chat-sidebar">
             <div className="sweetie-chat-intro">
@@ -367,36 +406,38 @@ export default function SweetiePage({
             ) : null}
             {skipError && <p role="alert">{skipError}</p>}
 
-            <fieldset disabled={busy || Boolean(uploading) || skipping} className="sweetie-upload-list">
-              <p>Optional health data</p>
-              <UploadButton
-                label="Dexcom"
-                detail="Glucose CSV"
-                short="D"
-                kind="dexcom"
-                done={status?.hasDexcom}
-                loading={uploading === "dexcom"}
-                onFile={upload}
-              />
-              <UploadButton
-                label="Timeline"
-                detail="Google JSON"
-                short="M"
-                kind="timeline"
-                done={status?.hasLocation}
-                loading={uploading === "timeline"}
-                onFile={upload}
-              />
-              <UploadButton
-                label="WHOOP"
-                detail="Sleep CSV"
-                short="W"
-                kind="whoop"
-                done={status?.hasWhoop}
-                loading={uploading === "whoop"}
-                onFile={upload}
-              />
-            </fieldset>
+            {sandboxPatient === false && (
+              <fieldset disabled={busy || Boolean(uploading) || skipping} className="sweetie-upload-list">
+                <p>Optional health data</p>
+                <UploadButton
+                  label="Dexcom"
+                  detail="Glucose CSV"
+                  short="D"
+                  kind="dexcom"
+                  done={status?.hasDexcom}
+                  loading={uploading === "dexcom"}
+                  onFile={upload}
+                />
+                <UploadButton
+                  label="Timeline"
+                  detail="Google JSON"
+                  short="M"
+                  kind="timeline"
+                  done={status?.hasLocation}
+                  loading={uploading === "timeline"}
+                  onFile={upload}
+                />
+                <UploadButton
+                  label="WHOOP"
+                  detail="Sleep CSV"
+                  short="W"
+                  kind="whoop"
+                  done={status?.hasWhoop}
+                  loading={uploading === "whoop"}
+                  onFile={upload}
+                />
+              </fieldset>
+            )}
           </aside>
 
           <div className="sweetie-conversation">

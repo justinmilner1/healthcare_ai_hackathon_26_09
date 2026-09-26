@@ -29,7 +29,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
 
   const spikes: Spike[] = matchSpikesToVisits(detectSpikes(glucose), visits).slice(0, 5);
 
-  const intakeFields = fieldsFor(patient.visitType, patient.reason);
+  const intakeFields = fieldsFor(patient.visitType, patient.isSandbox ? null : patient.reason);
   const intake = parseIntake(patient.intake, intakeFields);
   const answered = answeredCount(intake, intakeFields);
   const required = requiredCount(intakeFields);
@@ -50,6 +50,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
       id: patient.id,
       name: patient.name,
       token: patient.token,
+      isSandbox: patient.isSandbox,
       apptAt: patient.apptAt?.toISOString() ?? null,
       visitType: patient.visitType,
       reason: patient.reason,

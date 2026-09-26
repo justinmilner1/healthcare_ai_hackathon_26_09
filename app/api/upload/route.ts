@@ -42,6 +42,7 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) return NextResponse.json({ error: "file is required" }, { status: 400 });
   const patient = await db.patient.findUnique({ where: { token } });
   if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  if (patient.isSandbox) return NextResponse.json({ error: "This demo patient accepts only Dexcom sandbox imports. Use a separate patient for real uploads." }, { status: 403 });
 
   const raw = await file.text();
   let parsed: unknown[];

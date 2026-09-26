@@ -192,6 +192,11 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
           </div>
         ) : (
           <article className="sour-brief ss-enter">
+            {bundle.patient.isSandbox && (
+              <div role="note" className="rounded-lg border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+                <strong>Synthetic data — Dexcom sandbox demo only.</strong> This is a dedicated demo patient, not a real patient record. Do not use these data for care decisions.
+              </div>
+            )}
             <header className="sour-brief-header">
               <div>
                 <div className="ss-eyebrow">SOUR · PRE-VISIT SUMMARY</div>

@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   const rows = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
   if (messages.length === 0) {
-    const hello = greeting(patient.name.split(" ")[0], patient.provider.name, { visitType: patient.visitType, reason: patient.reason }, fieldsFor(patient.visitType, patient.reason));
+    const hello = greeting(patient.name.split(" ")[0], patient.provider.name, { visitType: patient.visitType, reason: patient.reason, isSandbox: patient.isSandbox }, fieldsFor(patient.visitType, patient.isSandbox ? null : patient.reason), bundle?.status.hasDexcom);
     await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
@@ -51,8 +51,9 @@ export async function POST(req: Request) {
   if (!message && !event && !skippingQuestions) return NextResponse.json({ error: "message or event is required" }, { status: 400 });
 
   const firstName = patient.name.split(" ")[0];
-  const visit = { visitType: patient.visitType, reason: patient.reason };
-  const defs = fieldsFor(visit.visitType, visit.reason);
+  const visit = { visitType: patient.visitType, reason: patient.reason, isSandbox: patient.isSandbox };
+  // Demo metadata is not a patient's clinical reason for booking.
+  const defs = fieldsFor(visit.visitType, patient.isSandbox ? null : visit.reason);
   let state: IntakeState = parseIntake(patient.intake, defs);
   const wasWrapped = state.wrapped;
   let reply: string;
@@ -127,10 +128,10 @@ export async function POST(req: Request) {
       reply = await speak({ firstName, providerName: patient.provider.name, visit, state, defs, status, target, transcript, exportHelp, uploadEvent });
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
-      reply = scripted({ firstName, target, exportHelp, uploadEvent });
+      reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: patient.isSandbox });
     }
   } else {
-    reply = scripted({ firstName, target, exportHelp, uploadEvent });
+    reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: patient.isSandbox });
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };
 

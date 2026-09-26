@@ -79,6 +79,7 @@ export type PatientBundle = {
     id: string;
     name: string;
     token: string;
+    isSandbox: boolean;
     apptAt: string | null;
     visitType: string | null;
     reason: string | null;

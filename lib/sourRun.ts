@@ -34,7 +34,7 @@ export async function loadSourContext(patientIdOrToken: string): Promise<SourCon
   const notes = bundle.patient.notes ?? "";
   const flags = safetyFlags(glucose);
   const base: Summary = { ...baseSummary(glucose, bundle.spikes, notes), flags };
-  const brief = renderSourInput(
+  const brief = (bundle.patient.isSandbox ? "SYNTHETIC DEXCOM SANDBOX DATA — demonstration only, not real patient findings.\n" : "") + renderSourInput(
     buildSourInput({ glucose, spikes: bundle.spikes, sleep: bundle.sleep, patientNotes: notes, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }),
   );
   return { bundle, glucose, notes, base, brief, flags };
@@ -88,7 +88,8 @@ export async function runSour(patientId: string, ctx?: SourContext): Promise<Sou
   // Both summaries saved -> email the provider and the patient a link. Skipped when the model was
   // unavailable, so placeholder text never triggers a notification. Fails soft.
   let notified: SummaryNotifyResult | { skipped: string } = { skipped: "LLM not configured" };
-  if (llmOk) {
+  if (bundle.patient.isSandbox) notified = { skipped: "Synthetic sandbox data: email disabled" };
+  if (llmOk && !bundle.patient.isSandbox) {
     const row = await db.patient.findUnique({ where: { id: bundle.patient.id }, include: { provider: true } });
     if (row) {
       notified = await sendSummaryEmails({
