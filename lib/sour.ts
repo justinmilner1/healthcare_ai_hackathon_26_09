@@ -61,7 +61,7 @@ export type SourInput = {
     minutesAbove180: number;
     after: string | null; // place name or null
     placeLeftAt: string | null; // local time the visit ended
-    placeRelation: "after leaving" | "during a stay at" | null; // long stays that merely overlap are not "after"
+    placeRelation: "after leaving" | "at" | "during a long stay at" | null; // "at" = meal-length stay (≤3 h); long stays that merely overlap are weak
     placeArrivedAt: string | null;
   }[];
   nights: { nightOf: string; weekday: string; hours: number; recovery: number | null; lateDinnerBefore: string | null }[];
@@ -135,7 +135,7 @@ export function buildSourInput(args: {
       minutesAbove180: above,
       after: s.visit?.place ?? null,
       placeLeftAt: s.visit ? localTime(s.visit.end) : null,
-      placeRelation: s.visit ? (Date.parse(s.visit.end) <= Date.parse(s.start) ? ("after leaving" as const) : ("during a stay at" as const)) : null,
+      placeRelation: relationTo(s),
       placeArrivedAt: s.visit ? localTime(s.visit.start) : null,
     };
   });
@@ -202,7 +202,9 @@ export function renderSourInput(x: SourInput): string {
       ? "no visit within 30 min"
       : s.placeRelation === "after leaving"
         ? `after leaving ${s.after} at ${s.placeLeftAt}`
-        : `during a stay at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt}; long stay, weak association)`;
+        : s.placeRelation === "at"
+          ? `at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt})`
+          : `during a long stay at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt}; weak association)`;
     L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${ctx}`);
   }
   L.push("");
@@ -214,6 +216,18 @@ export function renderSourInput(x: SourInput): string {
   L.push("PATIENT'S OWN WORDS (from the pre-visit chat):");
   L.push(x.patientNotes.trim() ? x.patientNotes.trim() : "  (nothing recorded)");
   return L.join("\n");
+}
+
+const MEAL_STAY_MS = 3 * 60 * 60 * 1000;
+
+/** How the matched place relates to the spike. Meal-length stays count as real associations even when the
+ *  climb begins before the patient leaves; only long stays (office, home) that merely overlap are weak. */
+function relationTo(s: Spike): "after leaving" | "at" | "during a long stay at" | null {
+  if (!s.visit) return null;
+  const vStart = Date.parse(s.visit.start);
+  const vEnd = Date.parse(s.visit.end);
+  if (vEnd <= Date.parse(s.start)) return "after leaving";
+  return vEnd - vStart <= MEAL_STAY_MS ? "at" : "during a long stay at";
 }
 
 function medianStepMinutes(rs: GlucoseReading[]): number {
