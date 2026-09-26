@@ -17,5 +17,5 @@ export async function sendSms(to: string, body: string): Promise<{ sent: boolean
 
 export function intakeLink(token: string): string {
   const base = process.env.APP_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/$/, "")}/s/${token}`;
+  return `${base.replace(/\/$/, "")}/s/${token}/intake`;
 }
