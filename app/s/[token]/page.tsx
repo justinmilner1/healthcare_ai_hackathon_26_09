@@ -5,6 +5,7 @@
 // /api/sweetie like typed text. Typing always works too. Uses GET/POST /api/sweetie and POST /api/upload.
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { ChatMessage, IntakeFieldDef, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
 import { hush, listenOnce, say, voiceSupport, warmVoices } from "@/lib/voice";
 
@@ -13,6 +14,9 @@ type VoiceState = "off" | "speaking" | "listening" | "thinking" | "idle";
 
 export default function SweetiePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
+  const router = useRouter();
+  const [skipError, setSkipError] = useState("");
+  const [skipping, setSkipping] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
   const [intake, setIntake] = useState<IntakeState | null>(null);
@@ -94,7 +98,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
   async function sendMessage(raw: string, spoken = false) {
     const mine = raw.trim();
-    if (!mine) return;
+    if (!mine || busy || skipping) return;
     setText("");
     setMessages((m) => [...m, { role: "patient", content: mine }]);
     setBusy(true);
@@ -107,6 +111,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   }
 
   async function startVoice() {
+    if (busy || skipping) return;
     voiceOn.current = true;
     const last = [...messages].reverse().find((m) => m.role === "sweetie")?.content ?? "";
     await speakThenListen(last);
@@ -121,6 +126,8 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   }
 
   async function upload(kind: UploadKind, file: File) {
+    if (busy || skipping) return;
+    setBusy(true);
     const fd = new FormData();
     fd.set("token", token);
     fd.set("kind", kind);
@@ -128,6 +135,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const d = await res.json();
     if (!res.ok) {
+      setBusy(false);
       const line = `That file didn't work: ${d.error}. Want to try again, or ask me how to export it?`;
       setMessages((m) => [...m, { role: "sweetie", content: line }]);
       if (voiceOn.current) await speakThenListen(line);
@@ -149,6 +157,25 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     if (voiceOn.current) await speakThenListen(reply);
   }
 
+  async function skipQuestions() {
+    if (busy || skipping) return;
+    stopVoice();
+    setSkipping(true);
+    setSkipError("");
+    try {
+      const response = await fetch("/api/sweetie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, event: { type: "skip_questions" } }),
+      });
+      if (!response.ok) throw new Error("We couldn't save your choice. Please try again.");
+      router.push(`/patient/${token}`);
+    } catch (error) {
+      setSkipError(error instanceof Error ? error.message : "We couldn't save your choice. Please try again.");
+      setSkipping(false);
+    }
+  }
+
   const canVoice = support.speak && support.listen;
 
   return (
@@ -158,11 +185,16 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <AgentBadge agent={agent} />
       </header>
 
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+      <button type="button" disabled={busy || skipping || !status} onClick={() => void skipQuestions()} className="mt-3 rounded border px-3 py-2 text-sm disabled:opacity-50">
+        {skipping ? "Saving…" : "Skip questions and view my week"}
+      </button>
+      {skipError && <p role="alert" className="mt-2 text-sm text-red-700">{skipError}</p>}
+
+      <fieldset disabled={busy || skipping} className="mt-2 flex flex-wrap gap-2 text-xs">
         <UploadButton label="Dexcom CSV" kind="dexcom" done={status?.hasDexcom} onFile={upload} />
         <UploadButton label="Maps Timeline JSON" kind="timeline" done={status?.hasLocation} onFile={upload} />
         <UploadButton label="WHOOP CSV" kind="whoop" done={status?.hasWhoop} onFile={upload} />
-      </div>
+      </fieldset>
       {intake && fields.length > 0 && <Progress intake={intake} fields={fields} />}
 
       <div className="mt-4 flex-1 space-y-2 overflow-y-auto rounded border p-3">
@@ -212,8 +244,8 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         }}
         className="mt-2 flex gap-2"
       >
-        <input className="flex-1 rounded border p-2" value={text} onChange={(e) => setText(e.target.value)} placeholder={voice === "off" ? "Type a reply…" : "Or type instead…"} disabled={busy} />
-        <button className="rounded bg-black px-4 text-white disabled:opacity-50" disabled={busy}>Send</button>
+        <input className="flex-1 rounded border p-2" value={text} onChange={(e) => setText(e.target.value)} placeholder={voice === "off" ? "Type a reply…" : "Or type instead…"} disabled={busy || skipping} />
+        <button className="rounded bg-black px-4 text-white disabled:opacity-50" disabled={busy || skipping}>Send</button>
       </form>
     </main>
   );

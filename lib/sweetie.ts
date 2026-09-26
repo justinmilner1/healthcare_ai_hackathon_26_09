@@ -86,6 +86,11 @@ export function parseIntake(json: string | null | undefined, defs: IntakeFieldDe
   }
 }
 
+/** Preserve collected answers and safety flags; skipping is not an answer. */
+export function skipQuestions(state: IntakeState): IntakeState {
+  return { ...state, questionsSkipped: true, wrapped: true };
+}
+
 export function answeredCount(state: IntakeState, defs: IntakeFieldDef[]): number {
   return defs.filter((f) => f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] >= RANK.medium).length;
 }
@@ -157,6 +162,7 @@ export type Target =
   | { kind: "wrap" };
 
 export function nextTarget(state: IntakeState, defs: IntakeFieldDef[], status: Pick<IntakeStatus, "hasDexcom" | "hasLocation" | "hasWhoop">): Target {
+  if (state.questionsSkipped) return { kind: "wrap" };
   if (!status.hasDexcom) return { kind: "upload", which: "dexcom" };
   if (!status.hasLocation && !state.skipped.includes("timeline")) return { kind: "upload", which: "timeline" };
   for (const f of defs) if (f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium) return { kind: "field", def: f };
@@ -239,6 +245,7 @@ export function renderNotes(state: IntakeState, defs: IntakeFieldDef[], visit: V
   const lines: string[] = [];
   if (state.flagged) lines.push(`⚠ Safety flag during intake: ${state.flagged.replace(/_/g, " ")}. Patient was told to call the office.`);
   lines.push(`Visit: ${visitLabel(visit.visitType)}${visit.reason ? `. Called about: ${visit.reason}` : ""}`);
+  if (state.questionsSkipped) lines.push("Patient chose to skip remaining intake questions. Unanswered items were not assessed.");
   for (const f of defs) if (state.fields[f.id]?.value) lines.push(`${f.label}: ${state.fields[f.id].value}`);
   if (state.skipped.length) lines.push(`No ${state.skipped.join(" or ")} data available.`);
   return lines.join("\n");

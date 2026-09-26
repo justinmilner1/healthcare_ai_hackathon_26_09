@@ -542,7 +542,6 @@
   border-radius: 17px;
   background: white;
   box-shadow: 0 4px 14px rgba(56, 38, 47, 0.04);
-  cursor: pointer;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -653,7 +652,56 @@
   white-space: nowrap;
 }
 
+.sourceActions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.removeButton {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: #a72a48;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.removeButton:hover {
+  background: #fff0f4;
+}
+
+.removeButton:focus-visible {
+  outline: 3px solid rgba(247, 93, 124, 0.4);
+  outline-offset: 2px;
+}
+
+.removeButton:disabled,
+.sourceAction:has(input:disabled) {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.removeConfirmation {
+  grid-column: 1 / -1;
+  border-top: 1px solid #eadfe3;
+  padding-top: 12px;
+  color: #746970;
+  font-size: 12px;
+}
+
+.removeConfirmation > div {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+
 .sourceAction {
+  cursor: pointer;
   padding: 7px 10px;
   border: 1px solid #e3dce0;
   border-radius: 9px;
@@ -762,6 +810,57 @@
 
 .completeStep {
   max-width: 540px;
+}
+
+.completeActions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.completeActions .primaryButton {
+  width: 100%;
+  min-height: 52px;
+  gap: 12px;
+}
+
+.completionHint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.secondaryActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 20px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid #eee5e8;
+}
+
+.secondaryActions .textButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.secondaryActions svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .completeIcon {
@@ -1064,8 +1163,10 @@
     height: 43px;
   }
 
-  .sourceAction {
-    display: none;
+  .sourceActions {
+    grid-column: 2;
+    flex-direction: row;
+    justify-content: flex-start;
   }
 
   .sourceDescription {

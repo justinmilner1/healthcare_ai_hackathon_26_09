@@ -64,6 +64,10 @@ export default function SweetieIntakePage({
   const [connections, setConnections] =
     useState<Record<DataKind, Connection>>(EMPTY_CONNECTIONS);
   const [pageError, setPageError] = useState("");
+  const [isFinishing, setIsFinishing] = useState(false);
+  const [removing, setRemoving] = useState<DataKind | null>(null);
+  const [confirmRemoval, setConfirmRemoval] = useState<DataKind | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,6 +109,10 @@ export default function SweetieIntakePage({
   }, [token]);
 
   async function upload(kind: DataKind, file: File) {
+    if (isUploading || isFinishing) return;
+    const previous = connections[kind];
+    setConnectionNotice("");
+    setConfirmRemoval(null);
     setConnections((current) => ({
       ...current,
       [kind]: { state: "uploading", detail: `Reading ${file.name}` },
@@ -138,7 +146,7 @@ export default function SweetieIntakePage({
       setConnections((current) => ({
         ...current,
         [kind]: {
-          state: "error",
+          state: previous.state === "connected" ? "connected" : "error",
           detail:
             error instanceof Error
               ? error.message
@@ -148,10 +156,50 @@ export default function SweetieIntakePage({
     }
   }
 
+  async function removeSource(kind: DataKind) {
+    if (isUploading || isFinishing) return;
+    setRemoving(kind);
+    setPageError("");
+    setConnectionNotice("");
+    try {
+      const response = await fetch("/api/upload", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, kind }),
+      });
+      if (!response.ok) throw new Error("We couldn't remove that data. Please try again.");
+      setConnections((current) => ({ ...current, [kind]: { state: "idle" } }));
+      setConfirmRemoval(null);
+      setConnectionNotice(`${SOURCES.find((source) => source.kind === kind)?.name} data removed. You can upload it again anytime.`);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "We couldn't remove that data. Please try again.");
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  async function finishWithoutQuestions() {
+    if (isFinishing || isUploading) return;
+    setIsFinishing(true);
+    setPageError("");
+    try {
+      const response = await fetch("/api/sweetie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, event: { type: "skip_questions" } }),
+      });
+      if (!response.ok) throw new Error("We couldn't save your choice. Please try again.");
+      router.push(`/patient/${token}`);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "We couldn't save your choice. Please try again.");
+      setIsFinishing(false);
+    }
+  }
+
   const connectedCount = Object.values(connections).filter(
     (connection) => connection.state === "connected",
   ).length;
-  const isUploading = Object.values(connections).some(
+  const isUploading = removing !== null || Object.values(connections).some(
     (connection) => connection.state === "uploading",
   );
 
@@ -175,7 +223,7 @@ export default function SweetieIntakePage({
           </div>
 
           <nav className={styles.progress} aria-label="Onboarding progress">
-            {["Hello", "Connect", "Sweetie"].map((label, index) => (
+            {["Hello", "Connect", "Ready"].map((label, index) => (
               <div
                 className={`${styles.progressItem} ${
                   index === step ? styles.progressActive : ""
@@ -261,7 +309,7 @@ export default function SweetieIntakePage({
                 <span>
                   {step === 0 && "I’ll make this quick and easy."}
                   {step === 1 && "You choose exactly what to share."}
-                  {step === 2 && "Next, tell me what’s on your mind."}
+                  {step === 2 && "Your week is ready to view. Questions are optional."}
                 </span>
               </div>
             </div>
@@ -338,7 +386,7 @@ export default function SweetieIntakePage({
                     Bring the last 7 days into focus.
                   </h1>
                   <p className={styles.lede}>
-                    Add any exports you have. You can replace them at any time.
+                    Add any exports you have. You can replace or remove them at any time.
                   </p>
                 </div>
 
@@ -346,7 +394,7 @@ export default function SweetieIntakePage({
                   {SOURCES.map((source) => {
                     const connection = connections[source.kind];
                     return (
-                      <label
+                      <div
                         key={source.kind}
                         className={`${styles.sourceCard} ${
                           styles[source.tone]
@@ -377,28 +425,55 @@ export default function SweetieIntakePage({
                             {connection.detail ?? source.format}
                           </span>
                         </span>
-                        <span className={styles.sourceAction}>
-                          {connection.state === "uploading"
-                            ? "Adding…"
-                            : connection.state === "connected"
-                              ? "Replace"
-                              : "Choose file"}
-                        </span>
-                        <input
-                          className={styles.fileInput}
-                          type="file"
-                          accept={source.accept}
-                          disabled={connection.state === "uploading"}
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0];
-                            if (file) void upload(source.kind, file);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
+                        <div className={styles.sourceActions}>
+                          <label className={styles.sourceAction}>
+                            {connection.state === "uploading"
+                              ? "Adding…"
+                              : connection.state === "connected" ? "Replace" : "Choose file"}
+                            <input
+                              className={styles.fileInput}
+                              type="file"
+                              aria-label={`${connection.state === "connected" ? "Replace" : "Upload"} ${source.name} file`}
+                              accept={source.accept}
+                              disabled={isUploading || isFinishing}
+                              onChange={(event) => {
+                                const file = event.currentTarget.files?.[0];
+                                if (file) void upload(source.kind, file);
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
+                          {connection.state === "connected" && (
+                            <button
+                              type="button"
+                              className={styles.removeButton}
+                              aria-label={`Remove ${source.name} data`}
+                              disabled={isUploading || isFinishing}
+                              onClick={() => setConfirmRemoval(source.kind)}
+                            >
+                              {removing === source.kind ? "Removing…" : "Remove"}
+                            </button>
+                          )}
+                        </div>
+                        {confirmRemoval === source.kind && (
+                          <div className={styles.removeConfirmation}>
+                            <p>Remove all {source.name} uploads from this check-in? Saved summaries will be cleared so they no longer show this data. You can upload again later.</p>
+                            <div>
+                              <button type="button" className={styles.removeButton} disabled={isUploading} onClick={() => void removeSource(source.kind)}>
+                                Confirm removal
+                              </button>
+                              <button type="button" className={styles.textButton} disabled={isUploading} onClick={() => setConfirmRemoval(null)}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
+
+                {connectionNotice && <p role="status" className={styles.lede}>{connectionNotice}</p>}
 
                 <div className={styles.connectFooter}>
                   <div className={styles.connectionCount}>
@@ -411,7 +486,7 @@ export default function SweetieIntakePage({
                       disabled={isUploading}
                       onClick={() => setStep(2)}
                     >
-                      I&apos;ll do this in chat
+                      Skip connections
                     </button>
                     <button
                       className={styles.primaryButton}
@@ -436,8 +511,9 @@ export default function SweetieIntakePage({
                   <p className={styles.eyebrow}>SETUP COMPLETE</p>
                   <h1 className={styles.title}>You&apos;re all set.</h1>
                   <p className={styles.lede}>
-                    Sweetie is ready to ask a few short questions before your
-                    visit. There&apos;s no medical jargon—just a conversation.
+                    Go straight to your week without answering questions.
+                    If you&apos;d like to share more before your visit, chatting
+                    with Sweetie is optional.
                   </p>
                 </div>
 
@@ -452,9 +528,9 @@ export default function SweetieIntakePage({
                           ? `${connectedCount} data ${
                               connectedCount === 1 ? "source" : "sources"
                             } connected`
-                          : "Data can be added in chat"}
+                          : "No data connected yet"}
                       </strong>
-                      <small>Sweetie will guide you from here.</small>
+                      <small>You can return to connections to add more data.</small>
                     </span>
                   </div>
                   <div className={styles.readyDivider} />
@@ -469,22 +545,37 @@ export default function SweetieIntakePage({
                   </div>
                 </div>
 
-                <div className={styles.actions}>
+                <div className={`${styles.actions} ${styles.completeActions}`}>
                   <button
                     className={`${styles.primaryButton} ${styles.chatButton}`}
                     type="button"
+                    disabled={isFinishing || isUploading}
+                    onClick={() => void finishWithoutQuestions()}
+                  >
+                    {isFinishing ? "Saving…" : "View my week"}
+                    <ArrowIcon />
+                  </button>
+                  <p className={styles.completionHint}>Skip the questions. Your shared data stays saved.</p>
+                  <div className={styles.secondaryActions}>
+                  <button
+                    className={styles.textButton}
+                    type="button"
+                    disabled={isFinishing}
                     onClick={() => router.push(`/s/${token}`)}
                   >
-                    Chat with Sweetie
                     <MessageIcon />
+                    Chat with Sweetie instead
                   </button>
                   <button
                     className={styles.textButton}
                     type="button"
+                    disabled={isFinishing}
                     onClick={() => setStep(1)}
                   >
+                    <BackIcon />
                     Back to connections
                   </button>
+                  </div>
                 </div>
               </div>
             )}

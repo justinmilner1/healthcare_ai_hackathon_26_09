@@ -38,7 +38,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     hasLocation: visits.length > 0,
     hasWhoop: sleep.length > 0,
     answered,
-    done: glucose.length > 0 && (answered >= required || intake.wrapped),
+    done: intake.questionsSkipped === true || (glucose.length > 0 && (answered >= required || intake.wrapped)),
   };
 
   const pick = (aud: string) => patient.summaries.find((x) => x.audience === aud);

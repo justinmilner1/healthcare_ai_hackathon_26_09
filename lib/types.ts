@@ -47,6 +47,7 @@ export type IntakeState = {
   flagged: string | null; // red-flag id if the safety scan fired
   turns: number; // patient messages so far
   wrapped: boolean; // Sweetie has said goodbye
+  questionsSkipped?: boolean; // patient explicitly chose to finish without more questions
 };
 
 // What Sweetie knows about the patient's progress. Drives which question comes next.

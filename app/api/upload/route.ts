@@ -12,6 +12,26 @@ import type { UploadKind } from "@/lib/types";
 
 const KINDS: UploadKind[] = ["dexcom", "timeline", "whoop", "visits"];
 
+// DELETE /api/upload { token, kind }: remove every version so older uploads cannot reappear.
+export async function DELETE(req: Request) {
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body.token !== "string" || !body.token || !KINDS.includes(body.kind)) {
+    return NextResponse.json({ error: "A token and valid upload kind are required." }, { status: 400 });
+  }
+  const patient = await db.patient.findUnique({ where: { token: body.token } });
+  if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+
+  // Hand-labelled visits also contain location history and must not survive Timeline removal.
+  const kinds = body.kind === "timeline" ? ["timeline", "visits"] : [body.kind];
+  await db.$transaction([
+    db.upload.deleteMany({ where: { patientId: patient.id, kind: { in: kinds } } }),
+    // Cached narratives may cite the removed data. Regenerate them from the remaining sources.
+    db.summary.deleteMany({ where: { patientId: patient.id } }),
+  ]);
+  const bundle = await loadBundle(patient.id);
+  return NextResponse.json({ kind: body.kind, status: bundle?.status });
+}
+
 export async function POST(req: Request) {
   const form = await req.formData();
   const token = String(form.get("token") ?? "");

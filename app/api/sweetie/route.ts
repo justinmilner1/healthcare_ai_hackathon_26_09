@@ -2,6 +2,7 @@
 // GET  /api/sweetie?token=...                                   -> { patientId, name, messages, status, intake, agent }
 // POST /api/sweetie { token, message }                          -> { reply, status, intake, agent }
 // POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
+// POST /api/sweetie { token, event: { type: "skip_questions" } } -> same; saves an explicit opt-out
 // Every patient message goes through the deterministic red-flag scan before the model sees it.
 // Without an API key the same targets are spoken with fixed words, so the page works offline.
 
@@ -9,7 +10,7 @@ import { NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { LLMUnavailable, MODEL } from "@/lib/llm";
-import { extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
+import { extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
 
@@ -40,12 +41,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent };
+  const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent | { type: "skip_questions" } };
   const patient = await patientByToken(body.token ?? null);
   if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   const message = body.message?.trim();
   const event = body.event?.type === "upload" ? body.event : undefined;
-  if (!message && !event) return NextResponse.json({ error: "message or event is required" }, { status: 400 });
+  const skippingQuestions = body.event?.type === "skip_questions";
+  if (!message && !event && !skippingQuestions) return NextResponse.json({ error: "message or event is required" }, { status: 400 });
 
   const firstName = patient.name.split(" ")[0];
   const visit = { visitType: patient.visitType, reason: patient.reason };
@@ -65,6 +67,11 @@ export async function POST(req: Request) {
       reply = redFlagReply(firstName, patient.provider.name);
       return finish(patient.id, state, defs, visit, reply);
     }
+  }
+
+  if (skippingQuestions) {
+    return finish(patient.id, skipQuestions(state), defs, visit,
+      "You've skipped the remaining questions. Anything you've already shared is saved for your care team. You can view your week now.");
   }
 
   const history = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
