@@ -10,12 +10,15 @@ export default function SpikeTable({ spikes, compact = false }: { spikes: Spike[
         <tr className="text-left text-xs text-[var(--viz-ink-2)]">
           <th className="pb-1 font-medium">When</th>
           <th className="pb-1 font-medium">Rise</th>
-          <th className="pb-1 font-medium">{compact ? "Where" : "After being at"}</th>
+          <th className="pb-1 font-medium">{compact ? "Where" : "Place"}</th>
         </tr>
       </thead>
       <tbody className="tabular-nums">
         {spikes.map((s, i) => {
-          const gapMin = s.visit ? Math.max(0, Math.round((Date.parse(s.start) - Date.parse(s.visit.end)) / 60000)) : null;
+          // "left 25 min before" when the visit ended before the rise began; "while there" when the rise
+          // began during the visit, which is normal for a sit-down meal.
+          const gapMin = s.visit ? Math.round((Date.parse(s.start) - Date.parse(s.visit.end)) / 60000) : null;
+          const relation = gapMin === null ? "" : gapMin > 0 ? `left ${gapMin} min before` : "while there";
           return (
             <tr key={i} className="border-t border-black/5">
               <td className="py-1.5 pr-3 whitespace-nowrap">{fmt(s.peak)}</td>
@@ -26,7 +29,7 @@ export default function SpikeTable({ spikes, compact = false }: { spikes: Spike[
                 {s.visit ? (
                   <>
                     {s.visit.place}
-                    {!compact && gapMin !== null && <span className="text-[var(--viz-muted)]"> · left {gapMin === 0 ? "during" : `${gapMin} min before`}</span>}
+                    {!compact && relation && <span className="text-[var(--viz-muted)]"> · {relation}</span>}
                   </>
                 ) : (
                   <span className="text-[var(--viz-muted)]">no matching visit</span>

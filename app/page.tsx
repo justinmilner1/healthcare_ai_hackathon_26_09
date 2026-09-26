@@ -12,11 +12,8 @@ export default function Home() {
             context="One clearer conversation"
           />
           <nav className="home-nav" aria-label="Main navigation">
-            <Link href="/provider" className="ss-button">
+            <Link href="/provider" className="ss-button ss-button-primary">
               Practice dashboard
-            </Link>
-            <Link href="/demo" className="ss-button ss-button-primary">
-              Open demo
               <span aria-hidden="true">→</span>
             </Link>
           </nav>
@@ -36,8 +33,8 @@ export default function Home() {
               endocrinologist actually needs.
             </p>
             <div className="home-actions">
-              <Link href="/demo" className="ss-button ss-button-primary">
-                Explore the provider demo
+              <Link href="/provider" className="ss-button ss-button-primary">
+                Open the practice dashboard
                 <span aria-hidden="true">→</span>
               </Link>
               <Link href="/provider/signup" className="ss-text-button">
@@ -152,16 +149,6 @@ export default function Home() {
             </article>
           </div>
         </section>
-
-        <details className="home-dev ss-card">
-          <summary>Developer shortcuts</summary>
-          <div>
-            Run <code>npm run seed</code>, then open{" "}
-            <Link href="/demo">the seeded provider demo</Link>. The practice
-            dashboard&apos;s Add patient flow calls <code>POST /api/book</code>{" "}
-            and sends the patient&apos;s presigned Sweetie link.
-          </div>
-        </details>
 
         <footer className="home-footer">
           <span>Sweet Spot · Healthcare AI Hackathon</span>

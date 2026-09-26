@@ -212,15 +212,6 @@ export default function ProviderDashboard() {
     }));
   }
 
-  function switchPractice() {
-    forgetProvider();
-    setPid(null);
-    setProvider(null);
-    fetch("/api/provider?list=1")
-      .then((response) => response.json())
-      .then(setChoices);
-  }
-
   if (pid === undefined) {
     return (
       <main className="ss-page sour-theme">
@@ -263,9 +254,6 @@ export default function ProviderDashboard() {
         <header className="ss-topbar">
           <PersonaBrand persona="sour" context="Practice command center" />
           <div className="provider-top-actions">
-            <button className="ss-button" onClick={switchPractice}>
-              Switch practice
-            </button>
             <button
               className="ss-button ss-button-accent"
               onClick={openWizard}

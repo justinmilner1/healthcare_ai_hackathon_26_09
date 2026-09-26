@@ -108,8 +108,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   async function sendLink(pid: string) {
     setInvite("Sending…");
     const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
-    const parts = [d.sms?.sent ? "texted" : `SMS: ${d.sms?.error}`, d.email?.sent ? "emailed" : `email: ${d.email?.error}`];
-    setInvite(`${parts.join(" · ")} · ${d.link}`);
+    // Plain feedback for the clinician; the raw channel errors stay in the response for debugging.
+    if (d.email?.sent || d.sms?.sent) setInvite(`Link sent by ${[d.email?.sent && "email", d.sms?.sent && "text"].filter(Boolean).join(" and ")}.`);
+    else setInvite(`Couldn't send the link automatically. Share it directly: ${d.link}`);
   }
 
   async function askSour(e: React.FormEvent) {
