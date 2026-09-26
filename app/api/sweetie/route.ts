@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { LLMUnavailable, MODEL } from "@/lib/llm";
-import { extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
+import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
 
@@ -70,27 +70,39 @@ export async function POST(req: Request) {
   const history = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
   const transcript = history.map((m) => `${m.role === "sweetie" ? "Sweetie" : "Patient"}: ${m.content}`).join("\n");
 
-  // 2. Extract what the latest message tells us (model), or skip for upload events.
+  // 2. What was Sweetie asking? Decided from the state before this message, so the extractor and the
+  //    backstop both know which field the answer belongs to.
+  const before = await loadBundle(patient.id);
+  const askedTarget = nextTarget(state, defs, before!.status);
+  const askedId = askedTarget.kind === "field" ? askedTarget.def.id : null;
+
+  // 3. Extract what the latest message tells us (model), then the deterministic backstop.
   let llm = true;
   if (message) {
     try {
-      const ex = await extract(state, defs, transcript, message);
+      const ex = await extract(state, defs, transcript, message, askedId);
       state = merge(state, ex);
       exportHelp = ex.asks_export_help;
+      // A decline while being offered the data upload counts even if the extractor missed it.
+      if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message) && !state.skipped.includes(askedTarget.which)) {
+        state = { ...state, skipped: [...state.skipped, askedTarget.which] };
+      }
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
       llm = false;
       exportHelp = guessExportHelp(message);
+      if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message)) state = { ...state, skipped: [...state.skipped, askedTarget.which] };
     }
+    state = backstop(state, askedId, message);
   }
 
-  // 3. Decide direction from state + what has actually been uploaded.
+  // 4. Decide direction from state + what has actually been uploaded.
   const bundle = await loadBundle(patient.id);
   const status = bundle!.status;
   let target = nextTarget(state, defs, status);
   if (state.turns >= MAX_TURNS && target.kind !== "wrap") target = { kind: "wrap" };
 
-  // 4. Say it.
+  // 5. Say it.
   const uploadEvent = event ? { kind: event.kind, count: event.count, days: event.days } : undefined;
   if (llm) {
     try {
