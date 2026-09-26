@@ -4437,3 +4437,19 @@ button.sweetie-agent-badge {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Sweetie sidebar: skipping is a quiet option, and only once there is something to show. */
+.sweetie-skip-link {
+  align-self: flex-start;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0.25rem 0;
+}
+.sweetie-skip-link:hover { color: #fff; }
+.sweetie-skip-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.8);
+}

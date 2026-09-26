@@ -263,6 +263,15 @@ export default function SweetiePage({
         body: JSON.stringify({ token, event: { type: "skip_questions" } }),
       });
       if (!response.ok) throw new Error("We couldn't save your choice. Please try again.");
+      const data = await response.json();
+      if (data.skipRefused) {
+        // Nothing answered and nothing uploaded: Sweetie steers back to the first question instead.
+        setMessages((current) => [...current, { role: "sweetie", content: data.reply }]);
+        if (data.status) setStatus(data.status);
+        if (data.intake) setIntake(data.intake);
+        setSkipping(false);
+        return;
+      }
       router.push(`/patient/${token}`);
     } catch (error) {
       setSkipError(error instanceof Error ? error.message : "We couldn't save your choice. Please try again.");
@@ -347,9 +356,15 @@ export default function SweetiePage({
               </small>
             </div>
 
-            <button type="button" className="ss-button ss-button-primary" disabled={busy || Boolean(uploading) || skipping || !status} onClick={() => void skipQuestions()}>
-              {skipping ? "Saving…" : "Skip questions and view my week"}
-            </button>
+            {/* Skipping only makes sense once there is something to show. Until the patient has answered
+                a question or added data, the primary action is the conversation itself. */}
+            {(completeFields > 0 || status?.hasDexcom || status?.hasLocation || status?.hasWhoop) && !finished ? (
+              <button type="button" className="ss-text-button sweetie-skip-link" disabled={busy || Boolean(uploading) || skipping || !status} onClick={() => void skipQuestions()}>
+                {skipping ? "Saving…" : "Skip the rest and view my week"}
+              </button>
+            ) : !finished ? (
+              <p className="sweetie-skip-hint">Answer Sweetie&apos;s first question to get started. It takes about five minutes.</p>
+            ) : null}
             {skipError && <p role="alert">{skipError}</p>}
 
             <fieldset disabled={busy || Boolean(uploading) || skipping} className="sweetie-upload-list">
