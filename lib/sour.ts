@@ -61,6 +61,8 @@ export type SourInput = {
     minutesAbove180: number;
     after: string | null; // place name or null
     placeLeftAt: string | null; // local time the visit ended
+    placeRelation: "after leaving" | "during a stay at" | null; // long stays that merely overlap are not "after"
+    placeArrivedAt: string | null;
   }[];
   nights: { nightOf: string; weekday: string; hours: number; recovery: number | null; lateDinnerBefore: string | null }[];
   patientNotes: string;
@@ -133,6 +135,8 @@ export function buildSourInput(args: {
       minutesAbove180: above,
       after: s.visit?.place ?? null,
       placeLeftAt: s.visit ? localTime(s.visit.end) : null,
+      placeRelation: s.visit ? (Date.parse(s.visit.end) <= Date.parse(s.start) ? "after leaving" : "during a stay at") : null,
+      placeArrivedAt: s.visit ? localTime(s.visit.start) : null,
     };
   });
 
@@ -191,9 +195,16 @@ export function renderSourInput(x: SourInput): string {
   L.push("BY DAY: day | TIR | mean | peak (time) | low | min above 180 | min below 70");
   for (const d of x.days) L.push(`  ${d.weekday} ${d.date.slice(5)} | ${pct(d.tir)} | ${d.avg} | ${d.max} (${d.maxAt}) | ${d.min} | ${d.minutesAbove180} | ${d.minutesBelow70}`);
   L.push("");
-  L.push(`SPIKES (${x.spikes.length}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | preceded by`);
+  L.push(`SPIKES (${x.spikes.length}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | place context`);
   if (x.spikes.length === 0) L.push("  none");
-  for (const s of x.spikes) L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${s.after ? `${s.after}, left ${s.placeLeftAt}` : "no visit within 30 min"}`);
+  for (const s of x.spikes) {
+    const ctx = !s.after
+      ? "no visit within 30 min"
+      : s.placeRelation === "after leaving"
+        ? `after leaving ${s.after} at ${s.placeLeftAt}`
+        : `during a stay at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt}; long stay, weak association)`;
+    L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${ctx}`);
+  }
   L.push("");
   if (x.nights.length) {
     L.push("SLEEP (night of): day | hours | recovery | late dinner out that evening");
