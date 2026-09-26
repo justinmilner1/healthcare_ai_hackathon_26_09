@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import DexcomDemoLink, { DemoReturnLink } from "@/components/DexcomDemoLink";
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { IntakeStatus, UploadKind } from "@/lib/types";
@@ -98,7 +99,9 @@ export default function SweetieIntakePage({
     const controller = new AbortController();
     setDexcomStatus(null);
     setDexcomError("");
-    const outcome = new URLSearchParams(window.location.search).get("dexcom");
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("demo") === "1") setStep(1);
+    const outcome = query.get("dexcom");
     setDexcomMessage("");
     if (outcome && Object.prototype.hasOwnProperty.call(DEXCOM_MESSAGES, outcome)) {
       setDexcomMessage(DEXCOM_MESSAGES[outcome]);
@@ -381,8 +384,10 @@ export default function SweetieIntakePage({
 
           <div className={styles.contentPanel}>
             {dexcomStatus?.sandboxPatient && (
-              <div role="note" className="mb-4 rounded-lg border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
-                <strong>Synthetic data — Dexcom sandbox demo only.</strong> This dedicated demo patient accepts sandbox imports only. Do not upload real patient data or use these data for care decisions.
+              <div role="note" className={styles.demoNotice}>
+                <strong>Demo mode · Synthetic data only</strong>
+                Your patient record stays unchanged. Not for care decisions.
+                <div><DemoReturnLink token={token} /></div>
               </div>
             )}
             {dexcomMessage && <p role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">{dexcomMessage}</p>}
@@ -452,9 +457,9 @@ export default function SweetieIntakePage({
                     <BackIcon />
                     Back
                   </button>
-                  <p className={styles.eyebrow}>CONNECT YOUR HEALTH DATA</p>
+                  <p className={styles.eyebrow}>{dexcomStatus?.sandboxPatient ? "EXPLORE THE DEMO" : "CONNECT YOUR HEALTH DATA"}</p>
                   <h1 className={`${styles.title} ${styles.connectTitle}`}>
-                    Bring the last 7 days into focus.
+                    {dexcomStatus?.sandboxPatient ? "Try a week with Dexcom." : "Bring the last 7 days into focus."}
                   </h1>
                   <p className={styles.lede}>
                     {dexcomStatus?.sandboxPatient
@@ -465,12 +470,15 @@ export default function SweetieIntakePage({
 
                 {!dexcomStatus && !dexcomError && <p role="status">Checking data connections…</p>}
                 {dexcomStatus?.sandboxPatient && (
-                  <form action="/api/dexcom/connect" method="POST" className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+                  <form action="/api/dexcom/connect" method="POST" className={styles.sandboxCard}>
                     <input type="hidden" name="token" value={token} />
-                    <h2 className="font-semibold">Dexcom sandbox</h2>
-                    <p className="text-sm">You will leave this page to authorize a sandbox import, then return here. Only synthetic demo data is supported.</p>
+                    <div className={styles.sandboxHeader}>
+                      <span className={styles.sandboxIcon}><SourceIcon kind="dexcom" /></span>
+                      <div><h2>Dexcom sandbox</h2><p>Seven days of synthetic glucose readings</p></div>
+                    </div>
+                    <p className={styles.sandboxBody}>Authorize access on Dexcom, then return here to explore your demo glucose trends.</p>
                     {dexcomStatus.connected && (
-                      <p role="status" className="text-sm">
+                      <p role="status" className={styles.sandboxResult}>
                         <strong>{dexcomStatus.count.toLocaleString()} synthetic glucose readings imported.</strong>
                         {dexcomStatus.start && dexcomStatus.end && (
                           <span className="block">{formatImportDate(dexcomStatus.start)} – {formatImportDate(dexcomStatus.end)}</span>
@@ -548,6 +556,11 @@ export default function SweetieIntakePage({
                             </button>
                           )}
                         </div>
+                        {source.kind === "dexcom" && (
+                          <div className="col-span-full w-full">
+                            <DexcomDemoLink token={token} disabled={isUploading || isFinishing} />
+                          </div>
+                        )}
                         {confirmRemoval === source.kind && (
                           <div className={styles.removeConfirmation}>
                             <p>Remove all {source.name} uploads from this check-in? Saved summaries will be cleared so they no longer show this data. You can upload again later.</p>
