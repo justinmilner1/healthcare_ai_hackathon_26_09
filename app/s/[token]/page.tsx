@@ -1,15 +1,15 @@
 "use client";
 
 // Sweetie: voice-first intake, reached from the presigned link. Owner: Justin (voice + brain), Nisarga (onboarding at /intake).
-// Voice mode: Sweetie speaks each message aloud and listens for the reply; a final transcript is posted to
-// /api/sweetie like typed text. Typing always works too. Uses GET/POST /api/sweetie and POST /api/upload.
+// One mic in the chat bar toggles hands-free mode: tap, talk, Sweetie answers aloud and listens again. Tap again to stop.
+// A final transcript is posted to /api/sweetie exactly like typed text. Uses GET/POST /api/sweetie and POST /api/upload.
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, IntakeFieldDef, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
-import { hush, listenOnce, say, voiceSupport, warmVoices } from "@/lib/voice";
+import { explainMicError, hush, listenOnce, say, voiceSupport, warmVoices } from "@/lib/voice";
 
 type AgentInfo = { connected: boolean; model: string };
-type VoiceState = "off" | "speaking" | "listening" | "thinking" | "idle";
+type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
 export default function SweetiePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -20,11 +20,13 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [voice, setVoice] = useState<VoiceState>("off");
+  const [mic, setMic] = useState<Mic>("off");
+  const [micNote, setMicNote] = useState("");
   const [interim, setInterim] = useState("");
   const [support, setSupport] = useState({ listen: false, speak: false });
   const bottom = useRef<HTMLDivElement>(null);
-  const voiceOn = useRef(false);
+  const micOn = useRef(false); // hands-free mode; refs so the async loop never reads stale state
+  const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
@@ -38,9 +40,10 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         setIntake(d.intake ?? null);
         setFields(d.intakeFields ?? []);
         setAgent(d.agent ?? null);
+        done.current = Boolean(d.status?.done && d.intake?.wrapped);
       });
     return () => {
-      voiceOn.current = false;
+      micOn.current = false;
       listener.current?.stop();
       hush();
     };
@@ -56,68 +59,77 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     if (d.intake) setIntake(d.intake);
     if (d.intakeFields) setFields(d.intakeFields);
     if (d.agent) setAgent(d.agent);
+    done.current = Boolean(d.status?.done && d.intake?.wrapped);
     return d.reply ?? "";
   }, []);
 
-  // ---- voice loop: speak the last Sweetie line, then listen, then send, then repeat ------------------------
+  // ---- hands-free loop -----------------------------------------------------------------------------------
 
   const listen = useCallback(() => {
-    if (!voiceOn.current) return;
-    setVoice("listening");
+    if (!micOn.current) return;
+    setMic("listening");
+    setMicNote("");
     setInterim("");
     listener.current = listenOnce({
       onInterim: (t) => setInterim(t),
       onSpeechStart: () => hush(),
       onFinal: (t) => {
         setInterim("");
-        void sendMessage(t, true);
+        void send(t);
       },
-      onEnd: () => {
-        // No speech caught: stay in the loop but don't hammer the mic. The person can tap the mic again.
-        setVoice((v) => (v === "listening" ? "idle" : v));
+      onEnd: () => setMic((m) => (m === "listening" ? "idle" : m)),
+      onError: (code) => {
+        setMicNote(explainMicError(code));
+        if (code === "not-allowed" || code === "service-not-allowed" || code === "unsupported") {
+          micOn.current = false;
+          setMic("off");
+        } else setMic("idle");
       },
-      onError: () => setVoice("idle"),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const speakThenListen = useCallback(
     async (line: string) => {
-      if (!voiceOn.current) return;
-      setVoice("speaking");
+      if (!micOn.current) return;
+      setMic("speaking");
       await say(line);
-      if (voiceOn.current && !(status?.done && intake?.wrapped)) listen();
-      else setVoice("idle");
+      if (!micOn.current) return;
+      if (done.current) {
+        micOn.current = false;
+        setMic("off");
+        return;
+      }
+      listen();
     },
-    [listen, status?.done, intake?.wrapped],
+    [listen],
   );
 
-  async function sendMessage(raw: string, spoken = false) {
+  async function send(raw: string) {
     const mine = raw.trim();
     if (!mine) return;
     setText("");
     setMessages((m) => [...m, { role: "patient", content: mine }]);
     setBusy(true);
-    if (voiceOn.current) setVoice("thinking");
+    if (micOn.current) setMic("thinking");
     const res = await fetch("/api/sweetie", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, message: mine }) });
-    const d = await res.json();
-    const reply = applyReply(d);
+    const reply = applyReply(await res.json());
     setBusy(false);
-    if (voiceOn.current && (spoken || voice !== "off")) await speakThenListen(reply);
+    if (micOn.current) await speakThenListen(reply);
   }
 
-  async function startVoice() {
-    voiceOn.current = true;
-    const last = [...messages].reverse().find((m) => m.role === "sweetie")?.content ?? "";
-    await speakThenListen(last);
-  }
-
-  function stopVoice() {
-    voiceOn.current = false;
-    listener.current?.stop();
-    hush();
-    setInterim("");
-    setVoice("off");
+  function toggleMic() {
+    if (micOn.current) {
+      micOn.current = false;
+      listener.current?.stop();
+      hush();
+      setInterim("");
+      setMic("off");
+      return;
+    }
+    micOn.current = true;
+    setMicNote("");
+    listen();
   }
 
   async function upload(kind: UploadKind, file: File) {
@@ -130,14 +142,14 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     if (!res.ok) {
       const line = `That file didn't work: ${d.error}. Want to try again, or ask me how to export it?`;
       setMessages((m) => [...m, { role: "sweetie", content: line }]);
-      if (voiceOn.current) await speakThenListen(line);
+      if (micOn.current) await speakThenListen(line);
       return;
     }
     if (d.status) setStatus(d.status);
     setBusy(true);
-    if (voiceOn.current) {
+    if (micOn.current) {
       listener.current?.stop();
-      setVoice("thinking");
+      setMic("thinking");
     }
     const r2 = await fetch("/api/sweetie", {
       method: "POST",
@@ -146,10 +158,11 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     });
     const reply = applyReply(await r2.json());
     setBusy(false);
-    if (voiceOn.current) await speakThenListen(reply);
+    if (micOn.current) await speakThenListen(reply);
   }
 
   const canVoice = support.speak && support.listen;
+  const micLabel = mic === "listening" ? "Listening… tap when you're done" : mic === "speaking" ? "Sweetie is speaking. Start talking to interrupt." : mic === "thinking" ? "Thinking…" : mic === "idle" ? "Tap the mic to talk" : "";
 
   return (
     <main className="mx-auto flex h-screen max-w-md flex-col p-4">
@@ -180,40 +193,40 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <div ref={bottom} />
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        {canVoice ? (
-          voice === "off" ? (
-            <button type="button" onClick={startVoice} className="flex items-center gap-2 rounded-full bg-pink-600 px-4 py-2 text-sm font-medium text-white">
-              <MicIcon /> Talk to Sweetie
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => (voice === "listening" ? listener.current?.stop() : voice === "speaking" ? (hush(), listen()) : listen())}
-                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-white ${voice === "listening" ? "animate-pulse bg-red-600" : voice === "speaking" ? "bg-pink-600" : voice === "thinking" ? "bg-gray-500" : "bg-pink-600"}`}
-                title={voice === "listening" ? "Tap when you're done" : voice === "speaking" ? "Tap to skip and answer" : "Tap to talk"}
-              >
-                <MicIcon />
-                {voice === "listening" ? "Listening…" : voice === "speaking" ? "Sweetie is talking" : voice === "thinking" ? "Thinking…" : "Tap to talk"}
-              </button>
-              <button type="button" onClick={stopVoice} className="rounded-full border border-black/15 px-3 py-2 text-xs">Switch to typing</button>
-            </>
-          )
-        ) : (
-          <span className="text-xs text-gray-500">Voice needs Chrome or Safari. You can type below.</span>
-        )}
-      </div>
-
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void sendMessage(text);
+          void send(text);
         }}
-        className="mt-2 flex gap-2"
+        className="mt-3"
       >
-        <input className="flex-1 rounded border p-2" value={text} onChange={(e) => setText(e.target.value)} placeholder={voice === "off" ? "Type a reply…" : "Or type instead…"} disabled={busy} />
-        <button className="rounded bg-black px-4 text-white disabled:opacity-50" disabled={busy}>Send</button>
+        <div className="flex items-center gap-2 rounded-full border border-black/15 bg-white py-1 pl-4 pr-1 focus-within:border-black/40">
+          <input
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={mic === "listening" ? (interim ? "" : "Listening…") : "Type or tap the mic"}
+            disabled={busy}
+          />
+          {canVoice && (
+            <button
+              type="button"
+              onClick={toggleMic}
+              aria-pressed={mic !== "off"}
+              aria-label={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+              title={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+                mic === "listening" ? "animate-pulse bg-red-600 text-white" : mic === "speaking" ? "bg-pink-600 text-white" : mic === "thinking" ? "bg-gray-400 text-white" : mic === "idle" ? "bg-pink-100 text-pink-700" : "text-gray-500 hover:bg-black/5"
+              }`}
+            >
+              {mic === "speaking" ? <SpeakerIcon /> : <MicIcon />}
+            </button>
+          )}
+          <button type="submit" disabled={busy || !text.trim()} className="h-9 rounded-full bg-black px-4 text-sm text-white disabled:opacity-30">
+            Send
+          </button>
+        </div>
+        <p className="mt-1 h-4 px-4 text-[11px] text-gray-500">{micNote || micLabel}</p>
       </form>
     </main>
   );
@@ -221,9 +234,17 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
 function MicIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="9" y="2" width="6" height="12" rx="3" />
       <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" />
     </svg>
   );
 }
