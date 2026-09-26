@@ -6,10 +6,13 @@
 import { use, useEffect, useRef, useState } from "react";
 import type { ChatMessage, IntakeStatus, UploadKind } from "@/lib/types";
 
+type AgentInfo = { connected: boolean; model: string };
+
 export default function SweetiePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
+  const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
@@ -20,6 +23,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
       .then((d) => {
         setMessages(d.messages ?? []);
         setStatus(d.status ?? null);
+        setAgent(d.agent ?? null);
       });
   }, [token]);
 
@@ -38,6 +42,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
     const d = await res.json();
     setMessages((m) => [...m, { role: "sweetie", content: d.reply }]);
     setStatus(d.status);
+    if (d.agent) setAgent(d.agent);
     setBusy(false);
   }
 
@@ -55,7 +60,10 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
   return (
     <main className="mx-auto flex h-screen max-w-md flex-col p-4">
-      <h1 className="text-xl font-bold">Sweetie 🍬</h1>
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">Sweetie 🍬</h1>
+        <AgentBadge agent={agent} />
+      </header>
       <div className="mt-2 flex flex-wrap gap-2 text-xs">
         <UploadButton label="Dexcom CSV" kind="dexcom" done={status?.hasDexcom} onFile={upload} />
         <UploadButton label="Maps Timeline JSON" kind="timeline" done={status?.hasLocation} onFile={upload} />
@@ -81,6 +89,37 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
         <button className="rounded bg-black px-4 text-white disabled:opacity-50" disabled={busy}>Send</button>
       </form>
     </main>
+  );
+}
+
+function AgentBadge({ agent }: { agent: AgentInfo | null }) {
+  if (!agent) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+        Making connection…
+      </div>
+    );
+  }
+
+  const explanation = agent.connected
+    ? `Sweetie sends each reply to ${agent.model} through Amazon Bedrock.`
+    : "Sweetie is using fixed fallback questions instead of an AI model because no model API key is configured. To connect the model, set OPENAI_API_KEY in .env and restart the development server.";
+
+  return (
+    <button
+      type="button"
+      className={`group relative flex cursor-help items-center gap-1.5 rounded-full px-2.5 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+        agent.connected ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"
+      }`}
+      aria-label={explanation}
+    >
+      <span className={`h-2 w-2 rounded-full ${agent.connected ? "bg-green-500" : "bg-gray-400"}`} />
+      {agent.connected ? `Connected to ${agent.model}` : "Scripted demo mode"}
+      <span className="pointer-events-none absolute right-0 top-full z-10 mt-2 hidden w-72 rounded-lg bg-gray-900 p-3 text-left text-xs leading-relaxed text-white shadow-lg group-hover:block group-focus:block">
+        {explanation}
+      </span>
+    </button>
   );
 }
 

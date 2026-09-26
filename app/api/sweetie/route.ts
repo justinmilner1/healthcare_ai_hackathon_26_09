@@ -6,13 +6,20 @@
 import { NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
-import { ask, LLMUnavailable } from "@/lib/llm";
+import { ask, LLMUnavailable, MODEL } from "@/lib/llm";
 import { SWEETIE_QUESTIONS, sweetieSystem } from "@/lib/prompts";
 import type { ChatMessage, IntakeStatus } from "@/lib/types";
 
 async function patientByToken(token: string | null) {
   if (!token) return null;
   return db.patient.findUnique({ where: { token } });
+}
+
+function agentInfo() {
+  return {
+    connected: Boolean(process.env.OPENAI_API_KEY),
+    model: MODEL(),
+  };
 }
 
 export async function GET(req: Request) {
@@ -27,7 +34,7 @@ export async function GET(req: Request) {
     await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status });
+  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, agent: agentInfo() });
 }
 
 export async function POST(req: Request) {
@@ -56,7 +63,7 @@ export async function POST(req: Request) {
   const answers = history.filter((m) => m.role === "patient").map((m) => m.content).join("\n");
   await db.patient.update({ where: { id: patient.id }, data: { notes: answers } });
 
-  return NextResponse.json({ reply, status });
+  return NextResponse.json({ reply, status, agent: agentInfo() });
 }
 
 function scriptedReply(s: IntakeStatus): string {
