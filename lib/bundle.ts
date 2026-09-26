@@ -5,7 +5,7 @@ import { averageGlucose, detectSpikes, downsample, timeInRange } from "./glucose
 import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
 import { SWEETIE_QUESTIONS } from "./prompts";
-import type { GlucoseReading, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
+import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
 
 /** Accepts a patient id or their presigned token, so /patient/<token> works straight from the invite link. */
 export async function loadBundle(idOrToken: string): Promise<PatientBundle | null> {
@@ -38,10 +38,9 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     done: glucose.length > 0 && answered >= SWEETIE_QUESTIONS.length,
   };
 
-  const pick = (aud: string) => {
-    const s = patient.summaries.find((x) => x.audience === aud);
-    return s ? parseOr<Summary | null>(s.json, null) : null;
-  };
+  const pick = (aud: string) => patient.summaries.find((x) => x.audience === aud);
+  const prov = pick("provider");
+  const pat = pick("patient");
 
   return {
     patient: {
@@ -56,16 +55,42 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     visits,
     sleep,
     spikes,
+    stats: computeStats(glucose, sleep),
     status,
-    providerSummary: pick("provider"),
-    patientSummary: pick("patient"),
+    providerSummary: prov ? parseOr<Summary | null>(prov.json, null) : null,
+    providerSummaryAt: prov?.createdAt.toISOString() ?? null,
+    patientSummary: pat ? parseOr<Summary | null>(pat.json, null) : null,
+    patientSummaryAt: pat?.createdAt.toISOString() ?? null,
+  };
+}
+
+export function computeStats(glucose: GlucoseReading[], sleep: SleepNight[]): GlucoseStats {
+  const n = glucose.length;
+  const avg = averageGlucose(glucose);
+  const below = n ? glucose.filter((r) => r.mgdl < 70).length / n : 0;
+  const above = n ? glucose.filter((r) => r.mgdl > 180).length / n : 0;
+  // Span-based, not distinct UTC dates: a 7-day local export straddles 8 UTC dates.
+  const days = n ? Math.max(1, Math.round((Date.parse(glucose[n - 1].t) - Date.parse(glucose[0].t)) / 86400000)) : 0;
+  const sleepAvg = sleep.length ? sleep.reduce((s, x) => s + x.hours, 0) / sleep.length : null;
+  const recs = sleep.map((x) => x.recovery).filter((x): x is number => typeof x === "number");
+  const recAvg = recs.length ? recs.reduce((s, x) => s + x, 0) / recs.length : null;
+  return {
+    readings: n,
+    days,
+    tir: round3(timeInRange(glucose)),
+    tbr: round3(below),
+    tar: round3(above),
+    avg,
+    gmi: n ? Math.round((3.31 + 0.02392 * avg) * 10) / 10 : 0,
+    sleepAvgHours: sleepAvg === null ? null : Math.round(sleepAvg * 10) / 10,
+    recoveryAvg: recAvg === null ? null : Math.round(recAvg),
   };
 }
 
 /** Deterministic half of the Summary. The LLM adds patterns and questions on top. */
 export function baseSummary(glucose: GlucoseReading[], spikes: Spike[], patientNotes: string): Summary {
   return {
-    timeInRange: Math.round(timeInRange(glucose) * 1000) / 1000,
+    timeInRange: round3(timeInRange(glucose)),
     avgGlucose: averageGlucose(glucose),
     spikes,
     patterns: [],
@@ -73,6 +98,8 @@ export function baseSummary(glucose: GlucoseReading[], spikes: Spike[], patientN
     patientNotes,
   };
 }
+
+const round3 = (x: number) => Math.round(x * 1000) / 1000;
 
 function parseOr<T>(s: string | undefined | null, fallback: T): T {
   if (!s) return fallback;

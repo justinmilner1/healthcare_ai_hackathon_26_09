@@ -43,3 +43,6 @@ data/*
 !data/*_sample.*
 !data/visits.csv
 !data/README.md
+
+# local tooling
+.claude/

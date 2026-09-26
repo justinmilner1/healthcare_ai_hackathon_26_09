@@ -1,137 +1,295 @@
 "use client";
 
-// Provider view: patient list + Sour summary for the selected patient. Owner: Justin.
-// Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour.
+// Provider view (Sour): patient list + the one-page summary the endocrinologist reads during the visit. Owner: Justin.
+// Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour, POST /api/invite. Print gives the one-pager.
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import Disclaimer from "@/components/Disclaimer";
 import GlucoseChart from "@/components/GlucoseChart";
+import RangeBar from "@/components/RangeBar";
+import SleepChart from "@/components/SleepChart";
+import SpikeTable from "@/components/SpikeTable";
+import StatTile from "@/components/StatTile";
 import type { PatientBundle } from "@/lib/types";
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
+type Provider = { name: string; practice: string | null; patients: Row[] };
 
 export default function ProviderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const [provider, setProvider] = useState<{ name: string; practice: string | null; patients: Row[] } | null>(null);
+  const [provider, setProvider] = useState<Provider | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [bundle, setBundle] = useState<PatientBundle | null>(null);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [invite, setInvite] = useState("");
+  const [qa, setQa] = useState<{ q: string; a: string }[]>([]);
   const [q, setQ] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [invite, setInvite] = useState<string>("");
+  const [asking, setAsking] = useState(false);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const autoTried = useRef<string | null>(null);
 
-  async function sendLink(patientId: string) {
+  useEffect(() => {
+    fetch(`/api/provider?id=${id}`)
+      .then((r) => r.json())
+      .then((p: Provider) => {
+        setProvider(p);
+        if (p.patients?.length && !selected) setSelected(p.patients[0].id);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const load = useCallback(async (pid: string) => {
+    setLoading(true);
+    const b = (await (await fetch(`/api/patient/${pid}`)).json()) as PatientBundle;
+    setBundle(b);
+    setLoading(false);
+    return b;
+  }, []);
+
+  const generate = useCallback(
+    async (pid: string) => {
+      setBusy(true);
+      await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
+      await load(pid);
+      setBusy(false);
+    },
+    [load],
+  );
+
+  useEffect(() => {
+    if (!selected) return;
+    setQa([]);
+    setChecked(new Set());
+    setInvite("");
+    load(selected).then((b) => {
+      // First open with data but no summary: generate without asking.
+      if (b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
+        autoTried.current = selected;
+        generate(selected);
+      }
+    });
+  }, [selected, load, generate]);
+
+  async function sendLink(pid: string) {
     setInvite("Sending…");
-    const res = await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId }) });
-    const d = await res.json();
+    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
     const parts = [d.sms?.sent ? "texted" : `SMS: ${d.sms?.error}`, d.email?.sent ? "emailed" : `email: ${d.email?.error}`];
     setInvite(`${parts.join(" · ")} · ${d.link}`);
   }
 
-  useEffect(() => {
-    fetch(`/api/provider?id=${id}`).then((r) => r.json()).then(setProvider);
-  }, [id]);
-
-  useEffect(() => {
-    if (!selected) return;
-    fetch(`/api/patient/${selected}`).then((r) => r.json()).then(setBundle);
-  }, [selected]);
-
-  async function generate() {
-    if (!selected) return;
-    setBusy(true);
-    await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: selected }) });
-    setBundle(await (await fetch(`/api/patient/${selected}`)).json());
-    setBusy(false);
-  }
-
   async function askSour(e: React.FormEvent) {
     e.preventDefault();
-    const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: selected, question: q }) });
-    setAnswer((await res.json()).answer);
+    if (!selected || !q.trim()) return;
+    const question = q.trim();
+    setQ("");
+    setAsking(true);
+    const d = await (await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: selected, question }) })).json();
+    setQa((x) => [...x, { q: question, a: d.answer ?? d.error ?? "" }]);
+    setAsking(false);
   }
 
   const s = bundle?.providerSummary;
+  const st = bundle?.stats;
+  const sources = bundle ? [bundle.status.hasDexcom && "Dexcom", bundle.status.hasLocation && "Timeline", bundle.status.hasWhoop && "WHOOP"].filter(Boolean).join(" · ") : "";
 
   return (
-    <main className="mx-auto grid max-w-5xl gap-6 p-6 md:grid-cols-[260px_1fr]">
-      <aside>
+    <main className="mx-auto grid max-w-6xl gap-8 p-6 md:grid-cols-[240px_1fr] print:block print:p-0">
+      <aside className="print:hidden">
         <h1 className="text-lg font-bold">{provider?.name ?? "…"}</h1>
-        <p className="text-sm text-gray-500">{provider?.practice}</p>
+        <p className="text-sm text-[var(--viz-ink-2)]">{provider?.practice}</p>
         <ul className="mt-4 space-y-1">
           {provider?.patients.map((p) => (
             <li key={p.id}>
-              <button onClick={() => setSelected(p.id)} className={`w-full rounded px-2 py-1 text-left text-sm hover:bg-gray-100 ${selected === p.id ? "bg-gray-100 font-medium" : ""}`}>
-                {p.name} <span className="text-gray-400">{p.uploads.join(" · ")}</span>
+              <button
+                onClick={() => setSelected(p.id)}
+                className={`w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-black/5 ${selected === p.id ? "bg-black/5 font-medium" : ""}`}
+              >
+                <div>{p.name}</div>
+                <div className="text-xs text-[var(--viz-muted)]">
+                  {p.apptAt ? new Date(p.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
+                  {p.uploads.length ? ` · ${p.uploads.length} source${p.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
+                  {p.hasSummary ? " · summary" : ""}
+                </div>
               </button>
             </li>
           ))}
+          {provider && provider.patients.length === 0 && <li className="text-sm text-[var(--viz-muted)]">No patients yet. Book one at /book.</li>}
         </ul>
       </aside>
 
-      <section>
+      <section className={loading && bundle ? "opacity-60 transition-opacity" : ""}>
         {!bundle ? (
-          <p className="text-gray-500">Select a patient.</p>
+          <p className="text-[var(--viz-muted)]">{loading ? "Loading…" : "Select a patient."}</p>
         ) : (
-          <div className="space-y-6">
-            <header className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">Sour 🍋 · {bundle.patient.name}</h2>
-              <div className="flex gap-2">
-                <button onClick={() => sendLink(bundle.patient.id)} className="rounded border px-3 py-1.5 text-sm">Send link</button>
-                <button onClick={generate} disabled={busy} className="rounded bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50">
-                  {busy ? "Summarizing…" : s ? "Regenerate" : "Generate summary"}
+          <article className="space-y-6">
+            <header className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-[var(--viz-muted)]">Sour 🍋 pre-visit summary</div>
+                <h2 className="text-2xl font-bold">{bundle.patient.name}</h2>
+                <p className="text-sm text-[var(--viz-ink-2)]">
+                  {bundle.patient.apptAt ? `Visit ${new Date(bundle.patient.apptAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : "No visit date"}
+                  {st && st.readings > 0 && ` · ${st.days} days · ${st.readings.toLocaleString()} readings`}
+                  {sources && ` · ${sources}`}
+                </p>
+              </div>
+              <div className="flex gap-2 print:hidden">
+                <button onClick={() => sendLink(bundle.patient.id)} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Send link</button>
+                <button onClick={() => window.print()} className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5">Print</button>
+                <button onClick={() => generate(bundle.patient.id)} disabled={busy || !bundle.status.hasDexcom} className="rounded-md bg-black px-3 py-1.5 text-sm text-white disabled:opacity-40">
+                  {busy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
             </header>
-            {invite && <p className="break-all rounded bg-blue-50 p-2 text-xs text-gray-700">{invite}</p>}
+            {invite && <p className="break-all rounded-md bg-blue-50 px-3 py-2 text-xs text-[var(--viz-ink-2)] print:hidden">{invite}</p>}
 
-            {s && (
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <Stat label="Time in range" value={`${Math.round(s.timeInRange * 100)}%`} />
-                <Stat label="Average" value={`${s.avgGlucose} mg/dL`} />
-                <Stat label="Spikes" value={String(s.spikes.length)} />
-              </div>
-            )}
+            {!bundle.status.hasDexcom ? (
+              <EmptyIntake bundle={bundle} />
+            ) : (
+              <>
+                {st && (
+                  <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <div className="text-xs text-[var(--viz-ink-2)]">Time in range</div>
+                        <div className="text-5xl font-semibold leading-none text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</div>
+                        <div className="mt-1 text-xs text-[var(--viz-muted)]">goal ≥ 70% · below range goal &lt; 4%</div>
+                      </div>
+                      <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+                        <StatTile label="Average" value={String(st.avg)} unit="mg/dL" />
+                        <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
+                        <StatTile label="Spikes > 180" value={String(bundle.spikes.length)} hint={`${bundle.spikes.filter((x) => x.visit).length} linked to a place`} />
+                        {st.sleepAvgHours !== null ? (
+                          <StatTile label="Sleep" value={st.sleepAvgHours.toFixed(1)} unit="h/night" hint={st.recoveryAvg !== null ? `recovery ${st.recoveryAvg}%` : undefined} />
+                        ) : (
+                          <StatTile label="Sleep" value="—" hint="no WHOOP data" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <RangeBar tbr={st.tbr} tir={st.tir} tar={st.tar} />
+                    </div>
+                  </section>
+                )}
 
-            <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
+                <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                  <h3 className="text-sm font-semibold">Glucose, last {st?.days ?? 7} days</h3>
+                  <p className="text-xs text-[var(--viz-muted)]">Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.</p>
+                  <div className="mt-2">
+                    <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
+                  </div>
+                </section>
 
-            {s && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <List title="Spikes" items={s.spikes.map((x) => `${new Date(x.peak).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })} → ${x.to} mg/dL${x.visit ? ` after ${x.visit.place}` : ""}`)} />
-                <List title="Patterns" items={s.patterns} />
-                <List title="Ask the patient" items={s.questions} />
-                <div>
-                  <h3 className="font-semibold">Patient notes</h3>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{s.patientNotes || "—"}</p>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                    <h3 className="text-sm font-semibold">Spikes linked to places</h3>
+                    <div className="mt-2">
+                      <SpikeTable spikes={bundle.spikes} />
+                    </div>
+                  </section>
+                  <section className="rounded-lg border border-black/10 bg-[var(--viz-surface)] p-4">
+                    <h3 className="text-sm font-semibold">Sleep</h3>
+                    <div className="mt-2">
+                      <SleepChart nights={bundle.sleep} />
+                    </div>
+                  </section>
                 </div>
-              </div>
+
+                <section className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <h3 className="text-sm font-semibold">Patterns</h3>
+                    {!s ? (
+                      <p className="mt-1 text-sm text-[var(--viz-muted)]">{busy ? "Sour is reading the data…" : "No summary yet."}</p>
+                    ) : (
+                      <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm leading-snug">
+                        {s.patterns.map((p, i) => <li key={i}>{p}</li>)}
+                        {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">None found.</li>}
+                      </ol>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Ask the patient</h3>
+                    {!s ? (
+                      <p className="mt-1 text-sm text-[var(--viz-muted)]">—</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-sm leading-snug">
+                        {s.questions.map((qq, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              className="mt-1 print:hidden"
+                              checked={checked.has(i)}
+                              onChange={(e) => {
+                                const n = new Set(checked);
+                                if (e.target.checked) n.add(i);
+                                else n.delete(i);
+                                setChecked(n);
+                              }}
+                            />
+                            <span className={checked.has(i) ? "text-[var(--viz-muted)] line-through" : ""}>{qq}</span>
+                          </li>
+                        ))}
+                        {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">None.</li>}
+                      </ul>
+                    )}
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-sm font-semibold">In the patient&apos;s words</h3>
+                  {bundle.patient.notes ? (
+                    <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-black/15 pl-3 text-sm italic text-[var(--viz-ink-2)]">{bundle.patient.notes}</blockquote>
+                  ) : (
+                    <p className="mt-1 text-sm text-[var(--viz-muted)]">Sweetie has not collected answers yet.</p>
+                  )}
+                </section>
+
+                <section className="print:hidden">
+                  <form onSubmit={askSour} className="flex gap-2">
+                    <input className="flex-1 rounded-md border border-black/15 px-3 py-2 text-sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Sour: why was Tuesday bad?" disabled={asking} />
+                    <button className="rounded-md border border-black/15 px-3 text-sm hover:bg-black/5 disabled:opacity-40" disabled={asking || !q.trim()}>{asking ? "…" : "Ask"}</button>
+                  </form>
+                  <ul className="mt-3 space-y-2">
+                    {qa.map((x, i) => (
+                      <li key={i} className="rounded-md bg-yellow-50 px-3 py-2 text-sm">
+                        <div className="text-xs text-[var(--viz-ink-2)]">{x.q}</div>
+                        <div className="mt-0.5">{x.a}</div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              </>
             )}
 
-            <form onSubmit={askSour} className="flex gap-2">
-              <input className="flex-1 rounded border p-2 text-sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Sour: why was Tuesday bad?" />
-              <button className="rounded border px-3 text-sm">Ask</button>
-            </form>
-            {answer && <p className="rounded bg-yellow-50 p-3 text-sm">{answer}</p>}
-          </div>
+            <footer className="border-t border-black/10 pt-3">
+              <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} />
+            </footer>
+          </article>
         )}
       </section>
     </main>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function EmptyIntake({ bundle }: { bundle: PatientBundle }) {
+  const rows = [
+    ["Dexcom glucose", bundle.status.hasDexcom],
+    ["Location timeline", bundle.status.hasLocation],
+    ["WHOOP sleep", bundle.status.hasWhoop],
+    [`Sweetie questions (${bundle.status.answered} of 3)`, bundle.status.answered >= 3],
+  ] as const;
   return (
-    <div className="rounded border p-3">
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="text-xs text-gray-500">{label}</div>
-    </div>
-  );
-}
-
-function List({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div>
-      <h3 className="font-semibold">{title}</h3>
-      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-gray-700">{items.length ? items.map((x, i) => <li key={i}>{x}</li>) : <li className="list-none text-gray-400">—</li>}</ul>
-    </div>
+    <section className="rounded-lg border border-dashed border-black/20 p-5">
+      <h3 className="font-semibold">Waiting on the patient</h3>
+      <p className="mt-1 text-sm text-[var(--viz-ink-2)]">Nothing to summarize until glucose data arrives. Send the link again if they have not opened it.</p>
+      <ul className="mt-3 space-y-1 text-sm">
+        {rows.map(([label, ok]) => (
+          <li key={label} className="flex items-center gap-2">
+            <span className={`inline-block h-2 w-2 rounded-full ${ok ? "bg-[var(--viz-good)]" : "bg-black/15"}`} />
+            <span className={ok ? "" : "text-[var(--viz-muted)]"}>{label}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

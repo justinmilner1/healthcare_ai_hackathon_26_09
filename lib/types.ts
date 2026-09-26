@@ -44,7 +44,20 @@ export type IntakeStatus = {
   done: boolean;
 };
 
-// Everything a summary page needs in one fetch: GET /api/patient/[id]
+// Deterministic numbers computed from the full-resolution data (not the downsampled chart series).
+export type GlucoseStats = {
+  readings: number;
+  days: number; // distinct calendar days with readings
+  tir: number; // 0..1 in 70..180
+  tbr: number; // 0..1 below 70
+  tar: number; // 0..1 above 180
+  avg: number; // mg/dL
+  gmi: number; // glucose management indicator, % (estimated A1c): 3.31 + 0.02392 * avg
+  sleepAvgHours: number | null;
+  recoveryAvg: number | null;
+};
+
+// Everything a summary page needs in one fetch: GET /api/patient/[id]  (id or presigned token)
 export type PatientBundle = {
   patient: {
     id: string;
@@ -54,11 +67,14 @@ export type PatientBundle = {
     notes: string | null;
     provider: { id: string; name: string; practice: string | null };
   };
-  glucose: GlucoseReading[];
+  glucose: GlucoseReading[]; // downsampled for charts
   visits: Visit[];
   sleep: SleepNight[];
   spikes: Spike[];
+  stats: GlucoseStats;
   status: IntakeStatus;
   providerSummary: Summary | null;
+  providerSummaryAt: string | null;
   patientSummary: Summary | null;
+  patientSummaryAt: string | null;
 };

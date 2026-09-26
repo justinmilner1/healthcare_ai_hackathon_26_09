@@ -139,7 +139,11 @@ app/
     patient/[id]/route.ts       GET PatientBundle (everything a page needs)
     provider/route.ts           POST sign up, GET provider + patients         (open)
 components/
-  GlucoseChart.tsx              Recharts line with spike pins                  Justin
+  GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
+  SleepChart.tsx                hours asleep per night, with table twin        Justin
+  SpikeTable.tsx                spikes linked to places (table twin of chart)  Justin
+  RangeBar.tsx                  below / in / above range meter                 Justin
+  StatTile.tsx, Disclaimer.tsx  small shared pieces                            Justin
 lib/
   types.ts                      the shared shapes; change with care
   llm.ts                        ask(system, user, {json}) -> Bedrock Responses API

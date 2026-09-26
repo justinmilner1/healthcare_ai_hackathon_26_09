@@ -1,0 +1,61 @@
+"use client";
+
+// Hours asleep per night as columns. Single series, one hue. Shortest and longest nights are direct-labeled;
+// the rest live in the tooltip and the table twin below the chart.
+
+import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { SleepNight } from "@/lib/types";
+
+const INK2 = "#52514e";
+const MUTED = "#898781";
+const GRID = "#e1e0d9";
+const AXIS = "#c3c2b7";
+const SERIES = "#2a78d6";
+const SURFACE = "#fcfcfb";
+
+export default function SleepChart({ nights, height = 200 }: { nights: SleepNight[]; height?: number }) {
+  if (nights.length === 0) return <p className="text-sm text-[var(--viz-muted)]">No sleep data.</p>;
+  const hours = nights.map((n) => n.hours);
+  const min = Math.min(...hours);
+  const max = Math.max(...hours);
+  const data = nights.map((n) => ({
+    ...n,
+    day: new Date(n.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }),
+    label: n.hours === min || n.hours === max ? `${n.hours}h` : "",
+  }));
+  return (
+    <div>
+      <div style={{ height }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 18, right: 8, bottom: 0, left: -16 }} barCategoryGap="35%">
+            <CartesianGrid stroke={GRID} strokeWidth={1} vertical={false} />
+            <XAxis dataKey="day" stroke={AXIS} tick={{ fill: MUTED, fontSize: 11 }} tickLine={false} />
+            <YAxis domain={[0, 10]} ticks={[0, 4, 8]} stroke={AXIS} tick={{ fill: MUTED, fontSize: 11 }} tickLine={false} axisLine={false} />
+            <Tooltip
+              cursor={{ fill: GRID, fillOpacity: 0.5 }}
+              contentStyle={{ borderRadius: 6, border: `1px solid ${GRID}`, background: SURFACE, fontSize: 12, color: INK2 }}
+              formatter={(v, _n, item) => {
+                const rec = (item?.payload as SleepNight | undefined)?.recovery;
+                return [`${v} h${typeof rec === "number" ? ` · recovery ${rec}%` : ""}`, "Asleep"];
+              }}
+            />
+            <Bar dataKey="hours" fill={SERIES} maxBarSize={24} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+              <LabelList dataKey="label" position="top" fill={INK2} fontSize={11} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <details className="mt-1 text-xs text-[var(--viz-muted)]">
+        <summary className="cursor-pointer">Table</summary>
+        <table className="mt-1 w-full text-left tabular-nums">
+          <thead><tr className="text-[var(--viz-ink-2)]"><th className="font-medium">Night</th><th className="font-medium">Asleep</th><th className="font-medium">Recovery</th></tr></thead>
+          <tbody>
+            {nights.map((n) => (
+              <tr key={n.date}><td>{n.date}</td><td>{n.hours} h</td><td>{typeof n.recovery === "number" ? `${n.recovery}%` : "—"}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </div>
+  );
+}
