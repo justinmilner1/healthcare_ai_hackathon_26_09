@@ -6,7 +6,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, IntakeFieldDef, IntakeState, IntakeStatus, UploadKind } from "@/lib/types";
-import { hush, listenOnce, say, voiceSupport } from "@/lib/voice";
+import { hush, listenOnce, say, voiceSupport, warmVoices } from "@/lib/voice";
 
 type AgentInfo = { connected: boolean; model: string };
 type VoiceState = "off" | "speaking" | "listening" | "thinking" | "idle";
@@ -29,6 +29,7 @@ export default function SweetiePage({ params }: { params: Promise<{ token: strin
 
   useEffect(() => {
     setSupport(voiceSupport());
+    warmVoices();
     fetch(`/api/sweetie?token=${token}`)
       .then((r) => r.json())
       .then((d) => {

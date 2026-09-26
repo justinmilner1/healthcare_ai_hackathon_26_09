@@ -27,8 +27,20 @@ export function voiceSupport(): { listen: boolean; speak: boolean } {
 
 const PREFERRED_VOICES = ["Samantha", "Karen", "Moira", "Google US English", "Microsoft Aria", "Microsoft Jenny"];
 
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+/** Browsers load voices asynchronously; call once on mount so the first utterance gets a good voice. */
+export function warmVoices() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const load = () => {
+    cachedVoices = window.speechSynthesis.getVoices();
+  };
+  load();
+  window.speechSynthesis.onvoiceschanged = load;
+}
+
 function pickVoice(): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
+  const voices = cachedVoices.length ? cachedVoices : window.speechSynthesis.getVoices();
   for (const name of PREFERRED_VOICES) {
     const v = voices.find((x) => x.name.startsWith(name));
     if (v) return v;
