@@ -7,8 +7,8 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
 };
 
-// Waits for a client fetch to paint, not for app logic. Against `next dev` the first one on a cold build can sit
-// behind a compile for well over the 5s default, so these get their own budget.
+// Waits for a client fetch to paint, not for app logic: the page renders its shell first and fills in after. A
+// slow runner can take longer than the 5s default to come back, so these get their own budget.
 const LOADED = { timeout: 30_000 };
 
 test("landing renders", async ({ page }) => {
