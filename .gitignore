@@ -36,6 +36,10 @@ yarn-error.log*
 next-env.d.ts
 
 # sweetspot
+# The app is Postgres only (design §3.2), but a SQLite file left over from before the switch still holds whatever
+# was in it. Keep the guard so one can never be committed by accident.
+*.db
+*.db-journal
 data/*
 !data/*_sample.*
 !data/visits.csv
