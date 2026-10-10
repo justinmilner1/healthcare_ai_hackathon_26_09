@@ -58,7 +58,11 @@ async function postHandler(req: Request) {
     log.warn("upload_unparsable", { patientId: patient.id, kind, bytes: raw.length, error: e });
     return NextResponse.json({ error: `could not parse ${kind}: ${e instanceof Error ? e.message : e}` }, { status: 422 });
   }
-  if (parsed.length === 0) return NextResponse.json({ error: `no usable rows found in ${file.name}` }, { status: 422 });
+  if (parsed.length === 0) {
+    // The filename is the patient's own words and stays out of the log; the byte count says as much.
+    log.warn("upload_empty", { patientId: patient.id, kind, bytes: raw.length });
+    return NextResponse.json({ error: `no usable rows found in ${file.name}` }, { status: 422 });
+  }
 
   const upload = await db.upload.create({
     data: { patientId: patient.id, kind, filename: file.name, raw, parsed: JSON.stringify(parsed) },

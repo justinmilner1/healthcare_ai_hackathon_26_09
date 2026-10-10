@@ -170,15 +170,17 @@ export const log = {
 
 type RouteHandler<R extends Request, C> = (req: R, ctx: C) => Response | Promise<Response>;
 
-export function withRoute<R extends Request, C = unknown>(route: string, handler: RouteHandler<R, C>) {
-  // ctx is optional so a route with no dynamic segments can be wrapped (and called in tests) without one;
-  // Next always passes it for the routes that declare it.
-  return async (req: R, ctx?: C): Promise<Response> => {
+// Two overloads so a handler that ignores the route context can be wrapped (and called in a test) with the
+// request alone, while a dynamic route keeps the exact `{ params }` type Next validates at build time.
+export function withRoute<R extends Request>(route: string, handler: (req: R) => Response | Promise<Response>): (req: R, ctx?: unknown) => Promise<Response>;
+export function withRoute<R extends Request, C>(route: string, handler: RouteHandler<R, C>): (req: R, ctx: C) => Promise<Response>;
+export function withRoute<R extends Request, C>(route: string, handler: RouteHandler<R, C>) {
+  return async (req: R, ctx: C): Promise<Response> => {
     const requestId = requestIdFrom(req.headers);
     const started = Date.now();
     return runWithRequestContext({ requestId, route }, async () => {
       try {
-        const res = await handler(req, ctx as C);
+        const res = await handler(req, ctx);
         log.info("request", { method: req.method, status: res.status, durationMs: Date.now() - started });
         try {
           res.headers.set("x-request-id", requestId);
