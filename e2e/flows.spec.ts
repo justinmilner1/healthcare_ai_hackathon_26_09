@@ -17,6 +17,9 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   // The demo provider exists after `npm run seed`.
   await page.goto("/demo");
   await expect(page).toHaveURL(/\/provider/);
+  // The dashboard fills in from two client fetches (cookie -> provider, then its patients). Wait for the seeded
+  // patient, or the screenshot catches an empty workspace and shows nothing about the data behind it.
+  await expect(page.locator("body")).toContainText("Sam Sample");
   await shot(page, "provider-dashboard");
 
   const providers = await (await request.get("/api/provider?list=1")).json();
@@ -64,6 +67,8 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   expect(bundle.status.answered).toBeGreaterThanOrEqual(1);
 
   await page.goto(`/patient/${booked.token}`);
-  await expect(page.locator("body")).toContainText(/week|summary|Sweet Spot/i);
+  // The loading card says "getting your week ready", which the old loose text check matched, so the screenshot was
+  // of a spinner. Assert on something only the loaded summary has.
+  await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible();
   await shot(page, "patient-summary");
 });
