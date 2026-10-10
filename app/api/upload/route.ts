@@ -7,13 +7,14 @@ import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { parseClarityCsv } from "@/lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "@/lib/location";
+import { log, withRoute } from "@/lib/log";
 import { parseWhoopCsv } from "@/lib/sleep";
 import type { UploadKind } from "@/lib/types";
 
 const KINDS: UploadKind[] = ["dexcom", "timeline", "whoop", "visits"];
 
 // DELETE /api/upload { token, kind }: remove every version so older uploads cannot reappear.
-export async function DELETE(req: Request) {
+async function deleteHandler(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body.token !== "string" || !body.token || !KINDS.includes(body.kind)) {
     return NextResponse.json({ error: "A token and valid upload kind are required." }, { status: 400 });
@@ -29,10 +30,11 @@ export async function DELETE(req: Request) {
     db.summary.deleteMany({ where: { patientId: patient.id } }),
   ]);
   const bundle = await loadBundle(patient.id);
+  log.info("upload_deleted", { patientId: patient.id, kind: body.kind });
   return NextResponse.json({ kind: body.kind, status: bundle?.status });
 }
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const form = await req.formData();
   const token = String(form.get("token") ?? "");
   const kind = String(form.get("kind") ?? "") as UploadKind;
@@ -53,13 +55,19 @@ export async function POST(req: Request) {
       : kind === "whoop" ? parseWhoopCsv(raw)
       : parseVisitsCsv(raw);
   } catch (e) {
+    log.warn("upload_unparsable", { patientId: patient.id, kind, bytes: raw.length, error: e });
     return NextResponse.json({ error: `could not parse ${kind}: ${e instanceof Error ? e.message : e}` }, { status: 422 });
   }
-  if (parsed.length === 0) return NextResponse.json({ error: `no usable rows found in ${file.name}` }, { status: 422 });
+  if (parsed.length === 0) {
+    // The filename is the patient's own words and stays out of the log; the byte count says as much.
+    log.warn("upload_empty", { patientId: patient.id, kind, bytes: raw.length });
+    return NextResponse.json({ error: `no usable rows found in ${file.name}` }, { status: 422 });
+  }
 
-  await db.upload.create({
+  const upload = await db.upload.create({
     data: { patientId: patient.id, kind, filename: file.name, raw, parsed: JSON.stringify(parsed) },
   });
+  log.info("upload_stored", { patientId: patient.id, uploadId: upload.id, kind, rows: parsed.length, bytes: raw.length });
   const bundle = await loadBundle(patient.id);
   // Day span for glucose uploads, so Sweetie can say "about 7 days" when she thanks the patient.
   const days = kind === "dexcom" && parsed.length > 1
@@ -67,3 +75,6 @@ export async function POST(req: Request) {
     : undefined;
   return NextResponse.json({ kind, count: parsed.length, days, status: bundle?.status });
 }
+
+export const DELETE = withRoute("DELETE /api/upload", deleteHandler);
+export const POST = withRoute("POST /api/upload", postHandler);

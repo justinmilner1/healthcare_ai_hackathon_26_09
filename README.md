@@ -45,6 +45,9 @@ No Docker daemon? `npm run db:up` starts a Postgres that is already installed on
 Checks: `npm run typecheck`, `npm run lint`, `npm run build`, or `npm run agent:check` for everything including e2e.
 Reset the DB with `npm run db:reset && npm run seed`.
 
+Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,
+phone number, email address or message text reaches them. See [docs/LOGGING.md](docs/LOGGING.md).
+
 Phone access for the patient link (needs HTTPS):
 
 ```bash

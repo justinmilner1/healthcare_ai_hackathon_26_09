@@ -10,6 +10,7 @@ import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { LLMUnavailable, MODEL } from "@/lib/llm";
+import { log, withRoute } from "@/lib/log";
 import { runSour } from "@/lib/sourRun";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
@@ -26,7 +27,7 @@ async function patientByToken(token: string | null) {
 
 const agentInfo = () => ({ connected: Boolean(process.env.OPENAI_API_KEY), model: MODEL() });
 
-export async function GET(req: Request) {
+async function getHandler(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
   const patient = await patientByToken(token);
   if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
@@ -41,7 +42,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent | { type: "skip_questions" } };
   const patient = await patientByToken(body.token ?? null);
   if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
@@ -148,7 +149,7 @@ async function finish(patientId: string, state: IntakeState, defs: IntakeFieldDe
       try {
         await runSour(patientId);
       } catch (e) {
-        console.error("Sour auto-run after intake failed:", e);
+        log.error("sour_autorun_failed", { patientId, error: e });
       }
     });
   }
@@ -164,3 +165,6 @@ function guessExportHelp(text: string): "dexcom" | "timeline" | "whoop" | null {
   if (/whoop|sleep/.test(t)) return "whoop";
   return null;
 }
+
+export const GET = withRoute("GET /api/sweetie", getHandler);
+export const POST = withRoute("POST /api/sweetie", postHandler);

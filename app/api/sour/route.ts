@@ -11,10 +11,11 @@
 
 import { NextResponse } from "next/server";
 import { ask, LLMUnavailable } from "@/lib/llm";
+import { log, withRoute } from "@/lib/log";
 import { sourChatSystem } from "@/lib/prompts";
 import { loadSourContext, runSour } from "@/lib/sourRun";
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const body = (await req.json().catch(() => null)) as { patientId?: string; question?: unknown; history?: unknown } | null;
   if (!body || typeof body.patientId !== "string" || !body.patientId) return NextResponse.json({ error: "patientId is required" }, { status: 400 });
   if (body.question !== undefined && (typeof body.question !== "string" || !body.question.trim() || body.question.length > 4000)) {
@@ -43,7 +44,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ answer: plainAnswer(answer) });
     } catch (e) {
       if (e instanceof LLMUnavailable) return NextResponse.json({ error: "Sour chat is unavailable until the model is configured." }, { status: 503 });
-      console.error("Sour chat failed:", e);
+      // The caller's string may be a link token (loadSourContext takes either); log the resolved id.
+      log.error("sour_chat_failed", { patientId: ctx.bundle.patient.id, error: e });
       return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
     }
   }
@@ -81,3 +83,5 @@ function plainAnswer(raw: string): string {
     return text;
   }
 }
+
+export const POST = withRoute("POST /api/sour", postHandler);

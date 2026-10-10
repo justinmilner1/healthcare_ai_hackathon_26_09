@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { answeredCount, emptyIntake, fieldsFor, greeting, nextTarget, parseIntake, renderNotes, SANDBOX_CONNECT_HELP, scripted, skipQuestions } from "./sweetie";
+import { answeredCount, emptyIntake, fieldsFor, greeting, knownVisitType, nextTarget, parseIntake, renderNotes, SANDBOX_CONNECT_HELP, scripted, skipQuestions, VISIT_TYPES } from "./sweetie";
 
 const visit = { visitType: "follow_up", reason: null };
 const defs = fieldsFor(visit.visitType, visit.reason);
@@ -50,4 +50,12 @@ test("legacy intake still follows the normal question flow", () => {
   const state = parseIntake(null, defs);
   assert.deepEqual(nextTarget(state, defs), { kind: "field", def: defs[0] });
   assert.doesNotMatch(renderNotes(state, defs, visit), /skip remaining/);
+});
+
+test("knownVisitType passes our own types through and calls everything else other", () => {
+  for (const { id } of VISIT_TYPES) assert.equal(knownVisitType(id), id);
+  // Booking takes visitType as free text, so a caller could put a patient's own words in it.
+  for (const free of ["Jane Doe", "mornings running high", "", null, undefined, "FOLLOW_UP"]) {
+    assert.equal(knownVisitType(free), "other");
+  }
 });

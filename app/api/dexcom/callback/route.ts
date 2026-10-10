@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dexcomConfig, DEXCOM_COOKIE, encryptTokens, exchangeCode, fetchSnapshot, hash, SANDBOX_FILENAME } from "@/lib/dexcom";
+import { withRoute } from "@/lib/log";
 
-export async function GET(req: NextRequest) {
+async function getHandler(req: NextRequest) {
   let config;
   try { config = dexcomConfig(); } catch {
     return NextResponse.json({ error: "Dexcom sandbox is not configured." }, { status: 503 });
@@ -53,3 +54,5 @@ export async function GET(req: NextRequest) {
     return back(e instanceof Error && e.message === "no_data" ? "no_data" : "failed");
   }
 }
+
+export const GET = withRoute("GET /api/dexcom/callback", getHandler);

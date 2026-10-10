@@ -3,9 +3,10 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { withRoute } from "@/lib/log";
 import { sendIntakeInvite } from "@/lib/notify";
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { patientId?: string };
   if (!body.patientId) return NextResponse.json({ error: "patientId is required" }, { status: 400 });
   const patient = await db.patient.findUnique({ where: { id: body.patientId }, include: { provider: true } });
@@ -13,3 +14,5 @@ export async function POST(req: Request) {
   const result = await sendIntakeInvite({ ...patient, providerName: patient.provider.name });
   return NextResponse.json(result);
 }
+
+export const POST = withRoute("POST /api/invite", postHandler);

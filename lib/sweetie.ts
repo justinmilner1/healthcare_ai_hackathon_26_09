@@ -18,6 +18,10 @@ export const VISIT_TYPES: { id: string; label: string }[] = [
 
 export const visitLabel = (id: string | null | undefined) => VISIT_TYPES.find((v) => v.id === id)?.label ?? "Visit";
 
+/** The visit type if it is one of ours, else "other". Booking accepts the field as free text, so anything
+ *  that leaves the app — a log line above all — goes through here first (design §10.3). */
+export const knownVisitType = (id: string | null | undefined) => (VISIT_TYPES.some((v) => v.id === id) ? (id as string) : "other");
+
 /** How Sweetie refers to the visit in a sentence: "your first visit", "your medication check". */
 export const visitPhrase = (id: string | null | undefined) =>
   ({ follow_up: "follow-up visit", new_patient: "first visit", medication: "medication check", post_hospital: "visit after the hospital", annual: "annual review" } as Record<string, string>)[id ?? ""] ?? "visit";

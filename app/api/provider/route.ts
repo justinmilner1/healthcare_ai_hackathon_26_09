@@ -5,9 +5,10 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { withRoute } from "@/lib/log";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "@/lib/sweetie";
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { name?: string; email?: string; practice?: string };
   if (!body.name || !body.email) return NextResponse.json({ error: "name and email are required" }, { status: 400 });
   const provider = await db.provider.upsert({
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
   return NextResponse.json(provider);
 }
 
-export async function GET(req: Request) {
+async function getHandler(req: Request) {
   const url = new URL(req.url);
   if (url.searchParams.get("list")) {
     const providers = await db.provider.findMany({ orderBy: { createdAt: "asc" }, include: { _count: { select: { patients: true } } } });
@@ -68,3 +69,6 @@ export async function GET(req: Request) {
     }),
   });
 }
+
+export const POST = withRoute("POST /api/provider", postHandler);
+export const GET = withRoute("GET /api/provider", getHandler);

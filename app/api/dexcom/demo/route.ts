@@ -2,9 +2,10 @@ import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dexcomConfig } from "@/lib/dexcom";
+import { withRoute } from "@/lib/log";
 
 // Create an isolated demonstration record, never convert or overwrite the source patient.
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   let config;
   try { config = dexcomConfig(); } catch {
     return NextResponse.json({ error: "Dexcom sandbox is not configured yet." }, { status: 503 });
@@ -30,3 +31,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not start the demo. Please try again." }, { status: 500 });
   }
 }
+
+export const POST = withRoute("POST /api/dexcom/demo", postHandler);
