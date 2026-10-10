@@ -7,6 +7,10 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
 };
 
+// Waits for a client fetch to paint, not for app logic. Against `next dev` the first one on a cold build can sit
+// behind a compile for well over the 5s default, so these get their own budget.
+const LOADED = { timeout: 30_000 };
+
 test("landing renders", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
@@ -19,7 +23,7 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   await expect(page).toHaveURL(/\/provider/);
   // The dashboard fills in from two client fetches (cookie -> provider, then its patients). Wait for the seeded
   // patient, or the screenshot catches an empty workspace and shows nothing about the data behind it.
-  await expect(page.locator("body")).toContainText("Sam Sample");
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
   await shot(page, "provider-dashboard");
 
   const providers = await (await request.get("/api/provider?list=1")).json();
@@ -69,6 +73,6 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   await page.goto(`/patient/${booked.token}`);
   // The loading card says "getting your week ready", which the old loose text check matched, so the screenshot was
   // of a spinner. Assert on something only the loaded summary has.
-  await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   await shot(page, "patient-summary");
 });

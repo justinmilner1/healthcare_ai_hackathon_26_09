@@ -32,19 +32,23 @@ DB_PORT="${POSTGRES_PORT:-5432}"
 
 say() { echo "dev-db: $*" >&2; }
 
-# Everything below ends with a server reachable as $ADMIN_URL (a superuser-ish connection to the postgres database)
-# and the connection string to hand back in $TARGET_URL.
-ADMIN_URL=""
+# Each branch below ends by defining adm(), which runs one administrative query against the server it brought up,
+# and setting $TARGET_URL, the connection string to hand back. adm() differs per branch on purpose: the Docker path
+# must not need a psql on the host, since not needing Postgres on the host is the whole point of using Docker.
 TARGET_URL=""
+have_adm() { declare -F adm >/dev/null; }
 
 # --- 1. A server from the environment: CI's service container, or one the developer runs themselves.
 if [ -n "${DATABASE_URL:-}" ]; then
   base="${DATABASE_URL%%\?*}"                       # postgresql://user:pass@host:port/dbname
   query="schema=public"; case "$DATABASE_URL" in *\?*) query="${DATABASE_URL#*\?}" ;; esac
   server="${base%/*}"                               # postgresql://user:pass@host:port
-  if psql "$server/postgres" -c 'select 1' >/dev/null 2>&1; then
+  if ! command -v psql >/dev/null 2>&1; then
+    say "DATABASE_URL is set but there is no psql here to reach it with; falling back to a local server"
+  elif psql "$server/postgres" -c 'select 1' >/dev/null 2>&1; then
     say "using the server from DATABASE_URL"
-    ADMIN_URL="$server/postgres"
+    admin_url="$server/postgres"
+    adm() { psql "$admin_url" -v ON_ERROR_STOP=1 -tAc "$1"; }
     TARGET_URL="$server/${DB_NAME}?${query}"
   else
     say "DATABASE_URL is set but its server does not answer; falling back to a local one"
@@ -52,7 +56,7 @@ if [ -n "${DATABASE_URL:-}" ]; then
 fi
 
 # --- 2. Docker: the documented local path.
-if [ -z "$ADMIN_URL" ] && docker info >/dev/null 2>&1; then
+if ! have_adm && docker info >/dev/null 2>&1; then
   say "docker daemon is up; starting the db service"
   docker compose up -d db >&2
   for _ in $(seq 1 60); do
@@ -61,12 +65,13 @@ if [ -z "$ADMIN_URL" ] && docker info >/dev/null 2>&1; then
   done
   docker compose exec -T db pg_isready -U "$DB_USER" -d postgres >/dev/null 2>&1 ||
     { say "the db container never became ready"; docker compose logs db >&2; exit 1; }
-  ADMIN_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/postgres"
+  # Inside the container, so that Docker is the only thing a developer needs installed.
+  adm() { docker compose exec -T -e PGPASSWORD="$DB_PASS" db psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -tAc "$1"; }
   TARGET_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/${DB_NAME}?schema=public"
 fi
 
 # --- 3. No daemon: start the Postgres installed on the host (how the agent sandbox runs).
-if [ -z "$ADMIN_URL" ]; then
+if ! have_adm; then
   PGBIN=""
   for d in /usr/lib/postgresql/*/bin /usr/local/pgsql/bin; do [ -x "$d/pg_ctl" ] && PGBIN="$d"; done
   [ -n "$PGBIN" ] || { command -v pg_ctl >/dev/null 2>&1 && PGBIN="$(dirname "$(command -v pg_ctl)")"; }
@@ -107,11 +112,12 @@ if [ -z "$ADMIN_URL" ]; then
   else
     local_q "alter role \\\"${DB_USER}\\\" with login superuser password '${DB_PASS}'" >/dev/null
   fi
-  ADMIN_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/postgres"
+  # psql from the same install as the server, rather than whatever is on PATH.
+  adm() { "$PGBIN/psql" -h localhost -p "$DB_PORT" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -tAc "$1"; }
+  export PGPASSWORD="$DB_PASS"
   TARGET_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/${DB_NAME}?schema=public"
 fi
 
-adm() { psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -tAc "$1"; }
 if [ -n "$FRESH" ] && [ -n "$(adm "select 1 from pg_database where datname='${DB_NAME}'")" ]; then
   say "dropping database ${DB_NAME} for a clean run"
   adm "drop database \"${DB_NAME}\" with (force)" >/dev/null
