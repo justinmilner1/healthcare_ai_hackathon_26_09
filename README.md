@@ -40,6 +40,9 @@ npm run dev             # http://localhost:3000
 
 Checks: `npm run typecheck`, `npm run lint`, `npm run build`. Reset the DB with `npm run db:reset && npm run seed`.
 
+Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,
+phone number, email address or message text reaches them. See [docs/LOGGING.md](docs/LOGGING.md).
+
 Phone access for the patient link (needs HTTPS):
 
 ```bash
