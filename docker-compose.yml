@@ -1,0 +1,22 @@
+# Local Postgres for development and tests (design §3.2, §13.1). `docker compose up db` is all you need.
+# Credentials match the DATABASE_URL in .env.example. Nothing here is a secret; it never leaves your machine.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: sweetspot-db
+    environment:
+      POSTGRES_USER: sweetspot
+      POSTGRES_PASSWORD: sweetspot
+      POSTGRES_DB: sweetspot
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - sweetspot-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sweetspot -d sweetspot"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  sweetspot-db:

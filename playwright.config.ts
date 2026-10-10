@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E runs against a dev server on port 3100 with a throwaway SQLite DB and the model disabled (scripted mode),
+// E2E runs against a dev server on port 3100 with a throwaway Postgres database and the model disabled (scripted mode),
 // so results are deterministic. scripts/agent-check.sh sets the environment and seeds data before running this.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 // scripts/agent-check.sh sets PW_CHROMIUM_PATH when the Playwright CDN is blocked but a Chromium is pre-installed.

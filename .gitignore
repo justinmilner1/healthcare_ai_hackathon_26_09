@@ -36,9 +36,6 @@ yarn-error.log*
 next-env.d.ts
 
 # sweetspot
-prisma/*.db
-prisma/*.db-journal
-*.db
 data/*
 !data/*_sample.*
 !data/visits.csv
@@ -52,4 +49,3 @@ e2e/screenshots/
 e2e/report/
 e2e/test-results/
 test-results/
-prisma/e2e.db*

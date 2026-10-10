@@ -14,7 +14,7 @@ Optimize for a working demo in 3 hours, not for production. Prefer the boring op
 ## Stack
 
 - Next.js 15, App Router, TypeScript, Tailwind. API routes under `app/api/*/route.ts`.
-- Prisma + SQLite (`file:./dev.db`).
+- Prisma + Postgres 16. `docker compose up db` locally (or `bash scripts/dev-db.sh` where there is no Docker daemon); RDS in AWS.
 - LLM: GPT-5.5 on Amazon Bedrock through the OpenAI SDK, Responses API only. See `lib/llm.ts`.
 - SMS: Twilio. Optional.
 - Charts: Recharts.
@@ -38,12 +38,12 @@ Without `OPENAI_API_KEY`, `lib/llm.ts` throws `LLMUnavailable` and the Sweetie a
 OPENAI_BASE_URL=https://bedrock-mantle.us-east-2.api.aws/openai/v1
 OPENAI_API_KEY=<Bedrock API key>
 BEDROCK_OPENAI_MODEL_ID=openai.gpt-5.5
-DATABASE_URL=file:./dev.db
+DATABASE_URL=postgresql://sweetspot:sweetspot@localhost:5432/sweetspot?schema=public
 APP_URL=<ngrok https url>
 TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM   (optional)
 ```
 
-Never commit `.env`, `dev.db`, or anything in `data/` except the synthetic samples.
+Never commit `.env` or anything in `data/` except the synthetic samples.
 
 ## LLM rules
 
