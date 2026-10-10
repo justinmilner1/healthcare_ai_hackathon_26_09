@@ -46,3 +46,10 @@ data/*
 
 # local tooling
 .claude/
+
+# e2e
+e2e/screenshots/
+e2e/report/
+e2e/test-results/
+test-results/
+prisma/e2e.db*

@@ -13,7 +13,11 @@
     "db:studio": "prisma studio",
     "seed": "tsx scripts/seed.ts",
     "postinstall": "prisma generate",
-    "send:test": "tsx scripts/send-test.ts"
+    "send:test": "tsx scripts/send-test.ts",
+    "test": "node --import tsx --test lib/*.test.ts",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "agent:check": "bash scripts/agent-check.sh"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.1141.0",
@@ -29,6 +33,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
