@@ -53,6 +53,13 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
 
   await page.goto(`/s/${booked.token}`);
   await expect(page.locator("body")).toContainText(/Sweetie/i);
+  // "Sweetie" is in the chrome, so it matches before the intake has loaded. GET /api/sweetie is what writes the
+  // opening question and returns the field list, and until it answers the transcript is empty and the progress
+  // card reads "0 of — questions answered". Wait for the greeting itself, so the screenshot is of the first
+  // question rather than of the shell around it. The generous timeout is for the dev server's first compile of
+  // the route, and the greeting is used rather than the question count because the count is hidden by CSS on the
+  // mobile layout.
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
   await shot(page, "sweetie-start");
 
   const input = page.locator("input[type='text'], input:not([type]), textarea").first();
