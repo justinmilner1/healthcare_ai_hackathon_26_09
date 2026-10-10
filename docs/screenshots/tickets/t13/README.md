@@ -13,10 +13,10 @@ nothing a patient or a clinician sees.
 | `desktop-sweetie-done.png` | `/s/<token>` after intake wraps |
 | `desktop-patient-summary.png` | `/patient/<token>` |
 
-`desktop-patient-summary.png` catches the page on its loading card. That is the e2e suite screenshotting
-before the bundle fetch resolves — the wait bug already filed as T38 (#39) — not a change from this ticket.
-Waiting for the card to disappear shows the summary rendering normally through the wrapped
-`/api/patient/[id]` route.
+Retaken in review after `main` was merged into this branch, so they come from the production-build server and
+from the e2e waits T01 fixed: every screen here is loaded rather than a shell. `desktop-patient-summary.png`
+is the loaded empty-data card, which is correct for the E2E patient — it has no uploads. The earlier set, taken
+before that merge, caught the dashboard and the summary mid-fetch.
 
 ## What the logs actually look like
 

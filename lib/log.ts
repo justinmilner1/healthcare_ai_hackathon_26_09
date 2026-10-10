@@ -121,6 +121,11 @@ export function sanitize(fields: Fields): Fields {
     }
     if (key === "error") kept[key] = errorValue(value, MAX_TEXT);
     else if (key === "stack") kept[key] = scrub(value instanceof Error ? (value.stack ?? "") : String(value), MAX_STACK);
+    // A minted request id goes through whole. scrub() otherwise reads the digits and hyphens of a UUID as a
+    // phone number and mangles one id in four — `d1e1ec17-9580-4837-8dc0-…` is logged as `d1e1ec[number]dc0-…`
+    // while the caller holds the real id from the x-request-id header, so the two no longer join up and the
+    // §11.1 "follow one request" query returns nothing. A UUID cannot be PHI, so there is nothing to scrub.
+    else if (key === "requestId" && typeof value === "string" && OPAQUE_REQUEST_ID.test(value)) kept[key] = value.toLowerCase();
     else if (typeof value === "string") kept[key] = scrub(value, MAX_TEXT);
     else if (typeof value === "number" || typeof value === "boolean") kept[key] = value;
     else kept[key] = errorValue(value, MAX_TEXT);

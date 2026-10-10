@@ -85,6 +85,13 @@ protection.
 substrings with `[email]` and `[number]` and caps the length. That is what makes it safe to log a Prisma or
 SES error that quotes the address it failed on.
 
+One exception: a `requestId` that is already the UUID shape the app mints is written through unchanged.
+`scrub()` reads the digits and hyphens of a UUID as a phone number and mangled one id in four —
+`d1e1ec17-9580-4837-8dc0-…` came out as `d1e1ec[number]dc0-…`, which no longer matched the `x-request-id`
+the caller was handed, so the query at the bottom of this page returned nothing for that request. A UUID
+cannot hold PHI, so there is nothing to take out of it. Anything else arriving as `requestId` is still
+scrubbed.
+
 ## Enforcement
 
 - `npm run lint` fails on `console.*` anywhere in `app/`, `lib/`, or `components/` (`no-console` in

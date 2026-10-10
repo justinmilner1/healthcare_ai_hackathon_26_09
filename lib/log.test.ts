@@ -97,6 +97,37 @@ test("a caller cannot put text of their own on every line of a request", () => {
   }
 });
 
+test("a minted request id reaches the log whole", () => {
+  // scrub() reads the digits and hyphens of a UUID as a phone number, which mangled one id in four:
+  // `d1e1ec17-9580-4837-8dc0-bdb9e8a88e4f` was logged as `d1e1ec[number]dc0-bdb9e8a88e4f` while the caller
+  // held the real id from the x-request-id header. A UUID carries nothing to scrub.
+  for (const id of ["d1e1ec17-9580-4837-8dc0-bdb9e8a88e4f", "f81940ea-5424-4388-a7ae-d882c265b694", "58afbb93-0246-4903-8ef0-e2afa91429f9", "afce7b3e-57fd-4f92-9141-2a5b12a79284"]) {
+    assert.equal(sanitize({ requestId: id }).requestId, id);
+    assert.equal(parse(formatLine("info", "request", { requestId: id })).requestId, id);
+  }
+});
+
+test("a request id that is not a minted uuid is still scrubbed", () => {
+  assert.equal(sanitize({ requestId: "call +1 415 555 0132" }).requestId, "call [number]");
+});
+
+test("the request id on the response is the one written to the log", async () => {
+  // The property the header exists for. One run in four used to break it, so this walks enough ids to catch
+  // a regression on the first failing shape rather than on a lucky one.
+  const lines: string[] = [];
+  setLogSink((_level, line) => lines.push(line));
+  try {
+    const handler = withRoute("GET /api/health", async () => new Response("{}", { status: 200 }));
+    for (let i = 0; i < 200; i++) {
+      lines.length = 0;
+      const res = await handler(new Request("http://localhost/api/health"));
+      assert.equal(parse(lines[0]).requestId, res.headers.get("x-request-id"));
+    }
+  } finally {
+    setLogSink();
+  }
+});
+
 test("withRoute logs one access line and echoes the request id on the response", async () => {
   const lines: string[] = [];
   setLogSink((_level, line) => lines.push(line));
