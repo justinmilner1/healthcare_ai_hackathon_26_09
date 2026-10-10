@@ -3,6 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // E2E runs against a dev server on port 3100 with a throwaway SQLite DB and the model disabled (scripted mode),
 // so results are deterministic. scripts/agent-check.sh sets the environment and seeds data before running this.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
+// scripts/agent-check.sh sets PW_CHROMIUM_PATH when the Playwright CDN is blocked but a Chromium is pre-installed.
+const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {};
 
 export default defineConfig({
   testDir: "./e2e",
@@ -13,6 +15,7 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
+    launchOptions,
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },

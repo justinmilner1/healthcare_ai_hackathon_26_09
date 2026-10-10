@@ -23,7 +23,23 @@ echo "== lint";      npm run lint
 echo "== unit";      npm test
 
 echo "== browsers"
-npx playwright install --with-deps chromium >/dev/null 2>&1 || npx playwright install chromium
+# Some sandboxes block the Playwright CDN but ship a Chromium. Try the normal install; if it fails, point Playwright
+# at any pre-installed Chromium (PLAYWRIGHT_BROWSERS_PATH, usually /opt/pw-browsers) via PW_CHROMIUM_PATH.
+if ! npx playwright install chromium >/dev/null 2>&1; then
+  found=""
+  for dir in "${PLAYWRIGHT_BROWSERS_PATH:-}" /opt/pw-browsers "$HOME/.cache/ms-playwright"; do
+    [ -n "$dir" ] && [ -d "$dir" ] || continue
+    found=$(find "$dir" -type f \( -name chrome -o -name headless_shell -o -name chromium \) -perm -u+x 2>/dev/null | grep -E "chrome-linux/(chrome|headless_shell)$|/chrome$" | head -1 || true)
+    [ -n "$found" ] && break
+  done
+  if [ -n "$found" ]; then
+    export PW_CHROMIUM_PATH="$found"
+    echo "playwright download blocked; using pre-installed Chromium at $PW_CHROMIUM_PATH"
+  else
+    echo "playwright download blocked and no pre-installed Chromium found" >&2
+    exit 1
+  fi
+fi
 
 echo "== e2e"
 mkdir -p e2e/screenshots
