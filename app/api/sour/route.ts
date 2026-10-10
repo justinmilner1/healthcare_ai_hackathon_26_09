@@ -44,7 +44,8 @@ async function postHandler(req: Request) {
       return NextResponse.json({ answer: plainAnswer(answer) });
     } catch (e) {
       if (e instanceof LLMUnavailable) return NextResponse.json({ error: "Sour chat is unavailable until the model is configured." }, { status: 503 });
-      log.error("sour_chat_failed", { patientId: body.patientId, error: e });
+      // The caller's string may be a link token (loadSourContext takes either); log the resolved id.
+      log.error("sour_chat_failed", { patientId: ctx.bundle.patient.id, error: e });
       return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
     }
   }

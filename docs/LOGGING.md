@@ -31,7 +31,8 @@ log.error("sour_chat_failed", { patientId, error: e });
 
 `withRoute` wraps every route under `app/api/**` and `app/demo`. It:
 
-- reuses the caller's `x-request-id` (sanitized, 64 characters) or mints a UUID;
+- reuses the caller's `x-request-id` only when it is already the shape we mint — a UUID — and otherwise
+  mints a fresh one (see **A caller cannot write to your logs** below);
 - puts that id in an `AsyncLocalStorage` context, so every `log.*` call made anywhere inside the request
   carries `requestId` and `route` without being passed them;
 - writes one `request` line with the method, status, and duration when the handler returns, or a
@@ -63,6 +64,23 @@ Two rules for changing it:
 - Database ids are fine. They are meaningless without the database, and they are what ties a log line to the
   audit record for the same event.
 
+### A caller cannot write to your logs
+
+`requestId` is allow-listed, and the `x-request-id` header is client-controlled, so it is the one field
+through which a stranger's text could ride into a log line — once, then on *every* line of that request.
+Stripping punctuation is not enough: `Jane Doe` survives as `JaneDoe`, and a phone number is already
+hex-clean. So a caller's id is reused only when it matches the UUID shape the app itself mints, and anything
+else is discarded in favour of a fresh one. Correlating a request across services costs the caller one UUID.
+
+The same reasoning applies to any value that arrives as free text in a request body. `POST /api/book` takes
+`visitType` as an unvalidated string, so the booking log passes it through `knownVisitType()` first, which
+returns one of the ids in `VISIT_TYPES` or `"other"`. And `loadSourContext()` accepts either a patient id or a
+link token, so the Sour route logs the *resolved* `patient.id`, never the string the caller sent. Before
+adding a field, ask where its value comes from: an allow-listed name on an attacker-controlled value is not a
+protection.
+
+### Scrubbing
+
 `error` and `stack` are free text, so they go through `scrub()`, which replaces email- and number-shaped
 substrings with `[email]` and `[number]` and caps the length. That is what makes it safe to log a Prisma or
 SES error that quotes the address it failed on.
@@ -73,9 +91,10 @@ SES error that quotes the address it failed on.
   `eslint.config.mjs`). `lib/log.ts` is the one exemption, plus tests and the developer-only scripts in
   `scripts/` and `e2e/`, which never see production data.
 - `npm test` (`lib/log.test.ts`) asserts that non-allow-listed fields are dropped, that `scrub` removes
-  addresses and numbers, that the allow-list holds no PHI-shaped field name, that request ids propagate, and
-  — by scanning the source — that no application file calls `console.*` or writes to `process.stdout`
-  directly.
+  addresses and numbers, that the allow-list holds no PHI-shaped field name, that request ids propagate, that
+  a hostile `x-request-id` (`Jane Doe`, an address, a phone number) is replaced by a fresh UUID, and — by
+  scanning the source — that no application file calls `console.*` or writes to `process.stdout` directly.
+  `lib/sweetie.test.ts` covers `knownVisitType`.
 
 ## How CloudWatch receives these logs
 

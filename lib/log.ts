@@ -81,13 +81,15 @@ export function currentRequestContext(): RequestContext | undefined {
   return requestStore.getStore();
 }
 
-/** A caller-supplied id is trusted only for correlation, so it is length-capped and stripped of junk. */
+/** The one shape of caller-supplied id worth reusing: the UUID we would have minted ourselves. Anything else
+ *  is a stranger's text on every line of the request — `Jane Doe` sanitizes to `JaneDoe`, and a phone number is
+ *  already hex-clean — so it is discarded and a fresh id is minted. Correlation across services costs the caller
+ *  one UUID. */
+const OPAQUE_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function requestIdFrom(headers: Headers | null | undefined): string {
   const given = headers?.get("x-request-id")?.trim();
-  if (given) {
-    const safe = given.replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 64);
-    if (safe) return safe;
-  }
+  if (given && OPAQUE_REQUEST_ID.test(given)) return given.toLowerCase();
   return randomUUID();
 }
 

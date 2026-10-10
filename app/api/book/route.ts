@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { log, withRoute } from "@/lib/log";
 import { sendIntakeInvite } from "@/lib/notify";
 import { intakeLink } from "@/lib/sms";
+import { knownVisitType } from "@/lib/sweetie";
 
 async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
@@ -47,7 +48,8 @@ async function postHandler(req: Request) {
     },
   });
 
-  log.info("patient_created", { patientId: patient.id, providerId: provider.id, visitType: patient.visitType ?? "unspecified" });
+  // visitType is free text on the way in, so only a type we recognise is logged; anything else is "other".
+  log.info("patient_created", { patientId: patient.id, providerId: provider.id, visitType: knownVisitType(patient.visitType) });
 
   if (!body.optIn) {
     return NextResponse.json({ patientId: patient.id, token, link: intakeLink(token), sms: { sent: false, error: "not opted in" }, email: { sent: false, error: "not opted in" } });

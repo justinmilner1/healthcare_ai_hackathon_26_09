@@ -78,12 +78,23 @@ test("every line inside a request carries the same request id and route", () => 
   assert.equal(parsed[2].requestId, undefined);
 });
 
-test("requestIdFrom reuses a caller's id, sanitized, and otherwise mints one", () => {
-  assert.equal(requestIdFrom(new Headers({ "x-request-id": "abc-123" })), "abc-123");
-  assert.equal(requestIdFrom(new Headers({ "x-request-id": "ab c<script>" })), "abcscript");
-  assert.equal(requestIdFrom(new Headers({ "x-request-id": "x".repeat(200) })).length, 64);
-  assert.match(requestIdFrom(new Headers()), /^[0-9a-f-]{36}$/);
-  assert.match(requestIdFrom(null), /^[0-9a-f-]{36}$/);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+test("requestIdFrom reuses only an opaque caller id and otherwise mints one", () => {
+  const given = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+  assert.equal(requestIdFrom(new Headers({ "x-request-id": given })), given);
+  assert.equal(requestIdFrom(new Headers({ "x-request-id": given.toUpperCase() })), given);
+  assert.match(requestIdFrom(new Headers()), UUID);
+  assert.match(requestIdFrom(null), UUID);
+});
+
+test("a caller cannot put text of their own on every line of a request", () => {
+  // The header is client-controlled, and requestId is allow-listed, so it is the one way arbitrary text
+  // could ride into the log. Anything that is not the shape we mint is thrown away.
+  for (const hostile of ["Jane Doe", "JaneDoe", "jane@example.com", "4155550132", "abc-123", "x".repeat(200), "", "   "]) {
+    const id = requestIdFrom(new Headers({ "x-request-id": hostile }));
+    assert.match(id, UUID, `reused ${JSON.stringify(hostile)}`);
+  }
 });
 
 test("withRoute logs one access line and echoes the request id on the response", async () => {
@@ -95,14 +106,14 @@ test("withRoute logs one access line and echoes the request id on the response",
       log.info("db_checked", { db: "ok" });
       return new Response("{}", { status: 200 });
     });
-    const res = await handler(new Request("http://localhost/api/health", { headers: { "x-request-id": "req-1" } }));
-    assert.equal(res.headers.get("x-request-id"), "req-1");
+    const res = await handler(new Request("http://localhost/api/health", { headers: { "x-request-id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301" } }));
+    assert.equal(res.headers.get("x-request-id"), "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
   } finally {
     setLogSink();
   }
   const parsed = lines.map(parse);
   assert.equal(parsed[0].event, "db_checked");
-  assert.equal(parsed[0].requestId, "req-1");
+  assert.equal(parsed[0].requestId, "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
   assert.equal(parsed[1].event, "request");
   assert.equal(parsed[1].route, "GET /api/health");
   assert.equal(parsed[1].method, "GET");
