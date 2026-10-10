@@ -30,7 +30,13 @@ describe("migrateVisits", { skip: SERVER_URL ? false : "DATABASE_URL is not set"
     admin = new PrismaClient({ datasourceUrl: SERVER_URL });
     await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
     const url = fixtureUrl(SERVER_URL!);
-    execFileSync("npx", ["prisma", "migrate", "deploy"], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe" });
+    try {
+      execFileSync("npx", ["prisma", "migrate", "deploy"], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe" });
+    } catch (e) {
+      // Without this the failure reads "Command failed", which says nothing about which migration broke.
+      const out = e as { stdout?: Buffer; stderr?: Buffer };
+      throw new Error(`prisma migrate deploy failed for the fixture schema:\n${out.stdout ?? ""}${out.stderr ?? ""}`);
+    }
     db = new PrismaClient({ datasourceUrl: url });
     const practice = await db.practice.create({ data: { name: "Fixture Endocrinology" } });
     practiceId = practice.id;
