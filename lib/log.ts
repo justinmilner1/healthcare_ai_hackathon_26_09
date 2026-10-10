@@ -109,6 +109,13 @@ function errorValue(value: unknown, max: number): string {
   return scrub(String(value), max);
 }
 
+/** The allow-listed fields whose values are identifiers rather than text: a cuid from the database, or the
+ *  UUID requestIdFrom enforces. None of them can hold PHI, and scrub() damages them (see sanitize). */
+const ID_FIELDS = new Set(["requestId", "patientId", "providerId", "practiceId", "userId", "visitId", "uploadId", "summaryId", "messageId", "jobId"]);
+const ID_VALUE = /^[A-Za-z0-9_-]{1,64}$/;
+
+const isOpaqueId = (key: string, value: unknown): boolean => ID_FIELDS.has(key) && typeof value === "string" && ID_VALUE.test(value);
+
 /** Keep the allow-listed fields, scrub the free-text ones, and report the names that were dropped. */
 export function sanitize(fields: Fields): Fields {
   const kept: Fields = {};
@@ -121,11 +128,12 @@ export function sanitize(fields: Fields): Fields {
     }
     if (key === "error") kept[key] = errorValue(value, MAX_TEXT);
     else if (key === "stack") kept[key] = scrub(value instanceof Error ? (value.stack ?? "") : String(value), MAX_STACK);
-    // A minted request id goes through whole. scrub() otherwise reads the digits and hyphens of a UUID as a
-    // phone number and mangles one id in four — `d1e1ec17-9580-4837-8dc0-…` is logged as `d1e1ec[number]dc0-…`
-    // while the caller holds the real id from the x-request-id header, so the two no longer join up and the
-    // §11.1 "follow one request" query returns nothing. A UUID cannot be PHI, so there is nothing to scrub.
-    else if (key === "requestId" && typeof value === "string" && OPAQUE_REQUEST_ID.test(value)) kept[key] = value.toLowerCase();
+    // An identifier goes through whole. scrub() otherwise reads a run of digits and hyphens as a phone number
+    // and corrupts it: it mangled one minted request id in four — `d1e1ec17-9580-4837-8dc0-…` logged as
+    // `d1e1ec[number]dc0-…` while the caller held the real id from the x-request-id header — and about one
+    // database id in 6,100 the same way, so the §11.1 "follow one request" query returns nothing for them.
+    // There is nothing in an identifier to scrub, and a value that is not shaped like one is scrubbed as usual.
+    else if (isOpaqueId(key, value)) kept[key] = value as string;
     else if (typeof value === "string") kept[key] = scrub(value, MAX_TEXT);
     else if (typeof value === "number" || typeof value === "boolean") kept[key] = value;
     else kept[key] = errorValue(value, MAX_TEXT);

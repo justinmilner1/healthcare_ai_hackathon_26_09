@@ -111,6 +111,21 @@ test("a request id that is not a minted uuid is still scrubbed", () => {
   assert.equal(sanitize({ requestId: "call +1 415 555 0132" }).requestId, "call [number]");
 });
 
+test("a database id reaches the log whole too", () => {
+  // Same defect as the request id, rarer: a cuid with a run of nine digits reads as a phone number to
+  // scrub(), which is about 1 in 6,100 of them. A mangled patientId points at no patient.
+  for (const id of ["cmv2v8w2d00017dyqoi71y9pu", "clz123456789abcdefghijklm", "cmv31000000001xkpq8lwqynh"]) {
+    assert.deepEqual(sanitize({ patientId: id, uploadId: id, jobId: id }), { patientId: id, uploadId: id, jobId: id });
+  }
+});
+
+test("an id field holding something that is not an id is still scrubbed", () => {
+  // The pass-through is for identifier-shaped values only, so it cannot become a way in for text.
+  assert.equal(sanitize({ patientId: "Jane Doe, 415-555-0132" }).patientId, "Jane Doe, [number]");
+  assert.equal(sanitize({ patientId: "jane@example.com" }).patientId, "[email]");
+  assert.equal(sanitize({ patientId: "x".repeat(200) }).patientId, "x".repeat(200).slice(0, 300));
+});
+
 test("the request id on the response is the one written to the log", async () => {
   // The property the header exists for. One run in four used to break it, so this walks enough ids to catch
   // a regression on the first failing shape rather than on a lucky one.
