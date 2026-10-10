@@ -4,7 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export DATABASE_URL="${DATABASE_URL:-file:./e2e.db}"
 export OPENAI_API_KEY=""            # scripted mode: deterministic, no model calls
 export E2E_PORT="${E2E_PORT:-3100}"
 export APP_URL="http://localhost:${E2E_PORT}"
@@ -14,7 +13,11 @@ echo "== install"
 if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
 echo "== database"
-rm -f prisma/e2e.db prisma/e2e.db-journal
+# Postgres, never SQLite (design §3.2). The run gets its own database, sweetspot_e2e, dropped and recreated every
+# time; a DATABASE_URL in the environment (CI's service container) supplies the server, not the database, so a
+# developer's own data is never the thing being wiped. scripts/dev-db.sh picks Docker or a host Postgres.
+export DATABASE_URL="$(bash scripts/dev-db.sh "${E2E_DB_NAME:-sweetspot_e2e}" --fresh)"
+echo "database: ${DATABASE_URL%%:*}://...@${DATABASE_URL#*@}"
 npx prisma migrate deploy
 npm run seed
 

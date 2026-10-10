@@ -18,6 +18,12 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Playwright output. A failing run drops a minified trace viewer in e2e/report/, which otherwise becomes
+      // thousands of lint errors on the next run and hides the real failure.
+      "e2e/report/**",
+      "e2e/screenshots/**",
+      "e2e/test-results/**",
+      "test-results/**",
     ],
   },
 ];

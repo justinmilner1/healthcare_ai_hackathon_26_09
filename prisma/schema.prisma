@@ -1,4 +1,4 @@
-// Sweet Spot data model. SQLite for the demo; swap provider to postgresql later.
+// Sweet Spot data model (design §3.2, §4). Postgres everywhere: `docker compose up db` locally, RDS in AWS.
 // Keep it small. Parsed uploads are stored as JSON strings in the shapes from lib/types.ts.
 
 generator client {
@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
