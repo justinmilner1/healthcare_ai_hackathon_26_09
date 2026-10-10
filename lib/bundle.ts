@@ -6,31 +6,39 @@ import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "./sweetie";
 import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
+import { providerName } from "./visit";
 
-/** Accepts a patient id or their presigned token, so /patient/<token> works straight from the invite link. */
+/**
+ * Accepts a visit id, the patient's presigned token, or a patient id, so /patient/<token> works straight from
+ * the invite link. The data all hangs off the visit (design §4.4); the bundle still speaks in patient ids and
+ * T03 is where the pages move onto visit ids.
+ */
 export async function loadBundle(idOrToken: string): Promise<PatientBundle | null> {
-  const patient = await db.patient.findFirst({
-    where: { OR: [{ id: idOrToken }, { token: idOrToken }] },
+  if (!idOrToken) return null;
+  const visit = await db.visit.findFirst({
+    where: { OR: [{ id: idOrToken }, { token: idOrToken }, { patientId: idOrToken }] },
+    orderBy: { createdAt: "desc" },
     include: {
-      provider: true,
-      uploads: { orderBy: { createdAt: "desc" } },
+      patient: { include: { practice: true } },
+      providerUser: true,
+      uploads: { orderBy: { createdAt: "desc" }, include: { data: true } },
       messages: { orderBy: { createdAt: "asc" } },
       summaries: { orderBy: { createdAt: "desc" } },
     },
   });
-  if (!patient) return null;
+  if (!visit) return null;
 
-  const latest = (kind: string) => patient.uploads.find((u) => u.kind === kind);
-  const glucose = parseOr<GlucoseReading[]>(latest("dexcom")?.parsed, []);
-  const rawVisits = parseOr<Visit[]>(latest("timeline")?.parsed, []);
-  const labelled = parseOr<Visit[]>(latest("visits")?.parsed, []);
+  const latest = (kind: string) => visit.uploads.find((u) => u.kind === kind);
+  const glucose = parseOr<GlucoseReading[]>(latest("dexcom")?.data?.parsed, []);
+  const rawVisits = parseOr<Visit[]>(latest("timeline")?.data?.parsed, []);
+  const labelled = parseOr<Visit[]>(latest("visits")?.data?.parsed, []);
   const visits = rawVisits.length ? labelVisits(rawVisits, labelled) : labelled;
-  const sleep = parseOr<SleepNight[]>(latest("whoop")?.parsed, []);
+  const sleep = parseOr<SleepNight[]>(latest("whoop")?.data?.parsed, []);
 
   const spikes: Spike[] = matchSpikesToVisits(detectSpikes(glucose), visits).slice(0, 5);
 
-  const intakeFields = fieldsFor(patient.visitType, patient.isSandbox ? null : patient.reason);
-  const intake = parseIntake(patient.intake, intakeFields);
+  const intakeFields = fieldsFor(visit.visitType, visit.isSandbox ? null : visit.reason);
+  const intake = parseIntake(visit.intake, intakeFields);
   const answered = answeredCount(intake, intakeFields);
   const required = requiredCount(intakeFields);
   const status: IntakeStatus = {
@@ -41,21 +49,21 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     done: intake.questionsSkipped === true || answered >= required || intake.wrapped,
   };
 
-  const pick = (aud: string) => patient.summaries.find((x) => x.audience === aud);
+  const pick = (aud: string) => visit.summaries.find((x) => x.audience === aud);
   const prov = pick("provider");
   const pat = pick("patient");
 
   return {
     patient: {
-      id: patient.id,
-      name: patient.name,
-      token: patient.token,
-      isSandbox: patient.isSandbox,
-      apptAt: patient.apptAt?.toISOString() ?? null,
-      visitType: patient.visitType,
-      reason: patient.reason,
-      notes: patient.notes,
-      provider: { id: patient.provider.id, name: patient.provider.name, practice: patient.provider.practice },
+      id: visit.patientId,
+      name: visit.patient.name,
+      token: visit.token,
+      isSandbox: visit.isSandbox,
+      apptAt: visit.scheduledAt?.toISOString() ?? null,
+      visitType: visit.visitType,
+      reason: visit.reason,
+      notes: visit.notes,
+      provider: { id: visit.providerUserId ?? "", name: providerName(visit), practice: visit.patient.practice.name },
     },
     glucose: downsample(glucose),
     visits,
