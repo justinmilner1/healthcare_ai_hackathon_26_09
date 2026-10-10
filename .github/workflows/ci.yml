@@ -7,12 +7,30 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Postgres, matching docker-compose.yml and production RDS (design §3.2, §12.4). scripts/agent-check.sh takes
+    # the server from DATABASE_URL and creates its own sweetspot_e2e database on it.
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sweetspot
+          POSTGRES_PASSWORD: sweetspot
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sweetspot -d postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: bash scripts/agent-check.sh
-        env: { CI: "1" }
+        env:
+          CI: "1"
+          # Credentials for a throwaway container on the runner; nothing here is a secret.
+          DATABASE_URL: postgresql://sweetspot:sweetspot@localhost:5432/postgres?schema=public
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: screenshots, path: e2e/screenshots, if-no-files-found: ignore }

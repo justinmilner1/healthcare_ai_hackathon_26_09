@@ -19,7 +19,7 @@ Data is kept for life, so the summary gets better with every visit. Patients can
 | Layer | Choice | Why |
 |---|---|---|
 | App | Next.js 15 (App Router, TypeScript) | Front end and API routes in one repo |
-| DB | SQLite via Prisma | Zero setup. Swap to Postgres later |
+| DB | Postgres 16 via Prisma | `docker compose up db` locally, RDS in production |
 | LLM | GPT-5.5 on Amazon Bedrock, OpenAI SDK, Responses API | What the workshop covers |
 | SMS | Twilio | Fallback: show the link on screen |
 | Glucose | Dexcom Clarity CSV upload, `pydexcom`-style Share polling optional | CSV is reliable in a demo |
@@ -33,12 +33,17 @@ git clone https://github.com/robbertstruyven/healthcare_ai_hackathon_26_09
 cd healthcare_ai_hackathon_26_09
 npm install
 cp .env.example .env    # fill in the values below (works without an API key; agents fall back to scripted replies)
+docker compose up -d db # Postgres 16 on localhost:5432, credentials as in .env.example
 npx prisma migrate dev
 npm run seed            # demo provider + patient with the sample files loaded; prints the three URLs
 npm run dev             # http://localhost:3000
 ```
 
-Checks: `npm run typecheck`, `npm run lint`, `npm run build`. Reset the DB with `npm run db:reset && npm run seed`.
+No Docker daemon? `npm run db:up` starts a Postgres that is already installed on the host instead and prints the
+`DATABASE_URL` to put in `.env`. Either way the database is Postgres; SQLite is gone (design §3.2).
+
+Checks: `npm run typecheck`, `npm run lint`, `npm run build`, or `npm run agent:check` for everything including e2e.
+Reset the DB with `npm run db:reset && npm run seed`.
 
 Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,
 phone number, email address or message text reaches them. See [docs/LOGGING.md](docs/LOGGING.md).
@@ -66,7 +71,7 @@ TWILIO_ACCOUNT_SID=, TWILIO_AUTH_TOKEN=, TWILIO_FROM=      # Twilio wins over SN
 RESEND_API_KEY=                                            # Resend wins over SES when set
 
 # App
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgresql://sweetspot:sweetspot@localhost:5432/sweetspot?schema=public"
 APP_URL="https://<your-ngrok>.ngrok.app"    # the link in texts and emails points here
 ```
 

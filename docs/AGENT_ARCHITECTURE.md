@@ -13,7 +13,7 @@ The model does not control the application or calculate clinical metrics. TypeSc
 flowchart LR
     A[Practice creates patient] --> B[Secure token link]
     B --> C[Sweetie intake]
-    C --> D[(SQLite / Prisma)]
+    C --> D[(Postgres / Prisma)]
     E[Dexcom CSV] --> F[Deterministic parsers]
     G[Timeline JSON] --> F
     H[WHOOP CSV] --> F

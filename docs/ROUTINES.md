@@ -46,6 +46,29 @@ Runs every three hours. Reviews every open pull request labeled `review`, oldest
 unit tests, and the Playwright suite, and writes screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
 
+### The database in the sandbox (T01)
+
+The app is Postgres only (design §3.2). `scripts/dev-db.sh` is the one thing that brings a server up, and it tries
+three ways in order, so the same `scripts/agent-check.sh` works everywhere:
+
+1. **`DATABASE_URL` already points at a live server** — use that server. This is how CI works: `.github/workflows/ci.yml`
+   runs a `postgres:16-alpine` service container and passes its URL. The script takes the *server* from the variable and
+   creates its own database on it, so a developer's data is never what gets wiped.
+2. **The Docker daemon is up** — `docker compose up -d db`, the documented local path for people (`docker-compose.yml`).
+3. **Neither** — start a Postgres that is already installed on the host. **This is the path the cloud sandbox takes:**
+   the daemon is not running there (`docker info` fails), but the image ships PostgreSQL 16 under
+   `/usr/lib/postgresql/16`, so the script starts the packaged cluster with `pg_ctlcluster` (falling back to `initdb`
+   plus `pg_ctl` on a throwaway data directory) and creates the role and database. `initdb` and `postgres` refuse to run
+   as root, so that work goes through the `postgres` OS account.
+
+The check script always uses its own database, `sweetspot_e2e`, dropped and recreated on every run — the Postgres
+equivalent of the old `rm -f prisma/e2e.db`. `scripts/dev-db.sh --fresh` is what does the dropping, and it only ever
+touches the database named on its command line.
+
+Two things not to reach for: `prisma migrate reset` refuses to run for an AI agent without recorded human consent, so
+the clean slate comes from dropping the database in `dev-db.sh` and then `prisma migrate deploy`. And do not add a
+Docker-only step to the check script; the daemon is absent here.
+
 ## GitHub from the sandbox: REST only
 
 The cloud sandbox blocks GitHub's GraphQL endpoint, so `gh pr create`, `gh issue list`, `gh pr merge` and friends
