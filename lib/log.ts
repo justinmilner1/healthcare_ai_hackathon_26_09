@@ -112,9 +112,15 @@ function errorValue(value: unknown, max: number): string {
 /** The allow-listed fields whose values are identifiers rather than text: a cuid from the database, or the
  *  UUID requestIdFrom enforces. None of them can hold PHI, and scrub() damages them (see sanitize). */
 const ID_FIELDS = new Set(["requestId", "patientId", "providerId", "practiceId", "userId", "visitId", "uploadId", "summaryId", "messageId", "jobId"]);
-const ID_VALUE = /^[A-Za-z0-9_-]{1,64}$/;
 
-const isOpaqueId = (key: string, value: unknown): boolean => ID_FIELDS.has(key) && typeof value === "string" && ID_VALUE.test(value);
+// The two formats this app actually mints, and nothing wider. A charset check is not enough: `415-555-0132`
+// and `4155550132` are made of identifier characters, so a lookup that logged an unresolved id straight from
+// a request body would have printed a phone number that scrub() redacts today. Neither format can be one —
+// a cuid starts with `c` and is 25 characters, a UUID is hex in the 8-4-4-4-12 shape.
+const CUID = /^c[a-z0-9]{24}$/;
+
+const isOpaqueId = (key: string, value: unknown): boolean =>
+  ID_FIELDS.has(key) && typeof value === "string" && (CUID.test(value) || OPAQUE_REQUEST_ID.test(value));
 
 /** Keep the allow-listed fields, scrub the free-text ones, and report the names that were dropped. */
 export function sanitize(fields: Fields): Fields {

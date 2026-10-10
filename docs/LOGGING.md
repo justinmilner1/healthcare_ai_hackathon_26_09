@@ -90,9 +90,14 @@ phone number, which corrupts them — it mangled one minted `requestId` in four 
 came out as `d1e1ec[number]dc0-…`, which no longer matched the `x-request-id` the caller was handed) and
 about one database id in 6,100 the same way, so the query at the bottom of this page returns nothing for
 those requests and a mangled `patientId` points at no patient. An identifier carries nothing to take out, so
-the fields in `ID_FIELDS` — `requestId` and the database ids — skip scrubbing *when the value is actually
-identifier-shaped* (`[A-Za-z0-9_-]`, at most 64 characters). Anything else in one of those fields is scrubbed
-as usual, so the exception cannot become a way in for text.
+the fields in `ID_FIELDS` — `requestId` and the database ids — skip scrubbing *when the value is one of the
+two formats this app mints*: a Prisma cuid (`c` plus 24 lowercase alphanumerics) or the UUID
+`requestIdFrom` enforces. Anything else in one of those fields is scrubbed as usual.
+
+The narrowness is the point. A charset check would have been enough to protect the ids, but `415-555-0132`
+and `4155550132` are made of identifier characters too, so a future lookup that logged an unresolved id
+straight from a request body would have printed a phone number that `scrub()` redacts today. Neither format
+above can be a phone number. When you add an id field, add its format here rather than widening the pattern.
 
 ## Enforcement
 

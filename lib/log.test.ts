@@ -120,10 +120,21 @@ test("a database id reaches the log whole too", () => {
 });
 
 test("an id field holding something that is not an id is still scrubbed", () => {
-  // The pass-through is for identifier-shaped values only, so it cannot become a way in for text.
+  // The pass-through is for the two formats this app mints, so it cannot become a way in for anything else.
   assert.equal(sanitize({ patientId: "Jane Doe, 415-555-0132" }).patientId, "Jane Doe, [number]");
   assert.equal(sanitize({ patientId: "jane@example.com" }).patientId, "[email]");
   assert.equal(sanitize({ patientId: "x".repeat(200) }).patientId, "x".repeat(200).slice(0, 300));
+});
+
+test("a phone number in an id field is still redacted", () => {
+  // A phone number is made of identifier characters, so a charset check would wave it through. If a lookup
+  // ever logs an unresolved id straight from a request body, this is what stands between it and the log.
+  for (const phone of ["415-555-0132", "4155550132", "+1 415 555 0132", "(415) 555-0132"]) {
+    for (const field of ["patientId", "providerId", "visitId", "requestId", "jobId"]) {
+      const out = sanitize({ [field]: phone })[field];
+      assert.equal(String(out).includes("5550132"), false, `${field}=${phone} reached the log as ${String(out)}`);
+    }
+  }
 });
 
 test("the request id on the response is the one written to the log", async () => {
