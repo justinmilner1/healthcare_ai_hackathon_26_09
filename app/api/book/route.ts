@@ -5,10 +5,11 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { log, withRoute } from "@/lib/log";
 import { sendIntakeInvite } from "@/lib/notify";
 import { intakeLink } from "@/lib/sms";
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     name?: string;
     phone?: string;
@@ -46,9 +47,13 @@ export async function POST(req: Request) {
     },
   });
 
+  log.info("patient_created", { patientId: patient.id, providerId: provider.id, visitType: patient.visitType ?? "unspecified" });
+
   if (!body.optIn) {
     return NextResponse.json({ patientId: patient.id, token, link: intakeLink(token), sms: { sent: false, error: "not opted in" }, email: { sent: false, error: "not opted in" } });
   }
   const result = await sendIntakeInvite({ ...patient, providerName: provider.name });
   return NextResponse.json({ patientId: patient.id, token, ...result });
 }
+
+export const POST = withRoute("POST /api/book", postHandler);

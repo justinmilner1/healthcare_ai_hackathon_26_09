@@ -3,6 +3,7 @@
 // Each channel fails soft; the caller decides whether to show the link on screen.
 
 import { sendEmail, type SendResult } from "./email";
+import { log } from "./log";
 import { intakeLink, sendSms } from "./sms";
 import type { Summary } from "./types";
 
@@ -13,6 +14,7 @@ export type InviteResult = {
 };
 
 export async function sendIntakeInvite(p: {
+  id?: string;
   name: string;
   phone?: string | null;
   email?: string | null;
@@ -44,7 +46,15 @@ export async function sendIntakeInvite(p: {
     p.email ? sendEmail(p.email, `Get ready for your visit with ${p.providerName}`, emailText) : Promise.resolve({ sent: false, error: "no email on file" }),
   ]);
 
+  logSend("invite_sent", p.id, { sms, email });
   return { link, sms, email };
+}
+
+/** One line per channel: which channel, which backend, whether it left. Never the address or the body. */
+function logSend(event: string, patientId: string | undefined, channels: Record<string, SendResult>): void {
+  for (const [channel, result] of Object.entries(channels)) {
+    log.info(event, { patientId, channel, sent: result.sent, provider: result.provider, error: result.error });
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -93,5 +103,6 @@ export async function sendSummaryEmails(p: {
       ? sendEmail(p.patient.email, `Your summary is ready, ${first}`, patientText)
       : Promise.resolve({ sent: false, error: "patient has no email" }),
   ]);
+  logSend("summary_notified", p.patient.id, { provider, patient });
   return { provider, patient };
 }

@@ -2,12 +2,16 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { log, withRoute } from "@/lib/log";
 
-export async function GET() {
+async function getHandler() {
   try {
     await db.$queryRaw`SELECT 1`;
     return NextResponse.json({ ok: true, db: "ok" });
   } catch (e) {
+    log.error("health_db_unreachable", { db: "down", error: e });
     return NextResponse.json({ ok: false, db: e instanceof Error ? e.message : String(e) }, { status: 503 });
   }
 }
+
+export const GET = withRoute("GET /api/health", getHandler);

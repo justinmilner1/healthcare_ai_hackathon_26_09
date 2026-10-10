@@ -2,8 +2,9 @@ import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { authorizationUrl, dexcomConfig, DEXCOM_COOKIE, hash } from "@/lib/dexcom";
+import { withRoute } from "@/lib/log";
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   let config;
   try { config = dexcomConfig(); } catch {
     return NextResponse.json({ error: "Dexcom sandbox is not configured." }, { status: 503 });
@@ -29,3 +30,5 @@ export async function POST(req: Request) {
   response.headers.set("Referrer-Policy", "no-referrer");
   return response;
 }
+
+export const POST = withRoute("POST /api/dexcom/connect", postHandler);
