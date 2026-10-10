@@ -43,7 +43,20 @@ if [ -n "${DATABASE_URL:-}" ]; then
   base="${DATABASE_URL%%\?*}"                       # postgresql://user:pass@host:port/dbname
   query="schema=public"; case "$DATABASE_URL" in *\?*) query="${DATABASE_URL#*\?}" ;; esac
   server="${base%/*}"                               # postgresql://user:pass@host:port
-  if ! command -v psql >/dev/null 2>&1; then
+  authority="${server#*://}"; hostport="${authority##*@}"   # host:port
+  case "$hostport" in
+    \[*\]*) host="${hostport#\[}"; host="${host%%\]*}" ;;  # [::1]:5432
+    *) host="${hostport%%:*}" ;;
+  esac
+  # This branch creates and seeds a database on whatever it is pointed at, so it stays on this machine unless
+  # someone says otherwise. Without the guard, an agent-check run with a staging DATABASE_URL in the environment
+  # would write to staging. CI's service container is published on localhost, so CI is unaffected.
+  local_host=""
+  case "$host" in localhost|127.0.0.1|::1|0.0.0.0) local_host=1 ;; esac
+  if [ -z "$local_host" ] && [ -z "${DEV_DB_ALLOW_REMOTE:-}" ]; then
+    say "DATABASE_URL points at ${host}, which is not this machine; not creating databases there."
+    say "set DEV_DB_ALLOW_REMOTE=1 to override. Falling back to a local server."
+  elif ! command -v psql >/dev/null 2>&1; then
     say "DATABASE_URL is set but there is no psql here to reach it with; falling back to a local server"
   elif psql "$server/postgres" -c 'select 1' >/dev/null 2>&1; then
     say "using the server from DATABASE_URL"
@@ -72,8 +85,14 @@ fi
 
 # --- 3. No daemon: start the Postgres installed on the host (how the agent sandbox runs).
 if ! have_adm; then
-  PGBIN=""
-  for d in /usr/lib/postgresql/*/bin /usr/local/pgsql/bin; do [ -x "$d/pg_ctl" ] && PGBIN="$d"; done
+  # Newest version wins. The glob sorts lexicographically, so keeping the last match would pick 9 over 16.
+  PGBIN=""; best=-1
+  for d in /usr/lib/postgresql/*/bin /usr/local/pgsql/bin; do
+    [ -x "$d/pg_ctl" ] || continue
+    version="${d%/bin}"; version="${version##*/}"
+    case "$version" in ''|*[!0-9]*) n=0 ;; *) n="$version" ;; esac
+    [ "$n" -ge "$best" ] && { best="$n"; PGBIN="$d"; }
+  done
   [ -n "$PGBIN" ] || { command -v pg_ctl >/dev/null 2>&1 && PGBIN="$(dirname "$(command -v pg_ctl)")"; }
   if [ -z "$PGBIN" ]; then
     say "no Docker daemon and no Postgres server on this host."
@@ -104,13 +123,14 @@ if ! have_adm; then
   for _ in $(seq 1 30); do pg_isready -h localhost -p "$DB_PORT" >/dev/null 2>&1 && break; sleep 1; done
   pg_isready -h localhost -p "$DB_PORT" >/dev/null 2>&1 || { say "Postgres never came up on port ${DB_PORT}"; exit 1; }
 
-  # Superuser so that `prisma migrate dev` can create its shadow database.
+  # createdb, not superuser: it is the whole grant needed here, to create this run's database and the shadow one
+  # `prisma migrate dev` makes. Dropping works without superuser too, since the role owns what it created.
   local_q() { as_postgres "psql -p $DB_PORT -d postgres -v ON_ERROR_STOP=1 -tAc \"$1\""; }
   if [ -z "$(local_q "select 1 from pg_roles where rolname='${DB_USER}'")" ]; then
     say "creating role ${DB_USER}"
-    local_q "create role \\\"${DB_USER}\\\" with login superuser password '${DB_PASS}'" >/dev/null
+    local_q "create role \\\"${DB_USER}\\\" with login createdb password '${DB_PASS}'" >/dev/null
   else
-    local_q "alter role \\\"${DB_USER}\\\" with login superuser password '${DB_PASS}'" >/dev/null
+    local_q "alter role \\\"${DB_USER}\\\" with login createdb nosuperuser password '${DB_PASS}'" >/dev/null
   fi
   # psql from the same install as the server, rather than whatever is on PATH.
   adm() { "$PGBIN/psql" -h localhost -p "$DB_PORT" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -tAc "$1"; }
