@@ -135,15 +135,12 @@ async function postHandler(req: Request) {
 
 async function finish(visitId: string, state: IntakeState, defs: IntakeFieldDef[], context: VisitContext, reply: string, wasWrapped = false) {
   await db.message.create({ data: { visitId, role: "sweetie", content: reply } });
-  await db.visit.update({
-    where: { id: visitId },
-    data: {
-      intake: JSON.stringify(state),
-      notes: renderNotes(state, defs, context),
-      // The visit's own state, so the dashboard and the job runner do not have to read the intake JSON (§4.4).
-      status: state.wrapped ? "intake_done" : "in_intake",
-    },
-  });
+  await db.visit.update({ where: { id: visitId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, context) } });
+  // The visit's own state, so the dashboard and the job runner do not have to read the intake JSON (§4.4).
+  // Only ever forwards: a patient adding a line after Sour has run must not walk the visit back to intake.
+  const reached = state.wrapped ? "intake_done" : "in_intake";
+  const from = state.wrapped ? ["invited", "verified", "in_intake"] : ["invited", "verified"];
+  await db.visit.updateMany({ where: { id: visitId, status: { in: from } }, data: { status: reached } });
   const bundle = await loadBundle(visitId);
 
   // Trigger: the turn that wraps the intake also kicks off Sour, after this reply is on its way, so the
