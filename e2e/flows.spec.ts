@@ -46,11 +46,13 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   expect(byVisitId.patient.name).toBe("E2E Patient");
   expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
 
-  // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
+  // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient. Both
+  // posts carry the CSRF token (T27, design §10.8) so the 400 is the route refusing a patient id, not
+  // middleware refusing the request — a 403 here would assert nothing about §4.4.
   const providerRows = await (await request.get(`/api/provider?id=${demo.id}`)).json();
   expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
-  expect((await request.post("/api/sour", { data: { patientId: booked.patientId } })).status()).toBe(400);
-  expect((await request.post("/api/invite", { data: { patientId: booked.patientId } })).status()).toBe(400);
+  expect((await postJson(request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
+  expect((await postJson(request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
