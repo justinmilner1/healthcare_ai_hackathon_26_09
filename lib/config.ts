@@ -378,18 +378,22 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   const v = (name: string) => read(env, name);
   const out: Problem[] = [];
 
-  const companions = (trigger: string, needed: string[], why: string) => {
+  const companions = (trigger: string, needed: string[], why: string, level: ProblemLevel = fatal) => {
     if (!v(trigger)) return;
     const missing = needed.filter((name) => !v(name));
     if (missing.length === 0) return;
     out.push({
-      level: fatal,
+      level,
       variable: missing[0],
       message: `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} required when ${trigger} is set (${why}).`,
     });
   };
 
-  companions("AWS_ACCESS_KEY_ID", ["AWS_SECRET_ACCESS_KEY"], "static credentials come in pairs");
+  // A warning, not a refusal, even in production: unlike every other variable here, the AWS credential names
+  // are ambient. CI runners and this repo's own cloud sandbox export them for their own reasons, and a
+  // deployment that half-inherits them should degrade to "the invite link is on screen", not refuse to serve a
+  // visit. The other half of the pair being absent is still worth saying out loud.
+  companions("AWS_ACCESS_KEY_ID", ["AWS_SECRET_ACCESS_KEY"], "static credentials come in pairs", "warning");
   companions("TWILIO_ACCOUNT_SID", ["TWILIO_AUTH_TOKEN", "TWILIO_FROM"], "lib/sms.ts cannot send without them");
   if (v("EMAIL_PROVIDER") === "resend") companions("EMAIL_PROVIDER", ["RESEND_API_KEY"], "the Resend backend was selected");
   if (v("EMAIL_PROVIDER") === "ses") companions("EMAIL_PROVIDER", ["EMAIL_FROM"], "SES rejects an unverified sender");

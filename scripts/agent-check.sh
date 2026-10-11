@@ -21,6 +21,12 @@ echo "database: ${DATABASE_URL%%:*}://...@${DATABASE_URL#*@}"
 npx prisma migrate deploy
 npm run seed
 
+echo "== config"
+# The §3.7 gate as a command, against the environment this run actually has. It is the same check
+# instrumentation.ts runs when the server boots, so a failure here would be a server that refuses to start a
+# few steps later, with a clearer message.
+npm run config:check
+
 echo "== typecheck"; npm run typecheck
 echo "== lint";      npm run lint
 echo "== unit";      npm test

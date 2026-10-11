@@ -153,8 +153,13 @@ test("a forced provider must have the credentials that backend needs", () => {
   assert.match(errors({ ...good(), SMS_PROVIDER: "twilio" })[0].message, /TWILIO_ACCOUNT_SID is required/);
 });
 
-test("static AWS credentials come in pairs", () => {
-  assert.match(errors({ ...good(), AWS_ACCESS_KEY_ID: "AKIA-not-real" })[0].message, /AWS_SECRET_ACCESS_KEY is required/);
+test("static AWS credentials come in pairs, but only as a warning", () => {
+  // These two names are ambient on CI runners and on this repo's cloud sandbox, so half a pair must not be
+  // able to stop a deployment that never asked for them.
+  const half = { ...good(), AWS_ACCESS_KEY_ID: "AKIA-not-real" };
+  assert.deepEqual(errors(half), []);
+  assert.match(warnings(half)[0].message, /AWS_SECRET_ACCESS_KEY is required when AWS_ACCESS_KEY_ID is set/);
+  assert.deepEqual(validateConfig({ ...half, AWS_SECRET_ACCESS_KEY: "secret-not-real" }), []);
 });
 
 test("Dexcom is all four variables or none", () => {
