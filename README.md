@@ -164,11 +164,15 @@ lib/
   location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
   match.ts                      link spikes to visits                         Robbert
   sleep.ts                      parse WHOOP CSV                               (open)
-  bundle.ts                     load a patient's data + status from the DB
+  bundle.ts                     load a visit's data + status from the DB
+  visit.ts                      resolve a visit from its id, token or patient
+  practice.ts                   a provider and their practice, created on demand
+  migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin
   db.ts                         Prisma singleton
-prisma/schema.prisma            Provider, Patient, Upload, Message, Summary
+prisma/schema.prisma            Practice, User (+Auth.js), Patient, Visit, Upload, Message, Summary, AuditLog, Job
 scripts/seed.ts                 demo data into the DB;  gen_samples.py regenerates data/
+scripts/migrate-visits.ts       give any patient without a visit one (design §4.11)
 data/                           synthetic 7-day exports (see data/README.md)
 ```
 

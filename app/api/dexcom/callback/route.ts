@@ -10,12 +10,19 @@ async function getHandler(req: NextRequest) {
   }
   const state = req.nextUrl.searchParams.get("state");
   const browser = req.cookies.get(DEXCOM_COOKIE)?.value;
-  const row = state && state.length <= 128 ? await db.dexcomOAuthState.findUnique({ where: { stateHash: hash(state) }, include: { patient: true } }) : null;
-  if (!row || !browser || row.browserHash !== hash(browser)) {
+  // The OAuth state is per patient (§4.10); the import lands on that patient's newest visit (§4.4).
+  const row = state && state.length <= 128
+    ? await db.dexcomOAuthState.findUnique({
+        where: { stateHash: hash(state) },
+        include: { patient: { include: { visits: { orderBy: { createdAt: "desc" }, take: 1 } } } },
+      })
+    : null;
+  const visit = row?.patient.visits[0];
+  if (!row || !visit || !browser || row.browserHash !== hash(browser)) {
     return NextResponse.json({ error: "Invalid Dexcom session. Return to your intake link and connect again." }, { status: 400, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   }
   const back = (result: string) => {
-    const url = new URL(`/s/${row.patient.token}/intake`, config.origin);
+    const url = new URL(`/s/${visit.token}/intake`, config.origin);
     url.searchParams.set("dexcom", result);
     const res = NextResponse.redirect(url, 303);
     res.cookies.set(DEXCOM_COOKIE, "", { path: "/api/dexcom", maxAge: 0, httpOnly: true, sameSite: "lax", secure: config.secure });
@@ -26,7 +33,7 @@ async function getHandler(req: NextRequest) {
   // Atomic consumption rejects concurrent callbacks and replayed authorization codes.
   const consumed = await db.dexcomOAuthState.deleteMany({ where: { stateHash: row.stateHash } });
   if (!consumed.count || row.expiresAt.getTime() < Date.now()) return back("expired");
-  if (!row.patient.isSandbox) return back("failed");
+  if (!visit.isSandbox) return back("failed");
   if (req.nextUrl.searchParams.has("error")) return back("cancelled");
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return back("failed");
@@ -41,12 +48,19 @@ async function getHandler(req: NextRequest) {
     });
     const snapshot = await fetchSnapshot(tokens.access_token);
     await db.$transaction(async (tx) => {
-      const patient = await tx.patient.findUnique({ where: { id: row.patientId } });
-      if (!patient?.isSandbox) throw new Error("Not a sandbox patient.");
-      await tx.upload.create({ data: { patientId: patient.id, kind: "dexcom", filename: SANDBOX_FILENAME, raw: snapshot.raw, parsed: JSON.stringify(snapshot.readings) } });
+      const fresh = await tx.visit.findUnique({ where: { id: visit.id } });
+      if (!fresh?.isSandbox) throw new Error("Not a sandbox visit.");
+      await tx.upload.create({ data: {
+        visitId: fresh.id,
+        kind: "dexcom",
+        filename: SANDBOX_FILENAME,
+        bytes: snapshot.raw.length,
+        parsedRows: snapshot.readings.length,
+        data: { create: { parsed: JSON.stringify(snapshot.readings), raw: snapshot.raw } },
+      } });
       // Never serve an older narrative against newly imported sandbox readings.
-      await tx.summary.deleteMany({ where: { patientId: patient.id } });
-      await tx.dexcomConnection.update({ where: { patientId: patient.id }, data: { importedAt: new Date() } });
+      await tx.summary.deleteMany({ where: { visitId: fresh.id } });
+      await tx.dexcomConnection.update({ where: { patientId: row.patientId }, data: { importedAt: new Date() } });
     });
     return back("connected");
   } catch (e) {
