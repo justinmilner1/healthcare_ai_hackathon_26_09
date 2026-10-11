@@ -2375,6 +2375,82 @@ textarea.ss-input {
   font-size: 10px;
 }
 
+/* T15 (design §7.2): where the summary job got to, under the brief header. One row: a chip with the state,
+   the sentence that explains it, and the retry the clinician gets when the job gave up. */
+.sour-job-state {
+  display: flex;
+  flex-wrap: wrap; /* 375px: the chip and the sentence stack rather than pushing the row sideways (§6.5) */
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border: 1px solid #e9e6d7;
+  border-radius: 12px;
+  background: #fdfcf6;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.sour-job-chip {
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--viz-ink-2);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sour-job-detail {
+  margin: 0;
+  color: var(--viz-ink-2);
+}
+
+.sour-job-label {
+  margin-right: 6px;
+  color: var(--viz-muted);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sour-job-retry {
+  flex: none;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 11px;
+  font-size: 11px;
+}
+
+.sour-job-state[data-phase="ready"] .sour-job-chip {
+  color: #256a43;
+}
+
+.sour-job-state[data-phase="queued"] .sour-job-chip,
+.sour-job-state[data-phase="running"] .sour-job-chip,
+.sour-job-state[data-phase="stale"] .sour-job-chip {
+  color: #8a6d1f;
+}
+
+.sour-job-state[data-phase="stale"],
+.sour-job-state[data-phase="queued"],
+.sour-job-state[data-phase="running"] {
+  border-color: #e5deb9;
+  background: #fffbea;
+}
+
+.sour-job-state[data-phase="failed"] {
+  border-color: #f0bec9;
+  background: #fff1f4;
+}
+
+.sour-job-state[data-phase="failed"] .sour-job-chip,
+.sour-job-state[data-phase="failed"] .sour-job-detail {
+  color: #a42b48;
+}
+
 .sour-invite-note {
   overflow-wrap: anywhere;
 }

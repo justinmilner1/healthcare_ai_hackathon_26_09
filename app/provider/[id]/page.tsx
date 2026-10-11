@@ -4,7 +4,9 @@
 // Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour, POST /api/invite. Print gives the one-pager.
 // Generate and Send link queue a job (design §3.4) and return at once, so this page waits for the result by
-// polling the bundle. Showing the job's own state and a retry button is T15 (§7.2).
+// polling the bundle. The bundle carries that job's own state, which the chip under the header shows and a
+// retry re-enqueues (§7.2), and the chip is also what ends the wait: a run that finds the inputs unchanged
+// returns the saved summary (§7.1), so the summary's timestamp alone cannot say whether the work is over.
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +16,7 @@ import GlucoseChart from "@/components/GlucoseChart";
 import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
+import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { visitLabel } from "@/lib/visits";
@@ -41,6 +44,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [asking, setAsking] = useState(false);
   const [chatError, setChatError] = useState("");
   const [summaryError, setSummaryError] = useState("");
+  const [summaryNote, setSummaryNote] = useState("");
   const activePatient = useRef<string | null>(null);
   // The timestamp of the summary currently on screen, so Regenerate can tell a fresh one from the old one.
   const bundleSummaryAt = useRef<string | null>(null);
@@ -81,17 +85,28 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     async (pid: string) => {
       setBusy(true);
       setSummaryError("");
+      setSummaryNote("");
       const had = bundleSummaryAt.current;
       try {
         const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
-        if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
+        const queued = (await res.json().catch(() => null)) as { jobId?: string } | null;
+        if (!res.ok || !queued?.jobId) throw new Error("Could not generate the summary. Please retry.");
         // The summary is written by a `sour.run` job, so it lands a moment after this request returns. Poll
-        // the bundle until a summary newer than the one on screen appears, or give up and say so: the work is
-        // a durable row either way, and reloading the page will show it.
+        // the bundle until that job reports back, or give up and say so: the work is a durable row either
+        // way, and reloading the page will show it. Three things end the wait, and a new summary is only one
+        // of them — the job can fail (§7.2), and it can finish having decided the inputs had not changed and
+        // the saved summary still stands (§7.1), which leaves the timestamp exactly where it was.
         for (let tries = 0; tries < SUMMARY_POLLS && activePatient.current === pid; tries++) {
           await wait(SUMMARY_POLL_MS);
           const next = await load(pid);
           if (next?.providerSummary && next.providerSummaryAt !== had) return;
+          const job = next?.sourJob;
+          if (!job || job.id !== queued.jobId) continue; // an older job for this visit, or none read back yet
+          if (job.status === "failed") return; // the chip carries the reason and the retry
+          if (job.status === "done") {
+            setSummaryNote("Nothing has changed since the last summary, so Sour kept the one below rather than writing it again.");
+            return;
+          }
         }
         if (activePatient.current === pid) setSummaryError("Sour is still working on this summary. It will appear here shortly; reload if you have waited more than a minute.");
       } catch (e) {
@@ -113,11 +128,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     setBusy(false);
     setChatError("");
     setSummaryError("");
+    setSummaryNote("");
     setChecked(new Set());
     setInvite("");
     load(selected).then((b) => {
-      // First open with data but no summary: generate without asking.
-      if (activePatient.current === selected && b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
+      // First open with data but no summary: generate without asking. Not when the last `sour.run` job gave
+      // up, though — that one is the clinician's to retry (§7.2), and opening the page again should not quietly
+      // spend three more attempts on whatever broke.
+      if (activePatient.current === selected && b && !b.providerSummary && b.status.hasDexcom && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
@@ -161,6 +179,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const visible = (provider?.patients ?? []).filter((p) => p.hasSummary || p.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
+  // A job someone else queued (an intake that just wrapped, another clinician's Generate) counts as busy too,
+  // so the button does not invite a second run while the first is still in the queue.
+  const jobBusy = bundle?.sourJob?.status === "queued" || bundle?.sourJob?.status === "running";
   const sources = bundle ? [bundle.status.hasDexcom && "Dexcom", bundle.status.hasLocation && "Timeline", bundle.status.hasWhoop && "WHOOP"].filter(Boolean).join(" · ") : "";
 
   return (
@@ -235,11 +256,21 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               <div className="sour-brief-actions print:hidden">
                 <button onClick={() => sendLink(bundle.patient.id)} className="ss-button">Send link</button>
                 <button onClick={() => window.print()} className="ss-button">Print</button>
-                <button onClick={() => generate(bundle.patient.id)} disabled={busy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
-                  {busy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
+                <button onClick={() => generate(bundle.patient.id)} disabled={busy || jobBusy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
+                  {busy || jobBusy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
             </header>
+            {/* §7.2: where the summary job got to, and the retry when it gave up. */}
+            <SourJobState
+              job={bundle.sourJob}
+              hasSummary={Boolean(s)}
+              stale={bundle.summaryStale}
+              summaryAt={bundle.providerSummaryAt}
+              pending={busy}
+              onRetry={() => generate(bundle.patient.id)}
+            />
+            {summaryNote && <p className="ss-notice print:hidden">{summaryNote}</p>}
             {invite && <p className="ss-notice sour-invite-note print:hidden">{invite}</p>}
             {bundle.intake?.flagged && (
               <p className="ss-error sour-safety-flag">
