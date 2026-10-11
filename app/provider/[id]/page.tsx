@@ -3,7 +3,8 @@
 // Sour view: the one-page summary the endocrinologist reads during the visit, with a sidebar of ready summaries.
 // Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour, POST /api/invite. Print gives the one-pager.
-// Generate and Send link queue a job (design §3.4) and return at once, so this page waits for the result by
+// Rows and every request are keyed by visit id (design §4.4); ?visit=<id> deep-links from the summary email.
+// Generate and Send link queue a job (§3.4) and return at once, so this page waits for the result by
 // polling the bundle. The bundle carries that job's own state, which the chip under the header shows and a
 // retry re-enqueues (§7.2), and the chip is also what ends the wait: a run that finds the inputs unchanged
 // returns the saved summary (§7.1), so the summary's timestamp alone cannot say whether the work is over.
@@ -29,7 +30,7 @@ const SUMMARY_POLL_MS = 1500;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
-type Provider = { name: string; practice: string | null; patients: Row[] };
+type Provider = { name: string; practice: string | null; visits: Row[] };
 
 export default function ProviderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -45,7 +46,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [chatError, setChatError] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const [summaryNote, setSummaryNote] = useState("");
-  const activePatient = useRef<string | null>(null);
+  const activeVisit = useRef<string | null>(null);
   // The timestamp of the summary currently on screen, so Regenerate can tell a fresh one from the old one.
   const bundleSummaryAt = useRef<string | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
@@ -58,40 +59,40 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       .then((r) => r.json())
       .then((p: Provider) => {
         setProvider(p);
-        // ?patient=<id> deep-links from the summary email; otherwise open the first patient.
+        // ?visit=<id> deep-links from the summary email; otherwise open the first visit with a summary.
         rememberProvider(id);
-        const wanted = new URLSearchParams(window.location.search).get("patient");
-        const first = p.patients?.find((x) => x.id === wanted)?.id ?? p.patients?.find((x) => x.hasSummary)?.id;
+        const wanted = new URLSearchParams(window.location.search).get("visit");
+        const first = p.visits?.find((x) => x.id === wanted)?.id ?? p.visits?.find((x) => x.hasSummary)?.id;
         if (first && !selected) setSelected(first);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   /** `quiet` is for the background poll below: it must not dim the brief the clinician is reading. */
-  const load = useCallback(async (pid: string, quiet = false) => {
+  const load = useCallback(async (visitId: string, quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const res = await fetch(`/api/patient/${pid}`);
+      const res = await fetch(`/api/patient/${visitId}`);
       if (!res.ok) throw new Error("Could not load this patient's summary.");
       const b = (await res.json()) as PatientBundle;
-      if (activePatient.current === pid) {
+      if (activeVisit.current === visitId) {
         setBundle(b);
         bundleSummaryAt.current = b.providerSummaryAt;
       }
       return b;
     } finally {
-      if (!quiet && activePatient.current === pid) setLoading(false);
+      if (!quiet && activeVisit.current === visitId) setLoading(false);
     }
   }, []);
 
   const generate = useCallback(
-    async (pid: string) => {
+    async (visitId: string) => {
       setBusy(true);
       setSummaryError("");
       setSummaryNote("");
       const had = bundleSummaryAt.current;
       try {
-        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
+        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) });
         const queued = (await res.json().catch(() => null)) as { jobId?: string } | null;
         if (!res.ok || !queued?.jobId) throw new Error("Could not generate the summary. Please retry.");
         // The summary is written by a `sour.run` job, so it lands a moment after this request returns. Poll
@@ -99,9 +100,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
         // way, and reloading the page will show it. Three things end the wait, and a new summary is only one
         // of them — the job can fail (§7.2), and it can finish having decided the inputs had not changed and
         // the saved summary still stands (§7.1), which leaves the timestamp exactly where it was.
-        for (let tries = 0; tries < SUMMARY_POLLS && activePatient.current === pid; tries++) {
+        for (let tries = 0; tries < SUMMARY_POLLS && activeVisit.current === visitId; tries++) {
           await wait(SUMMARY_POLL_MS);
-          const next = await load(pid);
+          const next = await load(visitId);
           if (next?.providerSummary && next.providerSummaryAt !== had) return;
           const job = next?.sourJob;
           if (!job || job.id !== queued.jobId) continue; // an older job for this visit, or none read back yet
@@ -111,11 +112,11 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
             return;
           }
         }
-        if (activePatient.current === pid) setSummaryError("Sour is still working on this summary. It will appear here shortly; reload if you have waited more than a minute.");
+        if (activeVisit.current === visitId) setSummaryError("Sour is still working on this summary. It will appear here shortly; reload if you have waited more than a minute.");
       } catch (e) {
-        if (activePatient.current === pid) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
+        if (activeVisit.current === visitId) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
       } finally {
-        if (activePatient.current === pid) setBusy(false);
+        if (activeVisit.current === visitId) setBusy(false);
       }
     },
     [load],
@@ -123,7 +124,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   useEffect(() => {
     if (!selected) return;
-    activePatient.current = selected;
+    activeVisit.current = selected;
     setBundle(null);
     setQa([]);
     setQ("");
@@ -139,14 +140,14 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       // First open with data but no summary: generate without asking. Not when the last `sour.run` job gave
       // up, though — that one is the clinician's to retry (§7.2), and opening the page again should not quietly
       // spend three more attempts on whatever broke.
-      if (activePatient.current === selected && b && !b.providerSummary && b.status.hasDexcom && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
+      if (activeVisit.current === selected && b && !b.providerSummary && b.status.hasDexcom && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
     }).catch(() => {
-      if (activePatient.current === selected) setSummaryError("Could not load this patient. Please select them again.");
+      if (activeVisit.current === selected) setSummaryError("Could not load this patient. Please select them again.");
     });
-    return () => { activePatient.current = null; };
+    return () => { activeVisit.current = null; };
   }, [selected, load, generate]);
 
   // A `sour.run` job can be in flight without this page having started it: an intake that wrapped a moment
@@ -156,20 +157,20 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   // bounded, so a job a dead runner stranded does not have the page asking for ever (lib/jobs.ts reaps it).
   useEffect(() => {
     const job = bundle?.sourJob;
-    const pid = selected;
-    if (!pid || busy || (job?.status !== "queued" && job?.status !== "running")) return;
+    const visitId = selected;
+    if (!visitId || busy || (job?.status !== "queued" && job?.status !== "running")) return;
     if (watched.current.jobId !== job.id) watched.current = { jobId: job.id, polls: 0 };
     if (watched.current.polls >= SUMMARY_POLLS * 2) return;
     watched.current.polls += 1;
     const timer = setTimeout(() => {
-      void load(pid, true).catch(() => {});
+      void load(visitId, true).catch(() => {});
     }, SUMMARY_POLL_MS);
     return () => clearTimeout(timer);
   }, [bundle, selected, busy, load]);
 
-  async function sendLink(pid: string) {
+  async function sendLink(visitId: string) {
     setInvite("Sending…");
-    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
+    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
     // The send is a `notify.invite` job now, so this says it is on its way rather than that it arrived; the
     // link is here to share directly either way, and per-channel delivery status is T19 (§8.3).
     if (d.queued) setInvite(`Sending the link to this patient now. Share it directly if you'd rather: ${d.link}`);
@@ -179,26 +180,26 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   async function askSour(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || !q.trim() || asking) return;
-    const pid = selected;
+    const visitId = selected;
     const question = q.trim();
     setAsking(true);
     setChatError("");
     try {
-      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid, question, history: qa.slice(-6) }) });
+      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId, question, history: qa.slice(-6) }) });
       const d = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
       if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");
-      if (activePatient.current !== pid) return;
+      if (activeVisit.current !== visitId) return;
       setQa((x) => [...x, { q: question, a: d.answer }]);
       setQ("");
     } catch (e) {
-      if (activePatient.current === pid) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
+      if (activeVisit.current === visitId) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
     } finally {
-      if (activePatient.current === pid) setAsking(false);
+      if (activeVisit.current === visitId) setAsking(false);
     }
   }
 
-  const visible = (provider?.patients ?? []).filter((p) => p.hasSummary || p.id === selected);
+  const visible = (provider?.visits ?? []).filter((v) => v.hasSummary || v.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
   // A job someone else queued (an intake that just wrapped, another clinician's Generate) counts as busy too,
@@ -219,21 +220,21 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
         </div>
         <p className="sour-sidebar-label">Summaries ready</p>
         <ul className="sour-patient-list">
-          {visible.map((p) => (
-            <li key={p.id}>
+          {visible.map((v) => (
+            <li key={v.id}>
               <button
-                onClick={() => setSelected(p.id)}
-                className={selected === p.id ? "sour-patient-active" : ""}
+                onClick={() => setSelected(v.id)}
+                className={selected === v.id ? "sour-patient-active" : ""}
               >
-                <span className="sour-patient-initial">{p.name.charAt(0)}</span>
+                <span className="sour-patient-initial">{v.name.charAt(0)}</span>
                 <span>
-                <strong>{p.name}</strong>
+                <strong>{v.name}</strong>
                 <small>
-                  {p.apptAt ? new Date(p.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
-                  {p.uploads.length ? ` · ${p.uploads.length} source${p.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
+                  {v.apptAt ? new Date(v.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
+                  {v.uploads.length ? ` · ${v.uploads.length} source${v.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
                 </small>
                 </span>
-                {p.hasSummary && <i>✓</i>}
+                {v.hasSummary && <i>✓</i>}
               </button>
             </li>
           ))}
@@ -276,9 +277,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                 {bundle.patient.reason && <p className="sour-called-about">Called about: <strong>{bundle.patient.reason}</strong></p>}
               </div>
               <div className="sour-brief-actions print:hidden">
-                <button onClick={() => sendLink(bundle.patient.id)} className="ss-button">Send link</button>
+                <button onClick={() => sendLink(bundle.visitId)} className="ss-button">Send link</button>
                 <button onClick={() => window.print()} className="ss-button">Print</button>
-                <button onClick={() => generate(bundle.patient.id)} disabled={busy || jobBusy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
+                <button onClick={() => generate(bundle.visitId)} disabled={busy || jobBusy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
                   {busy || jobBusy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
@@ -290,7 +291,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
               stale={bundle.summaryStale}
               summaryAt={bundle.providerSummaryAt}
               pending={busy}
-              onRetry={() => generate(bundle.patient.id)}
+              onRetry={() => generate(bundle.visitId)}
             />
             {summaryNote && <p className="ss-notice print:hidden">{summaryNote}</p>}
             {invite && <p className="ss-notice sour-invite-note print:hidden">{invite}</p>}
@@ -385,7 +386,8 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                         <div className="text-5xl font-semibold leading-none text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</div>
                         <div className="mt-1 text-xs text-[var(--viz-muted)]">goal ≥ 70% · below range goal &lt; 4%</div>
                       </div>
-                      <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+                      {/* min-w-full below sm keeps the tiles from being squeezed beside the time-in-range block: the row wraps. */}
+                      <div className="grid min-w-full flex-1 grid-cols-2 gap-2 sm:min-w-0 sm:grid-cols-4">
                         <StatTile label="Average" value={String(st.avg)} unit="mg/dL" />
                         <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
                         <StatTile label="Spikes > 180" value={String(bundle.spikes.length)} hint={`${bundle.spikes.filter((x) => x.visit).length} linked to a place`} />

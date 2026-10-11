@@ -12,15 +12,14 @@ import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNi
 import { providerName } from "./visit";
 
 /**
- * Accepts a visit id, the patient's presigned token, or a patient id, so /patient/<token> works straight from
- * the invite link. The data all hangs off the visit (design §4.4); the bundle still speaks in patient ids and
- * T03 is where the pages move onto visit ids.
+ * One visit's worth of data, by visit id or by the presigned token in the invite, so /patient/<token> works
+ * straight from the link (design §4.4, §5.3). A patient id is not accepted: a patient has many visits, and
+ * the bundle is about one of them.
  */
 export async function loadBundle(idOrToken: string): Promise<PatientBundle | null> {
   if (!idOrToken) return null;
   const visit = await db.visit.findFirst({
-    where: { OR: [{ id: idOrToken }, { token: idOrToken }, { patientId: idOrToken }] },
-    orderBy: { createdAt: "desc" },
+    where: { OR: [{ id: idOrToken }, { token: idOrToken }] },
     include: {
       patient: { include: { practice: true } },
       providerUser: true,
@@ -64,6 +63,8 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   const summaryStale = Boolean(prov) && (prov?.inputHash !== inputHash || pat?.inputHash !== inputHash);
 
   return {
+    visitId: visit.id,
+    visitStatus: visit.status,
     patient: {
       id: visit.patientId,
       name: visit.patient.name,

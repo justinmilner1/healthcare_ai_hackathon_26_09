@@ -26,7 +26,7 @@ async function postHandler(req: Request) { … }
 export const POST = withRoute("POST /api/upload", postHandler);
 
 log.info("upload_stored", { patientId, uploadId, kind, rows: parsed.length });
-log.error("sour_chat_failed", { patientId, error: e });
+log.error("sour_chat_failed", { visitId, error: e });
 ```
 
 `withRoute` wraps every route under `app/api/**` and `app/demo`. It:

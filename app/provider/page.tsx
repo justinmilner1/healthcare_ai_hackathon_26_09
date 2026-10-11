@@ -11,12 +11,16 @@ import {
 } from "@/lib/providerSession";
 import { VISIT_TYPES, visitLabel } from "@/lib/visits";
 
+// One booked visit (design §4.4): `id` is the visit, `patientId` the person it is for. Every request the
+// dashboard makes — invite, summary, Sour — is keyed by the visit id.
 type Row = {
   id: string;
+  patientId: string;
   name: string;
   apptAt: string | null;
   visitType: string | null;
   reason: string | null;
+  status: string;
   token: string;
   phone: string | null;
   email: string | null;
@@ -32,13 +36,13 @@ type Provider = {
   id: string;
   name: string;
   practice: string | null;
-  patients: Row[];
+  visits: Row[];
 };
 type Choice = {
   id: string;
   name: string;
   practice: string | null;
-  patients: number;
+  visits: number;
 };
 type PatientForm = {
   name: string;
@@ -153,24 +157,24 @@ export default function ProviderDashboard() {
     }
   }
 
-  async function sendLink(patient: Row) {
-    setRowNote((notes) => ({ ...notes, [patient.id]: "Sending…" }));
+  async function sendLink(visit: Row) {
+    setRowNote((notes) => ({ ...notes, [visit.id]: "Sending…" }));
     const data = await (
       await fetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patientId: patient.id }),
+        body: JSON.stringify({ visitId: visit.id }),
       })
     ).json();
     setRowNote((notes) => ({
       ...notes,
-      [patient.id]: data.queued ? "Sending now" : `Not sent: ${data.error ?? "unknown error"}`,
+      [visit.id]: data.queued ? "Sending now" : `Not sent: ${data.error ?? "unknown error"}`,
     }));
   }
 
-  async function copyIntakeLink(patient: Row) {
+  async function copyIntakeLink(visit: Row) {
     const link = `${window.location.origin}/s/${encodeURIComponent(
-      patient.token,
+      visit.token,
     )}`;
     let copied = false;
 
@@ -190,7 +194,7 @@ export default function ProviderDashboard() {
 
     setRowNote((notes) => ({
       ...notes,
-      [patient.id]: copied
+      [visit.id]: copied
         ? "Intake link copied"
         : "Could not copy — open the patient link instead",
     }));
@@ -225,12 +229,12 @@ export default function ProviderDashboard() {
     );
   }
 
-  const patients = provider?.patients ?? [];
-  const ready = patients.filter((patient) => patient.hasSummary).length;
-  const active = patients.filter(
-    (patient) => !patient.hasSummary && (patient.answered > 0 || patient.uploads.length > 0),
+  const visits = provider?.visits ?? [];
+  const ready = visits.filter((visit) => visit.hasSummary).length;
+  const active = visits.filter(
+    (visit) => !visit.hasSummary && (visit.answered > 0 || visit.uploads.length > 0),
   ).length;
-  const flagged = patients.filter((patient) => patient.flagged).length;
+  const flagged = visits.filter((visit) => visit.flagged).length;
 
   return (
     <main className="ss-page sour-theme provider-dashboard">
@@ -257,8 +261,8 @@ export default function ProviderDashboard() {
               <em>{provider?.name ?? "Doctor"}.</em>
             </h1>
             <p>
-              {provider?.practice || "Your practice"} · {patients.length}{" "}
-              patient{patients.length === 1 ? "" : "s"} in the pre-visit flow
+              {provider?.practice || "Your practice"} · {visits.length}{" "}
+              visit{visits.length === 1 ? "" : "s"} in the pre-visit flow
             </p>
           </div>
           <div className="provider-hero-character">
@@ -287,7 +291,7 @@ export default function ProviderDashboard() {
         </section>
 
         <section className="provider-stats" aria-label="Practice overview">
-          <Metric label="All patients" value={patients.length} detail="in this workspace" />
+          <Metric label="All visits" value={visits.length} detail="in this workspace" />
           <Metric label="Intake active" value={active} detail="sharing data or chatting" />
           <Metric label="Summaries ready" value={ready} detail="ready to review" accent />
           <Metric
@@ -304,7 +308,7 @@ export default function ProviderDashboard() {
               <p className="ss-eyebrow">PATIENT FLOW</p>
               <h2>Every visit, at a glance.</h2>
             </div>
-            <span>{patients.length} total</span>
+            <span>{visits.length} total</span>
           </div>
 
           <div className="provider-table-card ss-card">
@@ -323,17 +327,17 @@ export default function ProviderDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {patients.map((patient) => (
-                    <tr key={patient.id}>
+                  {visits.map((visit) => (
+                    <tr key={visit.id}>
                       <td>
                         <div className="provider-patient">
                           <span className="provider-patient-avatar">
-                            {patient.name.charAt(0).toUpperCase()}
+                            {visit.name.charAt(0).toUpperCase()}
                           </span>
                           <span>
-                            <strong>{patient.name}</strong>
+                            <strong>{visit.name}</strong>
                             <small>
-                              {[patient.phone, patient.email]
+                              {[visit.phone, visit.email]
                                 .filter(Boolean)
                                 .join(" · ") || "No contact on file"}
                             </small>
@@ -342,8 +346,8 @@ export default function ProviderDashboard() {
                       </td>
                       <td>
                         <strong className="provider-cell-main">
-                          {patient.apptAt
-                            ? new Date(patient.apptAt).toLocaleDateString(
+                          {visit.apptAt
+                            ? new Date(visit.apptAt).toLocaleDateString(
                                 undefined,
                                 {
                                   weekday: "short",
@@ -354,12 +358,12 @@ export default function ProviderDashboard() {
                             : "Date pending"}
                         </strong>
                         <small className="provider-cell-sub">
-                          {visitLabel(patient.visitType)}
-                          {patient.reason ? ` · ${patient.reason}` : ""}
+                          {visitLabel(visit.visitType)}
+                          {visit.reason ? ` · ${visit.reason}` : ""}
                         </small>
                       </td>
                       <td>
-                        <Stage patient={patient} />
+                        <Stage visit={visit} />
                       </td>
                       <td>
                         <div className="provider-data-pills">
@@ -368,12 +372,12 @@ export default function ProviderDashboard() {
                               <span
                                 key={kind}
                                 className={`provider-data-pill ${
-                                  patient.uploads.includes(kind)
+                                  visit.uploads.includes(kind)
                                     ? "provider-data-ready"
                                     : ""
                                 }`}
                               >
-                                {patient.uploads.includes(kind) ? "✓ " : ""}
+                                {visit.uploads.includes(kind) ? "✓ " : ""}
                                 {kind === "dexcom"
                                   ? "Dex"
                                   : kind === "timeline"
@@ -387,7 +391,7 @@ export default function ProviderDashboard() {
                       <td>
                         <div className="provider-progress-copy">
                           <strong>
-                            {patient.answered}/{patient.required}
+                            {visit.answered}/{visit.required}
                           </strong>{" "}
                           answered
                           <div className="provider-mini-progress">
@@ -395,15 +399,15 @@ export default function ProviderDashboard() {
                               style={{
                                 width: `${Math.min(
                                   100,
-                                  (patient.answered /
-                                    Math.max(patient.required, 1)) *
+                                  (visit.answered /
+                                    Math.max(visit.required, 1)) *
                                     100,
                                 )}%`,
                               }}
                             />
                           </div>
                         </div>
-                        {patient.flagged && (
+                        {visit.flagged && (
                           <span className="ss-pill ss-pill-danger">
                             Needs review
                           </span>
@@ -413,46 +417,46 @@ export default function ProviderDashboard() {
                         <div className="provider-row-actions">
                           <button
                             type="button"
-                            onClick={() => copyIntakeLink(patient)}
+                            onClick={() => copyIntakeLink(visit)}
                             className="ss-button"
                           >
-                            {rowNote[patient.id] === "Intake link copied"
+                            {rowNote[visit.id] === "Intake link copied"
                               ? "Copied ✓"
                               : "Copy intake"}
                           </button>
                           <button
                             type="button"
-                            onClick={() => sendLink(patient)}
+                            onClick={() => sendLink(visit)}
                             className="ss-button"
                           >
                             Send link
                           </button>
-                          {patient.hasSummary ? (
+                          {visit.hasSummary ? (
                             <Link
-                              href={`/provider/${provider?.id}?patient=${patient.id}`}
+                              href={`/provider/${provider?.id}?visit=${visit.id}`}
                               className="ss-button ss-button-primary"
                             >
                               Open in Sour
                             </Link>
-                          ) : patient.uploads.includes("dexcom") ||
-                            patient.answered > 0 ? (
+                          ) : visit.uploads.includes("dexcom") ||
+                            visit.answered > 0 ? (
                             <Link
-                              href={`/provider/${provider?.id}?patient=${patient.id}`}
+                              href={`/provider/${provider?.id}?visit=${visit.id}`}
                               className="ss-button"
                             >
                               Summarize
                             </Link>
                           ) : null}
                         </div>
-                        {rowNote[patient.id] && (
+                        {rowNote[visit.id] && (
                           <small className="provider-row-note">
-                            {rowNote[patient.id]}
+                            {rowNote[visit.id]}
                           </small>
                         )}
                       </td>
                     </tr>
                   ))}
-                  {provider && patients.length === 0 && (
+                  {provider && visits.length === 0 && (
                     <tr>
                       <td colSpan={6}>
                         <div className="provider-empty">
@@ -561,8 +565,8 @@ function PracticePicker({
                     <strong>{choice.name}</strong>
                     <small>
                       {choice.practice ?? "Independent practice"} ·{" "}
-                      {choice.patients} patient
-                      {choice.patients === 1 ? "" : "s"}
+                      {choice.visits} visit
+                      {choice.visits === 1 ? "" : "s"}
                     </small>
                   </span>
                   <b aria-hidden="true">→</b>
@@ -611,14 +615,14 @@ function Metric({
   );
 }
 
-function Stage({ patient }: { patient: Row }) {
-  const stage = patient.hasSummary
+function Stage({ visit }: { visit: Row }) {
+  const stage = visit.hasSummary
     ? "ready"
-    : patient.wrapped
+    : visit.wrapped
       ? "finished"
-      : patient.answered > 0
+      : visit.answered > 0
       ? "chatting"
-      : patient.uploads.length
+      : visit.uploads.length
         ? "uploading"
         : "invited";
   const labels = {

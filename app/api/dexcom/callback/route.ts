@@ -10,14 +10,12 @@ async function getHandler(req: NextRequest) {
   }
   const state = req.nextUrl.searchParams.get("state");
   const browser = req.cookies.get(DEXCOM_COOKIE)?.value;
-  // The OAuth state is per patient (§4.10); the import lands on that patient's newest visit (§4.4).
+  // The OAuth state names the visit the patient started from (§4.4), so the import lands on that visit
+  // rather than on a guess; the connection it creates is still per patient (§4.10).
   const row = state && state.length <= 128
-    ? await db.dexcomOAuthState.findUnique({
-        where: { stateHash: hash(state) },
-        include: { patient: { include: { visits: { orderBy: { createdAt: "desc" }, take: 1 } } } },
-      })
+    ? await db.dexcomOAuthState.findUnique({ where: { stateHash: hash(state) }, include: { visit: true } })
     : null;
-  const visit = row?.patient.visits[0];
+  const visit = row?.visit;
   if (!row || !visit || !browser || row.browserHash !== hash(browser)) {
     return NextResponse.json({ error: "Invalid Dexcom session. Return to your intake link and connect again." }, { status: 400, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   }
@@ -42,8 +40,8 @@ async function getHandler(req: NextRequest) {
     const tokens = await exchangeCode(code);
     const encryptedTokens = encryptTokens(tokens);
     await db.dexcomConnection.upsert({
-      where: { patientId: row.patientId },
-      create: { patientId: row.patientId, encryptedTokens, expiresAt: new Date(Date.now() + tokens.expires_in * 1000) },
+      where: { patientId: visit.patientId },
+      create: { patientId: visit.patientId, encryptedTokens, expiresAt: new Date(Date.now() + tokens.expires_in * 1000) },
       update: { encryptedTokens, expiresAt: new Date(Date.now() + tokens.expires_in * 1000) },
     });
     const snapshot = await fetchSnapshot(tokens.access_token);
@@ -60,7 +58,7 @@ async function getHandler(req: NextRequest) {
       } });
       // Never serve an older narrative against newly imported sandbox readings.
       await tx.summary.deleteMany({ where: { visitId: fresh.id } });
-      await tx.dexcomConnection.update({ where: { patientId: row.patientId }, data: { importedAt: new Date() } });
+      await tx.dexcomConnection.update({ where: { patientId: visit.patientId }, data: { importedAt: new Date() } });
     });
     return back("connected");
   } catch (e) {

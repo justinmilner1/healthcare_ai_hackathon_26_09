@@ -1,5 +1,5 @@
 // Sweetie chat. Owner: Justin. Brain in lib/sweetie.ts; this route is transport.
-// GET  /api/sweetie?token=...                                   -> { patientId, name, messages, status, intake, agent }
+// GET  /api/sweetie?token=...                                   -> { visitId, name, messages, status, intake, agent }
 // POST /api/sweetie { token, message }                          -> { reply, status, intake, agent }
 // POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
 // POST /api/sweetie { token, event: { type: "skip_questions" } } -> same; saves an explicit opt-out
@@ -33,9 +33,9 @@ const agentInfo = () => {
 
 /** One line whenever the patient gets scripted words instead of Sweetie's. A configured gateway that is
  *  failing is a warning someone should see; no gateway at all is just offline development. */
-function logScripted(event: string, patientId: string, fields: Record<string, unknown> = {}) {
+function logScripted(event: string, visit: { id: string; patientId: string }, fields: Record<string, unknown> = {}) {
   const s = llmStatus();
-  const line = { patientId, scripted: true, degraded: s.configured && s.degraded, ...fields };
+  const line = { visitId: visit.id, patientId: visit.patientId, scripted: true, degraded: s.configured && s.degraded, ...fields };
   if (s.configured) log.warn(event, line);
   else log.info(event, line);
 }
@@ -52,7 +52,7 @@ async function getHandler(req: Request) {
     await db.message.create({ data: { visitId: visit.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ patientId: visit.patientId, name: visit.patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
+  return NextResponse.json({ visitId: visit.id, name: visit.patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 async function postHandler(req: Request) {
@@ -121,7 +121,7 @@ async function postHandler(req: Request) {
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
       llm = false;
-      logScripted("sweetie_extract_unavailable", visit.patientId, { visitId: visit.id, turns: state.turns });
+      logScripted("sweetie_extract_unavailable", visit, { turns: state.turns });
       exportHelp = guessExportHelp(message);
       if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message)) state = { ...state, skipped: [...state.skipped, askedTarget.which] };
     }
@@ -141,11 +141,11 @@ async function postHandler(req: Request) {
       reply = await speak({ firstName, providerName: providerName(visit), visit: context, state, defs, status, target, transcript, exportHelp, uploadEvent });
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
-      logScripted("sweetie_scripted", visit.patientId, { visitId: visit.id, target: target.kind });
+      logScripted("sweetie_scripted", visit, { target: target.kind });
       reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
     }
   } else {
-    logScripted("sweetie_scripted", visit.patientId, { visitId: visit.id, target: target.kind });
+    logScripted("sweetie_scripted", visit, { target: target.kind });
     reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };

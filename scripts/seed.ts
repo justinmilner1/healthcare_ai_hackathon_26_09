@@ -42,7 +42,7 @@ async function main() {
   const base = process.env.APP_URL ?? "http://localhost:3000";
   console.log(`\nSweetie (patient chat):  ${base}/s/${token}`);
   console.log(`Sour (provider view):    ${base}/provider/${provider.id}`);
-  console.log(`Patient summary:         ${base}/patient/${visit.patientId}`);
+  console.log(`Patient summary:         ${base}/patient/${token}`);
 }
 
 main().finally(() => db.$disconnect());

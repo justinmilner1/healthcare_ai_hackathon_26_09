@@ -50,7 +50,8 @@ export function inviteTemplates(p: { name: string; token: string; providerName: 
 }
 
 export async function sendIntakeInvite(p: {
-  id?: string;
+  visitId?: string;
+  patientId?: string;
   name: string;
   phone?: string | null;
   email?: string | null;
@@ -65,14 +66,14 @@ export async function sendIntakeInvite(p: {
     p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" }),
   ]);
 
-  logSend("invite_sent", p.id, { sms, email });
+  logSend("invite_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });
   return { link: t.link, sms, email };
 }
 
 /** One line per channel: which channel, which backend, whether it left. Never the address or the body. */
-function logSend(event: string, patientId: string | undefined, channels: Record<string, SendResult>): void {
+function logSend(event: string, ids: { visitId?: string; patientId?: string }, channels: Record<string, SendResult>): void {
   for (const [channel, result] of Object.entries(channels)) {
-    log.info(event, { patientId, channel, sent: result.sent, provider: result.provider, error: result.error });
+    log.info(event, { ...ids, channel, sent: result.sent, provider: result.provider, error: result.error });
   }
 }
 
@@ -84,16 +85,18 @@ function logSend(event: string, patientId: string | undefined, channels: Record<
 
 export type SummaryNotifyResult = { provider: SendResult; patient: SendResult };
 
-/** The summary-ready templates, provider and patient. Links only: the summary itself never leaves the site. */
+/** The summary-ready templates, provider and patient. Links only: the summary itself never leaves the site.
+ *  Both links address one visit (design §4.4): the clinician opens it by visit id, the patient by the token. */
 export function summaryTemplates(p: {
-  patient: { id: string; name: string; token: string; apptAt: Date | null };
+  visit: { id: string; token: string; apptAt: Date | null };
+  patient: { name: string };
   provider: { id: string; name: string };
 }): { providerLink: string; patientLink: string; provider: EmailTemplate; patient: EmailTemplate } {
   const base = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const providerLink = `${base}/provider/${p.provider.id}?patient=${p.patient.id}`;
-  const patientLink = `${base}/patient/${p.patient.token}`;
+  const providerLink = `${base}/provider/${p.provider.id}?visit=${p.visit.id}`;
+  const patientLink = `${base}/patient/${p.visit.token}`;
   const first = firstName(p.patient.name);
-  const when = p.patient.apptAt ? p.patient.apptAt.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }) : null;
+  const when = p.visit.apptAt ? p.visit.apptAt.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }) : null;
 
   return {
     providerLink,
@@ -124,7 +127,8 @@ export function summaryTemplates(p: {
 }
 
 export async function sendSummaryEmails(p: {
-  patient: { id: string; name: string; email: string | null; token: string; apptAt: Date | null };
+  visit: { id: string; token: string; apptAt: Date | null };
+  patient: { id: string; name: string; email: string | null };
   provider: { id: string; name: string; email: string | null; practice: string | null };
   providerSummary: Summary;
   patientSummary: Summary;
@@ -139,6 +143,6 @@ export async function sendSummaryEmails(p: {
       ? sendEmail(p.patient.email, t.patient.subject, t.patient.text)
       : Promise.resolve({ sent: false, error: "patient has no email" }),
   ]);
-  logSend("summary_notified", p.patient.id, { provider, patient });
+  logSend("summary_notified", { visitId: p.visit.id, patientId: p.patient.id }, { provider, patient });
   return { provider, patient };
 }

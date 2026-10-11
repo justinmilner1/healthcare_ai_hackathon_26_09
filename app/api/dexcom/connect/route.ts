@@ -23,9 +23,9 @@ async function postHandler(req: Request) {
 
   const state = randomBytes(32).toString("base64url");
   const browser = randomBytes(32).toString("base64url");
-  // The connection is per patient (§4.10), so the one-use state is keyed by patient too.
-  await db.dexcomOAuthState.deleteMany({ where: { OR: [{ expiresAt: { lt: new Date() } }, { patientId: visit.patientId }] } });
-  await db.dexcomOAuthState.create({ data: { stateHash: hash(state), browserHash: hash(browser), patientId: visit.patientId, expiresAt: new Date(Date.now() + 10 * 60000) } });
+  // Keyed by the visit the patient pressed Connect on (§4.4), so the callback knows where the import goes.
+  await db.dexcomOAuthState.deleteMany({ where: { OR: [{ expiresAt: { lt: new Date() } }, { visitId: visit.id }] } });
+  await db.dexcomOAuthState.create({ data: { stateHash: hash(state), browserHash: hash(browser), visitId: visit.id, expiresAt: new Date(Date.now() + 10 * 60000) } });
   const response = NextResponse.redirect(authorizationUrl(state), 303);
   response.cookies.set(DEXCOM_COOKIE, browser, { httpOnly: true, secure: config.secure, sameSite: "lax", path: "/api/dexcom", maxAge: 600 });
   response.headers.set("Cache-Control", "no-store");
