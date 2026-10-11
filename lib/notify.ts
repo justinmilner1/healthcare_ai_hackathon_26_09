@@ -2,6 +2,7 @@
 // The token in the link is the patient's sign-in: /s/<token> opens their intake, /patient/<token> their summary.
 // Each channel fails soft; the caller decides whether to show the link on screen.
 
+import { appUrl } from "./config";
 import { sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { intakeLink, sendSms } from "./sms";
@@ -71,7 +72,7 @@ export async function sendSummaryEmails(p: {
   providerSummary: Summary;
   patientSummary: Summary;
 }): Promise<SummaryNotifyResult> {
-  const base = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const base = appUrl();
   const providerLink = `${base}/provider/${p.provider.id}?patient=${p.patient.id}`;
   const patientLink = `${base}/patient/${p.patient.token}`;
   const first = p.patient.name.split(" ")[0];
