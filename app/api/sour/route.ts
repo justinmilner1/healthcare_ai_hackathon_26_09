@@ -17,6 +17,7 @@ import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
 import { sourChatSystem } from "@/lib/prompts";
 import { loadSourContext } from "@/lib/sourRun";
+import { findVisit } from "@/lib/visit";
 
 async function postHandler(req: Request) {
   const body = (await req.json().catch(() => null)) as { patientId?: string; question?: unknown; history?: unknown } | null;
@@ -32,38 +33,42 @@ async function postHandler(req: Request) {
       }
     }
   }
+  // Queueing a summary needs the visit and nothing else; only the follow-up question needs the brief, which
+  // costs a parse of the whole Dexcom upload.
+  if (typeof body.question !== "string") {
+    const visit = await findVisit(body.patientId);
+    if (!visit) return NextResponse.json({ error: "patient not found" }, { status: 404 });
+    // Generation is a job (§3.4): two model calls and two emails are not something a clinician should hold a
+    // request open for, and the row survives a redeploy mid-run. Asking twice while the first run is still in
+    // flight joins it; asking again after it has finished is a real regenerate (lib/jobs.ts, enqueue).
+    const { job, deduped } = await enqueue({ kind: "sour.run", payload: { visitId: visit.id }, idempotencyKey: `sour.run:${visit.id}` });
+    nudge(after);
+    return NextResponse.json({ jobId: job.id, status: job.status, queued: true, deduped }, { status: 202 });
+  }
+
   const ctx = await loadSourContext(body.patientId);
   if (!ctx) return NextResponse.json({ error: "patient not found" }, { status: 404 });
   const { brief } = ctx;
 
-  if (typeof body.question === "string") {
-    try {
-      const answer = await ask(
-        sourChatSystem(),
-        `PATIENT DATA\n${brief}\n\nRECENT CONVERSATION (doctor q, Sour a):\n${history.map((h) => `Q: ${h.q}\nA: ${h.a}`).join("\n") || "(none)"}\n\nLATEST DOCTOR MESSAGE:\n${body.question.trim()}`,
-        { effort: "low" },
-      );
-      if (!answer.trim()) throw new Error("Empty Sour reply");
-      return NextResponse.json({ answer: plainAnswer(answer) });
-    } catch (e) {
-      if (e instanceof LLMUnavailable) {
-        const error = llmStatus().configured
-          ? "Sour chat is unavailable: the model gateway is not responding. Try again in a minute."
-          : "Sour chat is unavailable until the model is configured.";
-        return NextResponse.json({ error }, { status: 503 });
-      }
-      // The caller's string may be a link token (loadSourContext takes either); log the resolved id.
-      log.error("sour_chat_failed", { patientId: ctx.bundle.patient.id, error: e });
-      return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
+  try {
+    const answer = await ask(
+      sourChatSystem(),
+      `PATIENT DATA\n${brief}\n\nRECENT CONVERSATION (doctor q, Sour a):\n${history.map((h) => `Q: ${h.q}\nA: ${h.a}`).join("\n") || "(none)"}\n\nLATEST DOCTOR MESSAGE:\n${body.question.trim()}`,
+      { effort: "low" },
+    );
+    if (!answer.trim()) throw new Error("Empty Sour reply");
+    return NextResponse.json({ answer: plainAnswer(answer) });
+  } catch (e) {
+    if (e instanceof LLMUnavailable) {
+      const error = llmStatus().configured
+        ? "Sour chat is unavailable: the model gateway is not responding. Try again in a minute."
+        : "Sour chat is unavailable until the model is configured.";
+      return NextResponse.json({ error }, { status: 503 });
     }
+    // The caller's string may be a link token (loadSourContext takes either); log the resolved id.
+    log.error("sour_chat_failed", { patientId: ctx.bundle.patient.id, error: e });
+    return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
   }
-
-  // Generation is a job (§3.4): two model calls and two emails are not something a clinician should hold a
-  // request open for, and the row survives a redeploy mid-run. Asking twice while the first run is still in
-  // flight joins it; asking again after it has finished is a real regenerate (lib/jobs.ts, enqueue).
-  const { job, deduped } = await enqueue({ kind: "sour.run", payload: { visitId: ctx.visitId }, idempotencyKey: `sour.run:${ctx.visitId}` });
-  nudge(after);
-  return NextResponse.json({ jobId: job.id, status: job.status, queued: true, deduped }, { status: 202 });
 }
 
 function plainAnswer(raw: string): string {
