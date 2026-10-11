@@ -22,9 +22,11 @@ export function latestSignInLink(email: string, dir = MAIL_DIR): string | null {
   } catch {
     return null;
   }
+  // An address is not a pattern: `nurse+demo@...` would otherwise match half the mailbox.
+  const to = `To: ${email}`;
   for (const name of names.reverse()) {
     const raw = readFileSync(join(dir, name), "utf8");
-    if (!new RegExp(`^To: ${email}$`, "m").test(raw)) continue;
+    if (!raw.split("\n").includes(to)) continue;
     const link = raw.match(/https?:\/\/\S*\/api\/auth\/callback\/email\S*/)?.[0];
     if (link) return link;
   }

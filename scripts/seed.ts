@@ -43,6 +43,8 @@ async function main() {
   console.log(`\nSweetie (patient chat):  ${base}/s/${token}`);
   console.log(`Sour (provider view):    ${base}/provider/${provider.id}`);
   console.log(`Patient summary:         ${base}/patient/${visit.patientId}`);
+  // The provider pages are behind sign-in now (design §5.1); the patient links above are not.
+  console.log(`\nSign in as ${provider.email} at ${base}/provider, then \`npm run mail\` for the link.`);
 }
 
 main().finally(() => db.$disconnect());

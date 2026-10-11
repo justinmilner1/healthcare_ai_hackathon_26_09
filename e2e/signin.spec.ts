@@ -44,6 +44,25 @@ test("an address the browser lets through still has to be an address", async ({ 
   expect(latestSignInLink("nobody@localhost")).toBeNull();
 });
 
+test("signing up creates the practice and then asks for the same link", async ({ page }) => {
+  // The form makes the Practice and its admin User; nobody is signed in by filling one in (§4.1, §4.2, §5.1).
+  // A fresh address every run, because the same one twice would just rename an existing practice.
+  const email = `nurse+${Date.now()}@northstar-endo.com`;
+  await page.goto("/provider/signup");
+  await page.getByLabel("Your name").fill("Dr Maya Chen");
+  await page.getByLabel("Work email").fill(email);
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByLabel("Practice name").fill("Northstar Endocrinology");
+  await page.getByRole("button", { name: /Create workspace/i }).click();
+  await expect(page.locator("body")).toContainText(/emailed you a link/i, { timeout: 30_000 });
+
+  const link = latestSignInLink(email);
+  expect(link, "the sign-in link for a new practice").toBeTruthy();
+  await page.goto(link!);
+  await expect(page.locator("body")).toContainText(/Good to see you/i, { timeout: 30_000 });
+  await expect(page.locator("body")).toContainText("Northstar Endocrinology");
+});
+
 test("the emailed link signs the provider in, and signing out ends it", async ({ page }) => {
   const demo = await signInAsDemo(page);
   expect(demo.id).toBeTruthy();
