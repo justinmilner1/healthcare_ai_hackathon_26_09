@@ -50,6 +50,8 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const bundleSummaryAt = useRef<string | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const autoTried = useRef<string | null>(null);
+  // The job the background poll below is following, and how many times it has asked.
+  const watched = useRef<{ jobId: string | null; polls: number }>({ jobId: null, polls: 0 });
 
   useEffect(() => {
     fetch(`/api/provider?id=${id}`)
@@ -65,8 +67,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const load = useCallback(async (pid: string) => {
-    setLoading(true);
+  /** `quiet` is for the background poll below: it must not dim the brief the clinician is reading. */
+  const load = useCallback(async (pid: string, quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const res = await fetch(`/api/patient/${pid}`);
       if (!res.ok) throw new Error("Could not load this patient's summary.");
@@ -77,7 +80,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       }
       return b;
     } finally {
-      if (activePatient.current === pid) setLoading(false);
+      if (!quiet && activePatient.current === pid) setLoading(false);
     }
   }, []);
 
@@ -131,6 +134,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     setSummaryNote("");
     setChecked(new Set());
     setInvite("");
+    watched.current = { jobId: null, polls: 0 };
     load(selected).then((b) => {
       // First open with data but no summary: generate without asking. Not when the last `sour.run` job gave
       // up, though — that one is the clinician's to retry (§7.2), and opening the page again should not quietly
@@ -144,6 +148,24 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     });
     return () => { activePatient.current = null; };
   }, [selected, load, generate]);
+
+  // A `sour.run` job can be in flight without this page having started it: an intake that wrapped a moment
+  // ago, or another clinician pressing Generate. Without this the chip would be a snapshot of page load and
+  // sit on "Running" until someone reloaded, which is the opposite of what §7.2 asks the page to show. Each
+  // load replaces the bundle, which re-runs this effect, so the poll continues until the job reports back —
+  // bounded, so a job a dead runner stranded does not have the page asking for ever (lib/jobs.ts reaps it).
+  useEffect(() => {
+    const job = bundle?.sourJob;
+    const pid = selected;
+    if (!pid || busy || (job?.status !== "queued" && job?.status !== "running")) return;
+    if (watched.current.jobId !== job.id) watched.current = { jobId: job.id, polls: 0 };
+    if (watched.current.polls >= SUMMARY_POLLS * 2) return;
+    watched.current.polls += 1;
+    const timer = setTimeout(() => {
+      void load(pid, true).catch(() => {});
+    }, SUMMARY_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [bundle, selected, busy, load]);
 
   async function sendLink(pid: string) {
     setInvite("Sending…");

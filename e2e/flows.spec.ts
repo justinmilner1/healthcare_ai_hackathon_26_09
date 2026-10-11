@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -10,6 +11,14 @@ const shot = async (page: Page, name: string) => {
 // Waits for a client fetch to paint, not for app logic: the page renders its shell first and fills in after. A
 // slow runner can take longer than the 5s default to come back, so these get their own budget.
 const LOADED = { timeout: 30_000 };
+
+/** The seeded demo practice, which every flow below hangs off. */
+async function demoProvider(request: APIRequestContext) {
+  const providers = await (await request.get("/api/provider?list=1")).json();
+  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
+  expect(demo).toBeTruthy();
+  return demo as { id: string; name: string };
+}
 
 test("landing renders", async ({ page }) => {
   await page.goto("/");
@@ -61,6 +70,12 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // with this placeholder where the model's patterns would be, so its arrival is the queue having worked.
   await expect(page.locator(".sour-brief")).toContainText(/set OPENAI_API_KEY/i, LOADED);
   await expect(page.locator(".sour-brief")).not.toContainText(/Sour is reading the data/i);
+  // T15 (§7.2): the job's own state, not an inference from the summary's timestamp. Once the queue has run,
+  // the chip reads Ready; while it was queued or running it said so, and a failure would name the reason and
+  // offer the retry (lib/sourState.ts has every transition).
+  const chip = page.locator(".sour-job-state");
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  await expect(chip).toContainText(/Ready/);
   await shot(page, "provider-sour-generated");
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
@@ -68,6 +83,45 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const refused = await request.post("/api/jobs/run");
   expect(refused.status()).toBe(503);
   expect((await refused.json()).error).toMatch(/not configured/i);
+});
+
+// T15 (design §7.1): "a second run with unchanged inputs returns the existing summary". Asked of the real
+// queue end to end, because the saving is only half the point — the other half is that the page can tell the
+// difference, since a reused summary leaves its own timestamp exactly where it was.
+test("a second run with unchanged inputs returns the saved summary", async ({ request }) => {
+  const demo = await demoProvider(request);
+  const detail = await (await request.get(`/api/provider?id=${demo.id}`)).json();
+  const seeded = detail.patients.find((p: { uploads: string[] }) => p.uploads.length > 0);
+  expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
+
+  const read = async () => (await request.get(`/api/patient/${seeded.id}`)).json();
+  /** Wait until nothing is in flight: an earlier test, or the other project's run, may still be draining. */
+  const settled = async () => {
+    for (let tries = 0; tries < 40; tries++) {
+      const bundle = await read();
+      const status = bundle.sourJob?.status;
+      if (bundle.providerSummary && status !== "queued" && status !== "running") return bundle;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    throw new Error("no summary settled for the seeded patient");
+  };
+
+  const before = await settled();
+  expect(before.summaryStale, "nothing has changed since that summary was written").toBe(false);
+
+  const queued = await (await request.post("/api/sour", { data: { patientId: seeded.id } })).json();
+  expect(queued.jobId).toBeTruthy();
+
+  let after = before;
+  for (let tries = 0; tries < 40; tries++) {
+    await new Promise((r) => setTimeout(r, 500));
+    after = await read();
+    if (after.sourJob?.id === queued.jobId && after.sourJob.status === "done") break;
+  }
+  expect(after.sourJob?.status, "the run reported back").toBe("done");
+  expect(after.providerSummaryAt, "the saved pair came back rather than a third one being written").toBe(before.providerSummaryAt);
+  expect(after.patientSummaryAt).toBe(before.patientSummaryAt);
+  expect(after.summaryStale).toBe(false);
 });
 
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
@@ -109,4 +163,47 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // of a spinner. Assert on something only the loaded summary has.
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   await shot(page, "patient-summary");
+});
+
+// T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
+// it was made from, so a file arriving afterwards has to be visible as such — the chip says the summary is
+// out of date, and Regenerate really writes a new one rather than handing back the saved pair.
+test("a file arriving after a summary makes it out of date, and regenerating writes a new one", async ({ page, request }) => {
+  const demo = await demoProvider(request);
+  const booked = await (
+    await request.post("/api/book", {
+      data: { name: "E2E Fresh Data", providerId: demo.id, visitType: "follow_up", reason: "spikes after dinner", optIn: false },
+    })
+  ).json();
+  expect(booked.token).toBeTruthy();
+
+  const upload = async (kind: string, path: string, name: string) => {
+    const res = await request.post("/api/upload", {
+      multipart: { token: booked.token, kind, file: { name, mimeType: "text/csv", buffer: readFileSync(path) } },
+    });
+    expect(res.ok(), `${kind} upload`).toBeTruthy();
+  };
+  await upload("dexcom", "data/dexcom_clarity_sample.csv", "clarity.csv");
+
+  // Opening a patient with data and no summary generates one without asking.
+  await page.goto(`/provider/${demo.id}?patient=${booked.patientId}`);
+  const chip = page.locator(".sour-job-state");
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  await shot(page, "provider-sour-ready");
+  const first = await (await request.get(`/api/patient/${booked.patientId}`)).json();
+  expect(first.summaryStale).toBe(false);
+
+  // A WHOOP export lands afterwards: the saved summary no longer describes the visit.
+  await upload("whoop", "data/whoop_sample.csv", "cycles.csv");
+  await page.reload();
+  await expect(chip).toHaveAttribute("data-phase", "stale", LOADED);
+  await expect(chip).toContainText(/Out of date/);
+  await shot(page, "provider-sour-stale");
+
+  // And Regenerate is a real run, not the saved pair coming back.
+  await page.getByRole("button", { name: /Regenerate/ }).click();
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  const second = await (await request.get(`/api/patient/${booked.patientId}`)).json();
+  expect(second.summaryStale).toBe(false);
+  expect(second.providerSummaryAt).not.toBe(first.providerSummaryAt);
 });

@@ -76,7 +76,7 @@ export function summaryState({ job, hasSummary, stale, summaryAt }: SummaryState
     return {
       phase: "stale",
       label: "Out of date",
-      detail: "The patient has added intake or files since this summary. Regenerate to include them. Written",
+      detail: "The patient has added intake or files since this summary — regenerate to include them. This one was written",
       at: summaryAt,
       canRetry: false,
       busy: false,

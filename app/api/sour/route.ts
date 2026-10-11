@@ -1,8 +1,10 @@
 // Sour: provider summary. Owner: Justin (taken over from the scaffold; James did not land changes).
 // POST /api/sour { patientId }                 -> queues a `sour.run` job and returns 202 { jobId, status }; the
 //                                                 job writes both summaries and queues the two link emails (§3.4,
-//                                                 §7.1). The page polls GET /api/patient/[id] for the result;
-//                                                 showing the job's own state is T15.
+//                                                 §7.1), or returns the saved pair unchanged if the intake and
+//                                                 uploads are the ones it already summarized (§7.1). The page
+//                                                 polls GET /api/patient/[id], where that job's state and the
+//                                                 retry live (§7.2), and this route is also the retry.
 // POST /api/sour { patientId, question }       -> free-text follow-up ("why was Tuesday bad?") -> { answer }
 // All numbers are computed deterministically in lib/sour.ts and handed to the model as a local-time brief
 // (per-day rows, time-of-day windows, spikes with places, nights labeled by the evening before).

@@ -76,7 +76,8 @@ export type EnqueueResult = { job: JobRow; deduped: boolean };
  * once. The key is released the moment the job reaches `done` or `failed`, so a later identical request is new
  * work — a clinician asking for a fresh summary, or staff resending a link an hour later, must not be
  * swallowed by a job that has already run. Idempotency over the *inputs* of a summary (§7.1: unchanged inputs
- * return the existing summary) is T15 and lives in Sour, not here.
+ * return the existing summary) is a different question with a different answer, and it lives in Sour rather
+ * than here: lib/sourInput.ts fingerprints the inputs and lib/sourRun.ts looks the fingerprint up.
  */
 export async function enqueue(input: EnqueueInput, client: JobClient = db): Promise<EnqueueResult> {
   const data = {

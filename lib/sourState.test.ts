@@ -96,7 +96,7 @@ describe("summaryState", () => {
     const s = view(job({ status: "done", attempts: 1 }), { hasSummary: true, stale: true, summaryAt: "2026-10-11T12:00:29.000Z" });
     assert.equal(s.phase, "stale");
     assert.equal(s.label, "Out of date");
-    assert.match(s.detail, /Regenerate/);
+    assert.match(s.detail, /regenerate to include them/i);
     assert.equal(s.busy, false, "Regenerate must be reachable: that is the whole suggestion");
   });
 
