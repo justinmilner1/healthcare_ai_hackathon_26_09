@@ -1,4 +1,4 @@
-// Run Sour for a patient: build the brief, write both summaries, save them, email the links.
+// Run Sour for one visit: build the brief, write both summaries, save them, email the links.
 // Called from POST /api/sour (button, auto-generate on first open) and from the Sweetie route the moment
 // intake wraps up, so the doctor's email arrives while the patient is still in the chat. Owner: Justin.
 
@@ -26,8 +26,8 @@ export type SourContext = {
 const clean = (xs: unknown, n: number) =>
   Array.isArray(xs) ? xs.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim()).slice(0, n) : [];
 
-/** Everything Sour needs about one visit, computed once. Null if nothing matches. Takes a visit id, a
- *  patient id, or the invite token (design §4.4). */
+/** Everything Sour needs about one visit, computed once. Null if nothing matches. Takes a visit id or the
+ *  invite token (design §4.4). */
 export async function loadSourContext(idOrToken: string): Promise<SourContext | null> {
   const visit = await findVisit(idOrToken);
   if (!visit) return null;
@@ -109,7 +109,8 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
     const row = await findVisit(c.visitId);
     if (row) {
       notified = await sendSummaryEmails({
-        patient: { id: row.patientId, name: row.patient.name, email: row.patient.email, token: row.token, apptAt: row.scheduledAt },
+        visit: { id: row.id, token: row.token, apptAt: row.scheduledAt },
+        patient: { id: row.patientId, name: row.patient.name, email: row.patient.email },
         provider: { id: row.providerUserId ?? "", name: providerName(row), email: row.providerUser?.email ?? null, practice: row.patient.practice.name },
         providerSummary: provider,
         patientSummary: patient,

@@ -135,7 +135,7 @@ app/
   page.tsx                      landing with links to every screen
   s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
   s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
-  patient/[id]/page.tsx         patient summary view                          Justin
+  patient/[id]/page.tsx         patient summary view (visit id or token)      Justin
   provider/page.tsx             practice dashboard: add patient, send links, stages Justin
   provider/signup/page.tsx      provider sign up (cookie, no password)        Justin
   provider/[id]/page.tsx        Sour summary view; sidebar lists ready summaries Justin
@@ -143,9 +143,9 @@ app/
     book/route.ts               POST create patient + send invite (scheduling hook) Justin
     sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
-    sour/route.ts               POST generate summaries; POST with question   James
-    patient/[id]/route.ts       GET PatientBundle (everything a page needs)
-    provider/route.ts           POST sign up, GET provider + patients         (open)
+    sour/route.ts               POST { visitId } generate summaries; or with question James
+    patient/[id]/route.ts       GET PatientBundle for one visit (visit id or token)
+    provider/route.ts           POST sign up, GET provider + their visits     (open)
 components/
   GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
   SleepChart.tsx                hours asleep per night, with table twin        Justin
@@ -165,7 +165,7 @@ lib/
   match.ts                      link spikes to visits                         Robbert
   sleep.ts                      parse WHOOP CSV                               (open)
   bundle.ts                     load a visit's data + status from the DB
-  visit.ts                      resolve a visit from its id, token or patient
+  visit.ts                      resolve a visit from its id or invite token
   practice.ts                   a provider and their practice, created on demand
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin

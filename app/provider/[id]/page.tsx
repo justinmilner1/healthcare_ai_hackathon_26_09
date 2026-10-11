@@ -3,6 +3,7 @@
 // Sour view: the one-page summary the endocrinologist reads during the visit, with a sidebar of ready summaries.
 // Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour, POST /api/invite. Print gives the one-pager.
+// Rows and every request are keyed by visit id (design §4.4); ?visit=<id> deep-links from the summary email.
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
@@ -18,7 +19,7 @@ import { visitLabel } from "@/lib/visits";
 import type { PatientBundle } from "@/lib/types";
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
-type Provider = { name: string; practice: string | null; patients: Row[] };
+type Provider = { name: string; practice: string | null; visits: Row[] };
 
 export default function ProviderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -33,7 +34,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [asking, setAsking] = useState(false);
   const [chatError, setChatError] = useState("");
   const [summaryError, setSummaryError] = useState("");
-  const activePatient = useRef<string | null>(null);
+  const activeVisit = useRef<string | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const autoTried = useRef<string | null>(null);
 
@@ -42,40 +43,40 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       .then((r) => r.json())
       .then((p: Provider) => {
         setProvider(p);
-        // ?patient=<id> deep-links from the summary email; otherwise open the first patient.
+        // ?visit=<id> deep-links from the summary email; otherwise open the first visit with a summary.
         rememberProvider(id);
-        const wanted = new URLSearchParams(window.location.search).get("patient");
-        const first = p.patients?.find((x) => x.id === wanted)?.id ?? p.patients?.find((x) => x.hasSummary)?.id;
+        const wanted = new URLSearchParams(window.location.search).get("visit");
+        const first = p.visits?.find((x) => x.id === wanted)?.id ?? p.visits?.find((x) => x.hasSummary)?.id;
         if (first && !selected) setSelected(first);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const load = useCallback(async (pid: string) => {
+  const load = useCallback(async (visitId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/patient/${pid}`);
+      const res = await fetch(`/api/patient/${visitId}`);
       if (!res.ok) throw new Error("Could not load this patient's summary.");
       const b = (await res.json()) as PatientBundle;
-      if (activePatient.current === pid) setBundle(b);
+      if (activeVisit.current === visitId) setBundle(b);
       return b;
     } finally {
-      if (activePatient.current === pid) setLoading(false);
+      if (activeVisit.current === visitId) setLoading(false);
     }
   }, []);
 
   const generate = useCallback(
-    async (pid: string) => {
+    async (visitId: string) => {
       setBusy(true);
       setSummaryError("");
       try {
-        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
+        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) });
         if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
-        if (activePatient.current === pid) await load(pid);
+        if (activeVisit.current === visitId) await load(visitId);
       } catch (e) {
-        if (activePatient.current === pid) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
+        if (activeVisit.current === visitId) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
       } finally {
-        if (activePatient.current === pid) setBusy(false);
+        if (activeVisit.current === visitId) setBusy(false);
       }
     },
     [load],
@@ -83,7 +84,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   useEffect(() => {
     if (!selected) return;
-    activePatient.current = selected;
+    activeVisit.current = selected;
     setBundle(null);
     setQa([]);
     setQ("");
@@ -95,19 +96,19 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     setInvite("");
     load(selected).then((b) => {
       // First open with data but no summary: generate without asking.
-      if (activePatient.current === selected && b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
+      if (activeVisit.current === selected && b && !b.providerSummary && b.status.hasDexcom && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
     }).catch(() => {
-      if (activePatient.current === selected) setSummaryError("Could not load this patient. Please select them again.");
+      if (activeVisit.current === selected) setSummaryError("Could not load this patient. Please select them again.");
     });
-    return () => { activePatient.current = null; };
+    return () => { activeVisit.current = null; };
   }, [selected, load, generate]);
 
-  async function sendLink(pid: string) {
+  async function sendLink(visitId: string) {
     setInvite("Sending…");
-    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
+    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
     // Plain feedback for the clinician; the raw channel errors stay in the response for debugging.
     if (d.email?.sent || d.sms?.sent) setInvite(`Link sent by ${[d.email?.sent && "email", d.sms?.sent && "text"].filter(Boolean).join(" and ")}.`);
     else setInvite(`Couldn't send the link automatically. Share it directly: ${d.link}`);
@@ -116,26 +117,26 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   async function askSour(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || !q.trim() || asking) return;
-    const pid = selected;
+    const visitId = selected;
     const question = q.trim();
     setAsking(true);
     setChatError("");
     try {
-      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid, question, history: qa.slice(-6) }) });
+      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId, question, history: qa.slice(-6) }) });
       const d = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
       if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");
-      if (activePatient.current !== pid) return;
+      if (activeVisit.current !== visitId) return;
       setQa((x) => [...x, { q: question, a: d.answer }]);
       setQ("");
     } catch (e) {
-      if (activePatient.current === pid) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
+      if (activeVisit.current === visitId) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
     } finally {
-      if (activePatient.current === pid) setAsking(false);
+      if (activeVisit.current === visitId) setAsking(false);
     }
   }
 
-  const visible = (provider?.patients ?? []).filter((p) => p.hasSummary || p.id === selected);
+  const visible = (provider?.visits ?? []).filter((v) => v.hasSummary || v.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
   const sources = bundle ? [bundle.status.hasDexcom && "Dexcom", bundle.status.hasLocation && "Timeline", bundle.status.hasWhoop && "WHOOP"].filter(Boolean).join(" · ") : "";
@@ -153,21 +154,21 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
         </div>
         <p className="sour-sidebar-label">Summaries ready</p>
         <ul className="sour-patient-list">
-          {visible.map((p) => (
-            <li key={p.id}>
+          {visible.map((v) => (
+            <li key={v.id}>
               <button
-                onClick={() => setSelected(p.id)}
-                className={selected === p.id ? "sour-patient-active" : ""}
+                onClick={() => setSelected(v.id)}
+                className={selected === v.id ? "sour-patient-active" : ""}
               >
-                <span className="sour-patient-initial">{p.name.charAt(0)}</span>
+                <span className="sour-patient-initial">{v.name.charAt(0)}</span>
                 <span>
-                <strong>{p.name}</strong>
+                <strong>{v.name}</strong>
                 <small>
-                  {p.apptAt ? new Date(p.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
-                  {p.uploads.length ? ` · ${p.uploads.length} source${p.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
+                  {v.apptAt ? new Date(v.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
+                  {v.uploads.length ? ` · ${v.uploads.length} source${v.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
                 </small>
                 </span>
-                {p.hasSummary && <i>✓</i>}
+                {v.hasSummary && <i>✓</i>}
               </button>
             </li>
           ))}
@@ -210,9 +211,9 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                 {bundle.patient.reason && <p className="sour-called-about">Called about: <strong>{bundle.patient.reason}</strong></p>}
               </div>
               <div className="sour-brief-actions print:hidden">
-                <button onClick={() => sendLink(bundle.patient.id)} className="ss-button">Send link</button>
+                <button onClick={() => sendLink(bundle.visitId)} className="ss-button">Send link</button>
                 <button onClick={() => window.print()} className="ss-button">Print</button>
-                <button onClick={() => generate(bundle.patient.id)} disabled={busy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
+                <button onClick={() => generate(bundle.visitId)} disabled={busy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
                   {busy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>

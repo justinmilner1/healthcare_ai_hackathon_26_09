@@ -1,7 +1,8 @@
 // POST /api/book  { name, phone?, email?, providerId?, optIn?, apptAt?, visitType?, reason? }
 // Creates a patient with one visit (design §4.4) whose presigned token is the intake link, and, if opted in,
 // sends that link by SMS and/or email.
-// Returns { patientId, token, link, sms: {sent, error?}, email: {sent, error?} }. Owner: Justin.
+// Returns { visitId, patientId, token, link, sms: {sent, error?}, email: {sent, error?} }. Owner: Justin.
+// `visitId` is what every other route and page speaks in from here on (design §4.4).
 
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
@@ -57,10 +58,11 @@ async function postHandler(req: Request) {
   log.info("patient_created", { patientId: visit.patientId, visitId: visit.id, providerId: provider.id, visitType: knownVisitType(visit.visitType) });
 
   if (!body.optIn) {
-    return NextResponse.json({ patientId: visit.patientId, token, link: intakeLink(token), sms: { sent: false, error: "not opted in" }, email: { sent: false, error: "not opted in" } });
+    return NextResponse.json({ visitId: visit.id, patientId: visit.patientId, token, link: intakeLink(token), sms: { sent: false, error: "not opted in" }, email: { sent: false, error: "not opted in" } });
   }
   const result = await sendIntakeInvite({
-    id: visit.patientId,
+    visitId: visit.id,
+    patientId: visit.patientId,
     name: visit.patient.name,
     phone: visit.patient.phone,
     email: visit.patient.email,
@@ -68,7 +70,7 @@ async function postHandler(req: Request) {
     providerName: provider.name ?? CARE_TEAM,
     apptAt: visit.scheduledAt,
   });
-  return NextResponse.json({ patientId: visit.patientId, token, ...result });
+  return NextResponse.json({ visitId: visit.id, patientId: visit.patientId, token, ...result });
 }
 
 export const POST = withRoute("POST /api/book", postHandler);

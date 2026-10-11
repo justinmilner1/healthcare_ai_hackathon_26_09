@@ -36,6 +36,21 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
     })
   ).json();
   expect(booked.token).toBeTruthy();
+  expect(booked.visitId).toBeTruthy();
+
+  // Two ways to one visit (design §4.4, §5.3): the invite token and the visit id. A patient id is neither,
+  // so the hackathon's patient-keyed lookup is gone.
+  const byToken = await (await request.get(`/api/patient/${booked.token}`)).json();
+  expect(byToken.visitId).toBe(booked.visitId);
+  const byVisitId = await (await request.get(`/api/patient/${booked.visitId}`)).json();
+  expect(byVisitId.patient.name).toBe("E2E Patient");
+  expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
+
+  // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
+  const providerRows = await (await request.get(`/api/provider?id=${demo.id}`)).json();
+  expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
+  expect((await request.post("/api/sour", { data: { patientId: booked.patientId } })).status()).toBe(400);
+  expect((await request.post("/api/invite", { data: { patientId: booked.patientId } })).status()).toBe(400);
 
   await page.goto(`/provider/${demo.id}`);
   await expect(page.locator("body")).toContainText(/Sour/i);
