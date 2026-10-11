@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { postJson } from "./api";
 
 // Design 6.3 / 11.3: when the model gateway is down Sweetie answers from the scripted path and the page says so.
 // Two servers, started by playwright.config.ts, are the whole fixture; nothing in the app is stubbed.
@@ -20,10 +21,9 @@ async function bookAndOpen(page: Page, request: APIRequestContext, name: string)
   const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
   expect(demo).toBeTruthy();
 
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await request.post("/api/book", {
-      data: { name, providerId: demo.id, visitType: "follow_up", reason: "numbers all over the place", optIn: false },
-    })
+    await postJson(request, "/api/book", { name, providerId: demo.id, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 

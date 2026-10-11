@@ -50,11 +50,16 @@ export function newNonce(): string {
  * host allow-list for scripts entirely, so a tag an injection manages to write is refused even though it
  * points at our own origin. Next's nonce-bearing bootstrap then loads the chunks it needs.
  *
+ * `formAction` adds origins a form may be redirected on to; see the directive below.
+ *
  * Styles keep `'unsafe-inline'`: next/font/google inlines an @font-face block, Tailwind's preflight ships
  * inline during a build, and Recharts sets style attributes on every element it draws. A style injection
  * cannot run code, and the alternative is a policy nobody can keep green.
  */
-export function contentSecurityPolicy(nonce: string, { dev = false }: { dev?: boolean } = {}): string {
+export function contentSecurityPolicy(
+  nonce: string,
+  { dev = false, formAction = [] }: { dev?: boolean; formAction?: readonly string[] } = {},
+): string {
   const script = ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"];
   const connect = ["'self'"];
   if (dev) {
@@ -77,7 +82,11 @@ export function contentSecurityPolicy(nonce: string, { dev = false }: { dev?: bo
     "frame-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    // `form-action` covers where a <form> may post. Some browsers (Firefox, not Chrome) also check the
+    // redirect that follows, so the Dexcom sandbox button — a form that posts to /api/dexcom/connect and is
+    // 303'd on to Dexcom's authorization page — needs that destination listed. It comes from the same
+    // DEXCOM_BASE_URL the OAuth client is configured with, so an unconfigured deployment lists nothing.
+    ["form-action 'self'", ...formAction].join(" "),
   ];
   if (!dev) directives.push("upgrade-insecure-requests");
   return directives.join("; ");

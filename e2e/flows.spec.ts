@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { postJson } from "./api";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -30,10 +31,9 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
   expect(demo).toBeTruthy();
 
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 
@@ -46,9 +46,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   const providers = await (await request.get("/api/provider?list=1")).json();
   const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Talker", providerId: demo.id, visitType: "follow_up", reason: "tired all the time", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Talker", providerId: demo.id, visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
 
   await page.goto(`/s/${booked.token}`);

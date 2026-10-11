@@ -10,7 +10,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { CSRF_COOKIE, CSRF_COOKIE_MAX_AGE, CSRF_HEADER, CSRF_PARAM, checkCsrf, isStateChanging, newCsrfToken } from "@/lib/csrf";
-import { contentSecurityPolicy, newNonce } from "@/lib/security";
+import { contentSecurityPolicy, newNonce, STATIC_SECURITY_HEADERS } from "@/lib/security";
 
 export const config = {
   // Everything but the static output. A hashed chunk under /_next/static is immutable and public: it needs
@@ -19,6 +19,17 @@ export const config = {
 };
 
 const isDev = process.env.NODE_ENV !== "production";
+
+/** Where a form in this app may be redirected on to: Dexcom's authorization page, and nothing else. Read
+ *  once, from the same variable lib/dexcom.ts validates; empty when Dexcom is not configured. */
+const FORM_ACTION_EXTRA = ((base) => {
+  if (!base) return [];
+  try {
+    return [new URL(base).origin];
+  } catch {
+    return [];
+  }
+})(process.env.DEXCOM_BASE_URL);
 
 /** Whether this request arrived over TLS, which is what decides the cookie's Secure flag. Not NODE_ENV: a
  *  production build served over plain HTTP — `next start` locally, and the e2e suite — would then set Secure
@@ -47,9 +58,13 @@ export function middleware(req: NextRequest) {
       // The reason is a header name, never a token. lib/log.ts cannot be imported here (node:async_hooks),
       // so the response carries it instead: the browser console says what is missing, and `code` is what a
       // support request quotes. A 403 is deliberate — the request was understood and refused.
+      // next.config.ts applies the static headers to responses the router produces, not to one middleware
+      // returns itself, so this refusal sets them too. No response leaves without them.
+      const headers = new Headers({ "x-csrf-blocked": reason });
+      for (const h of STATIC_SECURITY_HEADERS) headers.set(h.key, h.value);
       return NextResponse.json(
         { error: `This request was blocked for security reasons: ${reason}. Reload the page and try again.`, code: "csrf_failed" },
-        { status: 403, headers: { "x-csrf-blocked": reason } },
+        { status: 403, headers },
       );
     }
   }
@@ -57,7 +72,7 @@ export function middleware(req: NextRequest) {
   // The nonce has to reach Next before it renders. Next reads it off the request's own
   // Content-Security-Policy header and stamps it onto every script and preload tag it emits.
   const nonce = newNonce();
-  const csp = contentSecurityPolicy(nonce, { dev: isDev });
+  const csp = contentSecurityPolicy(nonce, { dev: isDev, formAction: FORM_ACTION_EXTRA });
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);

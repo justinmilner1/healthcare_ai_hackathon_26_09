@@ -68,6 +68,14 @@ test("a built policy blocks the things that make XSS and clickjacking work", () 
   assert.doesNotMatch(d["script-src"], /'unsafe-inline'|'unsafe-eval'/);
 });
 
+test("a form may post to us, and be redirected on only to an origin we named", () => {
+  // The Dexcom sandbox button posts to /api/dexcom/connect and is 303'd on to Dexcom. Firefox checks the
+  // redirect against form-action; Chrome does not. Listing it keeps both working.
+  assert.equal(directives(contentSecurityPolicy(newNonce()))["form-action"], "'self'");
+  const withDexcom = directives(contentSecurityPolicy(newNonce(), { formAction: ["https://sandbox-api.dexcom.com"] }));
+  assert.equal(withDexcom["form-action"], "'self' https://sandbox-api.dexcom.com");
+});
+
 test("a production policy upgrades plain HTTP subresources; dev does not", () => {
   assert.match(contentSecurityPolicy(newNonce()), /upgrade-insecure-requests/);
   assert.doesNotMatch(contentSecurityPolicy(newNonce(), { dev: true }), /upgrade-insecure-requests/);
