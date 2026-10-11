@@ -10,7 +10,7 @@
 // The same generation runs from the Sweetie route when intake wraps up (lib/sourRun.ts).
 
 import { NextResponse } from "next/server";
-import { ask, LLMUnavailable } from "@/lib/llm";
+import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
 import { sourChatSystem } from "@/lib/prompts";
 import { loadSourContext, runSour } from "@/lib/sourRun";
@@ -43,7 +43,12 @@ async function postHandler(req: Request) {
       if (!answer.trim()) throw new Error("Empty Sour reply");
       return NextResponse.json({ answer: plainAnswer(answer) });
     } catch (e) {
-      if (e instanceof LLMUnavailable) return NextResponse.json({ error: "Sour chat is unavailable until the model is configured." }, { status: 503 });
+      if (e instanceof LLMUnavailable) {
+        const error = llmStatus().configured
+          ? "Sour chat is unavailable: the model gateway is not responding. Try again in a minute."
+          : "Sour chat is unavailable until the model is configured.";
+        return NextResponse.json({ error }, { status: 503 });
+      }
       // The caller's string may be a link token (loadSourContext takes either); log the resolved id.
       log.error("sour_chat_failed", { patientId: ctx.bundle.patient.id, error: e });
       return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
