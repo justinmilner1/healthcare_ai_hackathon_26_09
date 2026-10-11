@@ -73,8 +73,12 @@ export type GlucoseStats = {
   recoveryAvg: number | null;
 };
 
-// Everything a summary page needs in one fetch: GET /api/patient/[id]  (id or presigned token)
+// Everything a summary page needs in one fetch: GET /api/patient/[id]  (a visit id or the invite token).
+// Keyed by the visit (design §4.4): `visitId` is what the pages send back to /api/sour and /api/invite, while
+// `patient` describes the person the visit is for.
 export type PatientBundle = {
+  visitId: string;
+  visitStatus: string; // invited | verified | in_intake | intake_done | summary_ready | reviewed | cancelled (§4.4)
   patient: {
     id: string;
     name: string;
@@ -87,7 +91,7 @@ export type PatientBundle = {
     provider: { id: string; name: string; practice: string | null };
   };
   glucose: GlucoseReading[]; // downsampled for charts
-  visits: Visit[];
+  visits: Visit[]; // places the patient went (Timeline), not appointments
   sleep: SleepNight[];
   spikes: Spike[];
   stats: GlucoseStats;

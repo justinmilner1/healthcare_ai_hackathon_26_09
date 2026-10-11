@@ -1,5 +1,5 @@
 // Sweetie chat. Owner: Justin. Brain in lib/sweetie.ts; this route is transport.
-// GET  /api/sweetie?token=...                                   -> { patientId, name, messages, status, intake, agent }
+// GET  /api/sweetie?token=...                                   -> { visitId, name, messages, status, intake, agent }
 // POST /api/sweetie { token, message }                          -> { reply, status, intake, agent }
 // POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
 // POST /api/sweetie { token, event: { type: "skip_questions" } } -> same; saves an explicit opt-out
@@ -11,9 +11,9 @@
 import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
+import { enqueue, nudge } from "@/lib/jobs";
 import { llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
-import { runSour } from "@/lib/sourRun";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
@@ -33,9 +33,9 @@ const agentInfo = () => {
 
 /** One line whenever the patient gets scripted words instead of Sweetie's. A configured gateway that is
  *  failing is a warning someone should see; no gateway at all is just offline development. */
-function logScripted(event: string, patientId: string, fields: Record<string, unknown> = {}) {
+function logScripted(event: string, visit: { id: string; patientId: string }, fields: Record<string, unknown> = {}) {
   const s = llmStatus();
-  const line = { patientId, scripted: true, degraded: s.configured && s.degraded, ...fields };
+  const line = { visitId: visit.id, patientId: visit.patientId, scripted: true, degraded: s.configured && s.degraded, ...fields };
   if (s.configured) log.warn(event, line);
   else log.info(event, line);
 }
@@ -52,7 +52,7 @@ async function getHandler(req: Request) {
     await db.message.create({ data: { visitId: visit.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ patientId: visit.patientId, name: visit.patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
+  return NextResponse.json({ visitId: visit.id, name: visit.patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 async function postHandler(req: Request) {
@@ -121,7 +121,7 @@ async function postHandler(req: Request) {
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
       llm = false;
-      logScripted("sweetie_extract_unavailable", visit.patientId, { visitId: visit.id, turns: state.turns });
+      logScripted("sweetie_extract_unavailable", visit, { turns: state.turns });
       exportHelp = guessExportHelp(message);
       if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message)) state = { ...state, skipped: [...state.skipped, askedTarget.which] };
     }
@@ -141,11 +141,11 @@ async function postHandler(req: Request) {
       reply = await speak({ firstName, providerName: providerName(visit), visit: context, state, defs, status, target, transcript, exportHelp, uploadEvent });
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
-      logScripted("sweetie_scripted", visit.patientId, { visitId: visit.id, target: target.kind });
+      logScripted("sweetie_scripted", visit, { target: target.kind });
       reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
     }
   } else {
-    logScripted("sweetie_scripted", visit.patientId, { visitId: visit.id, target: target.kind });
+    logScripted("sweetie_scripted", visit, { target: target.kind });
     reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };
@@ -163,16 +163,19 @@ async function finish(visitId: string, state: IntakeState, defs: IntakeFieldDef[
   await db.visit.updateMany({ where: { id: visitId, status: { in: from } }, data: { status: reached } });
   const bundle = await loadBundle(visitId);
 
-  // Trigger: the turn that wraps the intake also kicks off Sour, after this reply is on its way, so the
-  // doctor's link email arrives while the patient is still reading Sweetie's goodbye. Once per wrap.
+  // Trigger: the turn that wraps the intake queues Sour (§7.1), so the doctor's link email is on its way
+  // while the patient is still reading Sweetie's goodbye. Once per wrap — and a queued row rather than work
+  // done in `after()`, because the patient's last turn must not be the only chance Sour ever gets: a crash
+  // between the reply and the summary used to lose it silently, and now it is a row with three attempts.
   if (state.wrapped && !wasWrapped && bundle?.status.hasDexcom) {
-    after(async () => {
-      try {
-        await runSour(visitId);
-      } catch (e) {
-        log.error("sour_autorun_failed", { visitId, error: e });
-      }
-    });
+    try {
+      const { job } = await enqueue({ kind: "sour.run", payload: { visitId }, idempotencyKey: `sour.run:${visitId}` });
+      log.info("sour_queued", { visitId, jobId: job.id });
+    } catch (e) {
+      // Sweetie's goodbye still goes out; the clinician's Generate button is the fallback.
+      log.error("sour_enqueue_failed", { visitId, error: e });
+    }
+    nudge(after);
   }
 
   return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });

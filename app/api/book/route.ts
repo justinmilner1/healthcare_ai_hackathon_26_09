@@ -1,17 +1,17 @@
 // POST /api/book  { name, phone?, email?, providerId?, optIn?, apptAt?, visitType?, reason? }
 // Creates a patient with one visit (design §4.4) whose presigned token is the intake link, and, if opted in,
-// sends that link by SMS and/or email.
-// Returns { patientId, token, link, sms: {sent, error?}, email: {sent, error?} }. Owner: Justin.
+// queues a `notify.invite` job to send that link by SMS and/or email (§3.4).
+// Returns { visitId, patientId, token, link, queued, jobId? }. Owner: Justin.
+// `visitId` is what every other route and page speaks in from here on (design §4.4).
 
 import { randomBytes } from "crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { enqueue, nudge } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
-import { sendIntakeInvite } from "@/lib/notify";
 import { ensureDemoProvider } from "@/lib/practice";
 import { intakeLink } from "@/lib/sms";
 import { knownVisitType } from "@/lib/sweetie";
-import { CARE_TEAM } from "@/lib/visit";
 
 async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
@@ -57,19 +57,14 @@ async function postHandler(req: Request) {
   // visitType is free text on the way in, so only a type we recognise is logged; anything else is "other".
   log.info("patient_created", { patientId: visit.patientId, visitId: visit.id, providerId: provider.id, visitType: knownVisitType(visit.visitType) });
 
-  if (!body.optIn) {
-    return NextResponse.json({ patientId: visit.patientId, token, link: intakeLink(token), sms: { sent: false, error: "not opted in" }, email: { sent: false, error: "not opted in" } });
-  }
-  const result = await sendIntakeInvite({
-    id: visit.patientId,
-    name: visit.patient.name,
-    phone: visit.patient.phone,
-    email: visit.patient.email,
-    token: visit.token,
-    providerName: provider.name ?? CARE_TEAM,
-    apptAt: visit.scheduledAt,
-  });
-  return NextResponse.json({ patientId: visit.patientId, token, ...result });
+  const booked = { visitId: visit.id, patientId: visit.patientId, token, link: intakeLink(token) };
+  if (!body.optIn) return NextResponse.json({ ...booked, queued: false, reason: "not opted in" });
+
+  // The send is a job, so adding a patient returns as fast as the insert and a throttled SES call cannot cost
+  // the clinic the patient row it just created (§3.4, §8).
+  const { job } = await enqueue({ kind: "notify.invite", payload: { visitId: visit.id }, idempotencyKey: `notify.invite:${visit.id}` });
+  nudge(after);
+  return NextResponse.json({ ...booked, queued: true, jobId: job.id });
 }
 
 export const POST = withRoute("POST /api/book", postHandler);

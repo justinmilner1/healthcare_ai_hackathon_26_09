@@ -1,0 +1,14 @@
+Index,Timestamp (YYYY-MM-DDThh:mm:ss),Event Type,Event Subtype,Patient Info,Device Info,Source Device ID,Glucose Value (mg/dL),Insulin Value (u),Carb Value (grams),Duration (hh:mm:ss),Glucose Rate of Change (mg/dL/min),Transmitter Time (Long Integer),Transmitter ID
+1,,FirstName,,Fixture,,,,,,,,,
+2,,LastName,,"Patient, Edge",,,,,,,,,
+3,,Device,,,Dexcom G7,SM00000002,,,,,,,
+4,2026-09-21T08:10:00,EGV,,,"Dexcom G7, firmware 1.2",SM00000002,131,,,,,,FIX002
+5,2026-09-21T08:00:00,EGV,,,Dexcom G7,SM00000002,118,,,,,,FIX002
+6,2026-09-21T08:05:00,EGV,,,Dexcom G7,SM00000002,Low,,,,,,FIX002
+7,2026-09-21T08:15:00,EGV,,,Dexcom G7,SM00000002,High,,,,,,FIX002
+8,2026-09-21T08:20:00,Calibration,,,Dexcom G7,SM00000002,140,,,,,,FIX002
+9,2026-09-21T08:25:00,Insulin,Fast-Acting,,Dexcom G7,SM00000002,,4.5,,,,,FIX002
+10,2026-09-21T08:30:00,EGV,,,Dexcom G7,SM00000002,,,,,,,FIX002
+11,not-a-timestamp,EGV,,,Dexcom G7,SM00000002,150,,,,,,FIX002
+12,2026-09-21T08:35:00,EGV,,,Dexcom G7,SM00000002,not-a-number,,,,,,FIX002
+13,2026-09-21T08:40:00,EGV,,,Dexcom G7,SM00000002,127,,,,,,FIX002

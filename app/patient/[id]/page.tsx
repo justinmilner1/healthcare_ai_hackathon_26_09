@@ -1,6 +1,7 @@
 "use client";
 
-// Patient view of their own week. Uses GET /api/patient/[id] (id or presigned token).
+// Patient view of their own week. Uses GET /api/patient/[id], where the id is the visit id or the presigned
+// token from the invite (design §4.4, §5.3) — /patient/<token> is the link the patient is sent.
 // Same data as the provider page, warmer voice, no clinical jargon.
 
 import Image from "next/image";

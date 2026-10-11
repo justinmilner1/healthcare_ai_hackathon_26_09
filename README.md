@@ -52,7 +52,9 @@ session cookie; local development falls back to a fixed development value, and a
 No Docker daemon? `npm run db:up` starts a Postgres that is already installed on the host instead and prints the
 `DATABASE_URL` to put in `.env`. Either way the database is Postgres; SQLite is gone (design §3.2).
 
-Checks: `npm run typecheck`, `npm run lint`, `npm run build`, or `npm run agent:check` for everything including e2e.
+Checks: `npm run typecheck`, `npm run lint`, `npm run test` (unit tests for every `lib/` module, against the
+synthetic fixtures in `data/fixtures/` — see the README there), `npm run test:coverage` for the same with a
+coverage table, `npm run build`, or `npm run agent:check` for everything including e2e.
 Reset the DB with `npm run db:reset && npm run seed`.
 
 Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,
@@ -145,7 +147,7 @@ app/
   page.tsx                      landing with links to every screen
   s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
   s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
-  patient/[id]/page.tsx         patient summary view                          Justin
+  patient/[id]/page.tsx         patient summary view (visit id or token)      Justin
   provider/page.tsx             session guard; dashboard.tsx is the practice dashboard Justin
   provider/signin/page.tsx      ask for a magic link; check-email/ and signout/ finish it Justin
   provider/signup/page.tsx      create a practice, then the same emailed link  Justin
@@ -155,9 +157,9 @@ app/
     book/route.ts               POST create patient + send invite (scheduling hook) Justin
     sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
-    sour/route.ts               POST generate summaries; POST with question   James
-    patient/[id]/route.ts       GET PatientBundle (everything a page needs)
-    provider/route.ts           POST sign up, GET the signed-in provider + patients
+    sour/route.ts               POST { visitId } generate summaries; or with question James
+    patient/[id]/route.ts       GET PatientBundle for one visit (visit id or token)
+    provider/route.ts           POST sign up, GET the signed-in provider + their visits
 components/
   GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
   SleepChart.tsx                hours asleep per night, with table twin        Justin
@@ -180,7 +182,7 @@ lib/
   match.ts                      link spikes to visits                         Robbert
   sleep.ts                      parse WHOOP CSV                               (open)
   bundle.ts                     load a visit's data + status from the DB
-  visit.ts                      resolve a visit from its id, token or patient
+  visit.ts                      resolve a visit from its id or invite token
   practice.ts                   a provider and their practice, created on demand
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin

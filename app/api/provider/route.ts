@@ -3,8 +3,9 @@
 // GET  /api/provider                             -> the signed-in provider with their visits, intake progress
 //                                                   and summary state; 401 when there is no session
 //
-// A provider is a User in a Practice (design §4.1, §4.2) and the rows below are visits (§4.4). The response
-// still speaks in patient ids because today a patient has exactly one visit; T03 moves the pages onto visits.
+// A provider is a User in a Practice (design §4.1, §4.2) and the rows below are visits (§4.4): `id` is the
+// visit, `patientId` the person it is for, and the pages send `id` back to /api/patient, /api/sour and
+// /api/invite.
 //
 // GET takes no id any more: the session says who is asking (§5.1), so one provider can no longer read another
 // provider's list by changing a query string, and the `?list=1` that fed the old practice picker — every
@@ -42,16 +43,18 @@ async function getHandler() {
     id: provider.id,
     name: provider.name,
     practice: provider.practice.name,
-    patients: visits.map((v) => {
+    visits: visits.map((v) => {
       const defs = fieldsFor(v.visitType, v.reason);
       const intake = parseIntake(v.intake, defs);
       const uploads = Array.from(new Set(v.uploads.map((u) => u.kind)));
       return {
-        id: v.patientId,
+        id: v.id,
+        patientId: v.patientId,
         name: v.patient.name,
         apptAt: v.scheduledAt,
         visitType: v.visitType,
         reason: v.reason,
+        status: v.status,
         token: v.token,
         phone: v.patient.phone,
         email: v.patient.email,

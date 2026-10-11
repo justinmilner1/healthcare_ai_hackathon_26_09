@@ -1,6 +1,7 @@
 # T05 screenshots
 
-From `bash scripts/agent-check.sh` on branch `t05-authjs-magic-links`.
+From `bash scripts/agent-check.sh` on branch `t05-authjs-magic-links`, after merging `main` — so the two
+provider screens show T03's visit keying and T04's queued summary, not the shapes this branch started from.
 
 | File | What it shows |
 |---|---|
@@ -10,5 +11,5 @@ From `bash scripts/agent-check.sh` on branch `t05-authjs-magic-links`.
 | `mobile-provider-check-email.png` | The same at 375px. |
 | `desktop-provider-signout.png` | The sign-out screen, with the signed-in address and a button, because a GET must never end a session. |
 | `mobile-provider-signout.png` | The same at 375px; the actions stack with the button first. |
-| `desktop-provider-dashboard.png` | The dashboard after signing in with the emailed link. The practice picker is gone — there is nothing to pick, the session says who this is — and `Sign out` sits beside `Add patient`. |
-| `desktop-provider-sour.png` | The Sour view behind the same session guard, still reading its provider and practice from `GET /api/provider`. |
+| `desktop-provider-dashboard.png` | The dashboard after signing in with the emailed link. The practice picker is gone — there is nothing to pick, the session says who this is — and `Sign out` sits beside `Add patient`. The rows and the counts are T03's visits. |
+| `desktop-provider-sour.png` | The Sour view behind the same session guard, opened by `?visit=<id>` and reading its provider and practice from the session-scoped `GET /api/provider`. The one-pager is there, so the `sour.run` job ran through the merge. |
