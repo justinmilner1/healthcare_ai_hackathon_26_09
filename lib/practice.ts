@@ -13,7 +13,7 @@ const DEMO = { name: "Dr. Demo Endo", email: DEMO_PROVIDER_EMAIL, practice: "Swe
 export function practiceNameFor(email: string): string {
   const label = email.split("@")[1]?.split(".")[0]?.replace(/[^A-Za-z0-9]+/g, " ").trim() ?? "";
   if (!label) return "New practice";
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return label.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 
 /** A provider and the practice they belong to. Idempotent on email, like the old Provider upsert. */
