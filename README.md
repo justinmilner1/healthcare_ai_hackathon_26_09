@@ -154,7 +154,8 @@ components/
   StatTile.tsx, Disclaimer.tsx  small shared pieces                            Justin
 lib/
   types.ts                      the shared shapes; change with care
-  llm.ts                        ask(system, user, {json}) -> Bedrock Responses API
+  llm.ts                        ask(system, user, {json}) -> Bedrock Responses API; timeout, retry, circuit
+  visits.ts                     visit types and labels (client-safe; no model)
   prompts.ts                    Sour prompts                                  James
   sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
   providerSession.ts            cookie that remembers the provider (no login)  Justin
