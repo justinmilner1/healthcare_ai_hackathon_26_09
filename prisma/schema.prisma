@@ -63,11 +63,14 @@ model Account {
 }
 
 // A signed-in provider's session (§5.1). Not to be confused with PatientSession (§4.5).
+// `expires` is the 12-hour idle clock: Auth.js rolls it forward on each request. `createdAt` never moves, so
+// it is the 7-day absolute cap that lib/authAdapter.ts enforces when the session is read.
 model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique
   userId       String
   expires      DateTime
+  createdAt    DateTime @default(now())
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
