@@ -14,7 +14,7 @@ import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
-import { visitLabel } from "@/lib/sweetie";
+import { visitLabel } from "@/lib/visits";
 import type { PatientBundle } from "@/lib/types";
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };

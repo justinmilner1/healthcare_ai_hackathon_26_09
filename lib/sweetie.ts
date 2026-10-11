@@ -3,29 +3,13 @@
 
 import { ask, LLMUnavailable } from "./llm";
 import type { Confidence, IntakeFieldDef, IntakeState, IntakeStatus } from "./types";
+import { visitLabel, visitPhrase } from "./visits";
 
 // ---- Visit templates -------------------------------------------------------------------------------------
-// The scheduler records a visit type and what the patient called about. That decides what Sweetie gathers,
-// the same way a clinic's intake form differs for a new patient and a med check.
-
-export const VISIT_TYPES: { id: string; label: string }[] = [
-  { id: "follow_up", label: "Follow-up" },
-  { id: "new_patient", label: "New patient" },
-  { id: "medication", label: "Medication check" },
-  { id: "post_hospital", label: "After a hospital or ER visit" },
-  { id: "annual", label: "Annual review" },
-];
-
-export const visitLabel = (id: string | null | undefined) => VISIT_TYPES.find((v) => v.id === id)?.label ?? "Visit";
-
-/** The visit type if it is one of ours, else "other". Booking accepts the field as free text, so anything
- *  that leaves the app — a log line above all — goes through here first (design §10.3). */
-export const knownVisitType = (id: string | null | undefined) => (VISIT_TYPES.some((v) => v.id === id) ? (id as string) : "other");
-
-/** How Sweetie refers to the visit in a sentence: "your first visit", "your medication check". */
-export const visitPhrase = (id: string | null | undefined) =>
-  ({ follow_up: "follow-up visit", new_patient: "first visit", medication: "medication check", post_hospital: "visit after the hospital", annual: "annual review" } as Record<string, string>)[id ?? ""] ?? "visit";
-
+// The scheduler records a visit type and what the patient called about (the table of types is lib/visits.ts).
+// That decides what Sweetie gathers, the same way a clinic's intake form differs for a new patient and a
+// med check.
+//
 // Two exchanges for the demo: why you're here, then what's changed and how you've felt. The visit type shapes the
 // second question instead of adding one. Data sharing is optional and lives in its own panel; it is never a question.
 const PURPOSE: IntakeFieldDef = {
@@ -303,3 +287,6 @@ export function renderNotes(state: IntakeState, defs: IntakeFieldDef[], visit: V
 }
 
 export { LLMUnavailable };
+// Re-exported so server code that already thinks of these as Sweetie's vocabulary keeps working. Client
+// components import them from lib/visits.ts instead; see the note at the top of that file.
+export { knownVisitType, visitLabel, visitPhrase, VISIT_TYPES } from "./visits";

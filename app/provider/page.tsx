@@ -9,7 +9,7 @@ import {
   forgetProvider,
   rememberProvider,
 } from "@/lib/providerSession";
-import { VISIT_TYPES, visitLabel } from "@/lib/sweetie";
+import { VISIT_TYPES, visitLabel } from "@/lib/visits";
 
 type Row = {
   id: string;

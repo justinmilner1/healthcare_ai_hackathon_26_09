@@ -452,7 +452,7 @@ export default function SweetiePage({
             {agent?.degraded && (
               <p className="sweetie-degraded-note" role="status">
                 <span aria-hidden="true">⚠</span>
-                Sweetie&apos;s assistant is unavailable right now. The questions continue and
+                The assistant is unavailable right now. Sweetie&apos;s questions continue, and
                 everything you say is still saved for your doctor.
               </p>
             )}
