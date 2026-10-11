@@ -21,7 +21,9 @@ export const config = {
 const isDev = process.env.NODE_ENV !== "production";
 
 /** Where a form in this app may be redirected on to: Dexcom's authorization page, and nothing else. Read
- *  once, from the same variable lib/dexcom.ts validates; empty when Dexcom is not configured. */
+ *  from the same variable lib/dexcom.ts validates, and empty when Dexcom is not configured. Next inlines a
+ *  statically referenced env var into the middleware bundle, so this is fixed at build time — changing
+ *  DEXCOM_BASE_URL means a rebuild, which is already true of the rest of the Dexcom configuration. */
 const FORM_ACTION_EXTRA = ((base) => {
   if (!base) return [];
   try {
@@ -58,9 +60,10 @@ export function middleware(req: NextRequest) {
       // The reason is a header name, never a token. lib/log.ts cannot be imported here (node:async_hooks),
       // so the response carries it instead: the browser console says what is missing, and `code` is what a
       // support request quotes. A 403 is deliberate — the request was understood and refused.
+      //
       // next.config.ts applies the static headers to responses the router produces, not to one middleware
-      // returns itself, so this refusal sets them too. No response leaves without them.
-      const headers = new Headers({ "x-csrf-blocked": reason });
+      // returns itself, so this refusal sets them too: no response leaves without them.
+      const headers = new Headers({ "x-csrf-blocked": reason, "Cache-Control": "no-store" });
       for (const h of STATIC_SECURITY_HEADERS) headers.set(h.key, h.value);
       return NextResponse.json(
         { error: `This request was blocked for security reasons: ${reason}. Reload the page and try again.`, code: "csrf_failed" },
