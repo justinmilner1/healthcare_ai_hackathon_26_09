@@ -34,15 +34,17 @@ declare module "next-auth" {
   }
 }
 
-// AUTH_SECRET signs the session cookie and hashes the verification tokens. There is no safe default in a
-// deployed environment, so production must supply one (T31 turns missing config into a refusal to start);
-// locally a constant keeps `npm run dev` and the e2e suite working with no setup.
+// AUTH_SECRET signs the session cookie and hashes the one-time tokens. There is no safe default in a deployed
+// environment, so production must supply one; locally a constant keeps `npm run dev` and the e2e suite working
+// with no setup. Missing it in production is left to Auth.js, which refuses the request with a Configuration
+// error that app/provider/signin names — rather than thrown here, which would also fail `next build`, where
+// NODE_ENV is production but nothing is being served. Refusing to start is T31's job (§3.7).
 const DEV_SECRET = "sweet-spot-development-secret-not-for-deployment";
 
-function authSecret(): string {
+function authSecret(): string | undefined {
   const given = process.env.AUTH_SECRET?.trim() || process.env.NEXTAUTH_SECRET?.trim();
   if (given) return given;
-  if (process.env.NODE_ENV === "production") throw new Error("AUTH_SECRET is required");
+  if (process.env.NODE_ENV === "production") return undefined;
   log.warn("auth_secret_missing", { ok: false });
   return DEV_SECRET;
 }
@@ -55,11 +57,18 @@ const emailLink: EmailConfig = {
   maxAge: SIGN_IN_LINK_SECONDS,
   from: process.env.EMAIL_FROM ?? "Sweet Spot <no-reply@sweetspot.local>",
   options: {},
-  normalizeIdentifier: (identifier) => identifier.trim().toLowerCase(),
+  // No normalizeIdentifier: Auth.js's own already trims and lower-cases, and also rejects the quoted and
+  // homoglyph addresses that a downstream parser can split into a second recipient.
   sendVerificationRequest: async ({ identifier, url }) => {
     const result = await sendSignInLink(identifier, url, Math.round(SIGN_IN_LINK_SECONDS / 60));
-    // A send that failed must not look like a sent link: Auth.js turns a throw into ?error= on the sign-in page.
-    if (!result.sent) throw new Error(result.error ?? "could not send the sign-in link");
+    if (result.sent) return;
+    // A send that failed must not look like a sent link: Auth.js turns a throw into ?error= on the sign-in
+    // page. The yield first is for @auth/core's send-token.js, which starts this promise and then awaits a
+    // hash before Promise.all attaches a handler to it. Rejecting inside that window — which a send that
+    // fails without a network call does — is reported by Node as an unhandled rejection before Auth.js sees
+    // the error at all, so the logs get a crash-shaped line for a handled failure.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    throw new Error(result.error ?? "could not send the sign-in link");
   },
 };
 

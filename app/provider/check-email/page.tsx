@@ -6,12 +6,12 @@ import Image from "next/image";
 import Link from "next/link";
 import PersonaBrand from "@/components/PersonaBrand";
 import { SIGN_IN_LINK_SECONDS } from "@/lib/auth";
-import { devMailDir } from "@/lib/devMailbox";
+import { devMailDir, divertsMail } from "@/lib/devMailbox";
 import { emailProvider } from "@/lib/email";
 
 export default function CheckEmailPage() {
-  // No backend configured means the link went to the local mailbox instead of an inbox; say where.
-  const local = !emailProvider();
+  // A diverted link went to the local mailbox instead of an inbox; say where, or the dev has nowhere to look.
+  const local = divertsMail(process.env, Boolean(emailProvider()));
 
   return (
     <main className="ss-page sour-theme">
@@ -54,7 +54,7 @@ export default function CheckEmailPage() {
               {local && (
                 <div className="onboard-fields">
                   <p className="onboard-hint">
-                    This server has no email provider configured, so the message went to the local mailbox at{" "}
+                    This server does not send mail, so the message went to the local mailbox at{" "}
                     <code>{devMailDir()}/</code>. Run <code>npm run mail</code> to read it.
                   </p>
                 </div>

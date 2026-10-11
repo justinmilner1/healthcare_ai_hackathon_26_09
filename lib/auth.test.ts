@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { PrismaClient } from "@prisma/client";
 import { ABSOLUTE_SESSION_SECONDS, authAdapter, isPastAbsoluteCap } from "./authAdapter";
-import { devMailFilename, formatDevMail, linkIn, readDevMail, writeDevMail } from "./devMailbox";
+import { devMailFilename, divertsMail, formatDevMail, linkIn, readDevMail, writeDevMail } from "./devMailbox";
 import { setLogSink } from "./log";
 import { SIGN_IN_SUBJECT, sendSignInLink, signInEmailText } from "./mailer";
 import { practiceNameFor } from "./practice";
@@ -134,8 +134,32 @@ test("a mailbox file sorts by time, names itself after the subject, and round-tr
   }
 });
 
+test("mail is diverted when a directory is named, or when there is no backend to send with", () => {
+  assert.equal(divertsMail({ DEV_MAIL_DIR: "e2e/.mail" }, true), true);
+  assert.equal(divertsMail({}, false), true);
+  assert.equal(divertsMail({}, true), false);
+  assert.equal(divertsMail({ DEV_MAIL_DIR: "  " }, true), false);
+});
+
 test("a mailbox that does not exist is empty, not an error", () => {
   assert.deepEqual(readDevMail(join(tmpdir(), "devmail-does-not-exist")), []);
+});
+
+test("DEV_MAIL_DIR wins over a configured backend, so a sandbox with AWS keys in its environment sends nothing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "devmail-"));
+  const env = { ...process.env };
+  try {
+    process.env.EMAIL_PROVIDER = "ses";
+    process.env.DEV_MAIL_DIR = dir;
+    setLogSink(() => {});
+    const result = await sendSignInLink("maya@practice.com", LINK, 15);
+    assert.deepEqual(result, { sent: true, provider: "dev-mailbox" });
+    assert.equal(linkIn(readDevMail(dir)[0].text), LINK);
+  } finally {
+    setLogSink();
+    process.env = env;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("with no email backend the link goes to the local mailbox, and the log line carries no address or token", async () => {
@@ -168,6 +192,7 @@ test("a send that fails is reported as unsent, so sign-in does not pretend a lin
   const env = { ...process.env };
   try {
     process.env.EMAIL_PROVIDER = "ses";
+    delete process.env.DEV_MAIL_DIR;
     delete process.env.EMAIL_FROM; // SES with no verified sender fails before any network call
     setLogSink(() => {});
     const result = await sendSignInLink("maya@practice.com", LINK, 15);

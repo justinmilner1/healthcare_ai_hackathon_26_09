@@ -15,7 +15,9 @@ const MESSAGES: Record<string, string> = {
   EmailSignInError: "We could not send the link just now. Try again in a moment.",
   Verification: "That link has already been used or has expired. Here is a fresh one.",
   AccessDenied: "That address cannot sign in to this workspace.",
-  Configuration: "Sign-in is not configured on this server. Ask whoever runs it to set AUTH_SECRET.",
+  // Auth.js reports anything it did not raise itself — a send that failed, a missing AUTH_SECRET — as
+  // Configuration, so this covers both. The cause is in the server log, not on the screen.
+  Configuration: "Sign-in is not working on this server: the link could not be sent. Whoever runs it should check AUTH_SECRET and the email settings.",
 };
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; email?: string }> }) {

@@ -16,11 +16,23 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type DevMail = { to: string; subject: string; text: string };
+/** Only the one variable matters here, so a test can pass it without building a whole environment. */
+export type MailEnv = { DEV_MAIL_DIR?: string | undefined; [key: string]: string | undefined };
 export type StoredDevMail = DevMail & { file: string; at: string };
 
 /** Where the mailbox lives. `DEV_MAIL_DIR` is for the e2e suite, which keeps its own under e2e/. */
-export function devMailDir(env: NodeJS.ProcessEnv = process.env): string {
+export function devMailDir(env: MailEnv = process.env): string {
   return env.DEV_MAIL_DIR?.trim() || ".mail";
+}
+
+/**
+ * Whether to divert mail here instead of sending it. Setting `DEV_MAIL_DIR` says so outright, which is what
+ * the e2e suite and `npm run dev` on a machine that happens to have AWS credentials in the environment need —
+ * otherwise lib/email.ts would pick SES up and try to send a sign-in link through an unverified identity.
+ * With nothing configured at all there is no sender either way, so the mailbox is the only place left.
+ */
+export function divertsMail(env: MailEnv = process.env, hasBackend = false): boolean {
+  return Boolean(env.DEV_MAIL_DIR?.trim()) || !hasBackend;
 }
 
 /** `<sortable timestamp>-<slug>.txt`. The timestamp leads so a plain sort is newest-last. */

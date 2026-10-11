@@ -1,14 +1,15 @@
 // Where a sign-in magic link goes (design §5.1). Owner: identity.
 //
+//   DEV_MAIL_DIR is set             -> the local mailbox in lib/devMailbox.ts, read with `npm run mail`
 //   an email backend is configured  -> send it (SES in production and staging; Resend locally if someone has
 //                                      a key, see lib/email.ts)
-//   nothing is configured           -> the local mailbox in lib/devMailbox.ts, read with `npm run mail`
+//   neither                         -> the local mailbox again; there is nothing to send with
 //
 // The log line records that a link was sent and through what. Never the address and never the URL: the URL is
 // a bearer credential and §10.3 keeps link tokens out of the log.
 
 import { emailProvider, sendEmail, type SendResult } from "./email";
-import { devMailDir, writeDevMail } from "./devMailbox";
+import { devMailDir, divertsMail, writeDevMail } from "./devMailbox";
 import { log } from "./log";
 
 export const SIGN_IN_SUBJECT = "Your Sweet Spot sign-in link";
@@ -30,7 +31,7 @@ export function signInEmailText(url: string, minutes: number): string {
 
 export async function sendSignInLink(to: string, url: string, minutes: number): Promise<SendResult> {
   const text = signInEmailText(url, minutes);
-  if (!emailProvider()) {
+  if (divertsMail(process.env, Boolean(emailProvider()))) {
     writeDevMail({ to, subject: SIGN_IN_SUBJECT, text });
     // The directory, not the filename: scrub() reads a timestamped filename as a phone number and redacts it.
     log.info("signin_link_sent", { channel: "email", provider: "dev-mailbox", sent: true, target: devMailDir() });
