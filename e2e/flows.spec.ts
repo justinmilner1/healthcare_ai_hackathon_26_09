@@ -20,6 +20,25 @@ async function demoProvider(request: APIRequestContext) {
   return demo as { id: string; name: string };
 }
 
+/** The patient `npm run seed` creates, with a week of sample uploads already attached. */
+const SEEDED_PATIENT = "Sam Sample";
+
+type VisitRow = { id: string; name: string; uploads: string[]; hasSummary: boolean };
+
+/**
+ * The seeded visit, by name rather than by "the first row that has uploads".
+ *
+ * Both projects and both servers share one database, so other tests' patients are in this list too — and at
+ * least one of them (the staleness test below) exists precisely to carry uploads and an out-of-date summary.
+ * Matching on uploads alone picked whichever row came first and made this file order-dependent.
+ */
+async function seededVisit(request: APIRequestContext, providerId: string): Promise<VisitRow> {
+  const detail = await (await request.get(`/api/provider?id=${providerId}`)).json();
+  const seeded = (detail.visits as VisitRow[]).find((v) => v.name === SEEDED_PATIENT && v.uploads.length > 0);
+  expect(seeded, `npm run seed creates ${SEEDED_PATIENT} with sample uploads`).toBeTruthy();
+  return seeded!;
+}
+
 test("landing renders", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
@@ -76,12 +95,9 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
 // no summary must still end with a summary on the page — through the queue, with the two "it's ready" links
 // queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
 test("summary generation goes through the job queue", async ({ page, request }) => {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  const detail = await (await request.get(`/api/provider?id=${demo.id}`)).json();
-  // The seeded visit is the one with uploaded files (`npm run seed`); rows are visits now (design §4.4).
-  const seeded = detail.visits.find((v: { name: string; uploads: string[] }) => v.uploads.length > 0);
-  expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
+  const demo = await demoProvider(request);
+  // Rows are visits now (design §4.4); this is the seeded one, with its week of uploaded files.
+  const seeded = await seededVisit(request, demo.id);
 
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief")).toContainText(seeded.name, LOADED);
@@ -110,9 +126,7 @@ test("summary generation goes through the job queue", async ({ page, request }) 
 // difference, since a reused summary leaves its own timestamp exactly where it was.
 test("a second run with unchanged inputs returns the saved summary", async ({ request }) => {
   const demo = await demoProvider(request);
-  const detail = await (await request.get(`/api/provider?id=${demo.id}`)).json();
-  const seeded = detail.visits.find((v: { uploads: string[] }) => v.uploads.length > 0);
-  expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
+  const seeded = await seededVisit(request, demo.id);
 
   const read = async () => (await request.get(`/api/patient/${seeded.id}`)).json();
   /** Wait until nothing is in flight: an earlier test, or the other project's run, may still be draining. */
