@@ -67,11 +67,15 @@ that the provider dashboard — charts and all — loads with no CSP violation i
 
 ## 2. CSRF
 
-Both of this app's sessions are cookies: the provider cookie (`lib/providerSession.ts`, Auth.js from T05) and
-the patient's visit link. A browser sends a cookie on any request to this origin, whichever page started it,
-so without a second factor a page on another site could POST `/api/invite` or `/api/upload` in the background
-and the request would arrive carrying a clinician's session. Nothing in the route can tell that apart from a
-click on our own dashboard.
+Both of this app's sessions are cookies: the provider session (today `ss_provider` from
+`lib/providerSession.ts`, Auth.js's own once T05 lands) and the patient's visit link. A browser sends a
+cookie on any request to this origin, whichever page started it, so without a second factor a page on
+another site could POST `/api/invite` or `/api/upload` in the background and the request would arrive
+carrying a clinician's session. Nothing in the route can tell that apart from a click on our own dashboard.
+
+That sentence is also the limit of what this protects, and it is what the two exemptions below turn on. The
+attack needs an **ambient** credential — something the browser attaches on its own. A request that has none
+has nothing to ride.
 
 The scheme is the **cookie-to-header token** (double submit), in `lib/csrf.ts` and enforced in
 `middleware.ts` before any route handler runs:
@@ -97,6 +101,36 @@ import { apiFetch } from "@/lib/csrf";
 const res = await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId }) });
 ```
 
+### The two exemptions
+
+Each one is a hole by construction, so each is narrow, named in code, and tested for the shape of the hole.
+Neither can be reached by a cross-site page: a `<form>` cannot set a request header at all, and a
+cross-origin `fetch` that sets one needs a CORS preflight this app never answers. **The Origin check (3
+above) runs for every request either way** — standing down on the token is not standing down on that — so
+both exemptions keep a second lock.
+
+**1. `POST /api/jobs/run`, by path** (`CSRF_EXEMPT_PATHS` in `lib/csrf.ts`). This is the §3.4 runner.
+EventBridge Scheduler calls it once a minute with `Authorization: Bearer <JOBS_SECRET>` and nothing else: no
+cookie, no Origin, and no page to have read a token from. A challenge in front of it answers 403 before
+`authorizeRunner` runs, and the queue then never drains in a deployed environment — no invite texts, no
+summary emails, no `sour.run`, no retention sweep. It is sound because the route grants nothing on the
+strength of a cookie: its only authority is the bearer secret, which it checks itself and refuses without
+(401, or 503 where none is configured). A cross-site page can make a browser send our cookies; it cannot
+make it send that header, and the cookie buys the caller nothing here anyway.
+
+The bar for adding a path to that list: **the route must grant nothing on the strength of a cookie.** If it
+reads a session, it is not exempt, whatever else it also checks. The list is matched exactly, never by
+prefix, so `/api/jobs/runner-admin` is challenged like everything else the day someone adds it.
+
+**2. A Next.js Server Action**, recognised by the `Next-Action` header. No application code issues the
+request — Next posts it to the page's own URL with that header and whatever cookies the browser has — so
+there is nowhere to stamp `x-csrf-token`, and inventing one would mean patching Next's own client. Next runs
+its own Origin-against-Host check on Server Actions before invoking the action, and step 3 above runs too;
+this exemption only stands down **when that check actually verified an Origin**, which a Server Action POST
+from a browser always carries. There are no Server Actions in the repo yet; T05's provider sign-in
+(`app/provider/actions.ts`) is the first, and settling the rule here rather than inside that merge is the
+point.
+
 **The one caller that cannot set a header** is the sandbox Dexcom button, a plain `<form method="POST">`
 whose response is a cross-origin redirect to Dexcom's authorization page. It sends the token as `?csrf=` on
 the form action instead. Reading it out of the body is not an option: consuming the request stream in
@@ -104,9 +138,16 @@ middleware would leave route handlers with an empty body and break every multipa
 is as unguessable to another origin as the header is, and `Referrer-Policy: no-referrer` keeps the URL from
 travelling anywhere.
 
-**Tests.** `lib/csrf.test.ts` covers the decision itself; `e2e/security.spec.ts` posts to `/api/book` with no
-token, with a mismatched token, and from a forged origin, and then with the real token to show the same call
-succeeds. `e2e/api.ts` is how the suite's own direct API calls do the handshake.
+**Tests.** `lib/csrf.test.ts` covers the decision itself, both halves: `checkCsrf` including each exemption
+and the shape of each hole, and the client functions (`readCsrfToken`, `ensureCsrfToken`, `apiFetch`) against
+a stubbed `document.cookie`, since a bug there is a page whose every POST fails and nothing else catches it.
+
+`e2e/security.spec.ts` posts to `/api/book` with no token, with a mismatched token, and from a forged
+origin, then with the real token to show the same call succeeds. It also drives `/api/jobs/run` against the
+third server in `playwright.config.ts` — the only one with a `JOBS_SECRET`, which is what makes the route
+answer the way production does — asserting 401 without the secret (**not** 403, which would mean middleware
+answered first), a drain report with it, a 403 for a cross-site post that carries the secret, and a 403 for
+a neighbouring path. `e2e/api.ts` is how the suite's own direct API calls do the handshake.
 
 A refusal from middleware carries the static headers too: `next.config.ts` applies them to responses the
 router produces, not to one middleware returns itself, so no response leaves without them.
@@ -119,10 +160,8 @@ If a route ever needs to be exempt (an inbound webhook signed by the sender, for
 
 ### Adding a Server Action
 
-There are none today, and one would be refused as things stand: Next posts a Server Action to the page's own
-URL with a `next-action` header and no `x-csrf-token`. Whoever adds the first one decides between sending the
-token from the client and recognising Server Action requests in `middleware.ts` and leaning on Next's own
-`serverActions.allowedOrigins` check instead. Either way, write down which, here.
+Covered: exemption 2 above lets it through on a verified Origin, which is also what Next checks for itself.
+Nothing to do.
 
 ---
 

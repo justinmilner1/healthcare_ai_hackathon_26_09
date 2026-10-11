@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
@@ -113,4 +114,57 @@ test("the same POST with the token succeeds, and a GET never needed one", async 
 test("a DELETE is challenged too, not just POST", async ({ request }) => {
   const res = await request.delete("/api/upload", { data: { token: "whatever", kind: "dexcom" } });
   expect(res.status()).toBe(403);
+});
+
+// Design §3.4 + §10.8: the one route the CSRF middleware stands down for, and the reasons that is sound.
+//
+// EventBridge Scheduler posts to /api/jobs/run once a minute with `Authorization: Bearer <JOBS_SECRET>` and
+// nothing else — no cookie, no Origin, no page to have read a token from. A CSRF challenge in front of it
+// answers 403 before `authorizeRunner` ever runs, and in a deployed environment the queue then never
+// drains: no invite texts, no summary emails, no sour.run, no retention sweep. The attack CSRF exists to
+// stop needs an *ambient* credential, and this route grants nothing on the strength of a cookie, so there
+// is nothing here to ride.
+//
+// These run against the third server from playwright.config.ts, the only one with a JOBS_SECRET set, which
+// is what puts the app in "scheduled" mode and makes the route answer the way production does.
+test.describe("the jobs runner is reachable without a CSRF token", () => {
+  test.use({ baseURL: `http://localhost:${RUNNER_PORT}` });
+
+  test("no secret is 401 from the route, not 403 from middleware", async ({ request }) => {
+    const res = await request.post("/api/jobs/run");
+    // The distinction is the whole point: 403 would mean the request never reached authorizeRunner.
+    expect(res.status(), await res.text()).toBe(401);
+    expect(res.headers()["x-csrf-blocked"]).toBeUndefined();
+    expect((await res.json()).code).not.toBe("csrf_failed");
+  });
+
+  test("a wrong secret is 401 too", async ({ request }) => {
+    const res = await request.post("/api/jobs/run", { headers: { authorization: "Bearer not-the-secret" } });
+    expect(res.status()).toBe(401);
+    expect(res.headers()["x-csrf-blocked"]).toBeUndefined();
+  });
+
+  test("the real secret drains the queue, with no CSRF token anywhere", async ({ request }) => {
+    const res = await request.post("/api/jobs/run", { headers: { authorization: `Bearer ${RUNNER_SECRET}` } });
+    expect(res.status(), await res.text()).toBe(200);
+    // The drain report is what the §11.1 alarm reads, so its shape is part of the contract.
+    expect(await res.json()).toHaveProperty("claimed");
+  });
+
+  test("the exemption is not a hole: a cross-site post is still refused", async ({ request }) => {
+    // Standing down on the token does not stand down on the Origin check, which runs for every request.
+    const res = await request.post("/api/jobs/run", {
+      headers: { authorization: `Bearer ${RUNNER_SECRET}`, origin: "https://evil.example" },
+    });
+    expect(res.status()).toBe(403);
+    expect(res.headers()["x-csrf-blocked"]).toContain("origin");
+  });
+
+  test("a neighbouring path is not exempt", async ({ request }) => {
+    // The list is matched exactly, so /api/jobs/<anything else> is challenged like everything else. There is
+    // no such route today; a 403 rather than a 404 is the proof that middleware answered first.
+    const res = await request.post("/api/jobs/runner-admin");
+    expect(res.status()).toBe(403);
+    expect((await res.json()).code).toBe("csrf_failed");
+  });
 });
