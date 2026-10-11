@@ -79,10 +79,11 @@ test("the invite says nothing clinical", () => {
 
 test("the summary-ready emails are a link each, provider and patient", () => {
   const t = summaryTemplates({
-    patient: { id: "pat_1", name: "Sam Sample", token: "tok_abc123", apptAt: APPT },
+    visit: { id: "vis_7", token: "tok_abc123", apptAt: APPT },
+    patient: { name: "Sam Sample" },
     provider: { id: "usr_9", name: "Dr. Ada Bell" },
   });
-  assert.equal(t.providerLink, "https://sweetspot.example/provider/usr_9?patient=pat_1");
+  assert.equal(t.providerLink, "https://sweetspot.example/provider/usr_9?visit=vis_7");
   assert.equal(t.patientLink, "https://sweetspot.example/patient/tok_abc123");
   assert.equal(t.provider.subject, "Sour: a pre-visit summary is ready (Thursday, Sep 24)");
   assert.ok(t.provider.text.includes(t.providerLink));
@@ -94,10 +95,11 @@ test("the summary-ready emails are a link each, provider and patient", () => {
 
 test("the provider email names no patient, and neither email carries the summary", () => {
   const t = summaryTemplates({
-    patient: { id: "pat_1", name: "Sam Sample", token: "tok_abc123", apptAt: APPT },
+    visit: { id: "vis_7", token: "tok_abc123", apptAt: APPT },
+    patient: { name: "Sam Sample" },
     provider: { id: "usr_9", name: "Dr. Ada Bell" },
   });
-  // The provider's own mailbox is not a safe place for a patient's name; the id in the link is enough.
+  // The provider's own mailbox is not a safe place for a patient's name; the visit id in the link is enough.
   assert.equal(t.provider.subject.includes("Sam"), false);
   assert.equal(t.provider.text.includes("Sam"), false);
   assertNoClinicalContent("provider summary email", `${t.provider.subject}\n${t.provider.text}`);
@@ -109,7 +111,8 @@ test("the provider email names no patient, and neither email carries the summary
 
 test("a summary with no appointment date drops the date from both subjects", () => {
   const t = summaryTemplates({
-    patient: { id: "pat_1", name: "Sam Sample", token: "tok_abc123", apptAt: null },
+    visit: { id: "vis_7", token: "tok_abc123", apptAt: null },
+    patient: { name: "Sam Sample" },
     provider: { id: "usr_9", name: "Dr. Ada Bell" },
   });
   assert.equal(t.provider.subject, "Sour: a pre-visit summary is ready");

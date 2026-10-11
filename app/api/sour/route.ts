@@ -1,9 +1,10 @@
 // Sour: provider summary. Owner: Justin (taken over from the scaffold; James did not land changes).
-// POST /api/sour { patientId }                 -> queues a `sour.run` job and returns 202 { jobId, status }; the
+// POST /api/sour { visitId }                   -> queues a `sour.run` job and returns 202 { jobId, status }; the
 //                                                 job writes both summaries and queues the two link emails (§3.4,
 //                                                 §7.1). The page polls GET /api/patient/[id] for the result;
 //                                                 showing the job's own state is T15.
-// POST /api/sour { patientId, question }       -> free-text follow-up ("why was Tuesday bad?") -> { answer }
+// POST /api/sour { visitId, question }         -> free-text follow-up ("why was Tuesday bad?") -> { answer }
+// `visitId` identifies the visit (design §4.4) and may also be that visit's invite token.
 // All numbers are computed deterministically in lib/sour.ts and handed to the model as a local-time brief
 // (per-day rows, time-of-day windows, spikes with places, nights labeled by the evening before).
 // The model only writes patterns and questions. Safety flags (lows <54, TBR >4%, sustained >250) are
@@ -20,8 +21,8 @@ import { loadSourContext } from "@/lib/sourRun";
 import { findVisit } from "@/lib/visit";
 
 async function postHandler(req: Request) {
-  const body = (await req.json().catch(() => null)) as { patientId?: string; question?: unknown; history?: unknown } | null;
-  if (!body || typeof body.patientId !== "string" || !body.patientId) return NextResponse.json({ error: "patientId is required" }, { status: 400 });
+  const body = (await req.json().catch(() => null)) as { visitId?: string; question?: unknown; history?: unknown } | null;
+  if (!body || typeof body.visitId !== "string" || !body.visitId) return NextResponse.json({ error: "visitId is required" }, { status: 400 });
   if (body.question !== undefined && (typeof body.question !== "string" || !body.question.trim() || body.question.length > 4000)) {
     return NextResponse.json({ error: "question must be non-empty text of at most 4000 characters" }, { status: 400 });
   }
@@ -36,8 +37,8 @@ async function postHandler(req: Request) {
   // Queueing a summary needs the visit and nothing else; only the follow-up question needs the brief, which
   // costs a parse of the whole Dexcom upload.
   if (typeof body.question !== "string") {
-    const visit = await findVisit(body.patientId);
-    if (!visit) return NextResponse.json({ error: "patient not found" }, { status: 404 });
+    const visit = await findVisit(body.visitId);
+    if (!visit) return NextResponse.json({ error: "visit not found" }, { status: 404 });
     // Generation is a job (§3.4): two model calls and two emails are not something a clinician should hold a
     // request open for, and the row survives a redeploy mid-run. Asking twice while the first run is still in
     // flight joins it; asking again after it has finished is a real regenerate (lib/jobs.ts, enqueue).
@@ -46,8 +47,8 @@ async function postHandler(req: Request) {
     return NextResponse.json({ jobId: job.id, status: job.status, queued: true, deduped }, { status: 202 });
   }
 
-  const ctx = await loadSourContext(body.patientId);
-  if (!ctx) return NextResponse.json({ error: "patient not found" }, { status: 404 });
+  const ctx = await loadSourContext(body.visitId);
+  if (!ctx) return NextResponse.json({ error: "visit not found" }, { status: 404 });
   const { brief } = ctx;
 
   try {
@@ -66,7 +67,7 @@ async function postHandler(req: Request) {
       return NextResponse.json({ error }, { status: 503 });
     }
     // The caller's string may be a link token (loadSourContext takes either); log the resolved id.
-    log.error("sour_chat_failed", { patientId: ctx.bundle.patient.id, error: e });
+    log.error("sour_chat_failed", { visitId: ctx.visitId, error: e });
     return NextResponse.json({ error: "Sour could not answer. Please try again." }, { status: 502 });
   }
 }

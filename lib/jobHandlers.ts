@@ -60,7 +60,8 @@ export const handlers: JobHandlers = {
   "notify.invite": async (payload) => {
     const visit = await visitOf(payload);
     const result: InviteResult = await sendIntakeInvite({
-      id: visit.patientId,
+      visitId: visit.id,
+      patientId: visit.patientId,
       name: visit.patient.name,
       phone: visit.patient.phone,
       email: visit.patient.email,
@@ -84,7 +85,8 @@ export const handlers: JobHandlers = {
     const patientSummary = pick("patient");
     if (!providerSummary || !patientSummary) throw new Error("summaries are not saved yet");
     const result: SummaryNotifyResult = await sendSummaryEmails({
-      patient: { id: visit.patientId, name: visit.patient.name, email: visit.patient.email, token: visit.token, apptAt: visit.scheduledAt },
+      visit: { id: visit.id, token: visit.token, apptAt: visit.scheduledAt },
+      patient: { id: visit.patientId, name: visit.patient.name, email: visit.patient.email },
       provider: { id: visit.providerUserId ?? "", name: providerName(visit), email: visit.providerUser?.email ?? null, practice: visit.patient.practice.name },
       providerSummary,
       patientSummary,
