@@ -1,10 +1,14 @@
 // CSRF protection on state-changing routes (design §10.8). Owner: compliance.
 //
-// Why it matters here even without a password login: both of the app's sessions are cookies. The provider
-// cookie (`ss_provider`, lib/providerSession.ts, Auth.js from T05) is sent on any request a browser makes to
-// this origin, whichever page started it. So a page on another site can POST /api/invite or /api/upload in
-// the background and the request arrives carrying the clinician's session. Nothing in the route can tell it
-// apart from a click on our own dashboard.
+// Why it matters here even without a password login: both of the app's sessions are cookies — the provider
+// session (today `ss_provider` from lib/providerSession.ts, Auth.js's own once T05 lands) and the patient's
+// visit link. A browser attaches a cookie to any request to this origin, whichever page started it, so a
+// page on another site can POST /api/invite or /api/upload in the background and the request arrives
+// carrying the clinician's session. Nothing in the route can tell it apart from a click on our own dashboard.
+//
+// That sentence is also the limit of what this protects, and the exemptions below follow from it. The attack
+// needs an *ambient* credential: something the browser supplies on its own. A request whose authority is a
+// bearer secret in a header has none, so challenging it buys nothing and costs the caller everything.
 //
 // The scheme is the cookie-to-header token (double submit). A random token sits in a cookie that is readable
 // by our own JavaScript, and every state-changing request must repeat it in the x-csrf-token header. A
@@ -23,6 +27,29 @@ export const CSRF_PARAM = "csrf";
 
 /** 30 days, the same as the provider cookie: long enough that a tab left open overnight still posts. */
 export const CSRF_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+/** The header Next.js puts on a Server Action POST. Its presence is what tells one apart from a form post. */
+export const SERVER_ACTION_HEADER = "next-action";
+
+/**
+ * Routes that derive no authority from a cookie, and so have nothing for a cross-site page to ride.
+ *
+ * `/api/jobs/run` is the §3.4 runner. EventBridge Scheduler calls it once a minute with
+ * `Authorization: Bearer <JOBS_SECRET>` and nothing else, and `authorizeRunner` refuses it without that
+ * secret (401, or 503 where none is configured). A cross-site page can make a browser send our cookies; it
+ * cannot make it send that header, and the route does nothing for a caller who lacks it. Challenging it for
+ * a CSRF token therefore protects nothing and breaks the queue: middleware would answer 403 before the
+ * handler ran, so no invite, no summary email, no retention sweep would ever be sent.
+ *
+ * The bar for adding a path here: the route must grant nothing on the strength of a cookie. If a route reads
+ * a session, it is not exempt, whatever else it also checks.
+ */
+export const CSRF_EXEMPT_PATHS: readonly string[] = ["/api/jobs/run"];
+
+export function isCsrfExemptPath(pathname: string): boolean {
+  // Exact match only. A prefix match would exempt /api/jobs/runner-admin the day someone adds it.
+  return CSRF_EXEMPT_PATHS.includes(pathname.replace(/\/+$/, "") || "/");
+}
 
 /** Methods that cannot change state, per RFC 9110. Everything else is checked. */
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -55,6 +82,8 @@ const TOKEN_SHAPE = /^[A-Za-z0-9_-]{32,128}$/;
 
 export type CsrfInput = {
   method: string;
+  /** The request path, for the machine-to-machine exemption in CSRF_EXEMPT_PATHS. */
+  pathname: string;
   /** The browser's Origin header, absent on same-origin GETs and on non-browser clients. */
   origin: string | null;
   /** Fallback when Origin is absent but a Referer is not: older browsers on form posts. */
@@ -62,6 +91,8 @@ export type CsrfInput = {
   /** Host as the client addressed it, and the proxy's view of it when there is one in front. */
   host: string | null;
   forwardedHost?: string | null;
+  /** Next's `Next-Action` header, set on a Server Action POST and on nothing else. */
+  serverAction?: string | null;
   headerToken: string | null;
   /** `?csrf=` on the request URL. A plain <form method="POST"> sets no headers, and reading the token out
    *  of the body is not an option in middleware: consuming the stream there leaves the route handler with
@@ -80,9 +111,11 @@ export type CsrfInput = {
 export function checkCsrf(input: CsrfInput): string | null {
   if (!isStateChanging(input.method)) return null;
 
-  // 1. Origin, when the browser sent one. A cross-site post cannot forge it.
+  // 1. Origin, when the browser sent one. A cross-site post cannot forge it. This runs for every request,
+  //    exempt path or not: it costs nothing and it is the check that does not depend on our own cookie.
   const expected = (input.forwardedHost || input.host || "").toLowerCase();
   const stated = input.origin ?? input.referer;
+  let originVerified = false;
   if (stated) {
     let statedHost: string;
     try {
@@ -92,9 +125,26 @@ export function checkCsrf(input: CsrfInput): string | null {
     }
     if (!expected) return "no host to compare the origin against";
     if (statedHost !== expected) return "origin does not match host";
+    originVerified = true;
   }
 
-  // 2. The double-submit token. Required even when the Origin matched: a same-origin injection, or a
+  // 2. Two kinds of request have no ambient credential for the token to protect, so the token is not asked
+  //    of them. Both are narrow, and neither can be reached by a cross-site page: a `<form>` cannot set a
+  //    request header at all, and a cross-origin fetch that sets one needs a CORS preflight this app never
+  //    answers.
+  //
+  //    a. A route in CSRF_EXEMPT_PATHS — authority is a bearer secret the route checks itself, never a
+  //       cookie. See the list for the bar a path has to clear.
+  if (isCsrfExemptPath(input.pathname)) return null;
+
+  //    b. A Next.js Server Action. No application code issues the request, so there is nowhere to stamp a
+  //       header: Next posts it to the page's own URL with `Next-Action` and whatever cookies the browser
+  //       has. Next runs its own Origin-against-Host check on these before invoking the action, and so does
+  //       step 1 above — which is why this only stands down when step 1 actually verified something. A
+  //       Server Action POST from a browser always carries an Origin, so requiring it costs nothing real.
+  if (input.serverAction && originVerified) return null;
+
+  // 3. The double-submit token. Required even when the Origin matched: a same-origin injection, or a
   //    client that sends no Origin at all, is exactly what the token is for.
   const { cookieToken } = input;
   const sent = input.headerToken ?? input.urlToken ?? null;

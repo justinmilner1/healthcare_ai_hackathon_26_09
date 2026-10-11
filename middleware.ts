@@ -9,7 +9,7 @@
 // Edge runtime: Web APIs only, no node:crypto, no Prisma. Both helpers it uses are written for that.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { CSRF_COOKIE, CSRF_COOKIE_MAX_AGE, CSRF_HEADER, CSRF_PARAM, checkCsrf, isStateChanging, newCsrfToken } from "@/lib/csrf";
+import { CSRF_COOKIE, CSRF_COOKIE_MAX_AGE, CSRF_HEADER, CSRF_PARAM, SERVER_ACTION_HEADER, checkCsrf, isStateChanging, newCsrfToken } from "@/lib/csrf";
 import { contentSecurityPolicy, newNonce, STATIC_SECURITY_HEADERS } from "@/lib/security";
 
 export const config = {
@@ -48,6 +48,8 @@ export function middleware(req: NextRequest) {
   if (isStateChanging(req.method)) {
     const reason = checkCsrf({
       method: req.method,
+      pathname: req.nextUrl.pathname,
+      serverAction: req.headers.get(SERVER_ACTION_HEADER),
       origin: req.headers.get("origin"),
       referer: req.headers.get("referer"),
       host: req.headers.get("host"),
