@@ -173,13 +173,21 @@ ALTER TABLE "Summary" ADD COLUMN "visitId" TEXT,
 -- 4. Carry the hackathon rows forward. One practice per provider: in the hackathon a provider *was*
 --    the practice, and T06 is where practices get their own identity.
 -- --------------------------------------------------------------------------------------------------
+-- The ids this migration mints have to look like the ones the app mints, because other code reads the
+-- shape: lib/log.ts only lets a cuid-shaped id past the PHI scrubber (T40, §10.3), and a `prac_<id>` or
+-- `v_<id>` would be rewritten on the way to the log. So they are derived rather than invented: the same
+-- provider or patient always yields the same id, which is what lets the child rows below find their visit
+-- without a temporary column.
+CREATE FUNCTION pg_temp.cuid(prefix text, source text) RETURNS text
+  LANGUAGE sql IMMUTABLE AS $$ SELECT 'c' || substr(md5(prefix || ':' || source), 1, 24) $$;
+
 INSERT INTO "Practice" ("id", "name", "retentionDays", "createdAt")
-SELECT 'prac_' || "id", COALESCE(NULLIF("practice", ''), "name"), 365, "createdAt" FROM "Provider";
+SELECT pg_temp.cuid('practice', "id"), COALESCE(NULLIF("practice", ''), "name"), 365, "createdAt" FROM "Provider";
 
 INSERT INTO "User" ("id", "practiceId", "email", "name", "role", "createdAt")
-SELECT "id", 'prac_' || "id", "email", "name", 'admin', "createdAt" FROM "Provider";
+SELECT "id", pg_temp.cuid('practice', "id"), "email", "name", 'admin', "createdAt" FROM "Provider";
 
-UPDATE "Patient" SET "practiceId" = 'prac_' || "providerId";
+UPDATE "Patient" SET "practiceId" = pg_temp.cuid('practice', "providerId");
 
 -- One visit per patient, id derived from the patient id so the child rows below can find it.
 INSERT INTO "Visit" (
@@ -187,7 +195,7 @@ INSERT INTO "Visit" (
   "token", "notes", "intake", "optIn", "isSandbox", "createdAt"
 )
 SELECT
-  'v_' || p."id", p."id", p."providerId", p."apptAt", p."visitType", p."reason",
+  pg_temp.cuid('visit', p."id"), p."id", p."providerId", p."apptAt", p."visitType", p."reason",
   CASE
     WHEN EXISTS (SELECT 1 FROM "Summary" s WHERE s."patientId" = p."id") THEN 'summary_ready'
     WHEN p."intake" LIKE '%"wrapped":true%' THEN 'intake_done'
@@ -198,7 +206,7 @@ SELECT
 FROM "Patient" p;
 
 UPDATE "Upload" SET
-  "visitId" = 'v_' || "patientId",
+  "visitId" = pg_temp.cuid('visit', "patientId"),
   "bytes" = length("raw"),
   -- Every parsed payload is a JSON array (lib/types.ts); anything else counts as zero rows.
   "parsedRows" = CASE WHEN left(btrim("parsed"), 1) = '[' THEN json_array_length("parsed"::json) ELSE 0 END;
@@ -206,8 +214,8 @@ UPDATE "Upload" SET
 INSERT INTO "UploadData" ("uploadId", "parsed", "raw")
 SELECT "id", "parsed", "raw" FROM "Upload";
 
-UPDATE "Message" SET "visitId" = 'v_' || "patientId";
-UPDATE "Summary" SET "visitId" = 'v_' || "patientId";
+UPDATE "Message" SET "visitId" = pg_temp.cuid('visit', "patientId");
+UPDATE "Summary" SET "visitId" = pg_temp.cuid('visit', "patientId");
 
 -- --------------------------------------------------------------------------------------------------
 -- 5. Everything is carried over: the new columns are now required.

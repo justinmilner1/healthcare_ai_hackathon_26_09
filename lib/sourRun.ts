@@ -90,7 +90,12 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
     ],
   });
   // The visit has a summary now, so the dashboard and the retention sweep can see it without reading one (§4.4).
-  await db.visit.update({ where: { id: c.visitId }, data: { status: "summary_ready" } });
+  // Only ever forwards, like the intake transitions in /api/sweetie: re-running Sour on a visit a clinician
+  // has already signed off must not pull it back out of `reviewed` (§4.4).
+  await db.visit.updateMany({
+    where: { id: c.visitId, status: { in: ["invited", "verified", "in_intake", "intake_done"] } },
+    data: { status: "summary_ready" },
+  });
 
   // Both summaries saved -> email the provider and the patient a link. Skipped when the model was
   // unavailable, so placeholder text never triggers a notification. Fails soft.
