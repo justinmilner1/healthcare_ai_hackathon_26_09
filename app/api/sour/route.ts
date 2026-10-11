@@ -1,19 +1,22 @@
 // Sour: provider summary. Owner: Justin (taken over from the scaffold; James did not land changes).
-// POST /api/sour { patientId }                 -> generates and saves provider + patient summaries, returns both,
-//                                                 then emails each to the provider and the patient (see lib/notify.ts)
+// POST /api/sour { patientId }                 -> queues a `sour.run` job and returns 202 { jobId, status }; the
+//                                                 job writes both summaries and queues the two link emails (§3.4,
+//                                                 §7.1). The page polls GET /api/patient/[id] for the result;
+//                                                 showing the job's own state is T15.
 // POST /api/sour { patientId, question }       -> free-text follow-up ("why was Tuesday bad?") -> { answer }
 // All numbers are computed deterministically in lib/sour.ts and handed to the model as a local-time brief
 // (per-day rows, time-of-day windows, spikes with places, nights labeled by the evening before).
 // The model only writes patterns and questions. Safety flags (lows <54, TBR >4%, sustained >250) are
 // computed in code and attached to the provider summary regardless of the narrative.
 // Without an API key the summaries still return with placeholder patterns so the pages render.
-// The same generation runs from the Sweetie route when intake wraps up (lib/sourRun.ts).
+// The same job is queued by the Sweetie route when intake wraps up (lib/jobHandlers.ts, lib/sourRun.ts).
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { enqueue, nudge } from "@/lib/jobs";
 import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
 import { sourChatSystem } from "@/lib/prompts";
-import { loadSourContext, runSour } from "@/lib/sourRun";
+import { loadSourContext } from "@/lib/sourRun";
 
 async function postHandler(req: Request) {
   const body = (await req.json().catch(() => null)) as { patientId?: string; question?: unknown; history?: unknown } | null;
@@ -55,9 +58,12 @@ async function postHandler(req: Request) {
     }
   }
 
-  // Generation, save, and link emails live in lib/sourRun.ts so Sweetie can fire the same thing on wrap-up.
-  const result = await runSour(ctx.bundle.patient.id, ctx);
-  return NextResponse.json(result);
+  // Generation is a job (§3.4): two model calls and two emails are not something a clinician should hold a
+  // request open for, and the row survives a redeploy mid-run. Asking twice while the first run is still in
+  // flight joins it; asking again after it has finished is a real regenerate (lib/jobs.ts, enqueue).
+  const { job, deduped } = await enqueue({ kind: "sour.run", payload: { visitId: ctx.visitId }, idempotencyKey: `sour.run:${ctx.visitId}` });
+  nudge(after);
+  return NextResponse.json({ jobId: job.id, status: job.status, queued: true, deduped }, { status: 202 });
 }
 
 function plainAnswer(raw: string): string {
