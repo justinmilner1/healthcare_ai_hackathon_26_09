@@ -290,6 +290,19 @@ test(".env.example documents every variable the app reads", () => {
   assert.deepEqual(missing, [], "add these to .env.example");
 });
 
+test(".env.example is a file you can copy to .env and get a clean start", () => {
+  // The values in it are examples, so they have to be examples that pass: a half-filled DEXCOM_* group or a
+  // stray SUMMARY_TZ would greet every new developer with a warning about a file they did not write.
+  const text = readFileSync(path.join(repoRoot, ".env.example"), "utf8");
+  const env: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const match = /^\s*([A-Z][A-Z0-9_]*)="?([^"#]*)"?/.exec(line);
+    if (match) env[match[1]] = match[2].trim();
+  }
+  assert.ok(env.DATABASE_URL, "the parse above found nothing, so this test is not testing anything");
+  assert.deepEqual(validateConfig(env), []);
+});
+
 test(".env.example has nothing the validator does not know about", () => {
   const known = new Set(SPEC.map((s) => s.name));
   const extra = envExampleNames().filter((name) => !known.has(name));

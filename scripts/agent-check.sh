@@ -22,10 +22,12 @@ npx prisma migrate deploy
 npm run seed
 
 echo "== config"
-# The §3.7 gate as a command, against the environment this run actually has. It is the same check
-# instrumentation.ts runs when the server boots, so a failure here would be a server that refuses to start a
-# few steps later, with a clearer message.
-npm run config:check
+# The §3.7 gate as a command, judged by production rules because that is what the two Playwright servers are:
+# both are `next start` on a production build. Running it here is the same check instrumentation.ts runs when
+# they boot, twenty seconds in instead of two minutes in and with a readable message instead of a webServer
+# timeout. It passes in this sandbox and in CI: the only required variables are DATABASE_URL, set just above,
+# and APP_URL, which is localhost here and exempt from the https rule.
+npm run config:check -- --production
 
 echo "== typecheck"; npm run typecheck
 echo "== lint";      npm run lint
