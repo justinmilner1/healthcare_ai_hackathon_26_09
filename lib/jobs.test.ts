@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { PrismaClient } from "@prisma/client";
-import { authorizeRunner, backoffMs, BACKOFF_MS, claimDueJobs, drainJobs, enqueue, jobsRunner, MAX_ATTEMPTS, type JobHandlers } from "./jobs";
+import { authorizeRunner, backoffMs, BACKOFF_MS, claimDueJobs, drainJobs, enqueue, jobsRunner, MAX_ATTEMPTS, reapStuckJobs, STUCK_AFTER_MS, STUCK_ERROR, type JobHandlers } from "./jobs";
 import { setLogSink } from "./log";
 
 // ---------------------------------------------------------------------------------------------
@@ -251,6 +251,64 @@ describe("job queue", { skip: SERVER_URL ? false : "DATABASE_URL is not set" }, 
       const row = await db.job.findUniqueOrThrow({ where: { id: job.id } });
       assert.equal(row.attempts, 1);
       assert.equal(row.status, "running");
+    });
+  });
+
+  describe("stuck jobs", () => {
+    /** Enqueue, claim, and then pretend the runner died `agoMs` ago without reporting back. */
+    const abandoned = async (agoMs: number, over: { attempts?: number; idempotencyKey?: string } = {}) => {
+      const { job } = await enqueue({ kind: "sour.run", payload: { visitId: "v1" }, idempotencyKey: over.idempotencyKey }, db);
+      await claimDueJobs(10, db);
+      return db.job.update({
+        where: { id: job.id },
+        data: { startedAt: new Date(Date.now() - agoMs), ...(over.attempts === undefined ? {} : { attempts: over.attempts }) },
+      });
+    };
+
+    it("leaves a job alone while it is still inside the lease", async () => {
+      const job = await abandoned(STUCK_AFTER_MS - 60_000);
+      assert.deepEqual(await reapStuckJobs(db), { requeued: 0, failed: 0 });
+      const row = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+      assert.equal(row.status, "running", "a slow handler is not a dead one");
+      assert.equal(row.attempts, 1);
+    });
+
+    it("puts a job a dead runner left running back on the queue, keeping its key", async () => {
+      const job = await abandoned(STUCK_AFTER_MS + 1000, { idempotencyKey: "sour.run:v1" });
+      assert.deepEqual(await reapStuckJobs(db), { requeued: 1, failed: 0 });
+      const row = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+      assert.equal(row.status, "queued");
+      assert.equal(row.attempts, 1, "the attempt it spent is not given back");
+      assert.equal(row.startedAt, null);
+      assert.equal(row.lastError, STUCK_ERROR);
+      assert.ok(row.runAfter.getTime() - Date.now() > 50_000, "comes back after a backoff, not instantly");
+      assert.equal(row.idempotencyKey, "sour.run:v1", "the work is still owed, so it still holds the key");
+
+      // And it really does run on the next drain, once the backoff is up.
+      const { seen, handlers } = spy();
+      assert.equal((await drainJobs({ handlers, client: db, now: new Date(Date.now() + 61_000) })).done, 1);
+      assert.deepEqual(seen, [{ visitId: "v1" }]);
+    });
+
+    it("fails a stranded job that has spent all three attempts, and releases its key", async () => {
+      const job = await abandoned(STUCK_AFTER_MS + 1000, { attempts: MAX_ATTEMPTS, idempotencyKey: "sour.run:v1" });
+      assert.deepEqual(await reapStuckJobs(db), { requeued: 0, failed: 1 });
+      const row = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+      assert.equal(row.status, "failed");
+      assert.equal(row.lastError, STUCK_ERROR);
+      assert.ok(row.finishedAt);
+      assert.equal(row.idempotencyKey, null);
+    });
+
+    it("a stranded job does not swallow the next request for the same work for ever", async () => {
+      // The reason this matters: while the corpse holds the key, Generate joins it instead of starting a
+      // summary, and the clinician waits on a job that can never finish.
+      await abandoned(STUCK_AFTER_MS + 1000, { attempts: MAX_ATTEMPTS, idempotencyKey: "sour.run:v1" });
+      assert.equal((await enqueue({ kind: "sour.run", payload: { visitId: "v1" }, idempotencyKey: "sour.run:v1" }, db)).deduped, true);
+
+      await drainJobs({ handlers: spy().handlers, client: db });
+      const again = await enqueue({ kind: "sour.run", payload: { visitId: "v1" }, idempotencyKey: "sour.run:v1" }, db);
+      assert.equal(again.deduped, false, "once the corpse is reaped, asking again is new work");
     });
   });
 

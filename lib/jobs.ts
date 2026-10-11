@@ -109,7 +109,8 @@ const isUniqueViolation = (e: unknown) =>
  * `FOR UPDATE SKIP LOCKED` is what makes two runners safe: a minute-by-minute schedule overlapping with a slow
  * drain, or two app instances, each get their own rows instead of running the same job twice. The attempt is
  * counted here rather than after the handler, so a process that dies mid-job still burns one of its three
- * attempts instead of being retried forever.
+ * attempts instead of being retried forever. Only `queued` rows are taken; a row a dead runner left `running`
+ * comes back through reapStuckJobs below.
  */
 export async function claimDueJobs(limit = 10, client: JobClient = db, now = new Date()): Promise<JobRow[]> {
   if (limit <= 0) return [];
@@ -124,6 +125,57 @@ export async function claimDueJobs(limit = 10, client: JobClient = db, now = new
           FOR UPDATE SKIP LOCKED
      )
      RETURNING *`);
+}
+
+/**
+ * How long a `running` row may go unreported before the runner holding it is presumed dead. Generously longer
+ * than any handler takes — Sour's model calls time out at 20 seconds each (§3.5) — because reclaiming a job
+ * that is in fact still running would send the same message twice.
+ */
+export const STUCK_AFTER_MS = 15 * 60_000;
+
+/** What a reaped job records. Said in the handler's voice because that is where the row's other errors come
+ *  from, and scrubbed by construction: it quotes nothing. */
+export const STUCK_ERROR = "Error: the runner stopped before this job reported back";
+
+/**
+ * Put back the jobs a dead runner left `running`.
+ *
+ * `claimDueJobs` only takes `queued` rows, so without this a process that dies mid-job — a redeploy, a cold
+ * Lambda frozen inside `after()`, an OOM — strands the row for good: it is never retried and never reaches
+ * `failed`, which §3.4 requires it to. Worse, the row still holds its `idempotencyKey`, so every later
+ * enqueue of the same work dedupes onto a job that can never finish, and the clinician's Generate button
+ * joins a corpse instead of starting a summary.
+ *
+ * A row with attempts left goes back on the queue after a backoff, keeping its key, because the work is still
+ * owed. A row that has spent all three fails properly, with the key released so the work can be asked for
+ * again.
+ */
+export async function reapStuckJobs(client: JobClient = db, now = new Date()): Promise<{ requeued: number; failed: number }> {
+  const stuck = (await client.job.findMany({
+    where: { status: "running", startedAt: { lte: new Date(now.getTime() - STUCK_AFTER_MS) } },
+  })) as JobRow[];
+
+  const report = { requeued: 0, failed: 0 };
+  for (const job of stuck) {
+    const line = { jobId: job.id, kind: job.kind, attempt: job.attempts, attempts: MAX_ATTEMPTS, error: STUCK_ERROR };
+    if (job.attempts < MAX_ATTEMPTS) {
+      await client.job.update({
+        where: { id: job.id },
+        data: { status: "queued", runAfter: new Date(now.getTime() + backoffMs(job.attempts)), startedAt: null, lastError: STUCK_ERROR },
+      });
+      report.requeued += 1;
+      log.warn("job_retry", line);
+    } else {
+      await client.job.update({
+        where: { id: job.id },
+        data: { status: "failed", finishedAt: now, startedAt: null, lastError: STUCK_ERROR, idempotencyKey: null },
+      });
+      report.failed += 1;
+      log.error("job_failed", line);
+    }
+  }
+  return report;
 }
 
 export type JobHandler = (payload: JobPayload, job: JobRow) => Promise<void>;
@@ -141,13 +193,19 @@ export type DrainOptions = {
   now?: Date;
 };
 
-/** Run every due job, oldest first, until there are none left or `maxJobs` have been handled. */
+/** Run every due job, oldest first, until there are none left or `maxJobs` have been handled. Rows a dead
+ *  runner left behind are reaped first: they go back on the queue for a later pass, or fail if their three
+ *  attempts are spent, and count in this report as a retry or a failure accordingly. */
 export async function drainJobs(opts: DrainOptions = {}): Promise<DrainReport> {
   const client = opts.client ?? db;
   const handlers = opts.handlers ?? (await import("./jobHandlers")).handlers;
   const batch = opts.limit ?? 10;
   const maxJobs = opts.maxJobs ?? 100;
   const report: DrainReport = { claimed: 0, done: 0, retried: 0, failed: 0 };
+
+  const reaped = await reapStuckJobs(client, opts.now ?? new Date());
+  report.retried += reaped.requeued;
+  report.failed += reaped.failed;
 
   while (report.claimed < maxJobs) {
     const jobs = await claimDueJobs(Math.min(batch, maxJobs - report.claimed), client, opts.now ?? new Date());

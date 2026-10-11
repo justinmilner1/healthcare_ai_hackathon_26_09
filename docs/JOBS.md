@@ -46,6 +46,14 @@ job is `failed` with the error kept. The attempt is counted at claim time, in th
 row `running`, so a runner that dies mid-job spends an attempt instead of being retried forever. Two runners
 never take the same row: the claim is `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`.
 
+A runner that dies does not take the job with it. The claim only ever takes `queued` rows, so each drain first
+reaps any row left `running` for longer than `STUCK_AFTER_MS` (15 minutes — generously longer than any handler
+takes, because reclaiming a job that is in fact still running would send the same message twice): one with
+attempts left goes back on the queue after a backoff and keeps its key, and one that has spent all three is
+`failed` with the key released. Without that, a redeploy or a frozen Lambda would strand the row for good —
+never retried, never `failed`, and still holding the `idempotencyKey`, so every later request for the same
+work would dedupe onto a job that can never finish.
+
 `idempotencyKey` collapses duplicate work **while it is in flight**: as long as a job with that key is queued
 or running, a second enqueue joins it, so a double-clicked Send link sends once and an intake that wraps while
 the clinician is already pressing Generate runs Sour once. The key is released when the job reaches `done` or
