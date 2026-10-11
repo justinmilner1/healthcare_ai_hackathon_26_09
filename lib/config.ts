@@ -153,6 +153,24 @@ export const SPEC: readonly VarSpec[] = [
   },
 
   {
+    name: "JOBS_SECRET",
+    group: "Jobs",
+    requirement: "recommended",
+    summary: "Shared secret the scheduler sends to POST /api/jobs/run as `Authorization: Bearer <secret>`.",
+    whenMissing: "POST /api/jobs/run refuses and jobs drain inside the request that enqueued them (design §3.4)",
+    // The runner route is public and this secret is the whole door, so a guessable one is worse than none:
+    // without it the route refuses outright, with `changeme` it lets anyone drain the queue.
+    check: (value) => (value.length >= 16 ? undefined : "must be at least 16 characters — it is the only thing guarding a public route"),
+  },
+  {
+    name: "JOBS_RUNNER",
+    group: "Jobs",
+    requirement: "optional",
+    summary: "Force who drains the queue instead of deciding from JOBS_SECRET: inline or scheduled.",
+    check: oneOf("inline", "scheduled"),
+  },
+
+  {
     name: "OPENAI_BASE_URL",
     group: "Model",
     requirement: "recommended",
@@ -369,7 +387,14 @@ export function validateConfig(env: Env = process.env, opts: { production?: bool
   }
 
   problems.push(...groupProblems(env, fatal, production));
-  return [...problems].sort((a, b) => (a.level === b.level ? 0 : a.level === "error" ? -1 : 1));
+
+  // Don't also warn about what was just refused over. JOBS_RUNNER=scheduled with no secret earns both a
+  // refusal and the "jobs will drain inline instead" warning, and that warning is not even true — inline is
+  // what `scheduled` turned off.
+  const refused = new Set(problems.filter((p) => p.level === "error" && p.variable).map((p) => p.variable));
+  const kept = problems.filter((p) => p.level === "error" || !p.variable || !refused.has(p.variable));
+
+  return kept.sort((a, b) => (a.level === b.level ? 0 : a.level === "error" ? -1 : 1));
 }
 
 /** Problems no single variable can see: half-configured integrations, and a production deployment with no way
@@ -394,6 +419,17 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   // deployment that half-inherits them should degrade to "the invite link is on screen", not refuse to serve a
   // visit. The other half of the pair being absent is still worth saying out loud.
   companions("AWS_ACCESS_KEY_ID", ["AWS_SECRET_ACCESS_KEY"], "static credentials come in pairs", "warning");
+
+  // `scheduled` with no secret is the one combination where nothing drains the queue at all: the route
+  // refuses every call (503) and the inline path is off, so every summary and notification sits in `Job`
+  // forever. Neither variable alone can see it.
+  if (v("JOBS_RUNNER") === "scheduled" && !v("JOBS_SECRET")) {
+    out.push({
+      level: fatal,
+      variable: "JOBS_SECRET",
+      message: "JOBS_SECRET is required when JOBS_RUNNER is scheduled: POST /api/jobs/run refuses without it and nothing else drains the queue (design §3.4).",
+    });
+  }
   companions("TWILIO_ACCOUNT_SID", ["TWILIO_AUTH_TOKEN", "TWILIO_FROM"], "lib/sms.ts cannot send without them");
   if (v("EMAIL_PROVIDER") === "resend") companions("EMAIL_PROVIDER", ["RESEND_API_KEY"], "the Resend backend was selected");
   if (v("EMAIL_PROVIDER") === "ses") companions("EMAIL_PROVIDER", ["EMAIL_FROM"], "SES rejects an unverified sender");

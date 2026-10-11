@@ -10,6 +10,7 @@ const good = (): Record<string, string | undefined> => ({
   NODE_ENV: "production",
   DATABASE_URL: "postgresql://sweetspot:sweetspot@db.internal:5432/sweetspot?schema=public",
   APP_URL: "https://sweetspot.example.com",
+  JOBS_SECRET: "a-long-enough-jobs-secret",
   OPENAI_BASE_URL: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
   OPENAI_API_KEY: "bedrock-key-not-real",
   BEDROCK_OPENAI_MODEL_ID: "global.openai.gpt-5.6-terra",
@@ -145,6 +146,23 @@ test("Twilio without its token and sender is reported, not left to fail at send 
     errors({ ...good(), TWILIO_ACCOUNT_SID: `AC${"0".repeat(32)}`, TWILIO_AUTH_TOKEN: "token-not-real", TWILIO_FROM: "+15551234567" }),
     [],
   );
+});
+
+test("a jobs runner set to scheduled with no secret is the queue nothing drains", () => {
+  // Either variable alone looks fine: the route refuses every call and the inline path is off, so every
+  // summary and notification sits in Job forever.
+  const stuck = { ...good(), JOBS_SECRET: undefined, JOBS_RUNNER: "scheduled" };
+  assert.match(errors(stuck)[0].message, /JOBS_SECRET is required when JOBS_RUNNER is scheduled/);
+  assert.deepEqual(errors({ ...stuck, JOBS_SECRET: "a-long-enough-secret" }), []);
+  // And it is not also told that jobs will drain inline, which is what `scheduled` turned off.
+  assert.deepEqual(warnings(stuck).filter((p) => p.variable === "JOBS_SECRET"), []);
+  assert.deepEqual(errors({ ...good(), JOBS_RUNNER: "inline" }), []);
+  assert.match(errors({ ...good(), JOBS_RUNNER: "cron" })[0].message, /must be one of inline, scheduled/);
+});
+
+test("the jobs secret has to be long enough to be a secret", () => {
+  assert.match(errors({ ...good(), JOBS_SECRET: "changeme" })[0].message, /at least 16 characters/);
+  assert.deepEqual(errors({ ...good(), JOBS_SECRET: "a-long-enough-secret" }), []);
 });
 
 test("a forced provider must have the credentials that backend needs", () => {
