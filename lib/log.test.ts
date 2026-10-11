@@ -123,7 +123,7 @@ test("an id field holding something that is not an id is still scrubbed", () => 
   // The pass-through is for the two formats this app mints, so it cannot become a way in for anything else.
   assert.equal(sanitize({ patientId: "Jane Doe, 415-555-0132" }).patientId, "Jane Doe, [number]");
   assert.equal(sanitize({ patientId: "jane@example.com" }).patientId, "[email]");
-  assert.equal(sanitize({ patientId: "x".repeat(200) }).patientId, "x".repeat(200).slice(0, 300));
+  assert.equal(String(sanitize({ patientId: "x".repeat(500) }).patientId).length, 300);
 });
 
 test("a phone number in an id field is still redacted", () => {
