@@ -220,7 +220,7 @@ test("a good environment logs one line and no warnings", () => {
     const line = JSON.parse(lines[0]) as Record<string, unknown>;
     assert.equal(line.event, "config_checked");
     assert.equal(line.ok, true);
-    assert.equal(line.degraded, false);
+    assert.equal(line.count, 0);
   } finally {
     setLogSink();
   }

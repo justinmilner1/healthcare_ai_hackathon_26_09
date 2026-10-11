@@ -459,7 +459,9 @@ export function assertConfig(env: Env = process.env): Problem[] {
     );
   }
 
-  log.info("config_checked", { count: SPEC.length, ok: true, degraded: problems.length > 0 });
+  // `count` is how many warnings were just logged, so one grep for config_checked says both that the
+  // gate ran and whether anything above it needs reading.
+  log.info("config_checked", { count: problems.length, ok: true });
   return problems;
 }
 
