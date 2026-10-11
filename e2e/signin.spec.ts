@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { DEMO_EMAIL, signInAsDemo } from "./auth";
+import { DEMO_EMAIL, latestSignInLink, signInAsDemo } from "./auth";
 
 // Provider sign-in end to end (design §5.1): the guard on /provider, the form, the "check your email" screen,
 // the emailed link, and signing out again. The link is read from the local mailbox lib/mailer.ts writes to when
@@ -32,14 +32,16 @@ test("asking for a link lands on check-your-email", async ({ page }) => {
   await shot(page, "provider-check-email");
 });
 
-test("an address that is not an address does not get a link", async ({ page }) => {
-  // The browser's own validation is first, so post the form the way a script would.
+test("an address the browser lets through still has to be an address", async ({ page }) => {
+  // `nobody@localhost` passes the browser's own type=email check — it does not insist on a dot — so this is
+  // what reaches the server action, and the server is what has to say no.
   await page.goto("/provider/signin");
-  await page.getByLabel("Work email").evaluate((input) => input.removeAttribute("type"));
-  await page.getByLabel("Work email").fill("not-an-address");
+  await page.getByLabel("Work email").fill("nobody@localhost");
   await page.getByRole("button", { name: /Email me a link/i }).click();
+
   await expect(page).toHaveURL(/\/provider\/signin\?error=InvalidEmail/);
-  await expect(page.getByRole("alert")).toContainText(/does not look like an email address/i);
+  await expect(page.locator(".ss-error")).toContainText(/does not look like an email address/i);
+  expect(latestSignInLink("nobody@localhost")).toBeNull();
 });
 
 test("the emailed link signs the provider in, and signing out ends it", async ({ page }) => {
