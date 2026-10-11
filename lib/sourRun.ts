@@ -1,15 +1,16 @@
-// Run Sour for one visit: build the brief, write both summaries, save them, email the links.
-// Called from POST /api/sour (button, auto-generate on first open) and from the Sweetie route the moment
-// intake wraps up, so the doctor's email arrives while the patient is still in the chat. Owner: Justin.
+// Run Sour for one visit: build the brief, write both summaries, save them, queue the "it's ready" links.
+// Called from the `sour.run` job handler (design §7.1), which is what POST /api/sour enqueues for the
+// provider page's Generate button and what the Sweetie route enqueues the moment intake wraps up, so the
+// doctor's email is on its way while the patient is still in the chat. Owner: Justin.
 
 import { baseSummary, loadBundle } from "./bundle";
 import { db } from "./db";
+import { enqueue } from "./jobs";
 import { ask, llmStatus, LLMUnavailable } from "./llm";
-import { sendSummaryEmails, type SummaryNotifyResult } from "./notify";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
 import type { GlucoseReading, PatientBundle, Summary } from "./types";
-import { findVisit, providerName } from "./visit";
+import { findVisit } from "./visit";
 
 type Narrative = { patterns: string[]; questions: string[] };
 
@@ -48,7 +49,8 @@ export async function loadSourContext(idOrToken: string): Promise<SourContext | 
 export type SourRunResult = {
   provider: Summary;
   patient: Summary;
-  notified: SummaryNotifyResult | { skipped: string };
+  /** The notify.summary job that will send the two links, or why no message is going out (§8.2). */
+  notified: { queued: string } | { skipped: string };
 };
 
 /** Generate, save, and notify. Never throws for a missing model; does throw for a missing visit. */
@@ -101,21 +103,15 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
     data: { status: "summary_ready" },
   });
 
-  // Both summaries saved -> email the provider and the patient a link. Skipped when the model was
-  // unavailable, so placeholder text never triggers a notification. Fails soft.
-  let notified: SummaryNotifyResult | { skipped: string } = { skipped: llmStatus().configured ? "Model gateway unavailable" : "LLM not configured" };
+  // Both summaries saved -> queue the two "it's ready" links (§3.4, §8.2). A job rather than two SES calls
+  // here, because this function runs inside a job itself: a bounce or a throttled send must not cost Sour its
+  // summary, and the send gets its own three attempts. Skipped when the model was unavailable, so placeholder
+  // text never triggers a notification, and for sandbox data, which is nobody's real appointment.
+  let notified: SourRunResult["notified"] = { skipped: llmStatus().configured ? "Model gateway unavailable" : "LLM not configured" };
   if (bundle.patient.isSandbox) notified = { skipped: "Synthetic sandbox data: email disabled" };
   if (llmOk && !bundle.patient.isSandbox) {
-    const row = await findVisit(c.visitId);
-    if (row) {
-      notified = await sendSummaryEmails({
-        visit: { id: row.id, token: row.token, apptAt: row.scheduledAt },
-        patient: { id: row.patientId, name: row.patient.name, email: row.patient.email },
-        provider: { id: row.providerUserId ?? "", name: providerName(row), email: row.providerUser?.email ?? null, practice: row.patient.practice.name },
-        providerSummary: provider,
-        patientSummary: patient,
-      });
-    }
+    const { job } = await enqueue({ kind: "notify.summary", payload: { visitId: c.visitId }, idempotencyKey: `notify.summary:${c.visitId}` });
+    notified = { queued: job.id };
   }
   return { provider, patient, notified };
 }

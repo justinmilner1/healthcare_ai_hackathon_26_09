@@ -139,21 +139,13 @@ export default function ProviderDashboard() {
         throw new Error(data.error ?? "Could not add patient.");
       }
 
-      const sent = [
-        data.sms?.sent && "text message",
-        data.email?.sent && "email",
-      ].filter(Boolean);
-      const why = [
-        !data.sms?.sent && data.sms?.error,
-        !data.email?.sent && data.email?.error,
-      ]
-        .filter(Boolean)
-        .join("; ");
-
+      // The invite is a `notify.invite` job (design §3.4): the response says it is queued, not that it
+      // arrived, so the wizard says so and shows the link, which works regardless. Per-channel delivery
+      // status lands on the visit and in this list in T19 (§8.3).
       setResult({
-        message: sent.length
-          ? `Invite sent by ${sent.join(" and ")}.`
-          : `Patient added. Invite not sent${why ? `: ${why}` : "."}`,
+        message: data.queued
+          ? "Patient added. The invite is on its way by text and email."
+          : `Patient added. No invite sent${data.reason ? `: ${data.reason}.` : "."} Share the link below.`,
         link: data.link,
       });
       setAddStep(3);
@@ -174,17 +166,9 @@ export default function ProviderDashboard() {
         body: JSON.stringify({ visitId: visit.id }),
       })
     ).json();
-    const sent = [
-      data.sms?.sent && "Texted",
-      data.email?.sent && "Emailed",
-    ].filter(Boolean);
     setRowNote((notes) => ({
       ...notes,
-      [visit.id]: sent.length
-        ? sent.join(" and ")
-        : `Not sent: ${[data.sms?.error, data.email?.error]
-            .filter(Boolean)
-            .join("; ")}`,
+      [visit.id]: data.queued ? "Sending now" : `Not sent: ${data.error ?? "unknown error"}`,
     }));
   }
 

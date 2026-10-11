@@ -4,6 +4,8 @@
 // Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider?id=, GET /api/patient/[id], POST /api/sour, POST /api/invite. Print gives the one-pager.
 // Rows and every request are keyed by visit id (design §4.4); ?visit=<id> deep-links from the summary email.
+// Generate and Send link queue a job (§3.4) and return at once, so this page waits for the result by
+// polling the bundle. Showing the job's own state and a retry button is T15 (§7.2).
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
@@ -17,6 +19,12 @@ import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { visitLabel } from "@/lib/visits";
 import type { PatientBundle } from "@/lib/types";
+
+/** How long the page waits for a queued summary: 20 polls, 1.5s apart. Longer than Sour's two model calls
+ *  take, short enough that a stuck job is visible rather than a spinner forever. */
+const SUMMARY_POLLS = 20;
+const SUMMARY_POLL_MS = 1500;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
 type Provider = { name: string; practice: string | null; visits: Row[] };
@@ -35,6 +43,8 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   const [chatError, setChatError] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const activeVisit = useRef<string | null>(null);
+  // The timestamp of the summary currently on screen, so Regenerate can tell a fresh one from the old one.
+  const bundleSummaryAt = useRef<string | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const autoTried = useRef<string | null>(null);
 
@@ -58,7 +68,10 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       const res = await fetch(`/api/patient/${visitId}`);
       if (!res.ok) throw new Error("Could not load this patient's summary.");
       const b = (await res.json()) as PatientBundle;
-      if (activeVisit.current === visitId) setBundle(b);
+      if (activeVisit.current === visitId) {
+        setBundle(b);
+        bundleSummaryAt.current = b.providerSummaryAt;
+      }
       return b;
     } finally {
       if (activeVisit.current === visitId) setLoading(false);
@@ -69,10 +82,19 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     async (visitId: string) => {
       setBusy(true);
       setSummaryError("");
+      const had = bundleSummaryAt.current;
       try {
         const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) });
         if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
-        if (activeVisit.current === visitId) await load(visitId);
+        // The summary is written by a `sour.run` job, so it lands a moment after this request returns. Poll
+        // the bundle until a summary newer than the one on screen appears, or give up and say so: the work is
+        // a durable row either way, and reloading the page will show it.
+        for (let tries = 0; tries < SUMMARY_POLLS && activeVisit.current === visitId; tries++) {
+          await wait(SUMMARY_POLL_MS);
+          const next = await load(visitId);
+          if (next?.providerSummary && next.providerSummaryAt !== had) return;
+        }
+        if (activeVisit.current === visitId) setSummaryError("Sour is still working on this summary. It will appear here shortly; reload if you have waited more than a minute.");
       } catch (e) {
         if (activeVisit.current === visitId) setSummaryError(e instanceof Error ? e.message : "Summary generation failed.");
       } finally {
@@ -109,9 +131,10 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
   async function sendLink(visitId: string) {
     setInvite("Sending…");
     const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
-    // Plain feedback for the clinician; the raw channel errors stay in the response for debugging.
-    if (d.email?.sent || d.sms?.sent) setInvite(`Link sent by ${[d.email?.sent && "email", d.sms?.sent && "text"].filter(Boolean).join(" and ")}.`);
-    else setInvite(`Couldn't send the link automatically. Share it directly: ${d.link}`);
+    // The send is a `notify.invite` job now, so this says it is on its way rather than that it arrived; the
+    // link is here to share directly either way, and per-channel delivery status is T19 (§8.3).
+    if (d.queued) setInvite(`Sending the link to this patient now. Share it directly if you'd rather: ${d.link}`);
+    else setInvite(d.error ? `Couldn't send the link: ${d.error}` : `Couldn't send the link automatically. Share it directly: ${d.link}`);
   }
 
   async function askSour(e: React.FormEvent) {

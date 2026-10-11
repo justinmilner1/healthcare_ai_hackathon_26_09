@@ -11,9 +11,9 @@
 import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
+import { enqueue, nudge } from "@/lib/jobs";
 import { llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
-import { runSour } from "@/lib/sourRun";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
@@ -163,16 +163,19 @@ async function finish(visitId: string, state: IntakeState, defs: IntakeFieldDef[
   await db.visit.updateMany({ where: { id: visitId, status: { in: from } }, data: { status: reached } });
   const bundle = await loadBundle(visitId);
 
-  // Trigger: the turn that wraps the intake also kicks off Sour, after this reply is on its way, so the
-  // doctor's link email arrives while the patient is still reading Sweetie's goodbye. Once per wrap.
+  // Trigger: the turn that wraps the intake queues Sour (§7.1), so the doctor's link email is on its way
+  // while the patient is still reading Sweetie's goodbye. Once per wrap — and a queued row rather than work
+  // done in `after()`, because the patient's last turn must not be the only chance Sour ever gets: a crash
+  // between the reply and the summary used to lose it silently, and now it is a row with three attempts.
   if (state.wrapped && !wasWrapped && bundle?.status.hasDexcom) {
-    after(async () => {
-      try {
-        await runSour(visitId);
-      } catch (e) {
-        log.error("sour_autorun_failed", { visitId, error: e });
-      }
-    });
+    try {
+      const { job } = await enqueue({ kind: "sour.run", payload: { visitId }, idempotencyKey: `sour.run:${visitId}` });
+      log.info("sour_queued", { visitId, jobId: job.id });
+    } catch (e) {
+      // Sweetie's goodbye still goes out; the clinician's Generate button is the fallback.
+      log.error("sour_enqueue_failed", { visitId, error: e });
+    }
+    nudge(after);
   }
 
   return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });

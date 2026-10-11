@@ -62,6 +62,34 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   await shot(page, "provider-sour");
 });
 
+// T04 (design §3.4, §7.1): the summary is written by a `sour.run` job, not by the request that asks for it.
+// With no scheduler the app drains its own queue after the response, so opening a patient who has uploads and
+// no summary must still end with a summary on the page — through the queue, with the two "it's ready" links
+// queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
+test("summary generation goes through the job queue", async ({ page, request }) => {
+  const providers = await (await request.get("/api/provider?list=1")).json();
+  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
+  const detail = await (await request.get(`/api/provider?id=${demo.id}`)).json();
+  // The seeded visit is the one with uploaded files (`npm run seed`); rows are visits now (design §4.4).
+  const seeded = detail.visits.find((v: { name: string; uploads: string[] }) => v.uploads.length > 0);
+  expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
+
+  await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
+  await expect(page.locator(".sour-brief")).toContainText(seeded.name, LOADED);
+  // The charts and the numbers come straight from the uploads, so they are on screen before any job has run;
+  // the Patterns block is the part only a saved summary fills. In scripted mode Sour writes both summaries
+  // with this placeholder where the model's patterns would be, so its arrival is the queue having worked.
+  await expect(page.locator(".sour-brief")).toContainText(/set OPENAI_API_KEY/i, LOADED);
+  await expect(page.locator(".sour-brief")).not.toContainText(/Sour is reading the data/i);
+  await shot(page, "provider-sour-generated");
+
+  // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
+  // draining for anyone who asks. The e2e servers set no JOBS_SECRET, so this is the unconfigured answer.
+  const refused = await request.post("/api/jobs/run");
+  expect(refused.status()).toBe(503);
+  expect((await refused.json()).error).toMatch(/not configured/i);
+});
+
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
   const providers = await (await request.get("/api/provider?list=1")).json();
   const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
