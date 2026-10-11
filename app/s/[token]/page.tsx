@@ -24,7 +24,7 @@ import {
   warmVoices,
 } from "@/lib/voice";
 
-type AgentInfo = { connected: boolean; model: string };
+type AgentInfo = { connected: boolean; model: string; degraded?: boolean };
 type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
 export default function SweetiePage({
@@ -445,6 +445,17 @@ export default function SweetiePage({
               </div>
               <span className="sweetie-private">⌾ Private check-in</span>
             </header>
+
+            {/* Design 6.3: a configured model gateway that is timing out or whose circuit has opened. The
+                answers keep coming from the scripted path, so this says so once, quietly, and gets out of the
+                way. role="status" announces the change without stealing focus (6.4). */}
+            {agent?.degraded && (
+              <p className="sweetie-degraded-note" role="status">
+                <span aria-hidden="true">⚠</span>
+                Sweetie&apos;s assistant is unavailable right now. The questions continue and
+                everything you say is still saved for your doctor.
+              </p>
+            )}
 
             {status && intake && fields.length > 0 && (
               <Progress status={status} intake={intake} fields={fields} />

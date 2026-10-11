@@ -2973,6 +2973,26 @@ textarea.ss-input {
   font-weight: 640;
 }
 
+/* The model gateway is down and Sweetie is on its scripted path (design 6.3). Quiet on purpose: a patient
+   mid-intake needs to know the answers are canned, not to be alarmed. */
+.sweetie-degraded-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 22px;
+  border-bottom: 1px solid #f3e4cd;
+  background: #fdf7ec;
+  color: #7a6442;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.sweetie-degraded-note > span {
+  flex: none;
+  font-size: 12px;
+}
+
 .sweetie-field-progress {
   display: flex;
   min-height: 41px;
@@ -4319,6 +4339,10 @@ button.sweetie-agent-badge {
 
   .sweetie-private {
     display: none;
+  }
+
+  .sweetie-degraded-note {
+    padding: 8px 14px;
   }
 
   .sweetie-field-progress {
