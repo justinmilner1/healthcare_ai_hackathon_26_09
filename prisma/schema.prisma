@@ -191,17 +191,23 @@ model Message {
 }
 
 // §4.7 Generated summaries. audience is provider | patient. json is a Summary (lib/types.ts).
+// `inputHash` is the fingerprint of the intake and uploads this summary was generated from (§7.1,
+// lib/sourRun.ts sourInputHash): a second run over unchanged inputs finds the pair and returns it instead
+// of spending two model calls. Null means "do not reuse me" — the narrative is a placeholder from a run the
+// model gateway was down for, and the next run must really run.
 model Summary {
   id         String    @id @default(cuid())
   visitId    String
   visit      Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
   audience   String
   json       String
+  inputHash  String?
   reviewedBy String?
   reviewedAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@index([visitId, audience])
+  @@index([visitId, inputHash])
 }
 
 // §4.8 Who did what. `detail` is JSON and carries no PHI (§10.3).
