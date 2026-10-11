@@ -4,12 +4,14 @@
 // POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
 // POST /api/sweetie { token, event: { type: "skip_questions" } } -> same; saves an explicit opt-out
 // Every patient message goes through the deterministic red-flag scan before the model sees it.
-// Without an API key the same targets are spoken with fixed words, so the page works offline.
+// Without an API key the same targets are spoken with fixed words, so the page works offline. The same happens
+// when a configured gateway times out or its circuit opens (lib/llm.ts); the `agent.degraded` flag in every
+// response is what puts the quiet note on the page (design 6.3).
 
 import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
-import { LLMUnavailable, MODEL } from "@/lib/llm";
+import { llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
 import { runSour } from "@/lib/sourRun";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
@@ -21,7 +23,22 @@ const MAX_TURNS = 6;
 
 type UploadEvent = { type: "upload"; kind: string; count: number; days?: number };
 
-const agentInfo = () => ({ connected: Boolean(process.env.OPENAI_API_KEY), model: MODEL() });
+// `connected` is whether a model is configured at all (the page's "Demo mode"); `degraded` is a configured
+// gateway that is failing, which is the quiet note in design 6.3. Read after the model call, so the reply and
+// the state the page shows agree.
+const agentInfo = () => {
+  const s = llmStatus();
+  return { connected: s.configured, model: s.model, degraded: s.configured && s.degraded };
+};
+
+/** One line whenever the patient gets scripted words instead of Sweetie's. A configured gateway that is
+ *  failing is a warning someone should see; no gateway at all is just offline development. */
+function logScripted(event: string, patientId: string, fields: Record<string, unknown> = {}) {
+  const s = llmStatus();
+  const line = { patientId, scripted: true, degraded: s.configured && s.degraded, ...fields };
+  if (s.configured) log.warn(event, line);
+  else log.info(event, line);
+}
 
 async function getHandler(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
@@ -104,6 +121,7 @@ async function postHandler(req: Request) {
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
       llm = false;
+      logScripted("sweetie_extract_unavailable", visit.patientId, { visitId: visit.id, turns: state.turns });
       exportHelp = guessExportHelp(message);
       if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message)) state = { ...state, skipped: [...state.skipped, askedTarget.which] };
     }
@@ -123,9 +141,11 @@ async function postHandler(req: Request) {
       reply = await speak({ firstName, providerName: providerName(visit), visit: context, state, defs, status, target, transcript, exportHelp, uploadEvent });
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
+      logScripted("sweetie_scripted", visit.patientId, { visitId: visit.id, target: target.kind });
       reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
     }
   } else {
+    logScripted("sweetie_scripted", visit.patientId, { visitId: visit.id, target: target.kind });
     reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };

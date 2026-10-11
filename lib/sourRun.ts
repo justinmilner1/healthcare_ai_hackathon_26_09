@@ -4,7 +4,7 @@
 
 import { baseSummary, loadBundle } from "./bundle";
 import { db } from "./db";
-import { ask, LLMUnavailable } from "./llm";
+import { ask, llmStatus, LLMUnavailable } from "./llm";
 import { sendSummaryEmails, type SummaryNotifyResult } from "./notify";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
@@ -78,7 +78,11 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
   } catch (e) {
     if (!(e instanceof LLMUnavailable)) throw e;
     llmOk = false;
-    const note = "LLM not configured: set OPENAI_API_KEY to generate patterns and questions.";
+    // LLMUnavailable covers both "no key" and "the gateway timed out or its circuit is open" (lib/llm.ts).
+    // A clinician reading this needs to know which, because only one of them is something they can fix.
+    const note = llmStatus().configured
+      ? "Model gateway unavailable: the numbers above are complete; patterns and questions were not generated. Retry in a minute."
+      : "LLM not configured: set OPENAI_API_KEY to generate patterns and questions.";
     provider = { ...base, patterns: [note], questions: [], flags };
     patient = { ...base, patterns: [note], questions: [], flags: [] };
   }
@@ -99,7 +103,7 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
 
   // Both summaries saved -> email the provider and the patient a link. Skipped when the model was
   // unavailable, so placeholder text never triggers a notification. Fails soft.
-  let notified: SummaryNotifyResult | { skipped: string } = { skipped: "LLM not configured" };
+  let notified: SummaryNotifyResult | { skipped: string } = { skipped: llmStatus().configured ? "Model gateway unavailable" : "LLM not configured" };
   if (bundle.patient.isSandbox) notified = { skipped: "Synthetic sandbox data: email disabled" };
   if (llmOk && !bundle.patient.isSandbox) {
     const row = await findVisit(c.visitId);

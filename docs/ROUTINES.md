@@ -46,6 +46,10 @@ Runs every three hours. Reviews every open pull request labeled `review`, oldest
 unit tests, and the Playwright suite, and writes screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
 
+The suite runs two app servers (T20). Port 3100 is the usual one, with no model key, and port 3101 is the same
+build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
+the real degraded path (design §6.3). Playwright starts them one after another, so only the first one builds.
+
 ### The database in the sandbox (T01)
 
 The app is Postgres only (design §3.2). `scripts/dev-db.sh` is the one thing that brings a server up, and it tries

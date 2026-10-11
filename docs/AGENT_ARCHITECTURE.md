@@ -52,6 +52,31 @@ const response = await client.responses.create({
 
 For JSON tasks, `ask<T>(..., { json: true })` asks for one JSON object, parses it, and retries once if parsing fails. If no API key is configured, it throws `LLMUnavailable`, allowing the demo to use deterministic fallback text.
 
+### Timeout, retry, and the circuit (design §3.5, §6.3, §11.3)
+
+Every call is bounded, and no failure reaches a page as a 500:
+
+| Guard | Default | Env |
+|---|---|---|
+| Timeout per HTTP attempt | 20 s | `LLM_TIMEOUT_MS` |
+| Retries | one, transient failures only | — |
+| Consecutive failed calls that open the circuit | 3 | `LLM_CIRCUIT_THRESHOLD` |
+| How long the circuit stays open | 60 s | `LLM_CIRCUIT_COOLDOWN_MS` |
+
+Transient means a timeout, a dropped connection, 408/409/425/429, or a 5xx. A 401 is not: a bad key fails the
+same way twice. The SDK's own retries are off, so this module is the only thing deciding when to try again.
+
+A failure counts once per `ask`, not once per HTTP attempt, so "three failures" is three answers a patient did
+not get. When the count reaches the threshold the circuit opens and `ask` throws `LLMUnavailable` without
+touching the network; after the cooldown it half-opens and lets one probe through, which either closes it or
+re-opens it. A 400 or 422 is this code's bug rather than an outage, so it is rethrown unchanged.
+
+Everything else ends as `LLMUnavailable`, which is the same signal a missing key gives, so each caller's
+existing fallback handles it: `scripted()` for Sweetie, placeholder patterns for Sour. `llmStatus()` reports
+`{ configured, model, state, degraded }`; `/api/sweetie` passes `agent.degraded` to the page, which shows the
+quiet "the assistant is unavailable" note above the question stepper. `e2e/degraded.spec.ts` runs the whole
+path against a second server whose gateway is a closed port.
+
 ## Sweetie: the patient intake agent
 
 Sweetie is a field-driven state machine rather than an unrestricted chatbot. The patient's visit type and booking reason produce a two-question intake template:
@@ -278,7 +303,8 @@ The agents handle language tasks while ordinary application code handles decisio
 
 | File | Responsibility |
 |---|---|
-| `lib/llm.ts` | Shared Bedrock Responses API client and JSON retry |
+| `lib/llm.ts` | Shared Bedrock Responses API client, timeout, retry, circuit, JSON retry |
+| `lib/visits.ts` | Visit types and their labels: the client-safe half of Sweetie's vocabulary |
 | `lib/sweetie.ts` | Intake templates, safety scan, extraction, state transitions, and speech |
 | `app/api/sweetie/route.ts` | Sweetie request orchestration and persistence |
 | `app/api/upload/route.ts` | Upload validation, parsing, storage, and removal |
