@@ -52,8 +52,13 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   expect((await request.post("/api/sour", { data: { patientId: booked.patientId } })).status()).toBe(400);
   expect((await request.post("/api/invite", { data: { patientId: booked.patientId } })).status()).toBe(400);
 
-  await page.goto(`/provider/${demo.id}`);
-  await expect(page.locator("body")).toContainText(/Sour/i);
+  // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
+  // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
+  const seeded = providerRows.visits.find((v: { name: string }) => v.name === "Sam Sample");
+  expect(seeded).toBeTruthy();
+  await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("Sam Sample", LOADED);
+  await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
   await shot(page, "provider-sour");
 });
 

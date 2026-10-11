@@ -310,7 +310,8 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
                         <div className="text-5xl font-semibold leading-none text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</div>
                         <div className="mt-1 text-xs text-[var(--viz-muted)]">goal ≥ 70% · below range goal &lt; 4%</div>
                       </div>
-                      <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+                      {/* min-w-full below sm keeps the tiles from being squeezed beside the time-in-range block: the row wraps. */}
+                      <div className="grid min-w-full flex-1 grid-cols-2 gap-2 sm:min-w-0 sm:grid-cols-4">
                         <StatTile label="Average" value={String(st.avg)} unit="mg/dL" />
                         <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
                         <StatTile label="Spikes > 180" value={String(bundle.spikes.length)} hint={`${bundle.spikes.filter((x) => x.visit).length} linked to a place`} />
