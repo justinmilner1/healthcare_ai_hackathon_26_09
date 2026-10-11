@@ -42,8 +42,10 @@ npm run dev             # http://localhost:3000
 No Docker daemon? `npm run db:up` starts a Postgres that is already installed on the host instead and prints the
 `DATABASE_URL` to put in `.env`. Either way the database is Postgres; SQLite is gone (design §3.2).
 
-Checks: `npm run typecheck`, `npm run lint`, `npm run config:check`, `npm run build`, or `npm run agent:check`
-for everything including e2e.
+Checks: `npm run typecheck`, `npm run lint`, `npm run config:check`, `npm run test` (unit tests for every
+`lib/` module, against the synthetic fixtures in `data/fixtures/` — see the README there),
+`npm run test:coverage` for the same with a coverage table, `npm run build`, or `npm run agent:check` for
+everything including e2e.
 Reset the DB with `npm run db:reset && npm run seed`.
 
 Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,

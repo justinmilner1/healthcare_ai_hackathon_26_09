@@ -1,0 +1,77 @@
+{
+ "semanticSegments": [
+  {
+   "startTime": "2026-09-12T12:00:00+00:00",
+   "endTime": "2026-09-12T12:40:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.88,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_stale",
+     "semanticType": "UNKNOWN",
+     "probability": 0.8,
+     "placeLocation": { "latLng": "geo:37.8044,-122.2712" }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T06:10:00+00:00",
+   "endTime": "2026-09-19T06:50:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.93,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_cafe",
+     "semanticType": "UNKNOWN",
+     "probability": 0.86,
+     "placeLocation": { "latLng": "geo:37.7766,-122.4231" }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T06:50:00+00:00",
+   "endTime": "2026-09-19T07:05:00+00:00",
+   "activity": {
+    "probability": 0.9,
+    "topCandidate": { "type": "WALKING", "probability": 0.9 }
+   }
+  },
+  {
+   "startTime": "2026-09-19T09:00:00+00:00",
+   "endTime": "2026-09-19T17:00:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.95,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_office",
+     "semanticType": "UNKNOWN",
+     "probability": 0.91,
+     "placeLocation": { "latLng": "geo:37.7899,-122.4009" }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T18:00:00+00:00",
+   "endTime": "2026-09-19T18:30:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.4,
+    "topCandidate": { "placeId": "ChIJ_fixture_no_location", "semanticType": "UNKNOWN", "probability": 0.4 }
+   }
+  },
+  {
+   "startTime": "2026-09-19T19:30:00+00:00",
+   "endTime": "2026-09-19T20:40:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_pizzeria",
+     "semanticType": "UNKNOWN",
+     "probability": 0.84,
+     "placeLocation": { "latLng": "geo:37.7614,-122.4241" }
+    }
+   }
+  }
+ ]
+}

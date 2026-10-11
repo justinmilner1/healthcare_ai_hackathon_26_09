@@ -327,7 +327,11 @@ test("every environment variable read in lib/ and app/ has a row in SPEC", () =>
   const files = [...sourceFiles(path.join(repoRoot, "lib")), ...sourceFiles(path.join(repoRoot, "app"))]
     .filter((file) => file !== path.join(repoRoot, "lib", "config.ts")); // the list itself, read by name
   for (const file of files) {
-    for (const match of readFileSync(file, "utf8").matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+      // A variable the code *sets* is not configuration a deployment has to supply — lib/fixtures.ts pins
+      // process.env.TZ so dates render the same everywhere. Only reads belong in the list.
+      if (/^\s*=[^=]/.test(text.slice(match.index + match[0].length))) continue;
       if (!known.has(match[1])) found.set(match[1], path.relative(repoRoot, file));
     }
   }
