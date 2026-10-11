@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The one command both routines (and CI) run. Installs, audits the dependency tree, prepares a throwaway DB,
-# seeds, then typecheck, lint, unit tests, and the Playwright suite with screenshots in e2e/screenshots/.
-# Exit code is the verdict.
+# seeds, then typecheck, lint, unit tests with a coverage table, and the Playwright suite with screenshots in
+# e2e/screenshots/. Exit code is the verdict.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,7 +30,9 @@ npm run seed
 
 echo "== typecheck"; npm run typecheck
 echo "== lint";      npm run lint
-echo "== unit";      npm test
+# Coverage goes through the unit step rather than a step of its own, so the table lands in CI output and in both
+# routines' logs with no second run of the suite (design §12.1). `npm test` stays the bare runner.
+echo "== unit";      npm run test:coverage
 
 echo "== browsers"
 # Some sandboxes block the Playwright CDN but ship a Chromium. Try the normal install; if it fails, point Playwright

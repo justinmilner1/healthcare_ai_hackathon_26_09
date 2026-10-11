@@ -92,9 +92,8 @@ model Patient {
   createdAt  DateTime  @default(now())
   deletedAt  DateTime?
 
-  visits            Visit[]
-  dexcomConnection  DexcomConnection?
-  dexcomOAuthStates DexcomOAuthState[]
+  visits           Visit[]
+  dexcomConnection DexcomConnection?
 
   @@index([practiceId])
 }
@@ -129,10 +128,11 @@ model Visit {
   isSandbox Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  sessions  PatientSession[]
-  uploads   Upload[]
-  messages  Message[]
-  summaries Summary[]
+  sessions          PatientSession[]
+  uploads           Upload[]
+  messages          Message[]
+  summaries         Summary[]
+  dexcomOAuthStates DexcomOAuthState[]
 
   @@index([patientId])
   @@index([providerUserId])
@@ -248,11 +248,13 @@ model DexcomConnection {
   importedAt      DateTime?
 }
 
-// One-use state, bound to an HttpOnly browser cookie; only hashes are stored.
+// One-use state, bound to an HttpOnly browser cookie; only hashes are stored. Keyed by the visit the
+// patient pressed Connect on (§4.4), so the callback lands the import on that visit and does not have to
+// guess; the connection the import creates is still per patient (§4.10).
 model DexcomOAuthState {
   stateHash   String   @id
   browserHash String
-  patientId   String
-  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  visitId     String
+  visit       Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   expiresAt   DateTime
 }

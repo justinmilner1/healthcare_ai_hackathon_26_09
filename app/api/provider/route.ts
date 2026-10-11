@@ -3,9 +3,9 @@
 // GET  /api/provider?id=...                      -> provider with their visits, intake progress and summary state
 // GET  /api/provider?list=1                      -> all providers (no auth in the demo; used by the /provider picker)
 //
-// A provider is a User in a Practice (design §4.1, §4.2) and the rows below are visits (§4.4). The response
-// still speaks in patient ids because today a patient has exactly one visit; T03 moves the pages onto visits
-// and T05/T06 replace this route with Auth.js sign-in and role checks.
+// A provider is a User in a Practice (design §4.1, §4.2) and the rows below are visits (§4.4): `id` is the
+// visit, `patientId` the person it is for, and the pages send `id` back to /api/patient, /api/sour and
+// /api/invite. T05/T06 replace this route with Auth.js sign-in and role checks.
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -24,7 +24,7 @@ async function getHandler(req: Request) {
   const url = new URL(req.url);
   if (url.searchParams.get("list")) {
     const users = await db.user.findMany({ orderBy: { createdAt: "asc" }, include: { practice: true, _count: { select: { visits: true } } } });
-    return NextResponse.json(users.map((u) => ({ id: u.id, name: u.name, practice: u.practice.name, patients: u._count.visits })));
+    return NextResponse.json(users.map((u) => ({ id: u.id, name: u.name, practice: u.practice.name, visits: u._count.visits })));
   }
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -43,16 +43,18 @@ async function getHandler(req: Request) {
     id: provider.id,
     name: provider.name,
     practice: provider.practice.name,
-    patients: visits.map((v) => {
+    visits: visits.map((v) => {
       const defs = fieldsFor(v.visitType, v.reason);
       const intake = parseIntake(v.intake, defs);
       const uploads = Array.from(new Set(v.uploads.map((u) => u.kind)));
       return {
-        id: v.patientId,
+        id: v.id,
+        patientId: v.patientId,
         name: v.patient.name,
         apptAt: v.scheduledAt,
         visitType: v.visitType,
         reason: v.reason,
+        status: v.status,
         token: v.token,
         phone: v.patient.phone,
         email: v.patient.email,

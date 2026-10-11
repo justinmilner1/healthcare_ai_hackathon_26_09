@@ -208,7 +208,7 @@ Browser speech recognition converts speech to text, and browser speech synthesis
 
 ## Sour: the clinician summary agent
 
-Sour starts after Sweetie wraps up when Dexcom data is available, or when the clinician explicitly generates a summary. Its pipeline is deliberately split into deterministic analysis and model-written narrative.
+Sour is queued as a `sour.run` job after Sweetie wraps up when Dexcom data is available, or when the clinician explicitly generates a summary; a background runner picks it up (design 3.4, and docs/JOBS.md). Neither the patient nor the clinician waits on the two model calls, and a crash between the request and the summary costs an attempt rather than the summary. Its pipeline is deliberately split into deterministic analysis and model-written narrative.
 
 ### Code calculates the clinical data
 
@@ -290,10 +290,10 @@ const patientNarrative = await ask<Narrative>(
 );
 
 await saveBothSummaries(providerSummary, patientNarrative);
-await sendSummaryLinks();
+await enqueue({ kind: "notify.summary", payload: { visitId } });
 ```
 
-The patient rewrite uses simpler language and excludes clinician-only safety flags. Notifications contain links to the saved summaries rather than patient data in the email body.
+The patient rewrite uses simpler language and excludes clinician-only safety flags. Notifications are their own job, so a bounced or throttled send cannot cost Sour its summary, and they contain links to the saved summaries rather than patient data in the email body.
 
 ## Why this architecture is useful
 
