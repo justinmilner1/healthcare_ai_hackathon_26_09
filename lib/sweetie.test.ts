@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { answeredCount, emptyIntake, fieldsFor, greeting, knownVisitType, nextTarget, parseIntake, renderNotes, SANDBOX_CONNECT_HELP, scripted, skipQuestions, VISIT_TYPES } from "./sweetie";
+import { answeredCount, backstop, emptyIntake, fieldsFor, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, SANDBOX_CONNECT_HELP, scanRedFlags, scripted, skipQuestions, VISIT_TYPES } from "./sweetie";
 
 const visit = { visitType: "follow_up", reason: null };
 const defs = fieldsFor(visit.visitType, visit.reason);
@@ -58,4 +58,172 @@ test("knownVisitType passes our own types through and calls everything else othe
   for (const free of ["Jane Doe", "mornings running high", "", null, undefined, "FOLLOW_UP"]) {
     assert.equal(knownVisitType(free), "other");
   }
+});
+
+// ---- Safety scan (design §12.1: deterministic, before any model call) -------------------------------------
+
+test("the safety scan catches each red flag in the patient's own phrasing", () => {
+  const cases: [string, string][] = [
+    ["I passed out on Tuesday morning", "loss_of_consciousness"],
+    ["had a seizure last week", "loss_of_consciousness"],
+    ["my ketones were high and my breath smelled fruity", "possible_dka"],
+    ["I can't stop throwing up since yesterday", "possible_dka"],
+    ["my husband had to give me glucagon", "severe_hypo"],
+    ["glucose was 34 before dinner", "severe_hypo"],
+    ["woke up with chest pain", "cardiac_or_breathing"],
+    ["I get short of breath on the stairs", "cardiac_or_breathing"],
+    ["honestly I don't want to be alive some days", "self_harm"],
+  ];
+  for (const [text, id] of cases) assert.equal(scanRedFlags(text), id, text);
+});
+
+test("the safety scan does not fire on ordinary intake answers", () => {
+  for (const text of [
+    "Tired in the afternoons, worse since August.",
+    "My sugars run about 160 in the mornings.",
+    "I was in hospital two years ago for my gallbladder.",
+    "Breakfast is usually oatmeal, lunch is a sandwich.",
+    "I skipped my metformin twice last week.",
+    "",
+  ]) {
+    assert.equal(scanRedFlags(text), null, text);
+  }
+});
+
+test("the red-flag reply sends the patient to a person, not to the form", () => {
+  const reply = redFlagReply("Sam", "Dr. Bell");
+  assert.match(reply, /^Sam,/);
+  assert.match(reply, /call 911/);
+  assert.match(reply, /call Dr\. Bell's office today/);
+  assert.match(reply, /flagged this so the team sees it first/);
+  // Nothing clinical is interpreted back at them.
+  assert.doesNotMatch(reply, /mg\/dL|your (glucose|sugar) (is|was)/i);
+});
+
+// ---- State transitions ------------------------------------------------------------------------------------
+
+test("the template is two questions, shaped by the visit type and the stated reason", () => {
+  assert.deepEqual(
+    fieldsFor("follow_up", null).map((f) => f.id),
+    ["purpose", "update"],
+  );
+  for (const { id } of VISIT_TYPES) assert.equal(fieldsFor(id, null).length, 2);
+  // Each visit type asks its own second question.
+  const labels = VISIT_TYPES.map(({ id }) => fieldsFor(id, null)[1].label);
+  assert.equal(new Set(labels).size, VISIT_TYPES.length);
+  assert.equal(fieldsFor("post_hospital", null)[1].label, "The hospital visit");
+  assert.equal(fieldsFor("nonsense", null)[1].label, fieldsFor("follow_up", null)[1].label);
+  // The reason the office recorded goes into the first question, quoted as theirs.
+  const withReason = fieldsFor("follow_up", "  mornings running high  ");
+  assert.match(withReason[0].fallbackQuestion, /you mentioned "mornings running high"/);
+  assert.match(withReason[0].goal, /"mornings running high"/);
+  assert.deepEqual(fieldsFor("follow_up", "   "), fieldsFor("follow_up", null));
+  // Both questions are required, so neither gets skipped for being optional.
+  assert.equal(requiredCount(fieldsFor("follow_up", null)), 2);
+});
+
+test("merging raises a field's confidence but never lowers it", () => {
+  const base = emptyIntake(defs);
+  const high = merge(base, { fields: [{ id: "purpose", value: "Exhausted for six weeks", confidence: "high" }], declines: [], asks_export_help: null });
+  assert.deepEqual(high.fields.purpose, { value: "Exhausted for six weeks", confidence: "high" });
+  const again = merge(high, { fields: [{ id: "purpose", value: "tired", confidence: "low" }], declines: [], asks_export_help: null });
+  assert.deepEqual(again.fields.purpose, high.fields.purpose, "a weaker extraction must not overwrite a high one");
+});
+
+test("two partial answers add up to one usable answer", () => {
+  const base = emptyIntake(defs);
+  const first = merge(base, { fields: [{ id: "update", value: "New desk job in August.", confidence: "low" }], declines: [], asks_export_help: null });
+  assert.equal(first.fields.update.confidence, "low");
+  assert.equal(answeredCount(first, defs), 0);
+  const second = merge(first, { fields: [{ id: "update", value: "Sleeping about six hours.", confidence: "low" }], declines: [], asks_export_help: null });
+  assert.deepEqual(second.fields.update, { value: "New desk job in August. Sleeping about six hours.", confidence: "medium" });
+  assert.equal(answeredCount(second, defs), 1);
+});
+
+test("merging records a declined upload once, however often the patient says it", () => {
+  const base = emptyIntake(defs);
+  const once = merge(base, { fields: [], declines: ["whoop", "timeline"], asks_export_help: null });
+  const twice = merge(once, { fields: [], declines: ["whoop"], asks_export_help: null });
+  assert.deepEqual(twice.skipped, ["whoop", "timeline"]);
+  // Values are trimmed on the way in, so a model's trailing newline never reaches Sour's notes.
+  const padded = merge(base, { fields: [{ id: "purpose", value: "  Exhausted for six weeks\n", confidence: "high" }], declines: [], asks_export_help: null });
+  assert.equal(padded.fields.purpose.value, "Exhausted for six weeks");
+});
+
+test("a field outside the template is extract's to reject, not merge's", () => {
+  // merge trusts its input: extract() is what filters ids against the template before this runs. Pinning the
+  // split here so a change that drops the filter shows up as a failure in the right module.
+  const base = emptyIntake(defs);
+  const stray = merge(base, { fields: [{ id: "not_a_field", value: "x", confidence: "high" }], declines: [], asks_export_help: null });
+  assert.deepEqual(stray.fields.not_a_field, { value: "x", confidence: "high" });
+  // It changes nothing the rest of the flow looks at: answers, next question and notes all come from the template.
+  assert.equal(answeredCount(stray, defs), 0);
+  assert.deepEqual(nextTarget(stray, defs), { kind: "field", def: defs[0] });
+  assert.equal(renderNotes(stray, defs, visit).includes("x"), false);
+});
+
+test("the backstop counts a substantive reply the extractor missed", () => {
+  const base = emptyIntake(defs);
+  const answered = backstop(base, "purpose", "I have been exhausted for about six weeks now");
+  assert.deepEqual(answered.fields.purpose, { value: "I have been exhausted for about six weeks now", confidence: "medium" });
+  assert.equal(answeredCount(answered, defs), 1);
+});
+
+test("the backstop does not mistake a question, a shrug or a decline for an answer", () => {
+  const base = emptyIntake(defs);
+  for (const latest of [
+    "What do you mean by that exactly?", // a question back
+    "ok", // too short
+    "not really", // a decline
+    "no, nothing like that", // a decline
+    "skip", // a decline
+    "   ",
+  ]) {
+    assert.deepEqual(backstop(base, "purpose", latest).fields.purpose, base.fields.purpose, latest);
+  }
+  // Nothing was asked, so nothing can be answered.
+  assert.deepEqual(backstop(base, null, "Exhausted for six weeks and shaky in the mornings"), base);
+  // An answer already at medium or better is not overwritten by the raw text.
+  const high = merge(base, { fields: [{ id: "purpose", value: "Exhausted for six weeks", confidence: "high" }], declines: [], asks_export_help: null });
+  assert.deepEqual(backstop(high, "purpose", "and also my feet tingle sometimes").fields.purpose, high.fields.purpose);
+});
+
+test("the next question is the first unanswered one, then the wrap", () => {
+  let state = emptyIntake(defs);
+  assert.deepEqual(nextTarget(state, defs), { kind: "field", def: defs[0] });
+  state = backstop(state, defs[0].id, "Exhausted for six weeks, worse in the afternoons");
+  assert.deepEqual(nextTarget(state, defs), { kind: "field", def: defs[1] });
+  state = backstop(state, defs[1].id, "New desk job in August and a cold two weeks ago");
+  assert.deepEqual(nextTarget(state, defs), { kind: "wrap" });
+  assert.equal(answeredCount(state, defs), requiredCount(defs));
+  // A low-confidence answer is not an answer: Sweetie asks again.
+  const weak = merge(emptyIntake(defs), { fields: [{ id: "purpose", value: "tired", confidence: "low" }], declines: [], asks_export_help: null });
+  assert.deepEqual(nextTarget(weak, defs), { kind: "field", def: defs[0] });
+});
+
+test("a corrupt or partial stored intake falls back to an empty one rather than throwing", () => {
+  assert.deepEqual(parseIntake("{not json", defs), emptyIntake(defs));
+  assert.deepEqual(parseIntake("", defs), emptyIntake(defs));
+  assert.deepEqual(parseIntake(undefined, defs), emptyIntake(defs));
+  // A state written before a field existed keeps what it has and defaults the rest.
+  const partial = parseIntake(JSON.stringify({ fields: { purpose: { value: "Exhausted", confidence: "high" } }, turns: 2 }), defs);
+  assert.deepEqual(partial.fields.purpose, { value: "Exhausted", confidence: "high" });
+  assert.deepEqual(partial.fields.update, { value: null, confidence: "unfilled" });
+  assert.deepEqual(partial.skipped, []);
+  assert.equal(partial.flagged, null);
+  assert.equal(partial.turns, 2);
+});
+
+test("the notes Sour reads carry the flag, the visit and the answers, in that order", () => {
+  let state = emptyIntake(defs);
+  state = backstop(state, "purpose", "Exhausted for six weeks, worse in the afternoons");
+  state = merge(state, { fields: [], declines: ["whoop"], asks_export_help: null });
+  state.flagged = "severe_hypo";
+  const lines = renderNotes(state, defs, { visitType: "follow_up", reason: "mornings running high" }).split("\n");
+  assert.match(lines[0], /^⚠ Safety flag during intake: severe hypo\./);
+  assert.equal(lines[1], "Visit: Follow-up. Called about: mornings running high");
+  assert.match(lines[2], /^Why you're here: Exhausted for six weeks/);
+  assert.equal(lines.at(-1), "Data not shared: whoop.");
+  // An untouched intake still names the visit, and claims nothing about the patient.
+  assert.equal(renderNotes(emptyIntake(defs), defs, visit), "Visit: Follow-up");
 });
