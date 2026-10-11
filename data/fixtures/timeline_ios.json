@@ -1,0 +1,38 @@
+[
+ {
+  "startTime": "2026-09-19T06:10:00+00:00",
+  "endTime": "2026-09-19T06:50:00+00:00",
+  "visit": {
+   "hierarchyLevel": 0,
+   "probability": 0.92,
+   "topCandidate": {
+    "placeId": "ChIJ_fixture_cafe",
+    "semanticType": "UNKNOWN",
+    "probability": 0.85,
+    "placeLocation": "37.7766°, -122.4231°"
+   }
+  }
+ },
+ {
+  "startTime": "2026-09-19T12:15:00+00:00",
+  "endTime": "2026-09-19T12:55:00+00:00",
+  "activity": {
+   "probability": 0.87,
+   "topCandidate": { "type": "IN_PASSENGER_VEHICLE", "probability": 0.87 }
+  }
+ },
+ {
+  "startTime": "2026-09-19T19:30:00+00:00",
+  "endTime": "2026-09-19T20:40:00+00:00",
+  "visit": {
+   "hierarchyLevel": 0,
+   "probability": 0.9,
+   "topCandidate": {
+    "placeId": "ChIJ_fixture_pizzeria",
+    "semanticType": "UNKNOWN",
+    "probability": 0.83,
+    "placeLocation": "37.7614°, -122.4241°"
+   }
+  }
+ }
+]

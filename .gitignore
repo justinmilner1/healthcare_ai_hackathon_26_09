@@ -44,6 +44,8 @@ data/*
 !data/*_sample.*
 !data/visits.csv
 !data/README.md
+# Test fixtures are synthetic by construction and are the inputs every parser test reads (design §9.4).
+!data/fixtures/
 
 # local tooling
 .claude/
