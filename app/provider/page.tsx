@@ -10,6 +10,7 @@ import {
   rememberProvider,
 } from "@/lib/providerSession";
 import { VISIT_TYPES, visitLabel } from "@/lib/visits";
+import { apiFetch } from "@/lib/csrf";
 
 type Row = {
   id: string;
@@ -121,7 +122,7 @@ export default function ProviderDashboard() {
 
     setBusy(true);
     try {
-      const response = await fetch("/api/book", {
+      const response = await apiFetch("/api/book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -164,7 +165,7 @@ export default function ProviderDashboard() {
   async function sendLink(patient: Row) {
     setRowNote((notes) => ({ ...notes, [patient.id]: "Sending…" }));
     const data = await (
-      await fetch("/api/invite", {
+      await apiFetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ patientId: patient.id }),

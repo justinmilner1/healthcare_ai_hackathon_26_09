@@ -6,6 +6,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { IntakeStatus, UploadKind } from "@/lib/types";
 import styles from "./intake.module.css";
+import { apiFetch, CSRF_PARAM, ensureCsrfToken } from "@/lib/csrf";
 
 type DexcomStatus = {
   sandboxPatient: boolean;
@@ -94,6 +95,14 @@ export default function SweetieIntakePage({
   const [dexcomStatus, setDexcomStatus] = useState<DexcomStatus | null>(null);
   const [dexcomError, setDexcomError] = useState("");
   const [dexcomMessage, setDexcomMessage] = useState("");
+  // The sandbox Dexcom button is a plain form POST, so there is no fetch to hang a header off: the token
+  // rides in the query string instead (see CSRF_PARAM in lib/csrf.ts). It can only be read once the page
+  // is hydrated, which is also when the button first becomes clickable.
+  const [csrfToken, setCsrfToken] = useState("");
+
+  useEffect(() => {
+    setCsrfToken(ensureCsrfToken());
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -189,7 +198,7 @@ export default function SweetieIntakePage({
     form.set("file", file);
 
     try {
-      const response = await fetch("/api/upload", { method: "POST", body: form });
+      const response = await apiFetch("/api/upload", { method: "POST", body: form });
       const result = (await response.json()) as {
         count?: number;
         error?: string;
@@ -227,7 +236,7 @@ export default function SweetieIntakePage({
     setPageError("");
     setConnectionNotice("");
     try {
-      const response = await fetch("/api/upload", {
+      const response = await apiFetch("/api/upload", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, kind }),
@@ -248,7 +257,7 @@ export default function SweetieIntakePage({
     setIsFinishing(true);
     setPageError("");
     try {
-      const response = await fetch("/api/sweetie", {
+      const response = await apiFetch("/api/sweetie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, event: { type: "skip_questions" } }),
@@ -509,9 +518,9 @@ export default function SweetieIntakePage({
                         </span>
                         <div className={styles.sourceActions}>
                           {source.kind === "dexcom" && (sandbox ? (
-                            <form action="/api/dexcom/connect" method="POST">
+                            <form action={`/api/dexcom/connect?${CSRF_PARAM}=${encodeURIComponent(csrfToken)}`} method="POST">
                               <input type="hidden" name="token" value={token} />
-                              <button type="submit" className={styles.accountConnect} disabled={!dexcomStatus.configured || isFinishing}>
+                              <button type="submit" className={styles.accountConnect} disabled={!dexcomStatus.configured || isFinishing || !csrfToken}>
                                 {dexcomStatus.connected ? "Reconnect Dexcom · Demo" : "Connect Dexcom · Demo"}
                               </button>
                             </form>

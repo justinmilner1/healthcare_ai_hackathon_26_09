@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { rememberProvider } from "@/lib/providerSession";
+import { apiFetch } from "@/lib/csrf";
 
 export default function ProviderSignup() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function ProviderSignup() {
 
     setBusy(true);
     try {
-      const res = await fetch("/api/provider", {
+      const res = await apiFetch("/api/provider", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

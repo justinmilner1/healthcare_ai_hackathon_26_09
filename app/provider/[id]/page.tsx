@@ -16,6 +16,7 @@ import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { visitLabel } from "@/lib/visits";
 import type { PatientBundle } from "@/lib/types";
+import { apiFetch } from "@/lib/csrf";
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
 type Provider = { name: string; practice: string | null; patients: Row[] };
@@ -69,7 +70,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
       setBusy(true);
       setSummaryError("");
       try {
-        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
+        const res = await apiFetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) });
         if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
         if (activePatient.current === pid) await load(pid);
       } catch (e) {
@@ -107,7 +108,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
 
   async function sendLink(pid: string) {
     setInvite("Sending…");
-    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
+    const d = await (await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid }) })).json();
     // Plain feedback for the clinician; the raw channel errors stay in the response for debugging.
     if (d.email?.sent || d.sms?.sent) setInvite(`Link sent by ${[d.email?.sent && "email", d.sms?.sent && "text"].filter(Boolean).join(" and ")}.`);
     else setInvite(`Couldn't send the link automatically. Share it directly: ${d.link}`);
@@ -121,7 +122,7 @@ export default function ProviderPage({ params }: { params: Promise<{ id: string 
     setAsking(true);
     setChatError("");
     try {
-      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid, question, history: qa.slice(-6) }) });
+      const res = await apiFetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: pid, question, history: qa.slice(-6) }) });
       const d = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
       if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");
