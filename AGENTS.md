@@ -28,6 +28,8 @@ npm run seed       # demo provider + patient with sample uploads; prints URLs
 npm run dev        # localhost:3000
 npm run lint
 npm run typecheck  # tsc --noEmit
+npm test           # unit tests for every lib/ module, against data/fixtures/
+npm run test:coverage  # the same, with a coverage table
 ```
 
 Without `OPENAI_API_KEY`, `lib/llm.ts` throws `LLMUnavailable` and the Sweetie and Sour routes fall back to scripted output, so the front end works offline. Data for a page comes from `GET /api/patient/[id]` (a `PatientBundle`, built in `lib/bundle.ts`); don't query Prisma from pages.
