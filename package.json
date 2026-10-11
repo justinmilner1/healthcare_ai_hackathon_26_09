@@ -13,6 +13,7 @@
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
     "seed": "tsx scripts/seed.ts",
+    "migrate:visits": "tsx scripts/migrate-visits.ts",
     "postinstall": "prisma generate",
     "send:test": "tsx scripts/send-test.ts",
     "test": "node --import tsx --test lib/*.test.ts",

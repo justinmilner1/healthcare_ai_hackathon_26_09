@@ -9,10 +9,12 @@ import { sendSummaryEmails, type SummaryNotifyResult } from "./notify";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
 import type { GlucoseReading, PatientBundle, Summary } from "./types";
+import { findVisit, providerName } from "./visit";
 
 type Narrative = { patterns: string[]; questions: string[] };
 
 export type SourContext = {
+  visitId: string;
   bundle: PatientBundle;
   glucose: GlucoseReading[];
   notes: string;
@@ -24,20 +26,23 @@ export type SourContext = {
 const clean = (xs: unknown, n: number) =>
   Array.isArray(xs) ? xs.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim()).slice(0, n) : [];
 
-/** Everything Sour needs about one patient, computed once. Null if the patient does not exist. */
-export async function loadSourContext(patientIdOrToken: string): Promise<SourContext | null> {
-  const bundle = await loadBundle(patientIdOrToken);
+/** Everything Sour needs about one visit, computed once. Null if nothing matches. Takes a visit id, a
+ *  patient id, or the invite token (design §4.4). */
+export async function loadSourContext(idOrToken: string): Promise<SourContext | null> {
+  const visit = await findVisit(idOrToken);
+  if (!visit) return null;
+  const bundle = await loadBundle(visit.id);
   if (!bundle) return null;
   // Full-resolution glucose for the numbers (bundle.glucose is downsampled for charts).
-  const dex = await db.upload.findFirst({ where: { patientId: bundle.patient.id, kind: "dexcom" }, orderBy: { createdAt: "desc" } });
-  const glucose: GlucoseReading[] = dex ? (JSON.parse(dex.parsed) as GlucoseReading[]) : [];
+  const dex = await db.upload.findFirst({ where: { visitId: visit.id, kind: "dexcom" }, orderBy: { createdAt: "desc" }, include: { data: true } });
+  const glucose: GlucoseReading[] = dex?.data ? (JSON.parse(dex.data.parsed) as GlucoseReading[]) : [];
   const notes = bundle.patient.notes ?? "";
   const flags = safetyFlags(glucose);
   const base: Summary = { ...baseSummary(glucose, bundle.spikes, notes), flags };
   const brief = (bundle.patient.isSandbox ? "SYNTHETIC DEXCOM SANDBOX DATA — demonstration only, not real patient findings.\n" : "") + renderSourInput(
     buildSourInput({ glucose, spikes: bundle.spikes, sleep: bundle.sleep, patientNotes: notes, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }),
   );
-  return { bundle, glucose, notes, base, brief, flags };
+  return { visitId: visit.id, bundle, glucose, notes, base, brief, flags };
 }
 
 export type SourRunResult = {
@@ -46,10 +51,10 @@ export type SourRunResult = {
   notified: SummaryNotifyResult | { skipped: string };
 };
 
-/** Generate, save, and notify. Never throws for a missing model; does throw for a missing patient. */
-export async function runSour(patientId: string, ctx?: SourContext): Promise<SourRunResult> {
-  const c = ctx ?? (await loadSourContext(patientId));
-  if (!c) throw new Error("patient not found");
+/** Generate, save, and notify. Never throws for a missing model; does throw for a missing visit. */
+export async function runSour(idOrToken: string, ctx?: SourContext): Promise<SourRunResult> {
+  const c = ctx ?? (await loadSourContext(idOrToken));
+  if (!c) throw new Error("visit not found");
   const { bundle, base, brief, notes, flags } = c;
 
   let provider: Summary;
@@ -80,9 +85,16 @@ export async function runSour(patientId: string, ctx?: SourContext): Promise<Sou
 
   await db.summary.createMany({
     data: [
-      { patientId: bundle.patient.id, audience: "provider", json: JSON.stringify(provider) },
-      { patientId: bundle.patient.id, audience: "patient", json: JSON.stringify(patient) },
+      { visitId: c.visitId, audience: "provider", json: JSON.stringify(provider) },
+      { visitId: c.visitId, audience: "patient", json: JSON.stringify(patient) },
     ],
+  });
+  // The visit has a summary now, so the dashboard and the retention sweep can see it without reading one (§4.4).
+  // Only ever forwards, like the intake transitions in /api/sweetie: re-running Sour on a visit a clinician
+  // has already signed off must not pull it back out of `reviewed` (§4.4).
+  await db.visit.updateMany({
+    where: { id: c.visitId, status: { in: ["invited", "verified", "in_intake", "intake_done"] } },
+    data: { status: "summary_ready" },
   });
 
   // Both summaries saved -> email the provider and the patient a link. Skipped when the model was
@@ -90,11 +102,11 @@ export async function runSour(patientId: string, ctx?: SourContext): Promise<Sou
   let notified: SummaryNotifyResult | { skipped: string } = { skipped: "LLM not configured" };
   if (bundle.patient.isSandbox) notified = { skipped: "Synthetic sandbox data: email disabled" };
   if (llmOk && !bundle.patient.isSandbox) {
-    const row = await db.patient.findUnique({ where: { id: bundle.patient.id }, include: { provider: true } });
+    const row = await findVisit(c.visitId);
     if (row) {
       notified = await sendSummaryEmails({
-        patient: { id: row.id, name: row.name, email: row.email, token: row.token, apptAt: row.apptAt },
-        provider: { id: row.provider.id, name: row.provider.name, email: row.provider.email, practice: row.provider.practice },
+        patient: { id: row.patientId, name: row.patient.name, email: row.patient.email, token: row.token, apptAt: row.scheduledAt },
+        provider: { id: row.providerUserId ?? "", name: providerName(row), email: row.providerUser?.email ?? null, practice: row.patient.practice.name },
         providerSummary: provider,
         patientSummary: patient,
       });

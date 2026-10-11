@@ -15,78 +15,74 @@ import { runSour } from "@/lib/sourRun";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
+import { providerName, visitByToken } from "@/lib/visit";
 
 const MAX_TURNS = 6;
 
 type UploadEvent = { type: "upload"; kind: string; count: number; days?: number };
 
-async function patientByToken(token: string | null) {
-  if (!token) return null;
-  return db.patient.findUnique({ where: { token }, include: { provider: true } });
-}
-
 const agentInfo = () => ({ connected: Boolean(process.env.OPENAI_API_KEY), model: MODEL() });
 
 async function getHandler(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
-  const patient = await patientByToken(token);
-  if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
-  const bundle = await loadBundle(patient.id);
-  const rows = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
+  const visit = await visitByToken(token);
+  if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  const bundle = await loadBundle(visit.id);
+  const rows = await db.message.findMany({ where: { visitId: visit.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
   if (messages.length === 0) {
-    const hello = greeting(patient.name.split(" ")[0], patient.provider.name, { visitType: patient.visitType, reason: patient.reason, isSandbox: patient.isSandbox }, fieldsFor(patient.visitType, patient.isSandbox ? null : patient.reason), bundle?.status.hasDexcom);
-    await db.message.create({ data: { patientId: patient.id, role: "sweetie", content: hello } });
+    const hello = greeting(visit.patient.name.split(" ")[0], providerName(visit), { visitType: visit.visitType, reason: visit.reason, isSandbox: visit.isSandbox }, fieldsFor(visit.visitType, visit.isSandbox ? null : visit.reason), bundle?.status.hasDexcom);
+    await db.message.create({ data: { visitId: visit.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ patientId: patient.id, name: patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
+  return NextResponse.json({ patientId: visit.patientId, name: visit.patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent | { type: "skip_questions" } };
-  const patient = await patientByToken(body.token ?? null);
-  if (!patient) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  const visit = await visitByToken(body.token ?? null);
+  if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   const message = body.message?.trim();
   const event = body.event?.type === "upload" ? body.event : undefined;
   const skippingQuestions = body.event?.type === "skip_questions";
   if (!message && !event && !skippingQuestions) return NextResponse.json({ error: "message or event is required" }, { status: 400 });
 
-  const firstName = patient.name.split(" ")[0];
-  const visit = { visitType: patient.visitType, reason: patient.reason, isSandbox: patient.isSandbox };
+  const firstName = visit.patient.name.split(" ")[0];
+  const context = { visitType: visit.visitType, reason: visit.reason, isSandbox: visit.isSandbox };
   // Demo metadata is not a patient's clinical reason for booking.
-  const defs = fieldsFor(visit.visitType, patient.isSandbox ? null : visit.reason);
-  let state: IntakeState = parseIntake(patient.intake, defs);
+  const defs = fieldsFor(context.visitType, visit.isSandbox ? null : context.reason);
+  let state: IntakeState = parseIntake(visit.intake, defs);
   const wasWrapped = state.wrapped;
   let reply: string;
   let exportHelp: "dexcom" | "timeline" | "whoop" | null = null;
 
   if (message) {
-    await db.message.create({ data: { patientId: patient.id, role: "patient", content: message } });
+    await db.message.create({ data: { visitId: visit.id, role: "patient", content: message } });
     state = { ...state, turns: state.turns + 1 };
 
     // 1. Safety first, before any model call.
     const flag = scanRedFlags(message);
     if (flag) {
       state = { ...state, flagged: flag, wrapped: true };
-      reply = redFlagReply(firstName, patient.provider.name);
-      return finish(patient.id, state, defs, visit, reply, wasWrapped);
+      reply = redFlagReply(firstName, providerName(visit));
+      return finish(visit.id, state, defs, context, reply, wasWrapped);
     }
   }
 
   if (skippingQuestions) {
     // Skipping is for a patient who has given us something. With nothing answered and nothing uploaded
     // there is no week to view, so steer back to the first question instead of wrapping an empty intake.
-    const soFar = await loadBundle(patient.id);
+    const soFar = await loadBundle(visit.id);
     const hasAnything = state.turns > 0 || Boolean(soFar?.status.hasDexcom || soFar?.status.hasLocation || soFar?.status.hasWhoop);
     if (!hasAnything) {
       // No chat message: the greeting already asked the first question. The page shows a short inline hint.
       return NextResponse.json({ skipRefused: true, status: soFar?.status, intake: soFar?.intake, intakeFields: soFar?.intakeFields, agent: agentInfo() });
     }
-    return finish(patient.id, skipQuestions(state), defs, visit,
+    return finish(visit.id, skipQuestions(state), defs, context,
       "You've skipped the remaining questions. Anything you've already shared is saved for your care team. You can view your week now.", wasWrapped);
   }
 
-  const history = await db.message.findMany({ where: { patientId: patient.id }, orderBy: { createdAt: "asc" } });
+  const history = await db.message.findMany({ where: { visitId: visit.id }, orderBy: { createdAt: "asc" } });
   const transcript = history.map((m) => `${m.role === "sweetie" ? "Sweetie" : "Patient"}: ${m.content}`).join("\n");
 
   // 2. What was Sweetie asking? Decided from the state before this message, so the extractor and the
@@ -115,7 +111,7 @@ async function postHandler(req: Request) {
   }
 
   // 4. Decide direction from state + what has actually been uploaded.
-  const bundle = await loadBundle(patient.id);
+  const bundle = await loadBundle(visit.id);
   const status = bundle!.status;
   let target = nextTarget(state, defs);
   if (state.turns >= MAX_TURNS && target.kind !== "wrap") target = { kind: "wrap" };
@@ -124,32 +120,37 @@ async function postHandler(req: Request) {
   const uploadEvent = event ? { kind: event.kind, count: event.count, days: event.days } : undefined;
   if (llm) {
     try {
-      reply = await speak({ firstName, providerName: patient.provider.name, visit, state, defs, status, target, transcript, exportHelp, uploadEvent });
+      reply = await speak({ firstName, providerName: providerName(visit), visit: context, state, defs, status, target, transcript, exportHelp, uploadEvent });
     } catch (e) {
       if (!(e instanceof LLMUnavailable)) throw e;
-      reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: patient.isSandbox });
+      reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
     }
   } else {
-    reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: patient.isSandbox });
+    reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
   }
   if (target.kind === "wrap") state = { ...state, wrapped: true };
 
-  return finish(patient.id, state, defs, visit, reply, wasWrapped);
+  return finish(visit.id, state, defs, context, reply, wasWrapped);
 }
 
-async function finish(patientId: string, state: IntakeState, defs: IntakeFieldDef[], visit: VisitContext, reply: string, wasWrapped = false) {
-  await db.message.create({ data: { patientId, role: "sweetie", content: reply } });
-  await db.patient.update({ where: { id: patientId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, visit) } });
-  const bundle = await loadBundle(patientId);
+async function finish(visitId: string, state: IntakeState, defs: IntakeFieldDef[], context: VisitContext, reply: string, wasWrapped = false) {
+  await db.message.create({ data: { visitId, role: "sweetie", content: reply } });
+  await db.visit.update({ where: { id: visitId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, context) } });
+  // The visit's own state, so the dashboard and the job runner do not have to read the intake JSON (§4.4).
+  // Only ever forwards: a patient adding a line after Sour has run must not walk the visit back to intake.
+  const reached = state.wrapped ? "intake_done" : "in_intake";
+  const from = state.wrapped ? ["invited", "verified", "in_intake"] : ["invited", "verified"];
+  await db.visit.updateMany({ where: { id: visitId, status: { in: from } }, data: { status: reached } });
+  const bundle = await loadBundle(visitId);
 
   // Trigger: the turn that wraps the intake also kicks off Sour, after this reply is on its way, so the
   // doctor's link email arrives while the patient is still reading Sweetie's goodbye. Once per wrap.
   if (state.wrapped && !wasWrapped && bundle?.status.hasDexcom) {
     after(async () => {
       try {
-        await runSour(patientId);
+        await runSour(visitId);
       } catch (e) {
-        log.error("sour_autorun_failed", { patientId, error: e });
+        log.error("sour_autorun_failed", { visitId, error: e });
       }
     });
   }

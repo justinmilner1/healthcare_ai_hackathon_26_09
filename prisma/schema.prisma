@@ -1,5 +1,7 @@
-// Sweet Spot data model (design §3.2, §4). Postgres everywhere: `docker compose up db` locally, RDS in AWS.
-// Keep it small. Parsed uploads are stored as JSON strings in the shapes from lib/types.ts.
+// Sweet Spot data model (design §3.2, §3.4, §4). Postgres everywhere: `docker compose up db` locally, RDS in AWS.
+// Visit-centric (§4.4): a Patient persists across visits; intake, messages, uploads and summaries hang off a
+// Visit. The Dexcom connection stays per patient (§4.10). Parsed uploads are JSON strings in the shapes from
+// lib/types.ts. The one-time conversion from the hackathon shape is in prisma/migrations and lib/migrateVisits.ts.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,91 +12,247 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Provider {
-  id        String    @id @default(cuid())
-  name      String
-  email     String    @unique
-  practice  String?
-  createdAt DateTime  @default(now())
-  patients  Patient[]
+// §4.1 One clinic. retentionDays drives the nightly retention sweep (§10.4).
+model Practice {
+  id            String     @id @default(cuid())
+  name          String
+  retentionDays Int        @default(365)
+  createdAt     DateTime   @default(now())
+  users         User[]
+  patients      Patient[]
+  auditLogs     AuditLog[]
 }
 
+// §4.2 A clinician, admin or staff member. `name` and `image` are nullable because the Auth.js
+// adapter (§5.1, landing in T05) creates users from the email link before anyone has typed a name.
+model User {
+  id            String    @id @default(cuid())
+  practiceId    String
+  practice      Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  role          String    @default("staff") // admin | clinician | staff (§5.2)
+  createdAt     DateTime  @default(now())
+  accounts      Account[]
+  sessions      Session[]
+  visits        Visit[]   @relation("VisitProvider")
+
+  @@index([practiceId])
+}
+
+// Auth.js tables (§4.2). Field names are fixed by the adapter; do not rename them.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// A signed-in provider's session (§5.1). Not to be confused with PatientSession (§4.5).
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// §4.3 A person. Persists across visits; `deletedAt` is set by the deletion action (§10.5).
 model Patient {
   id         String    @id @default(cuid())
-  providerId String
-  provider   Provider  @relation(fields: [providerId], references: [id])
+  practiceId String
+  practice   Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   name       String
   phone      String?
   email      String?
-  token      String    @unique // presigned link: /s/<token>
-  optIn      Boolean   @default(false)
-  apptAt     DateTime?
-  visitType  String? // new_patient | follow_up | medication | post_hospital | annual (lib/sweetie.ts VISIT_TYPES)
-  reason     String? // what the patient called in about, in the scheduler's words
-  notes      String? // Sweetie's collected answers rendered as text for Sour
-  intake     String? // Sweetie's structured IntakeState as JSON (lib/types.ts)
   createdAt  DateTime  @default(now())
-  uploads    Upload[]
-  messages   Message[]
-  summaries  Summary[]
-  isSandbox Boolean @default(false)
-  dexcomConnection DexcomConnection?
+  deletedAt  DateTime?
+
+  visits            Visit[]
+  dexcomConnection  DexcomConnection?
   dexcomOAuthStates DexcomOAuthState[]
+
+  @@index([practiceId])
 }
 
-// OAuth secrets never leave the server. Tokens are encrypted in lib/dexcom.ts.
-model DexcomConnection {
-  patientId String @id
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  encryptedTokens String
-  expiresAt DateTime
-  importedAt DateTime?
-}
+// §4.4 One appointment. The invite token identifies the visit (§5.3); everything the patient gives us
+// during intake hangs off this row. `optIn` and `isSandbox` are per-invite, so they live here too.
+model Visit {
+  id             String    @id @default(cuid())
+  patientId      String
+  patient        Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  providerUserId String?
+  providerUser   User?     @relation("VisitProvider", fields: [providerUserId], references: [id])
+  scheduledAt    DateTime?
+  visitType      String? // new_patient | follow_up | medication | post_hospital | annual (lib/sweetie.ts)
+  reason         String? // what the patient called in about, in the scheduler's words
+  status         String    @default("invited") // invited | verified | in_intake | intake_done | summary_ready | reviewed | cancelled
 
-// One-use state, bound to an HttpOnly browser cookie; only hashes are stored.
-model DexcomOAuthState {
-  stateHash String @id
-  browserHash String
-  patientId String
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-}
+  token          String    @unique // presigned link: /s/<token>
+  tokenExpiresAt DateTime?
 
-// One uploaded file. `kind` is dexcom | timeline | whoop | visits.
-// `parsed` is JSON: GlucoseReading[] | Visit[] | SleepNight[] (see lib/types.ts).
-model Upload {
-  id        String   @id @default(cuid())
-  patientId String
-  patient   Patient  @relation(fields: [patientId], references: [id])
-  kind      String
-  filename  String
-  raw       String
-  parsed    String
+  consentRecordedBy String?
+  consentRecordedAt DateTime?
+  consentChannel    String?
+
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  notes  String? // Sweetie's collected answers rendered as text for Sour
+  intake String? // Sweetie's structured IntakeState as JSON (lib/types.ts)
+
+  optIn     Boolean  @default(false)
+  isSandbox Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@index([patientId, kind])
+  sessions  PatientSession[]
+  uploads   Upload[]
+  messages  Message[]
+  summaries Summary[]
+
+  @@index([patientId])
+  @@index([providerUserId])
 }
 
-// Sweetie chat transcript. role is sweetie | patient.
+// §4.5 A verified patient browser session. Only the hash of the six-digit code is stored.
+model PatientSession {
+  id            String    @id @default(cuid())
+  visitId       String
+  visit         Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  codeHash      String
+  codeExpiresAt DateTime
+  verifiedAt    DateTime?
+  expiresAt     DateTime
+  attempts      Int       @default(0)
+
+  @@index([visitId])
+}
+
+// §4.6 One uploaded file. `kind` is dexcom | timeline | whoop | visits. `s3Key` is null until T11 moves the
+// bytes to S3 (§3.3); the parsed rows and, for now, the raw text live in the UploadData row beside it.
+model Upload {
+  id          String      @id @default(cuid())
+  visitId     String
+  visit       Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  kind        String
+  filename    String
+  s3Key       String?
+  bytes       Int         @default(0)
+  parsedRows  Int         @default(0)
+  createdAt   DateTime    @default(now())
+  data        UploadData?
+
+  @@index([visitId, kind])
+}
+
+// §4.6 The heavy half of an upload, kept out of Upload so the main table stays small.
+// `parsed` is JSON: GlucoseReading[] | Visit[] | SleepNight[] (lib/types.ts). `raw` goes to S3 in T11.
+model UploadData {
+  uploadId String @id
+  upload   Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  parsed   String
+  raw      String?
+}
+
+// §4.7 Sweetie chat transcript. role is sweetie | patient.
 model Message {
   id        String   @id @default(cuid())
-  patientId String
-  patient   Patient  @relation(fields: [patientId], references: [id])
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   role      String
   content   String
   createdAt DateTime @default(now())
 
-  @@index([patientId])
+  @@index([visitId])
 }
 
-// Generated summaries. audience is provider | patient. json is a Summary (lib/types.ts).
+// §4.7 Generated summaries. audience is provider | patient. json is a Summary (lib/types.ts).
 model Summary {
-  id        String   @id @default(cuid())
-  patientId String
-  patient   Patient  @relation(fields: [patientId], references: [id])
-  audience  String
-  json      String
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  visitId    String
+  visit      Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  audience   String
+  json       String
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
 
-  @@index([patientId, audience])
+  @@index([visitId, audience])
+}
+
+// §4.8 Who did what. `detail` is JSON and carries no PHI (§10.3).
+model AuditLog {
+  id         String   @id @default(cuid())
+  practiceId String
+  practice   Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  actorType  String // user | patient | system
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  at         DateTime @default(now())
+  detail     String? // JSON
+
+  @@index([practiceId, at])
+  @@index([entityType, entityId])
+}
+
+// §3.4, §4.9 Background work. The runner drains due rows; three attempts, then failed with the error kept.
+model Job {
+  id             String    @id @default(cuid())
+  kind           String // sour.run | notify.invite | notify.summary | patient.delete | retention.sweep
+  payload        String    @default("{}") // JSON
+  status         String    @default("queued") // queued | running | done | failed
+  attempts       Int       @default(0)
+  runAfter       DateTime  @default(now())
+  lastError      String?
+  idempotencyKey String?   @unique
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, runAfter])
+}
+
+// §4.10 OAuth secrets never leave the server. Tokens are encrypted in lib/dexcom.ts, per patient.
+model DexcomConnection {
+  patientId       String    @id
+  patient         Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encryptedTokens String
+  expiresAt       DateTime
+  importedAt      DateTime?
+}
+
+// One-use state, bound to an HttpOnly browser cookie; only hashes are stored.
+model DexcomOAuthState {
+  stateHash   String   @id
+  browserHash String
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
 }
