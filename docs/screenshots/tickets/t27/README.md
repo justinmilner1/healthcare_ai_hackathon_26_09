@@ -1,6 +1,8 @@
 # T27 screenshots
 
-From `bash scripts/agent-check.sh` on branch `t27-security-headers-csrf-audit`. Every one of these was taken
+From `bash scripts/agent-check.sh` on branch `t27-security-headers-csrf-audit`, re-taken after the review:
+the branch now carries T03 and T04 from `main`, so the dashboard speaks in visits and the Sour brief is the
+one a queued `sour.run` job wrote. Every one of these was taken
 by `e2e/security.spec.ts` while asserting that no Content Security Policy violation reached the console, so
 each is also the evidence that the screen hydrates under the nonce policy.
 
@@ -19,4 +21,5 @@ every screen below shows data that only appears once its client JavaScript has r
 | `desktop-security-patient-summary.png` | The patient's own summary page, past its loading card. |
 | `mobile-security-patient-summary.png` | The same at phone width. |
 | `desktop-security-landing.png` / `mobile-security-landing.png` | The landing page, which `next/font` and Tailwind style inline — the reason `style-src` keeps `'unsafe-inline'`. |
-| `desktop-provider-sour.png` | The Sour pane from the unchanged `flows.spec.ts`, pixel-identical to the `t13` baseline. |
+| `desktop-provider-sour-generated.png` | The strongest evidence in the set: the whole Sour brief — stat tiles, the 7-day glucose chart with its spike markers, the sleep chart, the range bar — every one of them a Recharts tree that sets a `style` attribute on each element it draws. It renders under the nonce policy, which is what `style-src 'unsafe-inline'` is for. |
+| `desktop-provider-sour.png` | The Sour pane before a summary is selected. |
