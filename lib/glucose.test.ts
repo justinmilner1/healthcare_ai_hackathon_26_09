@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fixture, useUtc } from "./fixtures";
+import { fixture, pinUtcTimeZone } from "./fixtures";
 import { averageGlucose, detectSpikes, downsample, parseClarityCsv, timeInRange } from "./glucose";
 import type { GlucoseReading } from "./types";
 
-useUtc(); // the Clarity fixtures carry device-local timestamps with no offset
+pinUtcTimeZone(); // the Clarity fixtures carry device-local timestamps with no offset
 
 /** Readings every `stepMin` minutes from `startIso`. Keeps the spike cases readable. */
 function series(startIso: string, stepMin: number, values: number[]): GlucoseReading[] {

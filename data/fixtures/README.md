@@ -7,7 +7,7 @@ invented. Load them with the helpers in `lib/fixtures.ts`, never with a hand-rol
 Two rules keep the assertions stable on any machine:
 
 - Timestamps in the Clarity and WHOOP files have **no UTC offset**, exactly as the real exports write them
-  (device-local time). A test that asserts on an instant calls `useUtc()` from `lib/fixtures.ts` first.
+  (device-local time). A test that asserts on an instant calls `pinUtcTimeZone()` from `lib/fixtures.ts` first.
 - Timestamps in the Timeline and visits files carry an explicit **`+00:00`** offset, so the Timeline visits line
   up with the Clarity window whatever zone the machine is in. Real exports carry the device's own offset
   (`-07:00` and the like); the parser only ever sees an offset, so the value of it changes nothing.

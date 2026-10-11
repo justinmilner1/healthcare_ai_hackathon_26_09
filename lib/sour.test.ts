@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fixture, useUtc } from "./fixtures";
+import { fixture, pinUtcTimeZone } from "./fixtures";
 import { detectSpikes, parseClarityCsv } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv } from "./location";
 import { matchSpikesToVisits } from "./match";
@@ -8,7 +8,7 @@ import { parseWhoopCsv } from "./sleep";
 import { buildSourInput, renderSourInput, safetyFlags, summaryTimeZone } from "./sour";
 import type { GlucoseReading, Spike, Visit } from "./types";
 
-useUtc();
+pinUtcTimeZone();
 process.env.SUMMARY_TZ = "UTC"; // every local time the model sees comes from this; pin it or the brief drifts
 
 const glucose = () => parseClarityCsv(fixture("clarity_window.csv"));

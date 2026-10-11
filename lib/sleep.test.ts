@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fixture, useUtc } from "./fixtures";
+import { fixture, pinUtcTimeZone } from "./fixtures";
 import { parseWhoopCsv } from "./sleep";
 
-useUtc(); // the WHOOP fixtures carry device-local timestamps with no offset
+pinUtcTimeZone(); // the WHOOP fixtures carry device-local timestamps with no offset
 
 test("a WHOOP cycle export becomes one night per row", () => {
   assert.deepEqual(parseWhoopCsv(fixture("whoop_cycles.csv")), [

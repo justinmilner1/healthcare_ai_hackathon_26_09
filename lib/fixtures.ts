@@ -23,6 +23,6 @@ export function fixture(name: FixtureName): string {
 
 /** The Clarity and WHOOP fixtures carry device-local timestamps with no offset, as the real exports do, so a test
  *  that asserts on an instant or a calendar day pins the zone first. See data/fixtures/README.md. */
-export function useUtc(): void {
+export function pinUtcTimeZone(): void {
   process.env.TZ = "UTC";
 }
