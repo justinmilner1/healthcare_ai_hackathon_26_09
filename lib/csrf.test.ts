@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CSRF_COOKIE, CSRF_EXEMPT_PATHS, CSRF_HEADER, apiFetch, checkCsrf, ensureCsrfToken, isCsrfExemptPath, isStateChanging, newCsrfToken, readCsrfToken, type CsrfInput } from "./csrf";
+import { CSRF_COOKIE, CSRF_EXEMPT_PATHS, CSRF_EXEMPT_PREFIXES, CSRF_HEADER, apiFetch, checkCsrf, ensureCsrfToken, isCsrfExemptPath, isStateChanging, newCsrfToken, readCsrfToken, type CsrfInput } from "./csrf";
 
 const TOKEN = newCsrfToken();
 
@@ -104,9 +104,32 @@ test("the exempt list is exact, not a prefix", () => {
   assert.equal(checkCsrf(good({ pathname: "/api/jobs/runner-admin", headerToken: null })), `no ${CSRF_HEADER} header`);
 });
 
-test("every exempt path is one this app actually serves", () => {
-  // Cheap guard against a typo leaving a dead entry, and against the list growing unnoticed.
+test("Auth.js's own routes are exempt: it runs this same check for itself", () => {
+  // signIn() and signOut() in next-auth/react are library code with nowhere to add our header, and Auth.js
+  // double-submits its own authjs.csrf-token cookie against a csrfToken form field. Challenging it twice only
+  // broke provider sign-up: POST /api/auth/signin/email answered 403 "no x-csrf-token header".
+  for (const path of ["/api/auth/signin/email", "/api/auth/signout", "/api/auth/callback/email"]) {
+    assert.equal(checkCsrf(good({ pathname: path, headerToken: null })), null, path);
+  }
+});
+
+test("the auth prefix stops at a path separator", () => {
+  assert.equal(isCsrfExemptPath("/api/auth/signin/email"), true);
+  // Not "anything starting with /api/auth": a route of our own named like one is still challenged.
+  assert.equal(isCsrfExemptPath("/api/authority"), false);
+  assert.equal(isCsrfExemptPath("/api/auth"), false);
+  assert.equal(checkCsrf(good({ pathname: "/api/authority", headerToken: null })), `no ${CSRF_HEADER} header`);
+});
+
+test("the auth exemption does not let a cross-site page sign anyone in", () => {
+  assert.equal(checkCsrf(good({ pathname: "/api/auth/signin/email", headerToken: null, origin: "https://evil.example" })), "origin does not match host");
+});
+
+test("both exempt lists stay short, and every entry is named", () => {
+  // The lists are holes by construction. A new entry should be a decision someone made, not a diff nobody
+  // read: this test fails until the person adding one also comes here.
   assert.deepEqual([...CSRF_EXEMPT_PATHS], ["/api/jobs/run"]);
+  assert.deepEqual([...CSRF_EXEMPT_PREFIXES], ["/api/auth/"]);
 });
 
 test("a Server Action posts with no header to stamp, so a verified origin stands in", () => {
@@ -167,7 +190,7 @@ async function withDocument<T>(initial: Record<string, string>, fn: (jar: Map<st
 }
 
 test("readCsrfToken reads the cookie out of a crowded jar", async () => {
-  await withDocument({ other: "x", ss_csrf: TOKEN, ss_provider: "cxyz" }, () => {
+  await withDocument({ other: "x", ss_csrf: TOKEN, "authjs.session-token": "cxyz" }, () => {
     assert.equal(readCsrfToken(), TOKEN);
   });
 });
@@ -219,7 +242,7 @@ test("apiFetch sends the token on an unsafe method and leaves a safe one alone",
     };
     try {
       await apiFetch("/api/book", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      await apiFetch("/api/provider?list=1");
+      await apiFetch("/api/provider");
       await apiFetch("/api/upload", { method: "DELETE" });
     } finally {
       globals.fetch = realFetch;

@@ -1,10 +1,10 @@
 // CSRF protection on state-changing routes (design §10.8). Owner: compliance.
 //
-// Why it matters here even without a password login: both of the app's sessions are cookies — the provider
-// session (today `ss_provider` from lib/providerSession.ts, Auth.js's own once T05 lands) and the patient's
-// visit link. A browser attaches a cookie to any request to this origin, whichever page started it, so a
-// page on another site can POST /api/invite or /api/upload in the background and the request arrives
-// carrying the clinician's session. Nothing in the route can tell it apart from a click on our own dashboard.
+// Why it matters: both of the app's sessions are cookies — Auth.js's session cookie for a signed-in provider
+// (lib/auth.ts, T05) and the patient's visit link. A browser attaches a cookie to any request to this origin,
+// whichever page started it, so a page on another site can POST /api/invite or /api/upload in the background
+// and the request arrives carrying the clinician's session. Nothing in the route can tell it apart from a
+// click on our own dashboard.
 //
 // That sentence is also the limit of what this protects, and the exemptions below follow from it. The attack
 // needs an *ambient* credential: something the browser supplies on its own. A request whose authority is a
@@ -46,9 +46,28 @@ export const SERVER_ACTION_HEADER = "next-action";
  */
 export const CSRF_EXEMPT_PATHS: readonly string[] = ["/api/jobs/run"];
 
+/**
+ * The one subtree exempt by prefix, because every route under it belongs to a library that runs this exact
+ * check itself.
+ *
+ * `/api/auth/` is Auth.js's mount point (T05, lib/auth.ts). Its POSTs come from `signIn()` and `signOut()`
+ * in `next-auth/react` — library code, not ours, with nowhere to add a header — and Auth.js double-submits
+ * its own `authjs.csrf-token` cookie against a `csrfToken` form field on every action it accepts. Challenging
+ * it a second time with our header only breaks its client: `POST /api/auth/signin/email` answered 403 with
+ * `x-csrf-blocked: no x-csrf-token header`, which is provider sign-up failing on the last step.
+ *
+ * The bar for a second entry is higher than for a path above, and it is not "this subtree is awkward": the
+ * code under it must be a library that performs its own CSRF check on every state-changing route, and the
+ * entry must name that check. We own everything else under /api, so there should never be a second one.
+ */
+export const CSRF_EXEMPT_PREFIXES: readonly string[] = ["/api/auth/"];
+
 export function isCsrfExemptPath(pathname: string): boolean {
-  // Exact match only. A prefix match would exempt /api/jobs/runner-admin the day someone adds it.
-  return CSRF_EXEMPT_PATHS.includes(pathname.replace(/\/+$/, "") || "/");
+  // Exact match for the paths. A prefix match there would exempt /api/jobs/runner-admin the day someone
+  // adds it; the prefixes are a separate, shorter list for exactly that reason.
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (CSRF_EXEMPT_PATHS.includes(path)) return true;
+  return CSRF_EXEMPT_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
 /** Methods that cannot change state, per RFC 9110. Everything else is checked. */
@@ -133,8 +152,9 @@ export function checkCsrf(input: CsrfInput): string | null {
   //    request header at all, and a cross-origin fetch that sets one needs a CORS preflight this app never
   //    answers.
   //
-  //    a. A route in CSRF_EXEMPT_PATHS — authority is a bearer secret the route checks itself, never a
-  //       cookie. See the list for the bar a path has to clear.
+  //    a. A route in CSRF_EXEMPT_PATHS, whose authority is a bearer secret it checks itself rather than a
+  //       cookie, or one under CSRF_EXEMPT_PREFIXES, which is Auth.js running this same check for itself.
+  //       See each list for the bar an entry has to clear.
   if (isCsrfExemptPath(input.pathname)) return null;
 
   //    b. A Next.js Server Action. No application code issues the request, so there is nowhere to stamp a

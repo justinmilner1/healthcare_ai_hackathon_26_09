@@ -7,6 +7,15 @@ cd "$(dirname "$0")/.."
 
 export OPENAI_API_KEY=""            # scripted mode: deterministic, no model calls
 export E2E_PORT="${E2E_PORT:-3100}"
+# Provider sign-in (design §5.1). No email provider is configured here, so lib/mailer.ts drops each sign-in
+# link in DEV_MAIL_DIR and e2e/auth.ts reads it back; a stale link from the last run must not be picked up, so
+# the mailbox starts empty. AUTH_SECRET signs the session cookie — in a throwaway database it is not a secret,
+# and production takes it from SSM (§10.6).
+export DEV_MAIL_DIR="${DEV_MAIL_DIR:-e2e/.mail}"
+export AUTH_SECRET="${AUTH_SECRET:-e2e-session-secret-not-for-deployment}"
+# One mailbox per server in playwright.config.ts (the main one, the degraded one, the jobs runner), so a link
+# from one never shows up in another's.
+rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded" "${DEV_MAIL_DIR}-runner"
 export APP_URL="http://localhost:${E2E_PORT}"
 export NEXT_TELEMETRY_DISABLED=1
 

@@ -1,13 +1,18 @@
-// Provider sign up, visit list, and provider list. Owner: Justin.
+// The signed-in provider and their work. Owner: Justin.
 // POST /api/provider { name, email, practice? } -> { id, name, email, practice }   (idempotent on email)
-// GET  /api/provider?id=...                      -> provider with their visits, intake progress and summary state
-// GET  /api/provider?list=1                      -> all providers (no auth in the demo; used by the /provider picker)
+// GET  /api/provider                             -> the signed-in provider with their visits, intake progress
+//                                                   and summary state; 401 when there is no session
 //
 // A provider is a User in a Practice (design §4.1, §4.2) and the rows below are visits (§4.4): `id` is the
 // visit, `patientId` the person it is for, and the pages send `id` back to /api/patient, /api/sour and
-// /api/invite. T05/T06 replace this route with Auth.js sign-in and role checks.
+// /api/invite.
+//
+// GET takes no id any more: the session says who is asking (§5.1), so one provider can no longer read another
+// provider's list by changing a query string, and the `?list=1` that fed the old practice picker — every
+// practice in the database, to anyone — is gone with the picker. Role checks per route are T06 (§5.2).
 
 import { NextResponse } from "next/server";
+import { currentProvider } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRoute } from "@/lib/log";
 import { upsertProvider } from "@/lib/practice";
@@ -20,18 +25,13 @@ async function postHandler(req: Request) {
   return NextResponse.json({ id: user.id, name: user.name, email: user.email, practice: user.practice.name, createdAt: user.createdAt });
 }
 
-async function getHandler(req: Request) {
-  const url = new URL(req.url);
-  if (url.searchParams.get("list")) {
-    const users = await db.user.findMany({ orderBy: { createdAt: "asc" }, include: { practice: true, _count: { select: { visits: true } } } });
-    return NextResponse.json(users.map((u) => ({ id: u.id, name: u.name, practice: u.practice.name, visits: u._count.visits })));
-  }
-  const id = url.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
-  const provider = await db.user.findUnique({ where: { id }, include: { practice: true } });
+async function getHandler() {
+  const session = await currentProvider();
+  if (!session) return NextResponse.json({ error: "sign in first" }, { status: 401 });
+  const provider = await db.user.findUnique({ where: { id: session.id }, include: { practice: true } });
   if (!provider) return NextResponse.json({ error: "provider not found" }, { status: 404 });
   const visits = await db.visit.findMany({
-    where: { providerUserId: id },
+    where: { providerUserId: provider.id },
     orderBy: { createdAt: "desc" },
     include: {
       patient: true,

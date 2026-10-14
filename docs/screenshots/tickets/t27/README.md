@@ -1,8 +1,8 @@
 # T27 screenshots
 
-From `bash scripts/agent-check.sh` on branch `t27-security-headers-csrf-audit`, re-taken after the review:
-the branch now carries T03 and T04 from `main`, so the dashboard speaks in visits and the Sour brief is the
-one a queued `sour.run` job wrote. Every one of these was taken
+From `bash scripts/agent-check.sh` on branch `t27-security-headers-csrf-audit`, re-taken after review round
+two: the branch now carries T03, T04 and T05 from `main`, so the dashboard is the one behind sign-in, and
+the Sour brief is the one a queued `sour.run` job wrote. Every one of these was taken
 by `e2e/security.spec.ts` while asserting that no Content Security Policy violation reached the console, so
 each is also the evidence that the screen hydrates under the nonce policy.
 
@@ -12,7 +12,9 @@ every screen below shows data that only appears once its client JavaScript has r
 
 | File | What it shows |
 |---|---|
-| `desktop-security-provider-dashboard.png` | The clinician dashboard, filled in from two client fetches. Pixel-identical to the `t20` baseline: the policy changed no rendering. |
+| `desktop-security-provider-signin.png` | The sign-in page (T05, §5.1), taken before signing in — afterwards that URL redirects. The walk watches the console from here, so the sign-in form, its post and the callback are covered too, which matters because they are now the only way into the app. |
+| `mobile-security-provider-signin.png` | The same at phone width. |
+| `desktop-security-provider-dashboard.png` | The clinician dashboard **reached by signing in**, not by `/demo` — which now redirects to the sign-in page, and would have left this walk quietly photographing a form. Its rows come from a client fetch, so the data on it is the proof of hydration. |
 | `mobile-security-provider-dashboard.png` | The same at phone width. |
 | `desktop-security-sweetie.png` | Sweetie's greeting, written by `GET /api/sweetie` after hydration. |
 | `mobile-security-sweetie.png` | The same at 375px — progress card, data buttons, transcript and composer all intact. |

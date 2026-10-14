@@ -17,13 +17,11 @@ const LOADED = { timeout: 30_000 };
 const SCRIPTED_FOLLOW_UP = /Since you last saw the doctor/;
 
 async function bookAndOpen(page: Page, request: APIRequestContext, name: string) {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  expect(demo).toBeTruthy();
-
+  // No providerId: /api/book books against the seeded demo provider, so this spec needs no sign-in. What it
+  // is about is the patient side of a model outage, and /s/<token> is the patient's own credential (§5.3).
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(request, "/api/book", { name, providerId: demo.id, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
+    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 

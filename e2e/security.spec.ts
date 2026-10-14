@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
+import { signInAsDemo } from "./auth";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
 // something. Both claims are checked against the running build, not against the source that sets them.
@@ -42,21 +43,32 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // already — a statically prerendered page is built before any nonce exists, so its bootstrap scripts come
   // out unsigned and 'strict-dynamic' refuses them. Walking every screen is what catches that, and catches
   // it again the day someone adds a page that opts back out of dynamic rendering.
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  const booked = await (await postJson(request, "/api/book", { name: "E2E Csp", providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
-
   const violations: string[] = [];
   page.on("console", (message) => {
     if (/content security policy/i.test(message.text())) violations.push(message.text());
   });
+
+  // Watching from here means the sign-in screens are covered too: signInAsDemo walks /provider/signin, the
+  // form post and the callback (T05, §5.1), which is now the only way into the app. The screenshot is taken
+  // before signing in, because afterwards that URL is a redirect to the dashboard.
+  await page.goto("/provider/signin");
+  await expect(page.getByRole("button", { name: /Email me a link/i })).toBeVisible({ timeout: 30_000 });
+  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-security-provider-signin.png`, fullPage: true });
+
+  const demo = await signInAsDemo(page);
+  expect(violations, `sign-in: ${violations.join("\n")}`).toEqual([]);
+
+  const booked = await (await postJson(request, "/api/book", { name: "E2E Csp", providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
 
   // Each screen, with text that only appears once its client JavaScript has run, and for the intake page the
   // click that reveals the data sources — the Dexcom sandbox button there is the one plain <form> in the app
   // and the only caller that passes its CSRF token in the query string.
   const screens: { name: string; path: string; loaded: RegExp; reveal?: RegExp }[] = [
     { name: "landing", path: "/", loaded: /Sweet Spot|Sweetie/i },
-    { name: "provider-dashboard", path: "/demo", loaded: /Sam Sample/ },
+    // The dashboard is behind sign-in now, and it is the screen this walk most needs: the one whose client
+    // fetch filling in is the proof of hydration. /demo redirects to the sign-in page with the address
+    // filled in, so visiting that would have quietly left the walk looking at a form.
+    { name: "provider-dashboard", path: "/provider", loaded: /Sam Sample/ },
     { name: "sweetie", path: `/s/${booked.token}`, loaded: /Hi E2E/ },
     { name: "intake", path: `/s/${booked.token}/intake`, loaded: /Dexcom/i, reveal: /Let.s get started/i },
     { name: "patient-summary", path: `/patient/${booked.token}`, loaded: /Talk to Sweetie/i },
@@ -102,13 +114,65 @@ test("a cross-site POST is refused even when it carries the token", async ({ req
   expect(res.headers()["x-csrf-blocked"]).toContain("origin");
 });
 
-test("the same POST with the token succeeds, and a GET never needed one", async ({ request }) => {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  expect(Array.isArray(providers)).toBe(true); // a safe method is not challenged
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
+test("the same POST with the token succeeds, and a GET never needed one", async ({ page, request }) => {
+  // GET /api/provider answers for the session now (§5.1), so this is a safe method that really does something:
+  // a 200 with the provider's own row is the proof it was not challenged, where the old ?list=1 fixture only
+  // proved an unauthenticated route answered.
+  const demo = await signInAsDemo(page);
+  const listed = await page.request.get("/api/provider");
+  expect(listed.status(), "a safe method is not challenged").toBe(200);
+  expect((await listed.json()).id).toBe(demo.id);
+
   const res = await postJson(request, "/api/book", { name: "E2E Csrf Ok", providerId: demo.id, optIn: false });
   expect(res.status()).toBe(200);
   expect((await res.json()).token).toBeTruthy();
+});
+
+// Design §5.1 + §10.8: the other stand-down, and the reason it is not a hole. Auth.js owns everything under
+// /api/auth and double-submits its own authjs.csrf-token against a csrfToken form field, so a second
+// challenge from our middleware only breaks its client — provider sign-up failed on its last step with
+// `x-csrf-blocked: no x-csrf-token header`. e2e/signin.spec.ts walks the whole flow; these three assert that
+// the hole is the shape we think it is.
+test.describe("Auth.js runs its own CSRF check", () => {
+  /** The token Auth.js expects back, and the cookies it set alongside it. */
+  async function authCsrfToken(request: import("@playwright/test").APIRequestContext): Promise<string> {
+    const res = await request.get("/api/auth/csrf");
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).csrfToken as string;
+  }
+
+  test("a sign-in POST is not challenged by us, and reaches Auth.js", async ({ request }) => {
+    const csrfToken = await authCsrfToken(request);
+    const res = await request.post("/api/auth/signin/email", {
+      form: { csrfToken, email: "e2e-auth-exempt@example.test", callbackUrl: "/provider" },
+      maxRedirects: 0,
+    });
+    // Auth.js's own answer, not ours: it accepted the request and sent the browser on to its verify page.
+    expect(res.headers()["x-csrf-blocked"]).toBeUndefined();
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("verify-request");
+  });
+
+  test("a forged Auth.js token is refused by Auth.js", async ({ request }) => {
+    await authCsrfToken(request); // take the cookie, then send a token that does not match it
+    const res = await request.post("/api/auth/signin/email", {
+      form: { csrfToken: "0".repeat(64), email: "e2e-auth-forged@example.test", callbackUrl: "/provider" },
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("MissingCSRF");
+  });
+
+  test("a cross-site sign-in POST is still refused by us", async ({ request }) => {
+    const csrfToken = await authCsrfToken(request);
+    const res = await request.post("/api/auth/signin/email", {
+      form: { csrfToken, email: "e2e-auth-crosssite@example.test", callbackUrl: "/provider" },
+      headers: { origin: "https://evil.example" },
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(403);
+    expect(res.headers()["x-csrf-blocked"]).toContain("origin");
+  });
 });
 
 test("a DELETE is challenged too, not just POST", async ({ request }) => {

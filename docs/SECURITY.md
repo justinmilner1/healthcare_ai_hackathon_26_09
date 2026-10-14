@@ -67,8 +67,8 @@ that the provider dashboard — charts and all — loads with no CSP violation i
 
 ## 2. CSRF
 
-Both of this app's sessions are cookies: the provider session (today `ss_provider` from
-`lib/providerSession.ts`, Auth.js's own once T05 lands) and the patient's visit link. A browser sends a
+Both of this app's sessions are cookies: Auth.js's session cookie for a signed-in provider (`lib/auth.ts`,
+T05) and the patient's visit link. A browser sends a
 cookie on any request to this origin, whichever page started it, so without a second factor a page on
 another site could POST `/api/invite` or `/api/upload` in the background and the request would arrive
 carrying a clinician's session. Nothing in the route can tell that apart from a click on our own dashboard.
@@ -101,13 +101,13 @@ import { apiFetch } from "@/lib/csrf";
 const res = await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId }) });
 ```
 
-### The two exemptions
+### The three exemptions
 
 Each one is a hole by construction, so each is narrow, named in code, and tested for the shape of the hole.
-Neither can be reached by a cross-site page: a `<form>` cannot set a request header at all, and a
-cross-origin `fetch` that sets one needs a CORS preflight this app never answers. **The Origin check (3
-above) runs for every request either way** — standing down on the token is not standing down on that — so
-both exemptions keep a second lock.
+None can be reached by a cross-site page: a `<form>` cannot set a request header at all, and a cross-origin
+`fetch` that sets one needs a CORS preflight this app never answers. **The Origin check (3 above) runs for
+every request either way** — standing down on the token is not standing down on that — so every exemption
+keeps a second lock, and a unit test fails until anyone adding a fourth comes and writes it down here.
 
 **1. `POST /api/jobs/run`, by path** (`CSRF_EXEMPT_PATHS` in `lib/csrf.ts`). This is the §3.4 runner.
 EventBridge Scheduler calls it once a minute with `Authorization: Bearer <JOBS_SECRET>` and nothing else: no
@@ -122,14 +122,26 @@ The bar for adding a path to that list: **the route must grant nothing on the st
 reads a session, it is not exempt, whatever else it also checks. The list is matched exactly, never by
 prefix, so `/api/jobs/runner-admin` is challenged like everything else the day someone adds it.
 
-**2. A Next.js Server Action**, recognised by the `Next-Action` header. No application code issues the
+**2. Everything under `/api/auth/`, by prefix** (`CSRF_EXEMPT_PREFIXES`). This is Auth.js's mount point
+(T05, `lib/auth.ts`), and it runs this exact check for itself: it double-submits its own `authjs.csrf-token`
+cookie against a `csrfToken` form field on every action it accepts. Its POSTs come from `signIn()` and
+`signOut()` in `next-auth/react` — library code with nowhere to add our header — so challenging it a second
+time only breaks its client. It did: `POST /api/auth/signin/email` answered `403` with
+`x-csrf-blocked: no x-csrf-token header`, which is provider sign-up failing on its last step.
+
+This is the only prefix, and the bar for a second is higher than for a path: the code under it must be a
+library performing its own CSRF check on every state-changing route, and the entry must name that check.
+"This subtree is awkward" is not a reason — we own everything else under `/api`. The prefix stops at a path
+separator, so a route of our own named `/api/authority` is challenged like any other.
+
+**3. A Next.js Server Action**, recognised by the `Next-Action` header. No application code issues the
 request — Next posts it to the page's own URL with that header and whatever cookies the browser has — so
 there is nowhere to stamp `x-csrf-token`, and inventing one would mean patching Next's own client. Next runs
 its own Origin-against-Host check on Server Actions before invoking the action, and step 3 above runs too;
 this exemption only stands down **when that check actually verified an Origin**, which a Server Action POST
-from a browser always carries. There are no Server Actions in the repo yet; T05's provider sign-in
-(`app/provider/actions.ts`) is the first, and settling the rule here rather than inside that merge is the
-point.
+from a browser always carries. T05's provider sign-in and sign-out (`app/provider/actions.ts`) are the
+ones this carries today, and they are the only way into the app, so `e2e/signin.spec.ts` exercising them end
+to end is also this rule's test.
 
 **The one caller that cannot set a header** is the sandbox Dexcom button, a plain `<form method="POST">`
 whose response is a cross-origin redirect to Dexcom's authorization page. It sends the token as `?csrf=` on
@@ -147,7 +159,10 @@ origin, then with the real token to show the same call succeeds. It also drives 
 third server in `playwright.config.ts` — the only one with a `JOBS_SECRET`, which is what makes the route
 answer the way production does — asserting 401 without the secret (**not** 403, which would mean middleware
 answered first), a drain report with it, a 403 for a cross-site post that carries the secret, and a 403 for
-a neighbouring path. `e2e/api.ts` is how the suite's own direct API calls do the handshake.
+a neighbouring path. For Auth.js it asserts the three that matter: a real `signIn()` POST reaches Auth.js
+(302 to its verify page, no `x-csrf-blocked`), a forged `csrfToken` is refused **by Auth.js**
+(`error=MissingCSRF`), and a cross-site one is still refused by us. `e2e/api.ts` is how the suite's own
+direct API calls do the handshake.
 
 A refusal from middleware carries the static headers too: `next.config.ts` applies them to responses the
 router produces, not to one middleware returns itself, so no response leaves without them.
@@ -160,7 +175,7 @@ If a route ever needs to be exempt (an inbound webhook signed by the sender, for
 
 ### Adding a Server Action
 
-Covered: exemption 2 above lets it through on a verified Origin, which is also what Next checks for itself.
+Covered: exemption 3 above lets it through on a verified Origin, which is also what Next checks for itself.
 Nothing to do.
 
 ---
