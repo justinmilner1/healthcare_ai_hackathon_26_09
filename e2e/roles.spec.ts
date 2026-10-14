@@ -97,7 +97,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
 
   // The admin books a visit, so the practice has one for the colleague to find.
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "Roles Patient", visitType: "follow_up", optIn: false })
+    await postJson(page.request, "/api/book", { name: "Roles Patient", visitType: "follow_up", channel: "none" })
   ).json();
   expect(booked.visitId).toBeTruthy();
 
@@ -112,7 +112,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   const theirs = (await (await page.request.get("/api/provider")).json()) as { visits: { id: string }[] };
   expect(theirs.visits.map((v) => v.id)).toContain(booked.visitId);
   expect((await postJson(page.request, "/api/invite", { visitId: booked.visitId })).status()).toBe(202);
-  expect((await postJson(page.request, "/api/book", { name: "Booked By Staff", optIn: false })).ok()).toBeTruthy();
+  expect((await postJson(page.request, "/api/book", { name: "Booked By Staff", channel: "none" })).ok()).toBeTruthy();
 
   // … and does not read summaries or manage the practice. Their own practice's visit, and still 403: this is
   // the role saying no, which is a different answer from the 404 above and says so.
@@ -154,7 +154,7 @@ test("a practice cannot be left without an admin", async ({ page }) => {
   expect((await page.request.get("/api/practice")).status()).toBe(403);
 
   // A clinician reads summaries, which is the half of §5.2 staff does not have.
-  const booked = await (await postJson(page.request, "/api/book", { name: "Clinician Patient", optIn: false })).json();
+  const booked = await (await postJson(page.request, "/api/book", { name: "Clinician Patient", channel: "none" })).json();
   expect(booked.error, "a clinician does not book visits").toMatch(/cannot do this/i);
 });
 
@@ -164,7 +164,7 @@ test("the provider routes refuse a caller with no session", async ({ request }) 
   // role gets, so the refusal being asserted here would be the §10.8 one rather than the §5.2 one.
   // /api/book used to fall back to the seeded demo provider, so it was a 200: anyone on the internet could
   // create patients in someone else's practice.
-  expect((await postJson(request, "/api/book", { name: "Nobody At All", optIn: false })).status()).toBe(401);
+  expect((await postJson(request, "/api/book", { name: "Nobody At All", channel: "none" })).status()).toBe(401);
   expect((await request.get("/api/provider")).status()).toBe(401);
   expect((await request.get("/api/practice")).status()).toBe(401);
   expect((await postJson(request, "/api/invite", { visitId: "whatever" })).status()).toBe(401);

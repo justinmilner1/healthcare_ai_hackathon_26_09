@@ -29,7 +29,7 @@ async function bookVisit(page: Page, name: string) {
   await signInAsDemo(page);
   // postJson adds the CSRF header the way the app's own pages do (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "mornings running high", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
   await signOutOfBrowser(page);

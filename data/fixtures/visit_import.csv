@@ -1,0 +1,10 @@
+Patient Name,Mobile,Email,Appointment,Type,Called about,Channel,Consent,consent_at
+Sam Taylor,(415) 555-0100,sam@example.com,2026-10-15 09:30,Follow-up,mornings running high,both,phone,2026-10-13 16:05
+Ada Rivera,+14155550101,,2026-10-15 10:15,medication,"new dose, feels shaky",sms,in_person,
+Lee Okonkwo,,lee@example.com,2026-10-15 11:00,annual,,email,portal,
+,+14155550102,,2026-10-15 11:30,follow_up,no name on this row,sms,phone,
+Nina Patel,not-a-number,nina@example.com,2026-10-15 13:00,follow_up,bad phone,email,phone,
+Omar Haddad,+14155550104,,2026-10-15 14:00,screening,unknown visit type,sms,phone,
+Priya Shah,+14155550105,,next tuesday,follow_up,unreadable date,sms,phone,
+Tom Berg,+14155550106,,2026-10-15 15:00,follow_up,no consent recorded,sms,,
+Yuki Sato,,,2026-10-15 15:30,follow_up,nothing to reach them on,both,phone,

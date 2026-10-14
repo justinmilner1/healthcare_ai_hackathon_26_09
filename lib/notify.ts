@@ -118,12 +118,17 @@ export async function sendIntakeInvite(p: {
   token: string;
   providerName: string;
   apptAt?: Date | null;
+  /** The channels staff chose for this visit (design §2.2). Anything not in here is not sent, however much
+   *  contact detail the patient has on file: a patient who consented to a text only gets a text. */
+  channels?: ("sms" | "email")[];
 }): Promise<InviteResult> {
   const t = inviteTemplates(p);
+  const wanted = (channel: "sms" | "email") => !p.channels || p.channels.includes(channel);
+  const notChosen = { sent: false, error: "not a channel this patient consented to" };
 
   const [sms, email] = await Promise.all([
-    p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" }),
-    p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" }),
+    !wanted("sms") ? Promise.resolve(notChosen) : p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" }),
+    !wanted("email") ? Promise.resolve(notChosen) : p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" }),
   ]);
 
   logSend("invite_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });

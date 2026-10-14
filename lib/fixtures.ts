@@ -13,6 +13,7 @@ export type FixtureName =
   | "timeline_android.json"
   | "timeline_ios.json"
   | "visits.csv"
+  | "visit_import.csv"
   | "whoop_cycles.csv"
   | "whoop_alt_headers.csv";
 

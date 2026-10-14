@@ -32,14 +32,14 @@ async function viaTwilio(to: string, body: string): Promise<SendResult> {
   const from = process.env.TWILIO_FROM;
   if (!sid || !token || !from) return { sent: false, provider: "twilio", error: "TWILIO_AUTH_TOKEN and TWILIO_FROM are required" };
   const twilio = (await import("twilio")).default;
-  await twilio(sid, token).messages.create({ to, from, body });
-  return { sent: true, provider: "twilio" };
+  const message = await twilio(sid, token).messages.create({ to, from, body });
+  return { sent: true, provider: "twilio", messageId: message.sid };
 }
 
 async function viaSns(to: string, body: string): Promise<SendResult> {
   const { SNSClient, PublishCommand } = await import("@aws-sdk/client-sns");
   const client = new SNSClient({ region: process.env.AWS_SNS_REGION ?? process.env.AWS_DEFAULT_REGION ?? process.env.AWS_REGION ?? "us-east-1" });
-  await client.send(
+  const sent = await client.send(
     new PublishCommand({
       PhoneNumber: to,
       Message: body,
@@ -51,7 +51,7 @@ async function viaSns(to: string, body: string): Promise<SendResult> {
       },
     }),
   );
-  return { sent: true, provider: "sns" };
+  return { sent: true, provider: "sns", messageId: sent.MessageId };
 }
 
 /** The presigned link in every invite. Lands directly in the Sweetie chat, which is where onboarding happens;
