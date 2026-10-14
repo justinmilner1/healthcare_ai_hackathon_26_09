@@ -34,7 +34,7 @@ export type VisitPart = (typeof VISIT_PARTS)[number];
  *
  * The four `*.read` actions are §10.2's reads, the `sent` ones its sends, the `deleted` ones its deletions,
  * and `patient.verified` its patient-link verification. T14 adds `patient.deleted` and `retention.swept` when
- * the deletion action and the nightly sweep exist (§10.4, §10.5); T08 adds the six-digit code's own row.
+ * the deletion action and the nightly sweep exist (§10.4, §10.5).
  */
 export const AUDIT_ACTIONS = {
   "intake.read": "Intake answers read",
@@ -43,6 +43,7 @@ export const AUDIT_ACTIONS = {
   "uploads.read": "Uploaded data read",
   "patient.verified": "Patient link accepted",
   "invite.sent": "Invite sent",
+  "code.sent": "Verification code sent",
   "summary.sent": "Summary notice sent",
   "upload.deleted": "Upload deleted",
   "summary.deleted": "Summaries discarded",

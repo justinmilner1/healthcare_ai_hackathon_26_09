@@ -37,7 +37,7 @@ test("every part of a visit §10.2 counts as a read has an action, and nothing i
 test("§10.2's four categories are all in the vocabulary", () => {
   // Reads, patient-link verification, sends, deletions — the sentence, item by item.
   assert.deepEqual(AUDIT_ACTION_NAMES.filter((a) => a.endsWith(".read")).length, VISIT_PARTS.length);
-  for (const action of ["patient.verified", "invite.sent", "summary.sent", "upload.deleted", "summary.deleted"]) {
+  for (const action of ["patient.verified", "invite.sent", "code.sent", "summary.sent", "upload.deleted", "summary.deleted"]) {
     assert.ok(AUDIT_ACTION_NAMES.includes(action as never), `${action} is missing`);
   }
 });

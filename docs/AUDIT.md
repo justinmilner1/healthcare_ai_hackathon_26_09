@@ -19,7 +19,7 @@ and is the record of who touched whose data. Both exist; neither does the other'
 |---|---|---|
 | `intake.read`, `messages.read`, `summary.read`, `uploads.read` | `GET /api/patient/[id]` when a provider reads it; `POST /api/sour` with a question | the signed-in user |
 | `patient.verified` | `POST /api/verify`, when a six-digit code is accepted (T08, §5.3) | the patient |
-| `invite.sent`, `summary.sent` | `lib/jobHandlers.ts`, after the send returns | the job (`system`) |
+| `invite.sent`, `code.sent`, `summary.sent` | `lib/jobHandlers.ts`, after the send returns | the job (`system`) |
 | `upload.deleted`, `summary.deleted` | `DELETE /api/upload` | the patient |
 
 One row per **part** of a visit, and only for the parts that were really in the response: a visit with no

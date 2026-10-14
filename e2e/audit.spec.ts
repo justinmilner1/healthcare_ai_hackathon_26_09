@@ -5,11 +5,13 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
 
-// T12 (design §4.8, §10.2): the audit trail end to end. Three of §10.2's four categories are produced here by
+// T12 (design §4.8, §10.2): the audit trail end to end. All four of §10.2's categories are produced here by
 // doing the thing rather than by writing a row — a patient verifies their link with the six-digit code (T08)
 // and uploads a file, a clinician reads the visit, the patient withdraws the upload — and then the admin page
-// is asked what it saw. Sends are the fourth; no email or SMS backend is configured in this run, so nothing
-// leaves the machine and a row saying otherwise would be a lie (lib/jobHandlers.ts, recordSends).
+// is asked what it saw. The send is the code itself: with no email backend configured it goes to the local
+// mailbox (lib/mailer.ts), which is a real send to a real place and is recorded as `code.sent` with that
+// backend's name. A channel no backend even tried stays unrecorded, because a row saying otherwise would be
+// a lie (lib/jobHandlers.ts, recordSends).
 //
 // The last assertions are §4.8's promise, checked against the real table rather than against the allow-list
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
@@ -86,7 +88,7 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await page.getByLabel("Visit or upload id").fill(booked.visitId);
   await expect(table).toContainText("Upload deleted", LOADED);
   await expect(page.locator(".audit-table tbody tr")).not.toHaveCount(0);
-  // Three rows, all of them this visit's: the link accepted, the clinician's read, the deletion.
+  // All of them this visit's: the code that was sent, the link accepted, the clinician's read, the deletion.
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Uploaded data read");
   await shot(page, "provider-audit-visit", true);
@@ -105,6 +107,8 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   expect(exported.split("\r\n")[0]).toBe("at,actor,actorType,actorId,action,entityType,entityId,detail");
   expect(exported).toContain("patient.verified");
   expect(exported).toContain("upload.deleted");
+  // §10.2's "every send": the six-digit code went somewhere, so the trail says so (lib/jobHandlers.ts).
+  expect(exported).toContain("code.sent");
 
   // §4.8, against the table rather than the allow-list: nothing about either patient is in here.
   const listing = await (await page.request.get("/api/audit?limit=500")).json();

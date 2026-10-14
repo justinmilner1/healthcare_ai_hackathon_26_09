@@ -127,6 +127,9 @@ export const handlers: JobHandlers = {
       providerName: providerName(visit),
       minutes: Math.round(CODE_TTL_MS / 60_000),
     });
+    // §10.2 records every send, and this is one: a message to the patient's own phone or email. The digits
+    // are not in it — `recordSends` writes the channel and the backend, never the body (§4.8).
+    await recordSends("code.sent", visit, { sms: result.sms, email: result.email });
     assertSendable("code", visit.id, { sms: result.sms, email: result.email });
   },
 
