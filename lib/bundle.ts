@@ -6,6 +6,7 @@ import { jobStateView, latestJobForVisit } from "./jobs";
 import { llmStatus } from "./llm";
 import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
+import { reviewRecord } from "./review";
 import { narrativeSource, sourInputHash, sourInputsFor } from "./sourInput";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "./sweetie";
 import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
@@ -91,6 +92,9 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     patientSummaryAt: pat?.createdAt.toISOString() ?? null,
     sourJob: sourJob ? jobStateView(sourJob) : null,
     summaryStale,
+    // §7.3: the sign-off on the row, with the reviewer's name joined on (lib/review.ts). One extra query,
+    // and only for a visit that has actually been reviewed.
+    review: await reviewRecord(visit),
   };
 }
 

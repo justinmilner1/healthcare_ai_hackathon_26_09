@@ -22,6 +22,7 @@ import {
   type VisitDraft,
 } from "@/lib/visitIntake";
 import { apiFetch } from "@/lib/csrf";
+import type { ReviewRecord } from "@/lib/types";
 
 // One booked visit (design §4.4): `id` is the visit, `patientId` the person it is for. Every request the
 // dashboard makes — invite, summary, Sour — is keyed by the visit id.
@@ -52,6 +53,8 @@ type Row = {
   wrapped: boolean;
   hasSummary: boolean;
   summaryAt: string | null;
+  /** §7.3 Who signed this summary off and when, or null while nobody has. */
+  review: ReviewRecord | null;
 };
 type Provider = {
   id: string;
@@ -629,10 +632,23 @@ function Metric({
  *  answer counts, which could say "Invited" about a visit the rest of the app had already moved on. */
 function Stage({ visit }: { visit: Row }) {
   return (
-    <span className={`provider-stage provider-stage-${visitStatusTone(visit.status)}`}>
-      <i />
-      {visitStatusLabel(visit.status)}
-    </span>
+    <div className="provider-stage-cell">
+      <span className={`provider-stage provider-stage-${visitStatusTone(visit.status)}`}>
+        <i />
+        {visitStatusLabel(visit.status)}
+      </span>
+      {/* §7.3 "shows in the dashboard": the pill says Reviewed, this line says who and when. Printed under
+          the pill rather than inside it so the name has room to wrap in a narrow column. */}
+      {visit.review && (
+        <small className="provider-reviewed-by">
+          by {visit.review.byName}
+          <time dateTime={visit.review.at}>
+            {" · "}
+            {new Date(visit.review.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+          </time>
+        </small>
+      )}
+    </div>
   );
 }
 

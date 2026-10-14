@@ -3,7 +3,8 @@
 // Sour view: the one-page summary the endocrinologist reads during the visit, with a sidebar of ready summaries.
 // Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider (the signed-in provider, §5.1), GET /api/patient/[id], POST /api/sour, POST /api/invite.
-// Print gives the one-pager. page.tsx beside this file is the server component that checks the session.
+// Print gives the one-pager, and Mark reviewed records the clinician's sign-off (§7.3, POST /api/review).
+// page.tsx beside this file is the server component that checks the session.
 // Rows and every request are keyed by visit id (design §4.4); ?visit=<id> deep-links from the summary email.
 // Generate and Send link queue a job (§3.4) and return at once, so this page waits for the result by
 // polling the bundle. The bundle carries that job's own state, which the chip under the header shows and a
@@ -21,7 +22,7 @@ import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { visitLabel } from "@/lib/visits";
-import type { PatientBundle } from "@/lib/types";
+import type { PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
 
 /** How long the page waits for a queued summary: 20 polls, 1.5s apart. Longer than Sour's two model calls
@@ -46,6 +47,11 @@ export default function SourView({ id }: { id: string }) {
   const [chatError, setChatError] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const [summaryNote, setSummaryNote] = useState("");
+  // §7.3 The sign-off. It arrives with the bundle, and is held here as well so the button's own press shows
+  // at once rather than on the next poll; `reviewing` keeps a double-click from sending a second one.
+  const [review, setReview] = useState<ReviewRecord | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState("");
   const activeVisit = useRef<string | null>(null);
   // The timestamp of the summary currently on screen, so Regenerate can tell a fresh one from the old one.
   const bundleSummaryAt = useRef<string | null>(null);
@@ -77,6 +83,9 @@ export default function SourView({ id }: { id: string }) {
       if (activeVisit.current === visitId) {
         setBundle(b);
         bundleSummaryAt.current = b.providerSummaryAt;
+        // A sign-off is forward-only (lib/review.ts), so a poll that started before the button was pressed
+        // must not take the record back off the screen.
+        setReview((prev) => b.review ?? prev);
       }
       return b;
     } finally {
@@ -132,6 +141,9 @@ export default function SourView({ id }: { id: string }) {
     setChatError("");
     setSummaryError("");
     setSummaryNote("");
+    setReview(null);
+    setReviewing(false);
+    setReviewError("");
     setChecked(new Set());
     setInvite("");
     watched.current = { jobId: null, polls: 0 };
@@ -166,6 +178,28 @@ export default function SourView({ id }: { id: string }) {
     }, SUMMARY_POLL_MS);
     return () => clearTimeout(timer);
   }, [bundle, selected, busy, load]);
+
+  /** §7.3: record this clinician as having read the one-pager before the visit. The first press is the
+   *  record; pressing again returns the one that stands, which is why a 409 is the only real failure here. */
+  async function markReviewed(visitId: string) {
+    if (reviewing) return;
+    setReviewing(true);
+    setReviewError("");
+    try {
+      const res = await apiFetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) });
+      const d = (await res.json().catch(() => null)) as { review?: ReviewRecord; error?: string } | null;
+      if (!res.ok || !d?.review) throw new Error(typeof d?.error === "string" ? d.error : "Could not mark this summary reviewed. Please try again.");
+      if (activeVisit.current !== visitId) return;
+      setReview(d.review);
+      // The visit's status moved to `reviewed` with it (§4.4), and the sidebar and the dashboard read that
+      // status, so the bundle is re-read rather than patched by hand.
+      void load(visitId, true).catch(() => {});
+    } catch (e) {
+      if (activeVisit.current === visitId) setReviewError(e instanceof Error ? e.message : "Could not mark this summary reviewed.");
+    } finally {
+      if (activeVisit.current === visitId) setReviewing(false);
+    }
+  }
 
   async function sendLink(visitId: string) {
     setInvite("Sending…");
@@ -278,6 +312,18 @@ export default function SourView({ id }: { id: string }) {
               <div className="sour-brief-actions print:hidden">
                 <button onClick={() => sendLink(bundle.visitId)} className="ss-button">Send link</button>
                 <button onClick={() => window.print()} className="ss-button">Print</button>
+                {/* §7.3: offered only while there is a summary to sign off and nobody has. Once pressed, the
+                    record below takes its place — there is no unmarking (app/api/review/route.ts). */}
+                {!review && (
+                  <button
+                    onClick={() => markReviewed(bundle.visitId)}
+                    disabled={reviewing || !s}
+                    title={s ? "Record that you have read this summary before the visit" : "Generate a summary first"}
+                    className="ss-button sour-review-button"
+                  >
+                    {reviewing ? "Marking…" : "Mark reviewed"}
+                  </button>
+                )}
                 <button onClick={() => generate(bundle.visitId)} disabled={busy || jobBusy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
                   {busy || jobBusy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
@@ -292,6 +338,16 @@ export default function SourView({ id }: { id: string }) {
               pending={busy}
               onRetry={() => generate(bundle.visitId)}
             />
+            {/* §7.3 The sign-off, printed with the one-pager: who read this before the visit, and when. */}
+            {review && (
+              <p className="sour-reviewed" role="status">
+                <span className="sour-reviewed-check" aria-hidden="true">✓</span>
+                <span>
+                  Reviewed by <strong>{review.byName}</strong> <time dateTime={review.at}>{reviewedAtText(review.at)}</time>
+                </span>
+              </p>
+            )}
+            {reviewError && <p role="alert" className="ss-error print:hidden">{reviewError}</p>}
             {summaryNote && <p className="ss-notice print:hidden">{summaryNote}</p>}
             {invite && <p className="ss-notice sour-invite-note print:hidden">{invite}</p>}
             {bundle.intake?.flagged && (
@@ -471,6 +527,17 @@ export default function SourView({ id }: { id: string }) {
       </div>
     </main>
   );
+}
+
+/** When the sign-off was recorded. Today's reads as a time, anything older carries the date — the same rule
+ *  as the job chip's own timestamp (components/SourJobState.tsx). */
+function reviewedAtText(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return sameDay
+    ? `today at ${at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`
+    : `on ${at.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
 }
 
 function EmptyIntake({ bundle }: { bundle: PatientBundle }) {

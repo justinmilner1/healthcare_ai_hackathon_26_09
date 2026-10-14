@@ -35,6 +35,10 @@ export type VisitPart = (typeof VISIT_PARTS)[number];
  * The four `*.read` actions are §10.2's reads, the `sent` ones its sends, the `deleted` ones its deletions,
  * and `patient.verified` its patient-link verification. T14 adds `patient.deleted` and `retention.swept` when
  * the deletion action and the nightly sweep exist (§10.4, §10.5).
+ *
+ * `summary.reviewed` is not one of §10.2's four categories; it is §7.3's clinical sign-off, recorded here
+ * because "a clinician reviewed this before the visit" is exactly the kind of claim an admin is later asked
+ * to stand behind, and the row is the only place it is visible next to who read what.
  */
 export const AUDIT_ACTIONS = {
   "intake.read": "Intake answers read",
@@ -45,6 +49,7 @@ export const AUDIT_ACTIONS = {
   "invite.sent": "Invite sent",
   "code.sent": "Verification code sent",
   "summary.sent": "Summary notice sent",
+  "summary.reviewed": "Summary marked reviewed",
   "upload.deleted": "Upload deleted",
   "summary.deleted": "Summaries discarded",
 } as const;

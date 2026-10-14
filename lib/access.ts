@@ -40,6 +40,9 @@ export const CAPABILITIES = {
   "summaries:read": ["admin", "clinician"],
   /** Ask for a summary to be written or rewritten. */
   "summaries:generate": ["admin", "clinician"],
+  /** Sign a one-pager off as read before the visit (§2.6, §7.3). The second verb in §5.2's "sees and
+   *  reviews summaries", and the same two roles: a sign-off is a clinical attestation, so not staff. */
+  "summaries:review": ["admin", "clinician"],
   /** Invite a user, change a role (§2.1). */
   "users:manage": ["admin"],
   /** Rename the practice, change its retention window (§2.8, §10.4). */
