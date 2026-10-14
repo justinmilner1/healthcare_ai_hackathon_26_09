@@ -113,8 +113,10 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   expect(before.providerSummary, "the queue wrote one above").toBeTruthy();
   expect(before.summaryStale, "nothing has changed since that summary was written").toBe(false);
 
-  // Through postJson: a bare POST is a 403 from the CSRF middleware (§10.8) and would assert nothing.
-  const queued = await (await postJson(request, "/api/sour", { visitId: seeded.id })).json();
+  // page.request, not request: /api/sour needs the provider session (§5.2, T06) as well as the CSRF header
+  // (§10.8), and the page is what holds the cookie. A bare POST is a 403, a session-less one a 401, and
+  // either would assert nothing about §7.1.
+  const queued = await (await postJson(page.request, "/api/sour", { visitId: seeded.id })).json();
   expect(queued.jobId).toBeTruthy();
 
   let after = before;
@@ -177,8 +179,10 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
 // out of date, and Regenerate really writes a new one rather than handing back the saved pair.
 test("a file arriving after a summary makes it out of date, and regenerating writes a new one", async ({ page, request }) => {
   const demo = await signInAsDemo(page);
+  // Booking is staff's job and needs the session (§5.2, T06), so it goes through the signed-in page. The
+  // uploads below do not: a patient's credential is the token in their link (§5.3), not a provider session.
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Fresh Data", visitType: "follow_up", reason: "spikes after dinner", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", visitType: "follow_up", reason: "spikes after dinner", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 
