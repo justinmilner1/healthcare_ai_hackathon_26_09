@@ -148,8 +148,8 @@ function Declined({ clinicianName }: { clinicianName: string }) {
             That is completely fine.
           </h1>
           <p className="ss-lede">
-            Nothing has been collected, and you will not be asked anything else. Your appointment goes ahead
-            as planned — you can tell {clinicianName} everything in person.
+            Nothing has been collected, and Sweetie will not ask you anything. Your appointment goes ahead as
+            planned — you can tell {clinicianName} everything in person.
           </p>
           <p className="patient-consent-help">
             You can close this page. If you change your mind, open the link from your text or email again.

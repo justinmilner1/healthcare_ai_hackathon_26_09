@@ -10,9 +10,9 @@ import { MAIL_DIR } from "./auth";
 // configured, lib/mailer.ts drops the code in DEV_MAIL_DIR instead of sending it (the console mailer the
 // ticket's acceptance criteria name), and these helpers read it back out of there.
 //
-// One mailbox per server, because playwright.config.ts starts three of them and a code from one must never
-// be read as another's. MAIL_DIR and DEGRADED_MAIL_DIR come from e2e/auth.ts, which already names them for
-// the sign-in links; a code and a sign-in link land in the same directory.
+// playwright.config.ts starts three servers with a mailbox each, and a code goes in whichever one drains the
+// `notify.code` job — see latestCode, which is why these read all three and e2e/auth.ts's sign-in links do
+// not. MAIL_DIR comes from e2e/auth.ts, which already names it for those links.
 
 /**
  * Every patient these specs book needs a contact method, because that is where the code goes — and a
@@ -24,17 +24,37 @@ import { MAIL_DIR } from "./auth";
 export const patientEmail = (name: string) =>
   `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}.${randomBytes(4).toString("hex")}@example.test`;
 
+/**
+ * Every mailbox the suite's servers write to, newest file first across all of them.
+ *
+ * A code is not written by the server the patient is talking to: POST /api/verify enqueues a `notify.code`
+ * job, and the three servers share one database, so whichever of them next drains inline is the one that
+ * sends it — and it writes to *its* mailbox. Looking only in the main one loses roughly one code in fifty to
+ * the degraded server's box, as a timeout fifteen seconds later with nothing to show for it.
+ *
+ * Searching all three is safe because every booking gets its own address (patientEmail), so a code found
+ * under one is unambiguously this patient's. Sign-in links are the opposite case and stay per-mailbox in
+ * e2e/auth.ts: those all go to the one demo address, so only the directory tells them apart.
+ */
+const MAIL_DIRS = (first: string) => [...new Set([first, MAIL_DIR, `${MAIL_DIR}-degraded`, `${MAIL_DIR}-runner`])];
+
 /** The newest code sent to this address, or null while nothing has arrived. */
 export function latestCode(email: string, dir = MAIL_DIR): string | null {
-  let names: string[];
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith(".txt")).sort();
-  } catch {
-    return null;
+  const files: { name: string; path: string }[] = [];
+  for (const box of MAIL_DIRS(dir)) {
+    try {
+      for (const name of readdirSync(box)) {
+        if (name.endsWith(".txt")) files.push({ name, path: join(box, name) });
+      }
+    } catch {
+      // A mailbox a server has not written to yet simply is not there.
+    }
   }
+  // The file name starts with the time it was written, so one sort orders the boxes together.
+  files.sort((a, b) => a.name.localeCompare(b.name));
   const to = `To: ${email}`;
-  for (const name of names.reverse()) {
-    const raw = readFileSync(join(dir, name), "utf8");
+  for (const file of files.reverse()) {
+    const raw = readFileSync(file.path, "utf8");
     if (!raw.split("\n").includes(to)) continue;
     // The subject is "Your code is 480913" (lib/notify.ts codeTemplates), which is also the only place in
     // the mailbox a bare six-digit number appears.
