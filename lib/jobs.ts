@@ -18,6 +18,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { db } from "./db";
 import { log, scrub } from "./log";
+import type { SourJobState } from "./types";
 
 /** Every kind the runner knows how to be asked for (§3.4). A kind with no handler fails the job. */
 export const JOB_KINDS = ["sour.run", "notify.invite", "notify.code", "notify.summary", "patient.delete", "retention.sweep"] as const;
@@ -75,7 +76,8 @@ export type EnqueueResult = { job: JobRow; deduped: boolean };
  * once. The key is released the moment the job reaches `done` or `failed`, so a later identical request is new
  * work — a clinician asking for a fresh summary, or staff resending a link an hour later, must not be
  * swallowed by a job that has already run. Idempotency over the *inputs* of a summary (§7.1: unchanged inputs
- * return the existing summary) is T15 and lives in Sour, not here.
+ * return the existing summary) is a different question with a different answer, and it lives in Sour rather
+ * than here: lib/sourInput.ts fingerprints the inputs and lib/sourRun.ts looks the fingerprint up.
  */
 export async function enqueue(input: EnqueueInput, client: JobClient = db): Promise<EnqueueResult> {
   const data = {
@@ -176,6 +178,55 @@ export async function reapStuckJobs(client: JobClient = db, now = new Date()): P
     }
   }
   return report;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reading a job back (§7.2)
+
+/**
+ * The newest job of one kind for one visit.
+ *
+ * Why not `findUnique` on the idempotency key: the key is released the moment a job reaches `done` or
+ * `failed`, which is exactly the state a clinician most needs to see ("failed, here is why, retry"). The
+ * payload is the only lasting link from a visit to its jobs, so the query narrows on the serialized needle in
+ * Postgres and then confirms in JS by parsing the payload, so a visit id that happens to appear in some other
+ * field of a future payload cannot be mistaken for this one.
+ */
+export async function latestJobForVisit(kind: JobKind, visitId: string, client: JobClient = db): Promise<JobRow | null> {
+  if (!visitId) return null;
+  const needle = JSON.stringify({ visitId }).slice(1, -1); // "visitId":"<id>", exactly as enqueue wrote it
+  const rows = (await client.job.findMany({
+    where: { kind, payload: { contains: needle } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  })) as JobRow[];
+  return rows.find((row) => payloadVisitId(row.payload) === visitId) ?? null;
+}
+
+function payloadVisitId(raw: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const id = (parsed as { visitId?: unknown } | null)?.visitId;
+    return typeof id === "string" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A job row as the provider page reads it (lib/types.ts SourJobState): the four states §7.2 names, the
+ *  attempt count against the ceiling, and the scrubbed reason the last attempt failed. */
+export function jobStateView(job: JobRow): SourJobState {
+  return {
+    id: job.id,
+    status: (["queued", "running", "done", "failed"] as const).find((s) => s === job.status) ?? "queued",
+    attempts: job.attempts,
+    maxAttempts: MAX_ATTEMPTS,
+    lastError: job.lastError,
+    runAfter: job.runAfter.toISOString(),
+    startedAt: job.startedAt?.toISOString() ?? null,
+    finishedAt: job.finishedAt?.toISOString() ?? null,
+    createdAt: job.createdAt.toISOString(),
+  };
 }
 
 export type JobHandler = (payload: JobPayload, job: JobRow) => Promise<void>;
