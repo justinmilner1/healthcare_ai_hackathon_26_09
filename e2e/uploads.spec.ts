@@ -15,11 +15,11 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "timeline_android.json"), "utf8");
 
+// No sign-in: the patient's credential is the token in the link (§5.3), and an unattributed booking lands on
+// the seeded demo provider, the same way e2e/flows.spec.ts opens its patient flow.
 async function bookVisit(request: import("@playwright/test").APIRequestContext, name: string) {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
   const booked = await (
-    await request.post("/api/book", { data: { name, providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false } })
+    await request.post("/api/book", { data: { name, visitType: "follow_up", reason: "mornings running high", optIn: false } })
   ).json();
   expect(booked.token).toBeTruthy();
   return booked as { token: string; visitId: string };
