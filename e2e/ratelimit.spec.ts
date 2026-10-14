@@ -77,14 +77,14 @@ test("one visit's spent window is not another visit's (§5.4)", async ({ page, b
   await other.close();
 });
 
-test("the invite link route is limited too, and says so in a page a browser can read (§5.4)", async ({ page, request }) => {
+test("the invite link route is limited too, and says so in a page a browser can read (§5.4)", async ({ page }) => {
   const { token } = await book(page, "E2E Rate Link");
 
   // The link route is a page, so its limit lives in middleware (there is no handler to put it in) and is
   // keyed by the token, which names the visit. 60 a minute is far more than opening a link and reloading it.
   let refused: APIResponse | null = null;
   for (let i = 0; i < 70 && !refused; i++) {
-    const res = await request.get(`/s/${token}`);
+    const res = await page.request.get(`/s/${token}`);
     if (res.status() === 429) refused = res;
   }
   expect(refused, "the link route should refuse a burst against one token").toBeTruthy();
@@ -99,4 +99,11 @@ test("the invite link route is limited too, and says so in a page a browser can 
   // Nothing about the patient behind the token leaks into it.
   expect(html).not.toContain(token);
   expect(html).not.toMatch(/E2E Rate Link/);
+
+  // And it is a page, so it is worth looking at as one: the window is the token's, so opening the link in
+  // the browser lands on the same refusal.
+  await page.goto(`/s/${token}`);
+  await expect(page.locator("h1")).toHaveText("Just a moment", LOADED);
+  await expect(page.locator("body")).toContainText(/too many requests/i);
+  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-ratelimit-link.png`, fullPage: true });
 });
