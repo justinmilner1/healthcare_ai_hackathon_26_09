@@ -23,8 +23,8 @@ const DEGRADED_PORT = PORT + 1;
 // prove the CSRF middleware stands down for the runner — EventBridge sends a bearer token and no cookie, and
 // a 403 in front of that route means the queue never drains in production.
 const RUNNER_PORT = PORT + 2;
-// At least 16 characters, because the §3.7 config gate refuses to start a server whose JOBS_SECRET is
-// shorter than that (lib/config.ts) — "e2e-jobs-secret" was fifteen, and this server never came up (T45).
+// Long enough to satisfy the §3.7 config gate, which refuses a secret under 16 characters because this one
+// guards a public route (T31). Named like AUTH_SECRET below for the same reason: neither is a secret here.
 const RUNNER_SECRET = "e2e-jobs-secret-not-for-deployment";
 // Where the sign-in links land (design §5.1, e2e/auth.ts) and the secret that signs the session cookie. Neither
 // is a secret in a throwaway test database; production supplies AUTH_SECRET from SSM (§10.6).
