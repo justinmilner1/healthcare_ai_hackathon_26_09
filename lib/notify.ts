@@ -40,7 +40,7 @@ export function inviteTemplates(p: { name: string; token: string; providerName: 
         ``,
         `Before your visit with ${p.providerName}${when}, we'd like to prepare a short summary so your appointment starts with your story already told.`,
         ``,
-        `Open this link on your phone or computer. It's yours alone, no login needed:`,
+        `Open this link on your phone or computer. We'll text or email you a six-digit code to check it's you:`,
         link,
         ``,
         `Sweetie will ask you to share your glucose data, where you've been, and a few quick questions. It takes about five minutes.`,
@@ -180,7 +180,7 @@ export function summaryTemplates(p: {
         ``,
         `See it here: ${patientLink}`,
         ``,
-        `The link is yours alone and needs no login. ${p.provider.name}'s office`,
+        `Opening it sends you a six-digit code, so it only works for you. ${p.provider.name}'s office`,
       ].join("\n"),
     },
   };

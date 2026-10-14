@@ -90,7 +90,8 @@ test("the summary-ready emails are a link each, provider and patient", () => {
   assert.match(t.provider.text, /This email carries no patient data\./);
   assert.equal(t.patient.subject, "Your summary is ready, Sam");
   assert.ok(t.patient.text.includes(t.patientLink));
-  assert.match(t.patient.text, /The link is yours alone and needs no login\. Dr\. Ada Bell's office$/);
+  // T08: the link alone is not the credential any more, and the copy has to stop saying it is (§2.3).
+  assert.match(t.patient.text, /Opening it sends you a six-digit code, so it only works for you\. Dr\. Ada Bell's office$/);
 });
 
 test("the provider email names no patient, and neither email carries the summary", () => {
