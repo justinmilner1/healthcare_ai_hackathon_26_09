@@ -5341,8 +5341,12 @@ button.sweetie-agent-badge {
     min-width: 0;
   }
 
+  /* Capped against the viewport and not against the card. The card is in a grid whose items size to their
+     content (`min-width: auto`), so a row of seven counts widens the card itself and a `max-width: 100%` on
+     the counts then resolves against that wider card and wraps nothing. 100vw minus the container's gutter
+     and the cell's padding is a width nothing inside can argue with. */
   .audit-detail {
-    max-width: 100%;
+    max-width: calc(100vw - 72px);
   }
 
   .audit-table thead {

@@ -303,7 +303,11 @@ export async function requestPatientDeletion(opts: {
   now?: Date;
 }): Promise<{ jobId: string; deduped: boolean }> {
   const client = opts.client ?? db;
-  await client.patient.update({ where: { id: opts.patientId }, data: { deletedAt: opts.now ?? new Date() } });
+  // `updateMany` with `deletedAt: null`, so asking again — because the first job failed, which is the only
+  // reason staff would — does not move the date the deletion was asked for. That date is part of the record
+  // (§2.8) and the second request is the same request, not a second deletion. The route has already found
+  // the patient in the caller's practice, so matching nothing here means it is already marked.
+  await client.patient.updateMany({ where: { id: opts.patientId, deletedAt: null }, data: { deletedAt: opts.now ?? new Date() } });
   const { job, deduped } = await enqueue(
     {
       kind: "patient.delete",

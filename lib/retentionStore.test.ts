@@ -409,9 +409,12 @@ describe("retention and deletion", { skip: SERVER_URL ? false : "DATABASE_URL is
       const first = await requestPatientDeletion({ patientId, requestedBy: providerId, client: db, jobs: db, now: NOW });
       // The key is released when a job reaches done or failed (lib/jobs.ts), which is the state staff see.
       await db.job.update({ where: { id: first.jobId }, data: { status: "failed", idempotencyKey: null, lastError: "Error: storage unreachable" } });
-      const second = await requestPatientDeletion({ patientId, requestedBy: providerId, client: db, jobs: db, now: NOW });
+      const later = new Date(NOW.getTime() + 3_600_000);
+      const second = await requestPatientDeletion({ patientId, requestedBy: providerId, client: db, jobs: db, now: later });
       assert.equal(second.deduped, false);
       assert.notEqual(second.jobId, first.jobId);
+      // And the second ask does not move the date the first one recorded: it is the same request, retried.
+      assert.equal((await db.patient.findUniqueOrThrow({ where: { id: patientId } })).deletedAt?.toISOString(), NOW.toISOString());
     });
   });
 
