@@ -2,6 +2,7 @@
 // The token in the link is the patient's sign-in: /s/<token> opens their intake, /patient/<token> their summary.
 // Each channel fails soft; the caller decides whether to show the link on screen.
 
+import { appUrl } from "./config";
 import { sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { intakeLink, sendSms } from "./sms";
@@ -92,7 +93,7 @@ export function summaryTemplates(p: {
   patient: { name: string };
   provider: { id: string; name: string };
 }): { providerLink: string; patientLink: string; provider: EmailTemplate; patient: EmailTemplate } {
-  const base = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const base = appUrl();
   const providerLink = `${base}/provider/${p.provider.id}?visit=${p.visit.id}`;
   const patientLink = `${base}/patient/${p.visit.token}`;
   const first = firstName(p.patient.name);

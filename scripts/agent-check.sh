@@ -37,6 +37,14 @@ echo "database: ${DATABASE_URL%%:*}://...@${DATABASE_URL#*@}"
 npx prisma migrate deploy
 npm run seed
 
+echo "== config"
+# The §3.7 gate as a command, judged by production rules because that is what the two Playwright servers are:
+# both are `next start` on a production build. Running it here is the same check instrumentation.ts runs when
+# they boot, twenty seconds in instead of two minutes in and with a readable message instead of a webServer
+# timeout. It passes in this sandbox and in CI: the only required variables are DATABASE_URL, set just above,
+# and APP_URL, which is localhost here and exempt from the https rule.
+npm run config:check -- --production
+
 echo "== typecheck"; npm run typecheck
 echo "== lint";      npm run lint
 # Coverage goes through the unit step rather than a step of its own, so the table lands in CI output and in both
