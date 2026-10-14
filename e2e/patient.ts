@@ -79,18 +79,52 @@ export async function enterCode(page: Page, email: string, dir = MAIL_DIR, notBe
   return code;
 }
 
+/** The one tap on the consent screen (design §2.4, T09). */
+export const AGREE = /I agree/i;
+
 /**
- * Verify in the browser: open the link, which is what sends the code, then type it. Leaves the page on
- * whatever the link opens, with the session cookie in the browser's jar.
+ * Take the consent screen, if this visit has not been past it yet (§2.4 is first open only, so the second
+ * verification of the same visit — a regenerated link, another device — goes straight through). Returns
+ * whether there was a screen to take, so a spec can assert on either.
+ *
+ * The screen is server-rendered by the gate, so it is in the document the moment the code screen goes: the
+ * short wait is for the parse of that document, not for app logic.
+ */
+export async function acceptConsent(page: Page): Promise<boolean> {
+  const agree = page.getByRole("button", { name: AGREE });
+  await page.waitForLoadState("domcontentloaded");
+  try {
+    await agree.waitFor({ state: "visible", timeout: 3_000 });
+  } catch {
+    return false;
+  }
+  await agree.click();
+  // Accepting reloads through the gate, so the button going is the page behind it arriving.
+  await agree.waitFor({ state: "hidden", timeout: 30_000 });
+  return true;
+}
+
+/**
+ * Verify in the browser the way a patient does: open the link, which is what sends the code, type it, and
+ * take the consent screen behind it (§2.4). Leaves the page on whatever the link opens, with the session
+ * cookie in the browser's jar.
+ *
+ * The consent tap is in here rather than in every spec because it is now part of opening a link, not a
+ * feature any of them are about — e2e/consent.spec.ts is the one that drives the screen itself, and it uses
+ * `enterCode` so it arrives with the screen still up.
  */
 export async function verifyLink(page: Page, token: string, email: string, dir = MAIL_DIR, notBefore: string | null = null): Promise<string> {
   await page.goto(`/s/${token}`);
-  return enterCode(page, email, dir, notBefore);
+  const code = await enterCode(page, email, dir, notBefore);
+  await acceptConsent(page);
+  return code;
 }
 
 /**
  * The same thing for a bare request context, for the specs that read the API directly. The cookie lands in
- * that context's jar, so its later GETs speak as the verified patient.
+ * that context's jar, so its later GETs speak as the verified patient. Consent is answered here too, for the
+ * same reason as above: a context that has verified is a patient who got through the door, and POST
+ * /api/consent is behind the same verified session.
  */
 export async function verifyByApi(request: APIRequestContext, token: string, email: string, dir = MAIL_DIR): Promise<string> {
   const before = latestCode(email, dir);
@@ -99,5 +133,7 @@ export async function verifyByApi(request: APIRequestContext, token: string, ema
   const code = await waitForCode(email, dir, before);
   const verified = await postJson(request, "/api/verify", { token, code });
   expect(verified.status(), `POST /api/verify with the code: ${await verified.text()}`).toBe(200);
+  const consented = await postJson(request, "/api/consent", { token, accept: true });
+  expect(consented.status(), `POST /api/consent: ${await consented.text()}`).toBe(200);
   return code;
 }
