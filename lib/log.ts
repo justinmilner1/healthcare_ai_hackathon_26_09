@@ -14,7 +14,6 @@
 // the database, and the audit log (§10.2) is where reads of patient data get recorded.
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type Fields = Record<string, unknown>;
@@ -90,7 +89,11 @@ const OPAQUE_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 export function requestIdFrom(headers: Headers | null | undefined): string {
   const given = headers?.get("x-request-id")?.trim();
   if (given && OPAQUE_REQUEST_ID.test(given)) return given.toLowerCase();
-  return randomUUID();
+  // The Web Crypto global, not node:crypto. T31's instrumentation hook reaches this module through
+  // lib/config.ts, and Next compiles that hook for the edge runtime as well as node — where a `node:` import
+  // is an unresolvable scheme and fails the whole build (see the commit message). The global is available in
+  // both runtimes and on Node 20+, so this is the one import that had to go.
+  return crypto.randomUUID();
 }
 
 /** Remove the shapes PHI arrives in (emails, phone numbers, long digit runs) and cap the length. */
