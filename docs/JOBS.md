@@ -7,6 +7,7 @@ Everything that is slow or can fail on its own runs as a row in `Job`, not insid
 |---|---|---|
 | `sour.run` | the turn that wraps intake (`/api/sweetie`), the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
 | `notify.invite` | adding a patient with consent (`/api/book`), Send link (`/api/invite`) | the presigned `/s/<token>` link by SMS and email |
+| `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
 
 Why a table and not an awaited call: two model calls and an SES round trip made a patient or a clinician wait

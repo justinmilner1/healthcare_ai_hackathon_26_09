@@ -1,4 +1,5 @@
 // POST /api/upload  multipart form: token, kind (dexcom|timeline|whoop|visits), file
+// Needs a verified patient session for that visit (design §5.3).
 // Parses on the way in; the file hangs off the visit the token identifies (design §4.4, §4.6) and the parsed
 // rows go in the UploadData row beside it. Returns { kind, count, status }.
 // Owners: Dexcom -> Nisarga, location -> Robbert, WHOOP -> unassigned.
@@ -11,6 +12,7 @@ import { parseTimeline, parseVisitsCsv } from "@/lib/location";
 import { log, withRoute } from "@/lib/log";
 import { parseWhoopCsv } from "@/lib/sleep";
 import type { UploadKind } from "@/lib/types";
+import { patientAllowed, VERIFICATION_REQUIRED } from "@/lib/patientSession";
 import { visitByToken } from "@/lib/visit";
 
 const KINDS: UploadKind[] = ["dexcom", "timeline", "whoop", "visits"];
@@ -23,6 +25,8 @@ async function deleteHandler(req: Request) {
   }
   const visit = await visitByToken(body.token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  // §5.3 The token names the visit; the verified session is what opens it.
+  if (!(await patientAllowed(req, visit))) return NextResponse.json(VERIFICATION_REQUIRED, { status: 401 });
 
   // Hand-labelled visits also contain location history and must not survive Timeline removal.
   const kinds = body.kind === "timeline" ? ["timeline", "visits"] : [body.kind];
@@ -46,6 +50,8 @@ async function postHandler(req: Request) {
   if (!(file instanceof File)) return NextResponse.json({ error: "file is required" }, { status: 400 });
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  // §5.3 The token names the visit; the verified session is what opens it.
+  if (!(await patientAllowed(req, visit))) return NextResponse.json(VERIFICATION_REQUIRED, { status: 401 });
   if (visit.isSandbox) return NextResponse.json({ error: "This demo patient accepts only Dexcom sandbox imports. Use a separate patient for real uploads." }, { status: 403 });
 
   const raw = await file.text();

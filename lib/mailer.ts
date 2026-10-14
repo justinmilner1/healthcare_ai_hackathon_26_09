@@ -14,6 +14,22 @@ import { log } from "./log";
 
 export const SIGN_IN_SUBJECT = "Your Sweet Spot sign-in link";
 
+/**
+ * Send one message, or write it to the local mailbox when there is nothing to send with. For the two
+ * messages the flow cannot continue without — a provider's sign-in link (§5.1) and a patient's verification
+ * code (§5.3) — "not configured" has to still deliver somewhere a developer and the e2e suite can read, or
+ * neither sign-in works offline at all. Everything else (invites, summary links) fails soft instead and the
+ * UI shows the link.
+ */
+export async function sendOrMailbox(to: string, subject: string, text: string): Promise<SendResult> {
+  if (divertsMail(process.env, Boolean(emailProvider()))) {
+    writeDevMail({ to, subject, text });
+    // The directory, not the filename: scrub() reads a timestamped filename as a phone number and redacts it.
+    return { sent: true, provider: "dev-mailbox", target: devMailDir() };
+  }
+  return sendEmail(to, subject, text);
+}
+
 /** The body of the sign-in email. Plain text; no clinical content, a link only (§8.2). */
 export function signInEmailText(url: string, minutes: number): string {
   return [
@@ -30,14 +46,7 @@ export function signInEmailText(url: string, minutes: number): string {
 }
 
 export async function sendSignInLink(to: string, url: string, minutes: number): Promise<SendResult> {
-  const text = signInEmailText(url, minutes);
-  if (divertsMail(process.env, Boolean(emailProvider()))) {
-    writeDevMail({ to, subject: SIGN_IN_SUBJECT, text });
-    // The directory, not the filename: scrub() reads a timestamped filename as a phone number and redacts it.
-    log.info("signin_link_sent", { channel: "email", provider: "dev-mailbox", sent: true, target: devMailDir() });
-    return { sent: true, provider: "dev-mailbox" };
-  }
-  const result = await sendEmail(to, SIGN_IN_SUBJECT, text);
-  log.info("signin_link_sent", { channel: "email", provider: result.provider, sent: result.sent, error: result.error });
+  const result = await sendOrMailbox(to, SIGN_IN_SUBJECT, signInEmailText(url, minutes));
+  log.info("signin_link_sent", { channel: "email", provider: result.provider, sent: result.sent, target: result.target, error: result.error });
   return result;
 }

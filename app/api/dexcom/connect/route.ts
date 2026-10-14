@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { authorizationUrl, dexcomConfig, DEXCOM_COOKIE, hash } from "@/lib/dexcom";
 import { withRoute } from "@/lib/log";
+import { patientAllowed, VERIFICATION_REQUIRED } from "@/lib/patientSession";
 import { visitByToken } from "@/lib/visit";
 
 async function postHandler(req: Request) {
@@ -20,6 +21,9 @@ async function postHandler(req: Request) {
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "Invalid patient link." }, { status: 404 });
   if (!visit.isSandbox) return NextResponse.json({ error: "Use a dedicated sandbox patient; real patient data cannot be replaced." }, { status: 403 });
+  // Sandbox visits need no code (there is nobody to send one to), but the check belongs here anyway: the day
+  // this route accepts a real visit, it must not accept one on the strength of a forwarded link (§5.3).
+  if (!(await patientAllowed(req, visit))) return NextResponse.json(VERIFICATION_REQUIRED, { status: 401 });
 
   const state = randomBytes(32).toString("base64url");
   const browser = randomBytes(32).toString("base64url");

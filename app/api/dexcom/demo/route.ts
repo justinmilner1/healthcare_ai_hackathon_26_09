@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dexcomConfig } from "@/lib/dexcom";
 import { withRoute } from "@/lib/log";
+import { patientAllowed, VERIFICATION_REQUIRED } from "@/lib/patientSession";
 import { visitByToken } from "@/lib/visit";
 
 // Create an isolated demonstration record, never convert or overwrite the source patient.
@@ -18,6 +19,8 @@ async function postHandler(req: Request) {
   if (typeof body?.token !== "string") return NextResponse.json({ error: "Patient link required." }, { status: 400 });
   const source = await visitByToken(body.token);
   if (!source || source.isSandbox) return NextResponse.json({ error: "Open this demo from a regular patient's intake." }, { status: 400 });
+  // Starting the demo is an action on a real visit, so it takes that visit's verified session (§5.3).
+  if (!(await patientAllowed(req, source))) return NextResponse.json(VERIFICATION_REQUIRED, { status: 401 });
   try {
     // A separate patient and visit, in the same practice, so nothing about the real visit is touched.
     const demo = await db.visit.create({ data: {

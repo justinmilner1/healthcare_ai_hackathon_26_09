@@ -243,6 +243,47 @@ export async function verifiedSession(
   return row;
 }
 
+/**
+ * The refusal every patient route gives when the link has not been verified (§5.3). A `code` the page can
+ * branch on, and a sentence that says what to do rather than what went wrong.
+ */
+export const VERIFICATION_REQUIRED = {
+  error: "Verify your link before continuing: open it again and type the code we text or email you.",
+  code: "verification_required",
+} as const;
+
+/**
+ * Whether this visit needs a verified session at all. A sandbox visit is the isolated Dexcom demonstration
+ * (§9.2, POST /api/dexcom/demo): a synthetic patient with no phone and no email, so there is nobody to send
+ * a code to and no real data behind the link. Everything else needs one.
+ */
+export const needsVerification = (visit: { isSandbox: boolean }) => !visit.isSandbox;
+
+/** Whether this request may act on this visit as the patient. The one check every patient route makes. */
+export async function patientAllowed(
+  req: { headers: { get(name: string): string | null } },
+  visit: { id: string; isSandbox: boolean },
+  now: Date = new Date(),
+  client: SessionClient = db,
+): Promise<boolean> {
+  if (!needsVerification(visit)) return true;
+  return Boolean(await sessionForRequest(req, visit.id, now, client));
+}
+
+/**
+ * The verified session behind one request, or null — which every patient route turns into
+ * VERIFICATION_REQUIRED. Takes the headers rather than a NextRequest so this module stays free of
+ * next/server and the unit tests can load it.
+ */
+export async function sessionForRequest(
+  req: { headers: { get(name: string): string | null } },
+  visitId: string,
+  now: Date = new Date(),
+  client: SessionClient = db,
+) {
+  return verifiedSession(visitId, readCookie(req.headers.get("cookie"), PATIENT_SESSION_COOKIE), now, client);
+}
+
 /** Drop every session and pending code for a visit: what regenerating a link has to do (§5.5). */
 export async function revokeSessions(visitId: string, client: SessionClient = db): Promise<number> {
   const { count } = await client.patientSession.deleteMany({ where: { visitId } });

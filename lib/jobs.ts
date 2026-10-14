@@ -20,7 +20,7 @@ import { db } from "./db";
 import { log, scrub } from "./log";
 
 /** Every kind the runner knows how to be asked for (§3.4). A kind with no handler fails the job. */
-export const JOB_KINDS = ["sour.run", "notify.invite", "notify.summary", "patient.delete", "retention.sweep"] as const;
+export const JOB_KINDS = ["sour.run", "notify.invite", "notify.code", "notify.summary", "patient.delete", "retention.sweep"] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
