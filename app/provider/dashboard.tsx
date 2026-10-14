@@ -163,6 +163,27 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
     }));
   }
 
+  // §5.5 Staff can regenerate a link, which invalidates the old one. Destructive from the patient's side —
+  // a half-finished check-in in another browser is locked out — so it asks first and says what happened.
+  async function regenerateLink(visit: Row) {
+    if (!window.confirm(`Replace ${visit.name}'s link?\n\nThe old link stops working straight away, and anyone already signed in on it has to verify again with a new code.`)) return;
+    setRowNote((notes) => ({ ...notes, [visit.id]: "Replacing the link…" }));
+    try {
+      const response = await apiFetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitId: visit.id, regenerate: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not replace the link.");
+      setRowNote((notes) => ({ ...notes, [visit.id]: "New link sent. The old one no longer works." }));
+      // The row still carries the old token, and Copy intake reads it from there.
+      await load();
+    } catch (e) {
+      setRowNote((notes) => ({ ...notes, [visit.id]: e instanceof Error ? e.message : "Could not replace the link." }));
+    }
+  }
+
   async function copyIntakeLink(visit: Row) {
     const link = `${window.location.origin}/s/${encodeURIComponent(
       visit.token,
@@ -433,6 +454,16 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                                 className="ss-button"
                               >
                                 Send link
+                              </button>
+                              {/* §5.5 Regenerating is the same job as inviting, so it sits behind the same
+                                  capability: `visits:invite` (lib/access.ts). */}
+                              <button
+                                type="button"
+                                onClick={() => regenerateLink(visit)}
+                                className="ss-button"
+                                title="Replace this patient's link and send the new one. The old link stops working."
+                              >
+                                New link
                               </button>
                             </>
                           )}

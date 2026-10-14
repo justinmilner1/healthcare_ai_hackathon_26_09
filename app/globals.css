@@ -1519,6 +1519,9 @@ textarea.ss-input {
 
 .provider-row-actions {
   justify-content: flex-end;
+  /* Four actions per row since T08 added "New link" (§5.5). Wrapping the buttons keeps each label on one
+     line; without this the labels wrapped inside the buttons instead, which reads as two words stacked. */
+  flex-wrap: wrap;
 }
 
 .provider-row-actions .ss-button {
@@ -1526,6 +1529,7 @@ textarea.ss-input {
   padding: 0 10px;
   border-radius: 9px;
   font-size: 9px;
+  white-space: nowrap;
 }
 
 .provider-row-note {
@@ -4048,6 +4052,94 @@ button.sweetie-agent-badge {
   color: var(--ss-muted);
   font-size: 11px;
   line-height: 1.55;
+}
+
+/* The code screen in front of every patient link (design §2.3, §5.3, components/VerifyScreen.tsx).
+   One narrow column: Sweetie, the practice name, the code field, the resend. Nothing to scroll past on a
+   phone, which is where almost every one of these is opened (§6.5). */
+.patient-verify-page {
+  display: grid;
+  place-items: center;
+}
+
+.patient-verify-card {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 34px 30px 26px;
+  text-align: center;
+}
+
+.patient-verify-card img {
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 16px;
+  border-radius: 26px;
+  background: var(--sweetie-soft);
+  object-fit: cover;
+}
+
+.patient-verify-card .ss-eyebrow {
+  margin-bottom: 8px;
+}
+
+.patient-verify-card .ss-title {
+  margin: 0 0 10px;
+}
+
+.patient-verify-card .ss-lede {
+  margin: 0 auto 22px;
+  max-width: 36ch;
+}
+
+.patient-verify-form {
+  display: grid;
+  gap: 14px;
+  text-align: left;
+}
+
+.patient-verify-form .ss-button {
+  justify-self: stretch;
+  text-align: center;
+}
+
+/* Six digits read as digits: wide tracking, tabular figures, and big enough to check against a text
+   message held in the other hand. */
+.patient-verify-input {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.32em;
+  text-align: center;
+}
+
+.patient-verify-card .ss-error {
+  margin: 16px 0 0;
+  text-align: left;
+}
+
+.patient-verify-note {
+  margin: 14px 0 6px;
+  color: var(--ss-muted);
+  font-size: 11px;
+  line-height: 1.55;
+  min-height: 17px;
+}
+
+.patient-verify-help {
+  margin: 14px 0 0;
+  color: var(--ss-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+@media (max-width: 560px) {
+  .patient-verify-card {
+    padding: 26px 20px 22px;
+  }
+
+  .patient-verify-input {
+    font-size: 21px;
+    letter-spacing: 0.24em;
+  }
 }
 
 @media (max-height: 760px) and (min-width: 841px) {

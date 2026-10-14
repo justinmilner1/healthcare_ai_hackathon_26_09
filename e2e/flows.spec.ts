@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { patientEmail, verifyByApi, verifyLink } from "./patient";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -33,15 +34,23 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
   await shot(page, "provider-dashboard");
 
-  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts). The email is where
+  // the patient's six-digit code goes (T08, §5.3), so a booking without one could never be opened.
+  const email = patientEmail("E2E Patient");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Patient", email, providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
 
+  // T08 (§5.3): the token names the visit, and a verified session is what opens it. Unverified, the link is a
+  // closed door — which is the whole claim of §2.3, so it is asserted before it is opened.
+  expect((await request.get(`/api/patient/${booked.token}`)).status()).toBe(401);
+  await verifyByApi(request, booked.token, email);
+
   // Two ways to one visit (design §4.4, §5.3): the invite token and the visit id. A patient id is neither,
-  // so the hackathon's patient-keyed lookup is gone.
+  // so the hackathon's patient-keyed lookup is gone. Each has its own credential: the patient's verified
+  // session above, and the clinician's own sign-in, which is why that one goes through page.request.
   const byToken = await (await request.get(`/api/patient/${booked.token}`)).json();
   expect(byToken.visitId).toBe(booked.visitId);
   const byVisitId = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
@@ -131,18 +140,21 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   expect(after.summaryStale).toBe(false);
 });
 
-test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
+test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page }) => {
   // Someone at the practice books the visit — staff's job, and it needs their session now (§5.2) — and from
-  // there the patient has no account and no sign-in: the token in the link is their credential (§5.3), which
-  // is why every request below goes through `request` rather than the signed-in page.
+  // there the patient has no provider account: the link plus the code sent to the address on file is their
+  // whole credential (§5.3). The provider's session is dropped before the link is opened, so everything after
+  // that point is the patient's own browser and nobody else's.
   await signInAsDemo(page);
+  const email = patientEmail("E2E Talker");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Talker", email, visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
   expect(booked.token, "the visit's invite token").toBeTruthy();
   await signOutOfBrowser(page);
 
-  await page.goto(`/s/${booked.token}`);
+  // The link opens a code screen first (T08, §2.3); the code comes out of the console mailer (e2e/patient.ts).
+  await verifyLink(page, booked.token, email);
   await expect(page.locator("body")).toContainText(/Sweetie/i);
   // "Sweetie" is in the chrome, so it matches before the intake has loaded. GET /api/sweetie is what writes the
   // opening question and returns the field list, and until it answers the transcript is empty and the progress
@@ -164,7 +176,8 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   }
   await shot(page, "sweetie-done");
 
-  const bundle = await (await request.get(`/api/patient/${booked.token}`)).json();
+  // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
+  const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
   expect(bundle.status.answered).toBeGreaterThanOrEqual(1);
 
   await page.goto(`/patient/${booked.token}`);
@@ -180,11 +193,15 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
 test("a file arriving after a summary makes it out of date, and regenerating writes a new one", async ({ page, request }) => {
   const demo = await signInAsDemo(page);
   // Booking is staff's job and needs the session (§5.2, T06), so it goes through the signed-in page. The
-  // uploads below do not: a patient's credential is the token in their link (§5.3), not a provider session.
+  // uploads below do not use that session: a patient's credential is the token in their link plus the
+  // verified session it earns (§5.3, T08), which is what the address below is for.
+  const email = patientEmail("E2E Fresh Data");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", visitType: "follow_up", reason: "spikes after dinner", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", email, visitType: "follow_up", reason: "spikes after dinner", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
+  // The uploads below go through `request`, so that is the context the patient session has to land in (§5.3).
+  await verifyByApi(request, booked.token, email);
 
   // Multipart, so postJson does not fit; the CSRF header is the same one it would have added (§10.8).
   const upload = async (kind: string, path: string, name: string) => {

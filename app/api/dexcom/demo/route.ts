@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dexcomConfig } from "@/lib/dexcom";
+import { requireVerifiedPatient } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
 import { visitByToken } from "@/lib/visit";
 
@@ -18,6 +19,8 @@ async function postHandler(req: Request) {
   if (typeof body?.token !== "string") return NextResponse.json({ error: "Patient link required." }, { status: 400 });
   const source = await visitByToken(body.token);
   if (!source || source.isSandbox) return NextResponse.json({ error: "Open this demo from a regular patient's intake." }, { status: 400 });
+  // Starting the demo is an action on a real visit, so it takes that visit's verified session (§5.3).
+  await requireVerifiedPatient(req, source);
   try {
     // A separate patient and visit, in the same practice, so nothing about the real visit is touched.
     const demo = await db.visit.create({ data: {

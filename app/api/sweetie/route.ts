@@ -1,4 +1,6 @@
 // Sweetie chat. Owner: Justin. Brain in lib/sweetie.ts; this route is transport.
+// Every call needs a verified patient session for the visit the token names (design §5.3): the link alone
+// opens the code screen and nothing else.
 // GET  /api/sweetie?token=...                                   -> { visitId, name, messages, status, intake, agent }
 // POST /api/sweetie { token, message }                          -> { reply, status, intake, agent }
 // POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
@@ -13,6 +15,7 @@ import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { enqueue, nudge } from "@/lib/jobs";
 import { llmStatus, LLMUnavailable } from "@/lib/llm";
+import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
@@ -44,6 +47,8 @@ async function getHandler(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  // §5.3 The token names the visit; the verified session is what opens it.
+  await requireVerifiedPatient(req, visit);
   const bundle = await loadBundle(visit.id);
   const rows = await db.message.findMany({ where: { visitId: visit.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
@@ -59,6 +64,8 @@ async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent | { type: "skip_questions" } };
   const visit = await visitByToken(body.token ?? null);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  // §5.3 The token names the visit; the verified session is what opens it.
+  await requireVerifiedPatient(req, visit);
   const message = body.message?.trim();
   const event = body.event?.type === "upload" ? body.event : undefined;
   const skippingQuestions = body.event?.type === "skip_questions";

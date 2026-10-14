@@ -234,7 +234,7 @@ model AuditLog {
 // §3.4, §4.9 Background work. The runner drains due rows; three attempts, then failed with the error kept.
 model Job {
   id             String    @id @default(cuid())
-  kind           String // sour.run | notify.invite | notify.summary | patient.delete | retention.sweep
+  kind           String // sour.run | notify.invite | notify.code | notify.summary | patient.delete | retention.sweep
   payload        String    @default("{}") // JSON
   status         String    @default("queued") // queued | running | done | failed
   attempts       Int       @default(0)
