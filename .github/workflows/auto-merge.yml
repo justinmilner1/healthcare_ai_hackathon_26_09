@@ -13,6 +13,8 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  checks: read # listForRef on the head commit; an explicit permissions block sets everything unlisted to none
+  actions: read
 concurrency:
   group: auto-merge
   cancel-in-progress: false
