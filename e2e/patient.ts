@@ -98,9 +98,15 @@ export async function acceptConsent(page: Page): Promise<boolean> {
   } catch {
     return false;
   }
+  // Accepting reloads through the gate, and the wait for that reload is armed *before* the click, not after.
+  // The obvious "wait for the button to go" is a trap: the button renames itself to "One moment…" while the
+  // POST is in flight, so a locator that matches it by name stops matching before the navigation has even
+  // started — and the spec's next goto then cancels the reload, which Playwright reports as ERR_ABORTED on
+  // that goto, several lines from the cause.
+  const navigated = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame(), timeout: 30_000 });
   await agree.click();
-  // Accepting reloads through the gate, so the button going is the page behind it arriving.
-  await agree.waitFor({ state: "hidden", timeout: 30_000 });
+  await navigated;
+  await page.waitForLoadState("load");
   return true;
 }
 
