@@ -1,6 +1,6 @@
 // Resolving a visit (design §4.4). Everything a patient gives us during intake hangs off a Visit, and the
-// invite token identifies the visit (§5.3). The provider pages and the public routes still speak in patient
-// ids, so these helpers accept either and resolve to the one visit; T03 moves the routes onto visit ids.
+// invite token identifies the visit (§5.3). Routes and pages speak in visit ids and tokens only: a patient id
+// is not a way in, because a patient has many visits and only the visit knows which week is being discussed.
 
 import { db } from "./db";
 
@@ -12,17 +12,16 @@ const WITH_CONTEXT = {
   providerUser: true,
 } as const;
 
-/** The visit a visit id, an invite token, or a patient id points at. Newest visit wins. */
+/** The visit a visit id or an invite token points at. Nothing else matches. */
 export async function findVisit(idOrToken: string) {
   if (!idOrToken) return null;
   return db.visit.findFirst({
-    where: { OR: [{ id: idOrToken }, { token: idOrToken }, { patientId: idOrToken }] },
-    orderBy: { createdAt: "desc" },
+    where: { OR: [{ id: idOrToken }, { token: idOrToken }] },
     include: WITH_CONTEXT,
   });
 }
 
-/** The visit an invite link opens. Nothing else matches, so a patient id in the URL is not a way in. */
+/** The visit an invite link opens. Only the token matches, so a guessed visit id is not a way in. */
 export async function visitByToken(token: string | null | undefined) {
   if (!token) return null;
   return db.visit.findUnique({ where: { token }, include: WITH_CONTEXT });

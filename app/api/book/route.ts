@@ -1,7 +1,8 @@
 // POST /api/book  { name, phone?, email?, providerId?, optIn?, apptAt?, visitType?, reason? }
 // Creates a patient with one visit (design §4.4) whose presigned token is the intake link, and, if opted in,
 // queues a `notify.invite` job to send that link by SMS and/or email (§3.4).
-// Returns { patientId, token, link, queued, jobId? }. Owner: Justin.
+// Returns { visitId, patientId, token, link, queued, jobId? }. Owner: Justin.
+// `visitId` is what every other route and page speaks in from here on (design §4.4).
 
 import { randomBytes } from "crypto";
 import { after, NextResponse } from "next/server";
@@ -25,7 +26,8 @@ async function postHandler(req: Request) {
   };
   if (!body.name) return NextResponse.json({ error: "name is required" }, { status: 400 });
 
-  // A hardcoded demo provider beats a broken login (AGENTS.md); sign-in is T05.
+  // An unattributed booking lands on the seeded demo provider. Requiring the caller's own session and the
+  // staff role is T06/T07 (§5.2); the patient's own credential is the token this hands back (§5.3).
   const provider = body.providerId
     ? await db.user.findUnique({ where: { id: body.providerId } })
     : await ensureDemoProvider();
@@ -55,7 +57,7 @@ async function postHandler(req: Request) {
   // visitType is free text on the way in, so only a type we recognise is logged; anything else is "other".
   log.info("patient_created", { patientId: visit.patientId, visitId: visit.id, providerId: provider.id, visitType: knownVisitType(visit.visitType) });
 
-  const booked = { patientId: visit.patientId, token, link: intakeLink(token) };
+  const booked = { visitId: visit.id, patientId: visit.patientId, token, link: intakeLink(token) };
   if (!body.optIn) return NextResponse.json({ ...booked, queued: false, reason: "not opted in" });
 
   // The send is a job, so adding a patient returns as fast as the insert and a throttled SES call cannot cost

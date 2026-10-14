@@ -39,6 +39,16 @@ npm run seed            # demo provider + patient with the sample files loaded; 
 npm run dev             # http://localhost:3000
 ```
 
+Signing in as a provider (design §5.1): there is no password. Open `/provider`, type the seeded address
+`demo@sweetspot.local` (or click **Open the demo**, which fills it in), then read the link out of the mail:
+
+```bash
+npm run mail            # prints the newest sign-in link; nothing is configured, so mail lands in .mail/
+```
+
+Set `RESEND_API_KEY` or AWS credentials in `.env` and the same link is emailed instead. `AUTH_SECRET` signs the
+session cookie; local development falls back to a fixed development value, and a deployment must set it.
+
 No Docker daemon? `npm run db:up` starts a Postgres that is already installed on the host instead and prints the
 `DATABASE_URL` to put in `.env`. Either way the database is Postgres; SQLite is gone (design §3.2).
 
@@ -140,17 +150,19 @@ app/
   page.tsx                      landing with links to every screen
   s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
   s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
-  patient/[id]/page.tsx         patient summary view                          Justin
-  provider/page.tsx             practice dashboard: add patient, send links, stages Justin
-  provider/signup/page.tsx      provider sign up (cookie, no password)        Justin
-  provider/[id]/page.tsx        Sour summary view; sidebar lists ready summaries Justin
+  patient/[id]/page.tsx         patient summary view (visit id or token)      Justin
+  provider/page.tsx             session guard; dashboard.tsx is the practice dashboard Justin
+  provider/signin/page.tsx      ask for a magic link; check-email/ and signout/ finish it Justin
+  provider/signup/page.tsx      create a practice, then the same emailed link  Justin
+  provider/[id]/page.tsx        session guard; sour.tsx is the Sour summary view Justin
   api/
+    auth/[...nextauth]/route.ts Auth.js endpoints (sign in, callback, session, sign out)
     book/route.ts               POST create patient + send invite (scheduling hook) Justin
     sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
-    sour/route.ts               POST generate summaries; POST with question   James
-    patient/[id]/route.ts       GET PatientBundle (everything a page needs)
-    provider/route.ts           POST sign up, GET provider + patients         (open)
+    sour/route.ts               POST { visitId } generate summaries; or with question James
+    patient/[id]/route.ts       GET PatientBundle for one visit (visit id or token)
+    provider/route.ts           POST sign up, GET the signed-in provider + their visits
 components/
   GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
   SleepChart.tsx                hours asleep per night, with table twin        Justin
@@ -163,14 +175,17 @@ lib/
   visits.ts                     visit types and labels (client-safe; no model)
   prompts.ts                    Sour prompts                                  James
   sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
-  providerSession.ts            cookie that remembers the provider (no login)  Justin
+  auth.ts                       Auth.js: magic links, database sessions (§5.1)
+  authAdapter.ts                Prisma adapter + the 7-day absolute session cap
+  mailer.ts                     where a sign-in link goes: SES, or devMailbox.ts
+  devMailbox.ts                 the local .mail/ drop behind `npm run mail`
   voice.ts                      browser speech synthesis + recognition for Sweetie Justin
   glucose.ts                    parse Clarity CSV, spikes, time in range      Nisarga
   location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
   match.ts                      link spikes to visits                         Robbert
   sleep.ts                      parse WHOOP CSV                               (open)
   bundle.ts                     load a visit's data + status from the DB
-  visit.ts                      resolve a visit from its id, token or patient
+  visit.ts                      resolve a visit from its id or invite token
   practice.ts                   a provider and their practice, created on demand
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin

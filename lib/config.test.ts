@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { ConfigError, SPEC, assertConfig, isProduction, read, validateConfig, appUrl } from "./config";
+import { AUTH_DEV_SECRET, ConfigError, SPEC, assertConfig, isProduction, read, validateConfig, appUrl } from "./config";
 import { setLogSink } from "./log";
 
 /** A production environment with nothing wrong with it. Tests break one thing at a time from here. */
@@ -10,6 +10,7 @@ const good = (): Record<string, string | undefined> => ({
   NODE_ENV: "production",
   DATABASE_URL: "postgresql://sweetspot:sweetspot@db.internal:5432/sweetspot?schema=public",
   APP_URL: "https://sweetspot.example.com",
+  AUTH_SECRET: "a-long-enough-auth-secret",
   JOBS_SECRET: "a-long-enough-jobs-secret",
   OPENAI_BASE_URL: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
   OPENAI_API_KEY: "bedrock-key-not-real",
@@ -39,7 +40,7 @@ test("a complete production environment has no problems", () => {
 // ---- required ------------------------------------------------------------------------------------------
 
 test("a missing required variable refuses production and only warns in development", () => {
-  for (const name of ["DATABASE_URL", "APP_URL"]) {
+  for (const name of ["DATABASE_URL", "APP_URL", "AUTH_SECRET"]) {
     const broken = { ...good(), [name]: undefined };
     assert.deepEqual(
       errors(broken).map((p) => p.variable),
@@ -84,7 +85,7 @@ test("a missing recommended variable warns in production and never refuses", () 
 });
 
 test("recommended variables stay quiet in development", () => {
-  const dev = { DATABASE_URL: good().DATABASE_URL, APP_URL: "http://localhost:3000", NODE_ENV: "development" };
+  const dev = { DATABASE_URL: good().DATABASE_URL, APP_URL: "http://localhost:3000", AUTH_SECRET: good().AUTH_SECRET, NODE_ENV: "development" };
   assert.deepEqual(validateConfig(dev), []);
 });
 
@@ -165,6 +166,52 @@ test("the jobs secret has to be long enough to be a secret", () => {
   assert.deepEqual(errors({ ...good(), JOBS_SECRET: "a-long-enough-secret" }), []);
 });
 
+test("the session secret is required, and NEXTAUTH_SECRET is the same thing under its old name", () => {
+  // lib/auth.ts reads either, so refusing a deployment that set only the v4 name would be refusing a
+  // deployment that works. The alias satisfies the requirement; it does not merely silence it.
+  const v4Only = { ...good(), AUTH_SECRET: undefined, NEXTAUTH_SECRET: "a-long-enough-auth-secret" };
+  assert.deepEqual(validateConfig(v4Only), []);
+
+  const neither = { ...good(), AUTH_SECRET: undefined };
+  assert.equal(errors(neither).length, 1);
+  assert.match(errors(neither)[0].message, /AUTH_SECRET or NEXTAUTH_SECRET is not set/);
+});
+
+test("a session secret that is short, or the one printed in this repository, is refused", () => {
+  // Either one lets a stranger mint a session for any clinician in the practice.
+  assert.match(errors({ ...good(), AUTH_SECRET: "secret" })[0].message, /at least 16 characters/);
+  const dev = errors({ ...good(), AUTH_SECRET: AUTH_DEV_SECRET });
+  assert.equal(dev.length, 1);
+  assert.match(dev[0].message, /development constant, which is public in this repository/);
+  // Outside production it is exactly what lib/auth.ts falls back to, so it is not a problem there.
+  assert.deepEqual(validateConfig({ ...good(), NODE_ENV: "development", AUTH_SECRET: AUTH_DEV_SECRET }), []);
+  // And the alias is held to the same standard; it reaches the same code.
+  assert.match(errors({ ...good(), AUTH_SECRET: undefined, NEXTAUTH_SECRET: "short" })[0].message, /at least 16 characters/);
+});
+
+test("lib/config.ts's copy of the development secret still matches lib/auth.ts's", () => {
+  // It is copied rather than imported because lib/auth.ts pulls in next-auth and this module is loaded too
+  // early to want it. A silent drift would turn the check above into one that never fires again.
+  const auth = readFileSync(path.join(repoRoot, "lib", "auth.ts"), "utf8");
+  const match = /const DEV_SECRET = "([^"]+)"/.exec(auth);
+  assert.ok(match, "lib/auth.ts no longer declares DEV_SECRET the way this test reads it");
+  assert.equal(match[1], AUTH_DEV_SECRET);
+});
+
+test("DEV_MAIL_DIR is refused on a deployment, not on a production build of your own", () => {
+  // Set on a deployment, lib/devMailbox.ts diverts every email — sign-in links included — to files on the
+  // server instead of sending them, whether or not SES is configured, and nothing else in the app notices.
+  const diverted = errors({ ...good(), DEV_MAIL_DIR: ".mail" });
+  assert.equal(diverted.length, 1);
+  assert.match(diverted[0].message, /would be written to a file on the server instead of sent/);
+
+  // But NODE_ENV alone cannot judge it: the e2e suite sets DEV_MAIL_DIR on two production builds on purpose,
+  // and `npm run build && npm start` on a laptop is the same shape. A localhost APP_URL is what tells them
+  // apart — exactly the signal the APP_URL https rule already uses.
+  assert.deepEqual(validateConfig({ ...good(), APP_URL: "http://localhost:3100", DEV_MAIL_DIR: "e2e/.mail" }), []);
+  assert.deepEqual(validateConfig({ ...good(), NODE_ENV: "development", DEV_MAIL_DIR: ".mail" }), []);
+});
+
 test("a forced provider must have the credentials that backend needs", () => {
   assert.match(errors({ ...good(), RESEND_API_KEY: undefined, EMAIL_PROVIDER: "resend" })[0].message, /RESEND_API_KEY is required/);
   assert.match(errors({ ...good(), EMAIL_FROM: undefined, EMAIL_PROVIDER: "ses" })[0].message, /EMAIL_FROM is required/);
@@ -226,8 +273,8 @@ test("assertConfig lets a development environment start and logs the same proble
   try {
     const problems = assertConfig({ NODE_ENV: "development" });
     assert.deepEqual(problems.filter((p) => p.level === "error"), []);
-    assert.equal(problems.length, 2); // DATABASE_URL and APP_URL, as warnings
-    assert.equal(lines.filter((l) => l.includes("config_incomplete")).length, 2);
+    assert.equal(problems.length, 3); // DATABASE_URL, APP_URL and AUTH_SECRET, as warnings
+    assert.equal(lines.filter((l) => l.includes("config_incomplete")).length, 3);
     assert.equal(lines.filter((l) => l.includes("config_invalid")).length, 0);
   } finally {
     setLogSink();
@@ -318,7 +365,12 @@ test(".env.example is a file you can copy to .env and get a clean start", () => 
     if (match) env[match[1]] = match[2].trim();
   }
   assert.ok(env.DATABASE_URL, "the parse above found nothing, so this test is not testing anything");
-  assert.deepEqual(validateConfig(env), []);
+
+  // The file cannot ship a secret, so "AUTH_SECRET is not set" is the file working as intended. What it must
+  // never contain is a value that is wrong on its own terms, or two values that contradict each other.
+  const problems = validateConfig(env);
+  assert.deepEqual(problems.filter((p) => p.kind !== "missing"), []);
+  assert.deepEqual(problems.filter((p) => p.level === "error"), []);
 });
 
 test(".env.example has nothing the validator does not know about", () => {

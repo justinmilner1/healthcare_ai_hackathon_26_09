@@ -37,6 +37,9 @@ export type VarSpec = {
   summary: string;
   /** What happens without it. Required of `recommended` variables, which is the whole point of them. */
   whenMissing?: string;
+  /** Other names the app accepts for the same thing. A required variable is satisfied by any of them, so a
+   *  deployment that set only the older name is not refused for a variable the code reads perfectly well. */
+  aliases?: string[];
   /** Returns a problem phrase ("must be ...") when the value is wrong, or undefined when it is fine.
    *  The phrase is appended to the variable name, so it reads as a sentence and never quotes the value. */
   check?: (value: string, ctx: { production: boolean }) => string | undefined;
@@ -70,6 +73,19 @@ const senderNumber = (value: string): string | undefined =>
     ? undefined
     : "must be a phone number in E.164 form (+15551234567) or a Twilio Messaging Service SID";
 
+/** The session signing key. Short is guessable, and the development constant is in this repository for anyone
+ *  to read — either one lets a stranger mint a session for any clinician in the practice. DEV_SECRET is copied
+ *  rather than imported because lib/auth.ts pulls in next-auth, which this module is loaded too early to want;
+ *  lib/config.test.ts fails if the two ever drift apart. */
+export const AUTH_DEV_SECRET = "sweet-spot-development-secret-not-for-deployment";
+
+const authSecret = (value: string, ctx: { production: boolean }): string | undefined => {
+  if (ctx.production && value === AUTH_DEV_SECRET) {
+    return "is lib/auth.ts's development constant, which is public in this repository — generate one with `openssl rand -base64 32`";
+  }
+  return value.length >= 16 ? undefined : "must be at least 16 characters — it signs every provider session cookie";
+};
+
 /** Postgres only: SQLite is removed (§3.2), and a `file:` URL here fails much later and much less clearly. */
 const postgresUrl = (value: string): string | undefined => {
   const url = parseUrl(value);
@@ -81,12 +97,20 @@ const postgresUrl = (value: string): string | undefined => {
   return undefined;
 };
 
+/** Whether a URL points at this machine. The e2e suite and `npm run build && npm start` are production
+ *  builds that are not deployments, and this is what tells them apart: a deployment is reachable by someone
+ *  else. Used by the APP_URL check and by the DEV_MAIL_DIR rule in groupProblems. */
+export function isLocal(value: string | undefined): boolean {
+  const url = value === undefined ? null : parseUrl(value);
+  return url !== null && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+}
+
 /** The link in every invite is built from this, so a wrong one is an email nobody can act on. */
 const publicAppUrl = (value: string, ctx: { production: boolean }): string | undefined => {
   const url = parseUrl(value);
   if (!url) return "must be an absolute URL, like https://sweetspot.example.com";
   if (url.protocol !== "http:" && url.protocol !== "https:") return "must be an http:// or https:// URL";
-  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+  const local = isLocal(value);
   if (ctx.production && url.protocol === "http:" && !local) {
     return "must use https:// in production — patient links carry a session token (design §10.1)";
   }
@@ -168,6 +192,34 @@ export const SPEC: readonly VarSpec[] = [
     requirement: "optional",
     summary: "Force who drains the queue instead of deciding from JOBS_SECRET: inline or scheduled.",
     check: oneOf("inline", "scheduled"),
+  },
+
+  {
+    name: "AUTH_SECRET",
+    group: "Sign-in",
+    requirement: "required",
+    summary: "Signs the provider session cookie and hashes the one-time sign-in tokens.",
+    // lib/auth.ts falls back to a constant outside production and leaves the production refusal here, by
+    // name: "Refusing to start is T31's job (§3.7)". Without it Auth.js answers every request with a
+    // Configuration error, so the deployment is up and nobody can sign in — §3.7 exists to stop exactly that
+    // before it takes traffic. NEXTAUTH_SECRET satisfies it because lib/auth.ts reads either.
+    aliases: ["NEXTAUTH_SECRET"],
+    check: authSecret,
+  },
+  {
+    name: "NEXTAUTH_SECRET",
+    group: "Sign-in",
+    requirement: "optional",
+    summary: "Auth.js v4's name for AUTH_SECRET. lib/auth.ts reads it as an alias; prefer AUTH_SECRET in new deployments.",
+    check: authSecret,
+  },
+  {
+    name: "DEV_MAIL_DIR",
+    group: "Sign-in",
+    requirement: "optional",
+    summary: "Divert all outgoing mail to files in this directory instead of sending it (local development and the e2e suite).",
+    // On a deployment this is not a preference, it is an outage with a security hole in it — see the rule in
+    // groupProblems, which needs APP_URL as well to tell a deployment from a production build on a laptop.
   },
 
   {
@@ -353,7 +405,13 @@ export const GROUPS: readonly string[] = [...new Set(SPEC.map((s) => s.group))];
 // ---- Validation ------------------------------------------------------------------------------------------
 
 export type ProblemLevel = "error" | "warning";
-export type Problem = { level: ProblemLevel; variable?: string; message: string };
+
+/** Why it is a problem, which is not the same question as how bad it is:
+ *    missing      — nothing is set, and something has to be. A blank in .env.example is this and only this.
+ *    invalid      — a value is set and wrong on its own terms.
+ *    combination  — each value is fine alone and they contradict each other. */
+export type ProblemKind = "missing" | "invalid" | "combination";
+export type Problem = { level: ProblemLevel; kind: ProblemKind; variable?: string; message: string };
 
 /** Unset and set-to-blank are the same thing. The e2e suite passes OPENAI_API_KEY="" to mean "no model". */
 export function read(env: Env, name: string): string | undefined {
@@ -375,15 +433,18 @@ export function validateConfig(env: Env = process.env, opts: { production?: bool
   for (const spec of SPEC) {
     const value = read(env, spec.name);
     if (value === undefined) {
+      const alias = spec.aliases?.find((name) => read(env, name) !== undefined);
+      if (alias) continue; // another name for it is set, and the code reads that one
+      const names = [spec.name, ...(spec.aliases ?? [])].join(" or ");
       if (spec.requirement === "required") {
-        problems.push({ level: fatal, variable: spec.name, message: `${spec.name} is not set. ${spec.summary}` });
+        problems.push({ level: fatal, kind: "missing", variable: spec.name, message: `${names} is not set. ${spec.summary}` });
       } else if (spec.requirement === "recommended" && production) {
-        problems.push({ level: "warning", variable: spec.name, message: `${spec.name} is not set, so ${spec.whenMissing}.` });
+        problems.push({ level: "warning", kind: "missing", variable: spec.name, message: `${spec.name} is not set, so ${spec.whenMissing}.` });
       }
       continue;
     }
     const problem = spec.check?.(value, { production });
-    if (problem) problems.push({ level: fatal, variable: spec.name, message: `${spec.name} ${problem}.` });
+    if (problem) problems.push({ level: fatal, kind: "invalid", variable: spec.name, message: `${spec.name} ${problem}.` });
   }
 
   problems.push(...groupProblems(env, fatal, production));
@@ -409,6 +470,7 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
     if (missing.length === 0) return;
     out.push({
       level,
+      kind: "combination",
       variable: missing[0],
       message: `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} required when ${trigger} is set (${why}).`,
     });
@@ -426,6 +488,7 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   if (v("JOBS_RUNNER") === "scheduled" && !v("JOBS_SECRET")) {
     out.push({
       level: fatal,
+      kind: "combination",
       variable: "JOBS_SECRET",
       message: "JOBS_SECRET is required when JOBS_RUNNER is scheduled: POST /api/jobs/run refuses without it and nothing else drains the queue (design §3.4).",
     });
@@ -443,8 +506,24 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
     const missing = dexcom.filter((name) => !v(name));
     out.push({
       level: fatal,
+      kind: "combination",
       variable: missing[0],
       message: `Dexcom is half-configured: ${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} not set. Set all of ${dexcom.join(", ")}, or none of them.`,
+    });
+  }
+
+  // Diverting mail is how local development and the e2e suite work, and both run production builds, so
+  // NODE_ENV alone cannot judge this. A production build serving a public URL is a deployment, and there
+  // every sign-in link stops being delivered and starts being written to a file on the server — an outage
+  // whose leftovers are bearer credentials (§10.6). lib/devMailbox.ts diverts whether or not SES is
+  // configured, so nothing else in the app notices. APP_URL is the same localhost signal publicAppUrl uses.
+  if (production && v("DEV_MAIL_DIR") && !isLocal(v("APP_URL"))) {
+    out.push({
+      level: "error",
+      kind: "combination",
+      variable: "DEV_MAIL_DIR",
+      message:
+        "DEV_MAIL_DIR is set on a deployment serving a public APP_URL: every email, sign-in links included, would be written to a file on the server instead of sent (design §5.1, §10.6). Unset it, or point APP_URL at localhost if this is a local production build.",
     });
   }
 
@@ -454,6 +533,7 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
     if (!email && !sms) {
       out.push({
         level: "warning",
+        kind: "combination",
         message: "No email or SMS backend is configured, so invite links can only be read off the screen (design §8).",
       });
     }

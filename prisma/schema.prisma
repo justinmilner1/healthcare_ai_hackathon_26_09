@@ -63,11 +63,14 @@ model Account {
 }
 
 // A signed-in provider's session (§5.1). Not to be confused with PatientSession (§4.5).
+// `expires` is the 12-hour idle clock: Auth.js rolls it forward on each request. `createdAt` never moves, so
+// it is the 7-day absolute cap that lib/authAdapter.ts enforces when the session is read.
 model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique
   userId       String
   expires      DateTime
+  createdAt    DateTime @default(now())
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -92,9 +95,8 @@ model Patient {
   createdAt  DateTime  @default(now())
   deletedAt  DateTime?
 
-  visits            Visit[]
-  dexcomConnection  DexcomConnection?
-  dexcomOAuthStates DexcomOAuthState[]
+  visits           Visit[]
+  dexcomConnection DexcomConnection?
 
   @@index([practiceId])
 }
@@ -129,10 +131,11 @@ model Visit {
   isSandbox Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  sessions  PatientSession[]
-  uploads   Upload[]
-  messages  Message[]
-  summaries Summary[]
+  sessions          PatientSession[]
+  uploads           Upload[]
+  messages          Message[]
+  summaries         Summary[]
+  dexcomOAuthStates DexcomOAuthState[]
 
   @@index([patientId])
   @@index([providerUserId])
@@ -248,11 +251,13 @@ model DexcomConnection {
   importedAt      DateTime?
 }
 
-// One-use state, bound to an HttpOnly browser cookie; only hashes are stored.
+// One-use state, bound to an HttpOnly browser cookie; only hashes are stored. Keyed by the visit the
+// patient pressed Connect on (§4.4), so the callback lands the import on that visit and does not have to
+// guess; the connection the import creates is still per patient (§4.10).
 model DexcomOAuthState {
   stateHash   String   @id
   browserHash String
-  patientId   String
-  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  visitId     String
+  visit       Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   expiresAt   DateTime
 }
