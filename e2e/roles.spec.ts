@@ -121,6 +121,8 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
     ["POST /api/sour", (await postJson(page.request, "/api/sour", { visitId: booked.visitId })).status()],
     ["GET /api/practice", (await page.request.get("/api/practice")).status()],
     ["POST /api/practice/users", (await postJson(page.request, "/api/practice/users", { email: "someone@northstar-roles.com" })).status()],
+    // The audit log is the admin's (§10.2, T12), like the practice settings beside it.
+    ["GET /api/audit", (await page.request.get("/api/audit")).status()],
   ] as const) {
     expect(status, `${what} as staff`).toBe(403);
   }
@@ -135,6 +137,12 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await page.goto("/provider/settings");
   await expect(page).toHaveURL(/\/provider(\?|$|\/)/);
   await expect(page).not.toHaveURL(/settings/);
+
+  // Same for the audit trail: the screen is a door, not the lock, and it is shut for staff too (T12, §10.2).
+  await expect(page.getByRole("link", { name: "Audit" })).toHaveCount(0);
+  await page.goto("/provider/audit");
+  await expect(page).toHaveURL(/\/provider(\?|$|\/)/);
+  await expect(page).not.toHaveURL(/audit/);
 });
 
 test("a practice cannot be left without an admin", async ({ page }) => {
@@ -169,4 +177,5 @@ test("the provider routes refuse a caller with no session", async ({ request }) 
   expect((await request.get("/api/practice")).status()).toBe(401);
   expect((await postJson(request, "/api/invite", { visitId: "whatever" })).status()).toBe(401);
   expect((await postJson(request, "/api/sour", { visitId: "whatever" })).status()).toBe(401);
+  expect((await request.get("/api/audit")).status()).toBe(401);
 });

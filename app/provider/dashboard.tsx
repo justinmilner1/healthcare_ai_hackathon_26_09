@@ -289,6 +289,11 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                 </button>
               </>
             )}
+            {can(provider.role, "audit:read") && (
+              <Link href="/provider/audit" className="ss-button">
+                Audit
+              </Link>
+            )}
             {can(provider.role, "practice:manage") && (
               <Link href="/provider/settings" className="ss-button">
                 Settings

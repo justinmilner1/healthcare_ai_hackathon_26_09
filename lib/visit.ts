@@ -21,7 +21,9 @@ export async function findVisit(idOrToken: string) {
   });
 }
 
-/** The visit an invite link opens. Only the token matches, so a guessed visit id is not a way in. */
+/** The visit an invite link opens. Only the token matches, so a guessed visit id is not a way in — and
+ *  since T08 the token alone opens nothing but the code screen: §5.3's verification is the six-digit code,
+ *  and that is where §10.2's audit row is written (app/api/verify/route.ts, lib/auditStore.ts). */
 export async function visitByToken(token: string | null | undefined) {
   if (!token) return null;
   return db.visit.findUnique({ where: { token }, include: WITH_CONTEXT });

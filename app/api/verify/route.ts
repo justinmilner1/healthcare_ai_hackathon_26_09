@@ -13,6 +13,7 @@
 // Nothing in a response says who the code went to — the channel ("your phone"), never the number (§2.3).
 
 import { after, NextResponse } from "next/server";
+import { recordPatientVerified } from "@/lib/auditStore";
 import { db } from "@/lib/db";
 import { enqueue, nudge } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
@@ -95,19 +96,10 @@ async function verify(req: Request, visit: { id: string; patientId: string; stat
 
   // Forwards only (§4.4): a patient who verifies again after intake must not walk the visit back.
   await db.visit.updateMany({ where: { id: visit.id, status: "invited" }, data: { status: "verified" } });
-  // §10.2 asks for every patient-link verification in the audit log. The detail carries no PHI: how the
-  // person proved it and how long the session lasts, not who they are. The admin page over these rows is T12.
-  await db.auditLog.create({
-    data: {
-      practiceId: visit.patient.practiceId,
-      actorType: "patient",
-      actorId: visit.id,
-      action: "patient.verified",
-      entityType: "Visit",
-      entityId: visit.id,
-      detail: JSON.stringify({ method: "one_time_code", sessionHours: Math.round(SESSION_TTL_MS / 3_600_000) }),
-    },
-  });
+  // §10.2 asks for every patient-link verification. Through lib/auditStore.ts rather than a create of its
+  // own, so this row speaks the same vocabulary as the rest of the trail and its detail goes through §4.8's
+  // gate: how the person proved it and how long the session lasts, never who they are (T12).
+  await recordPatientVerified(visit, { method: "one_time_code", hours: Math.round(SESSION_TTL_MS / 3_600_000) });
   log.info("verify_succeeded", { visitId: visit.id, patientId: visit.patientId });
 
   const res = NextResponse.json({ verified: true });

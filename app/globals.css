@@ -5169,3 +5169,125 @@ button.sweetie-agent-badge {
   line-height: 1.4;
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* Audit trail (design §4.8, §10.2): a filter bar over the dashboard's own table, so the admin's two screens
+   — settings and this — read as one workspace. The table is wide and deliberately dull: timestamps, a
+   colleague's name, an action and an opaque id. */
+
+.audit-filters {
+  display: grid;
+  gap: 14px 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  margin-bottom: 28px;
+  padding: 22px 26px 24px;
+}
+
+.audit-filter-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: flex-end;
+  grid-column: 1 / -1;
+}
+
+.audit-table {
+  /* Narrower than the dashboard's 1050px: five short columns, so it fits a laptop without scrolling. */
+  min-width: 860px;
+}
+
+.audit-when {
+  color: var(--ss-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-actor-type,
+.audit-entity-type {
+  display: block;
+  color: var(--ss-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.audit-entity {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audit-entity a,
+.audit-entity code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.audit-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.audit-detail .ss-pill {
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-empty {
+  margin: 0;
+  padding: 26px 24px 28px;
+  color: var(--ss-muted);
+  text-align: center;
+}
+
+/* On a phone the whole table turns into stacked rows, the way the users table does (.settings-users above):
+   five columns of timestamps and ids have nothing useful to show behind a horizontal scrollbar. */
+@media (max-width: 680px) {
+  .audit-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audit-filter-actions {
+    justify-content: flex-start;
+  }
+
+  .audit-table,
+  .audit-table tbody,
+  .audit-table tr,
+  .audit-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .audit-table thead {
+    display: none;
+  }
+
+  .audit-table tr {
+    padding: 8px 0 14px;
+    border-bottom: 1px solid rgba(41, 49, 38, 0.08);
+  }
+
+  .audit-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .audit-table td {
+    padding: 6px 18px;
+    border: 0;
+  }
+
+  .audit-table td::before {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ss-muted);
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
