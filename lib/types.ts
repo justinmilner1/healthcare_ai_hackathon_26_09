@@ -96,6 +96,8 @@ export type SourJobState = {
 export type PatientBundle = {
   visitId: string;
   visitStatus: string; // invited | verified | in_intake | intake_done | summary_ready | reviewed | cancelled (§4.4)
+  /** When the patient accepted the consent screen (§2.4), or null if they have not been past it yet. */
+  intakeConsentAt: string | null;
   patient: {
     id: string;
     name: string;

@@ -70,6 +70,9 @@ a dependency advisory at high or above either gets fixed or gets a dated, owned 
 A patient link opens a code screen first: opening it sends a six-digit code to the phone or email on the
 visit, and the chat, the uploads and the summary are all behind it (design §2.3, §5.3). With no SMS or email
 backend configured the code goes to the same local mailbox as the sign-in links, so `npm run mail` prints it.
+Behind the code, on the first open only, is the consent screen (§2.4): what the check-in collects, that it is
+optional, that a clinician reads it, and how to have it deleted. One tap continues and the acceptance is kept
+on the visit with its time; declining ends the session there and then.
 
 Phone access for the patient link (needs HTTPS):
 
@@ -175,7 +178,7 @@ already has, never the name of the file the patient picked, and never anything a
 ```
 app/
   page.tsx                      landing with links to every screen
-  s/[token]/layout.tsx          the code screen in front of both pages below (§5.3)
+  s/[token]/layout.tsx          the code and consent screens in front of both pages below (§5.3, §2.4)
   s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
   s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
   patient/[id]/layout.tsx       the same gate in front of the summary
@@ -189,6 +192,7 @@ app/
     auth/[...nextauth]/route.ts Auth.js endpoints (sign in, callback, session, sign out)
     book/route.ts               POST create patient + send invite (scheduling hook) Justin
     verify/route.ts             POST ask for a six-digit code, POST check it (§2.3, §5.3)
+    consent/route.ts            POST the patient's answer to the consent screen (§2.4)
     sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
     sour/route.ts               POST { visitId } generate summaries; or with question James
@@ -198,8 +202,9 @@ app/
     practice/users/route.ts     POST invite a colleague with a role (admin)
     practice/users/[id]/route.ts PATCH one colleague's role (admin)
 components/
-  VerifyGate.tsx                decides, on the server, whether a link shows its page or a code screen
+  VerifyGate.tsx                decides, on the server, whether a link shows its page, a code screen or consent
   VerifyScreen.tsx              that code screen
+  ConsentScreen.tsx             the consent screen behind it, shown on first open only (§2.4)
   GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
   SleepChart.tsx                hours asleep per night, with table twin        Justin
   SpikeTable.tsx                spikes linked to places (table twin of chart)  Justin
@@ -213,6 +218,7 @@ lib/
   sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
   auth.ts                       Auth.js: magic links, database sessions (§5.1)
   patientSession.ts             the patient side: one-time codes, the 24-hour session cookie (§5.3)
+  consent.ts                    the consent screen's four statements, the first-open rule, the write (§2.4)
   authAdapter.ts                Prisma adapter + the 7-day absolute session cap
   access.ts                     roles and capabilities: the whole of §5.2, pure
   guard.ts                      the 401 / 403 / 404 every provider route starts with
