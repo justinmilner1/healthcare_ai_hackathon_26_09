@@ -117,6 +117,10 @@ model Visit {
   token          String    @unique // presigned link: /s/<token>
   tokenExpiresAt DateTime?
 
+  // §2.2 Which channels the invite goes out on: both | sms | email | none. Null on rows created before T07,
+  // which lib/visitIntake.ts reads as "both", the behaviour those rows were created with.
+  contactChannel String?
+
   consentRecordedBy String?
   consentRecordedAt DateTime?
   consentChannel    String?
@@ -132,6 +136,7 @@ model Visit {
   createdAt DateTime @default(now())
 
   sessions          PatientSession[]
+  deliveries        VisitDelivery[]
   uploads           Upload[]
   messages          Message[]
   summaries         Summary[]
@@ -139,6 +144,27 @@ model Visit {
 
   @@index([patientId])
   @@index([providerUserId])
+}
+
+// §8.3 What one channel did with one message to this visit: "Delivery results are recorded on the visit
+// (channel, provider message id, status) and shown to staff." One row per channel, replaced by each send and
+// carrying the `kind` of the message it last reported on, because staff want "did the last thing we sent
+// reach them" and lib/log.ts already has every attempt.
+// `error` is operational text (SES's refusal, "no phone on file"), never an address or a message body (§10.3).
+model VisitDelivery {
+  id                String   @id @default(cuid())
+  visitId           String
+  visit             Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  channel           String // sms | email
+  kind              String // notify.invite | notify.summary — the job that sent it
+  status            String // sent | failed | skipped
+  providerName      String? // ses | sns | resend | twilio
+  providerMessageId String?
+  error             String?
+  at                DateTime @default(now())
+
+  @@unique([visitId, channel])
+  @@index([visitId])
 }
 
 // §4.5 A verified patient browser session. Only the hash of the six-digit code is stored.

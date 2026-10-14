@@ -3,7 +3,10 @@
 //   ses     when AWS_ACCESS_KEY_ID is set (sandbox: EMAIL_FROM and every recipient must be verified identities)
 // Unconfigured -> { sent: false, error } and the UI shows the link instead.
 
-export type SendResult = { sent: boolean; error?: string; provider?: string };
+/** What one send did. `messageId` is the backend's own id for the message (design §8.3): the handle a bounce
+ *  or complaint notification arrives under, recorded on the visit by lib/visitStore.ts. Absent when the send
+ *  never left, and absent from a backend that does not hand one back. */
+export type SendResult = { sent: boolean; error?: string; provider?: string; messageId?: string };
 
 export function emailProvider(): "resend" | "ses" | null {
   const forced = process.env.EMAIL_PROVIDER;
@@ -33,7 +36,8 @@ async function viaResend(to: string, subject: string, text: string, html: string
     body: JSON.stringify({ from, to: [to], subject, text, html }),
   });
   if (!res.ok) return { sent: false, provider: "resend", error: `Resend ${res.status}: ${(await res.text()).slice(0, 200)}` };
-  return { sent: true, provider: "resend" };
+  const body = (await res.json().catch(() => ({}))) as { id?: string };
+  return { sent: true, provider: "resend", messageId: body.id };
 }
 
 async function viaSes(to: string, subject: string, text: string, html: string): Promise<SendResult> {
@@ -41,7 +45,7 @@ async function viaSes(to: string, subject: string, text: string, html: string): 
   if (!from) return { sent: false, provider: "ses", error: "EMAIL_FROM must be a verified SES identity" };
   const { SESClient, SendEmailCommand } = await import("@aws-sdk/client-ses");
   const client = new SESClient({ region: process.env.AWS_SES_REGION ?? process.env.AWS_DEFAULT_REGION ?? process.env.AWS_REGION ?? "us-east-1" });
-  await client.send(
+  const sent = await client.send(
     new SendEmailCommand({
       Source: from,
       Destination: { ToAddresses: [to] },
@@ -51,7 +55,7 @@ async function viaSes(to: string, subject: string, text: string, html: string): 
       },
     }),
   );
-  return { sent: true, provider: "ses" };
+  return { sent: true, provider: "ses", messageId: sent.MessageId };
 }
 
 function escapeHtml(s: string): string {
