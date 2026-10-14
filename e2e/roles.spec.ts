@@ -40,6 +40,8 @@ test("a user from another practice gets 404 on this practice's visits", async ({
     ["GET /api/patient", (await page.request.get(`/api/patient/${visit!.id}`)).status()],
     ["POST /api/sour", (await postJson(page.request, "/api/sour", { visitId: visit!.id })).status()],
     ["POST /api/sour question", (await postJson(page.request, "/api/sour", { visitId: visit!.id, question: "why?" })).status()],
+    // T16 (§7.3): signing off another practice's summary is the same 404 as not being able to read it.
+    ["POST /api/review", (await postJson(page.request, "/api/review", { visitId: visit!.id })).status()],
     ["POST /api/invite", (await postJson(page.request, "/api/invite", { visitId: visit!.id })).status()],
   ] as const) {
     expect(status, `${what} on another practice's visit`).toBe(404);
@@ -119,6 +121,8 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   for (const [what, status] of [
     ["GET /api/patient", (await page.request.get(`/api/patient/${booked.visitId}`)).status()],
     ["POST /api/sour", (await postJson(page.request, "/api/sour", { visitId: booked.visitId })).status()],
+    // T16 (§7.3): a sign-off is a clinical attestation, so `summaries:review` is not staff's either.
+    ["POST /api/review", (await postJson(page.request, "/api/review", { visitId: booked.visitId })).status()],
     ["GET /api/practice", (await page.request.get("/api/practice")).status()],
     ["POST /api/practice/users", (await postJson(page.request, "/api/practice/users", { email: "someone@northstar-roles.com" })).status()],
     // The audit log is the admin's (§10.2, T12), like the practice settings beside it.

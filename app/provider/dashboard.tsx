@@ -262,6 +262,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
 
   const visits = provider?.visits ?? [];
   const ready = visits.filter((visit) => visit.hasSummary).length;
+  // §7.3: a summary a clinician has signed off is not still waiting to be read, so the tile says how many of
+  // the ready ones are done rather than counting them all as outstanding.
+  const reviewed = visits.filter((visit) => visit.review).length;
   const active = visits.filter(
     (visit) => !visit.hasSummary && (visit.answered > 0 || visit.uploads.length > 0),
   ).length;
@@ -357,7 +360,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
         <section className="provider-stats" aria-label="Practice overview">
           <Metric label="All visits" value={visits.length} detail="in this workspace" />
           <Metric label="Intake active" value={active} detail="sharing data or chatting" />
-          <Metric label="Summaries ready" value={ready} detail="ready to review" accent />
+          <Metric label="Summaries ready" value={ready} detail={reviewed ? `${reviewed} reviewed` : "ready to review"} accent />
           <Metric
             label="Needs attention"
             value={flagged}

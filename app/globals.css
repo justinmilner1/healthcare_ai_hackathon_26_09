@@ -1462,6 +1462,11 @@ textarea.ss-input {
   line-height: 1.35;
 }
 
+/* The date stays whole when the name above it wraps. */
+.provider-reviewed-by time {
+  white-space: nowrap;
+}
+
 .provider-stage-ready {
   color: #2f7041;
   background: #e8f4e8;
@@ -2899,6 +2904,7 @@ textarea.ss-input {
 .sour-review-button {
   border-color: #cfe4d1;
   color: #2c6540;
+  white-space: nowrap;
 }
 
 .sour-review-button:disabled {
@@ -4994,12 +5000,15 @@ button.sweetie-agent-badge {
     flex-direction: column;
   }
 
+  /* T16 added a fourth button to this row. At 375px four buttons sharing one line squeezed "Mark reviewed"
+     onto two lines of its own, so the row wraps into pairs instead (§6.5). */
   .sour-brief-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .sour-brief-actions .ss-button {
-    flex: 1;
+    flex: 1 1 calc(50% - 7px);
   }
 
   .sour-card {

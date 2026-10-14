@@ -519,7 +519,7 @@ export default function SourView({ id }: { id: string }) {
             )}
 
             <footer className="sour-disclaimer">
-              <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} />
+              <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} />
             </footer>
           </article>
         )}

@@ -84,7 +84,7 @@ test("every capability belongs to at least one role, and names only roles that e
 
 test("capabilitiesOf is the row of the table, in table order", () => {
   assert.deepEqual(capabilitiesOf("staff"), ["visits:read", "visits:create", "visits:invite"]);
-  assert.deepEqual(capabilitiesOf("clinician"), ["visits:read", "summaries:read", "summaries:generate"]);
+  assert.deepEqual(capabilitiesOf("clinician"), ["visits:read", "summaries:read", "summaries:generate", "summaries:review"]);
   assert.deepEqual(capabilitiesOf("admin"), CAPABILITY_NAMES);
   assert.deepEqual(capabilitiesOf("whatever"), []);
 });
