@@ -41,6 +41,26 @@ export function megabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * What the multipart envelope itself costs: boundaries, the `token` and `kind` fields, and the part headers
+ * around the file. A request is refused on its declared length only past this much slack, so a file that is
+ * exactly at the cap is not refused for the envelope it arrived in.
+ */
+export const MULTIPART_OVERHEAD = 64 * 1024;
+
+/**
+ * Gate 0: the whole request's declared length, which costs nothing to read and refuses an oversized export
+ * before a byte of it is buffered — what §9.1's cap is for, and the only gate that runs before `formData()`.
+ * A body too big for the hop in front of the route (the §10.8 middleware) never survives to be measured by
+ * the gates below, so this is also what keeps that case a 413 with a sentence rather than a 500.
+ */
+export function checkContentLength(header: string | null): UploadCheck | null {
+  if (!header) return null;
+  const declared = Number(header);
+  if (!Number.isFinite(declared) || declared <= MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD) return null;
+  return checkSize(declared - MULTIPART_OVERHEAD);
+}
+
 /** Gate 1, on its own because it runs before the bytes are read. */
 export function checkSize(bytes: number): UploadCheck | null {
   if (bytes <= 0) return { ok: false, reason: "that file is empty" };

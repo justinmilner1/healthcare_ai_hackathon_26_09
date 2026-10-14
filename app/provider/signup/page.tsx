@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
+import { apiFetch } from "@/lib/csrf";
 
 // Creating the workspace and signing in are two steps: POST /api/provider makes the practice and the admin
 // user (design §4.1, §4.2), then Auth.js emails a sign-in link to the same address (§5.1). Nobody is signed
@@ -26,7 +27,7 @@ export default function ProviderSignup() {
 
     setBusy(true);
     try {
-      const res = await fetch("/api/provider", {
+      const res = await apiFetch("/api/provider", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

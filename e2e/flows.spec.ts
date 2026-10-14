@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { postJson } from "./api";
 import { signInAsDemo } from "./auth";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
@@ -27,10 +28,9 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
   await shot(page, "provider-dashboard");
 
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
@@ -47,8 +47,9 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // page.request, not request: /api/provider answers for the session (§5.1) and the page holds the cookie.
   const providerRows = await (await page.request.get("/api/provider")).json();
   expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
-  expect((await request.post("/api/sour", { data: { patientId: booked.patientId } })).status()).toBe(400);
-  expect((await request.post("/api/invite", { data: { patientId: booked.patientId } })).status()).toBe(400);
+  // Through postJson: without the CSRF header these are a 403 from middleware and assert nothing about §4.4.
+  expect((await postJson(request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
+  expect((await postJson(request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
@@ -93,9 +94,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // No sign-in and no providerId: the patient's credential is the token in the link (§5.3), and /api/book
   // falls back to the seeded demo provider.
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
 
   await page.goto(`/s/${booked.token}`);

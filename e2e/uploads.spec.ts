@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { csrfToken, postJson } from "./api";
 
 // T11 (design §3.3, §9.1): the upload gates and the storage adapter, through the real route. The file a
 // patient picks is checked for size and shape before any parser sees it, the bytes go to the storage
@@ -18,8 +19,9 @@ const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "tim
 // No sign-in: the patient's credential is the token in the link (§5.3), and an unattributed booking lands on
 // the seeded demo provider, the same way e2e/flows.spec.ts opens its patient flow.
 async function bookVisit(request: import("@playwright/test").APIRequestContext, name: string) {
+  // postJson adds the CSRF header the way the app's own pages do (design §10.8, e2e/api.ts).
   const booked = await (
-    await request.post("/api/book", { data: { name, visitType: "follow_up", reason: "mornings running high", optIn: false } })
+    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   return booked as { token: string; visitId: string };
@@ -49,8 +51,12 @@ test("intake uploads: a real export is stored, the wrong file is refused in plai
 
 test("upload gates: oversized, wrong format, and empty files never reach a parser", async ({ request }) => {
   const { token } = await bookVisit(request, "E2E Gatekeeper");
-  const post = (kind: string, name: string, buffer: Buffer, mimeType = "text/csv") =>
-    request.post("/api/upload", { multipart: { token, kind, file: { name, mimeType, buffer } } });
+  // A multipart upload is state-changing too, so it carries the same CSRF header the intake page sends.
+  const post = async (kind: string, name: string, buffer: Buffer, mimeType = "text/csv") =>
+    request.post("/api/upload", {
+      multipart: { token, kind, file: { name, mimeType, buffer } },
+      headers: { "x-csrf-token": await csrfToken(request) },
+    });
 
   // §9.1 size cap. Refused on the declared size, before the bytes are read or parsed.
   const oversized = await post("dexcom", "two_years.csv", Buffer.alloc(MAX_UPLOAD_BYTES + 1024, "a"));
@@ -85,4 +91,52 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
   const good = await post("dexcom", "Clarity_export.csv", Buffer.from(clarity()));
   expect(good.ok()).toBeTruthy();
   expect((await good.json()).count).toBeGreaterThan(0);
+});
+
+// The cap is 20 MB, so a file well past the size a request survives through middleware has to arrive whole.
+// This is the regression guard for that: routed through middleware, a 12 MB body reached the handler
+// truncated and `formData()` threw, which is why /api/upload runs its own CSRF check instead
+// (CSRF_SELF_CHECKED_PATHS in lib/csrf.ts). A unit test cannot see any of that; only the running app can.
+//
+// The readings sit at the *end* of 11 MB of lines the Clarity parser skips, so the count is the assertion
+// that the whole body arrived: a truncated upload still parses, it just loses the rows at the end. Filler
+// rather than 11 MB of real readings because 400,000 of those take the server a minute to parse and store,
+// and everything else in the suite is waiting on the same event loop.
+test("a large export, under the cap but over what a proxied body carries, arrives whole", async ({ request }) => {
+  const { token } = await bookVisit(request, "E2E Big Export");
+  const header = "Index,Timestamp (YYYY-MM-DDThh:mm:ss),Glucose Value (mg/dL)\n";
+  const skipped = `${",".repeat(8)}\n`.repeat(Math.ceil((11 * 1024 * 1024) / 9));
+  const readings = Array.from({ length: 100 }, (_, i) => `${i + 1},2026-10-01T${String(i % 24).padStart(2, "0")}:00:00,${100 + i}\n`).join("");
+  const buffer = Buffer.from(header + skipped + readings);
+  // Over the size a proxied body stopped surviving, and under the cap.
+  expect(buffer.byteLength).toBeGreaterThan(10 * 1024 * 1024);
+  expect(buffer.byteLength).toBeLessThan(MAX_UPLOAD_BYTES);
+
+  const res = await request.post("/api/upload", {
+    multipart: { token, kind: "dexcom", file: { name: "Clarity_long_range.csv", mimeType: "text/csv", buffer } },
+    headers: { "x-csrf-token": await csrfToken(request) },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  expect((await res.json()).count).toBe(100);
+});
+
+// §10.8 still holds for this route even though middleware does not see it: the handler runs the same check.
+test("the upload route is still CSRF-protected, from inside the handler", async ({ request }) => {
+  const { token } = await bookVisit(request, "E2E Forged");
+  const noToken = await request.post("/api/upload", {
+    multipart: { token, kind: "dexcom", file: { name: "Clarity.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) } },
+    headers: { cookie: "" },
+  });
+  expect(noToken.status()).toBe(403);
+  expect((await noToken.json()).code).toBe("csrf_failed");
+  expect(noToken.headers()["x-csrf-blocked"]).toBeTruthy();
+  // And the static §10.8 headers are on it, which is what being outside the matcher could have cost.
+  expect(noToken.headers()["x-frame-options"]).toBe("DENY");
+
+  const crossSite = await request.post("/api/upload", {
+    multipart: { token, kind: "dexcom", file: { name: "Clarity.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) } },
+    headers: { "x-csrf-token": await csrfToken(request), origin: "https://evil.example" },
+  });
+  expect(crossSite.status()).toBe(403);
+  expect(crossSite.headers()["x-csrf-blocked"]).toContain("origin");
 });

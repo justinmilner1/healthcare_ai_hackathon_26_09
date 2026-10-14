@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
+import { checkCsrfRequest } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import { parseClarityCsv } from "@/lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "@/lib/location";
@@ -13,13 +14,30 @@ import { log, withRoute } from "@/lib/log";
 import { parseWhoopCsv } from "@/lib/sleep";
 import { deleteObjects, newUploadKey, putObject, storageBackend } from "@/lib/storage";
 import type { UploadKind } from "@/lib/types";
-import { checkSize, contentTypeFor, MAX_UPLOAD_BYTES, noRowsReason, sniffUpload, unreadableReason } from "@/lib/uploads";
+import { checkContentLength, checkSize, contentTypeFor, MAX_UPLOAD_BYTES, noRowsReason, sniffUpload, unreadableReason } from "@/lib/uploads";
 import { visitByToken } from "@/lib/visit";
 
 const KINDS: UploadKind[] = ["dexcom", "timeline", "whoop", "visits"];
 
+/**
+ * This route is the one middleware does not cover (CSRF_SELF_CHECKED_PATHS in lib/csrf.ts): a request routed
+ * through middleware is proxied through the edge runtime, which does not carry a body much over 10 MB, so a
+ * 12 MB Clarity export arrived truncated and `formData()` threw — while §9.1 promises 20 MB. The protection
+ * is not dropped, it moves in here: same check, same token, same 403 (design §10.8).
+ */
+function csrfRefusal(req: Request): NextResponse | null {
+  const reason = checkCsrfRequest(req);
+  if (!reason) return null;
+  return NextResponse.json(
+    { error: `This request was blocked for security reasons: ${reason}. Reload the page and try again.`, code: "csrf_failed" },
+    { status: 403, headers: { "x-csrf-blocked": reason, "Cache-Control": "no-store" } },
+  );
+}
+
 // DELETE /api/upload { token, kind }: remove every version so older uploads cannot reappear.
 async function deleteHandler(req: Request) {
+  const refused = csrfRefusal(req);
+  if (refused) return refused;
   const body = await req.json().catch(() => null);
   if (!body || typeof body.token !== "string" || !body.token || !KINDS.includes(body.kind)) {
     return NextResponse.json({ error: "A token and valid upload kind are required." }, { status: 400 });
@@ -45,7 +63,26 @@ async function deleteHandler(req: Request) {
 }
 
 async function postHandler(req: Request) {
-  const form = await req.formData();
+  const refused = csrfRefusal(req);
+  if (refused) return refused;
+
+  // §9.1 gate 0: the declared length of the request, before anything reads or buffers the body.
+  const oversizedRequest = checkContentLength(req.headers.get("content-length"));
+  if (oversizedRequest && !oversizedRequest.ok) {
+    // No visit and no kind yet: nothing has been parsed. The byte count is the whole story anyway.
+    log.warn("upload_rejected", { bytes: Number(req.headers.get("content-length")), code: "size" });
+    return NextResponse.json({ error: oversizedRequest.reason }, { status: 413 });
+  }
+
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch (e) {
+    // A body that arrives truncated or malformed is the patient's upload failing in transit, not a bug to
+    // answer with a 500: say so in the same voice as the gates below.
+    log.warn("upload_unreadable_body", { bytes: Number(req.headers.get("content-length")), error: e });
+    return NextResponse.json({ error: "that upload did not arrive in one piece — please try it again" }, { status: 400 });
+  }
   const token = String(form.get("token") ?? "");
   const kind = String(form.get("kind") ?? "") as UploadKind;
   const file = form.get("file");

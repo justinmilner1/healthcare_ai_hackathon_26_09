@@ -51,6 +51,8 @@ data/*
 # sending them (design §5.1). They are credentials, so they never get committed. `npm run mail` reads it.
 .mail/
 e2e/.mail/
+e2e/.mail-degraded/
+e2e/.mail-runner/
 
 # local tooling
 .claude/

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture } from "./fixtures";
 import type { UploadKind } from "./types";
-import { asSentence, checkSize, checkUpload, contentTypeFor, formatFor, MAX_UPLOAD_BYTES, megabytes, noRowsReason, sniffUpload, unreadableReason } from "./uploads";
+import { asSentence, checkContentLength, checkSize, checkUpload, contentTypeFor, formatFor, MAX_UPLOAD_BYTES, megabytes, MULTIPART_OVERHEAD, noRowsReason, sniffUpload, unreadableReason } from "./uploads";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const bytes = (...values: number[]) => new Uint8Array(values);
@@ -139,4 +139,23 @@ test("a parse failure is answered with the step that fixes it, not with the pars
   }
   assert.match(unreadableReason("dexcom"), /Clarity/);
   assert.match(noRowsReason("whoop"), /sleep/);
+});
+
+test("the request's own length is the first gate, before the body is read", () => {
+  // The §10.8 middleware sits in front of this route and a body far over the cap does not survive the hop
+  // intact, so measuring the file after parsing is too late: the parse itself fails. Content-Length is free.
+  assert.equal(checkContentLength(null), null, "no header is not a refusal");
+  assert.equal(checkContentLength("not a number"), null);
+  assert.equal(checkContentLength(String(MAX_UPLOAD_BYTES)), null);
+  assert.equal(checkContentLength(String(MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD)), null, "the envelope is not the file");
+
+  const over = checkContentLength(String(MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD + 1024));
+  assert.ok(over && !over.ok);
+  assert.match(over.reason, /most we can take is 20\.0 MB/);
+  assertPlainLanguage(over.reason);
+
+  // The size it quotes back is the file's, not the request's: the envelope is not the patient's problem.
+  const big = checkContentLength(String(34_500_000 + MULTIPART_OVERHEAD));
+  assert.ok(big && !big.ok);
+  assert.match(big.reason, /32\.9 MB/);
 });

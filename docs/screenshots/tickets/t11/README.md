@@ -18,6 +18,9 @@ inside". The Dexcom card beside it stays connected, because a refused upload cha
 The mobile shot is why `.sourceError` no longer clips to one line. It used to end at "…unzip it and upload…",
 exactly where the instruction began.
 
+These are from the run after `main` was merged in (T05 sign-in, T27 middleware, T31 config checks), so the
+intake screen here is the one a patient reaches today.
+
 The Sour screenshot is the seeded patient, whose four sample files now go through the same adapter in
 `npm run seed`: 2,016 readings, Timeline and WHOOP, all read back from `UploadData.parsed` with the raw bytes
 on disk rather than in Postgres.
