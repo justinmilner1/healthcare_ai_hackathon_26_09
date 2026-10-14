@@ -155,30 +155,31 @@ model PatientSession {
   @@index([visitId])
 }
 
-// §4.6 One uploaded file. `kind` is dexcom | timeline | whoop | visits. `s3Key` is null until T11 moves the
-// bytes to S3 (§3.3); the parsed rows and, for now, the raw text live in the UploadData row beside it.
+// §4.6 One uploaded file. `kind` is dexcom | timeline | whoop | visits. `s3Key` is where the raw bytes live
+// (S3 in deployed environments, the filesystem in development and CI — lib/storage.ts, §3.3); it is null only
+// for rows written before T11. The parsed rows live in the UploadData row beside it.
 model Upload {
-  id          String      @id @default(cuid())
-  visitId     String
-  visit       Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  kind        String
-  filename    String
-  s3Key       String?
-  bytes       Int         @default(0)
-  parsedRows  Int         @default(0)
-  createdAt   DateTime    @default(now())
-  data        UploadData?
+  id         String      @id @default(cuid())
+  visitId    String
+  visit      Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  kind       String
+  filename   String
+  s3Key      String?
+  bytes      Int         @default(0)
+  parsedRows Int         @default(0)
+  createdAt  DateTime    @default(now())
+  data       UploadData?
 
   @@index([visitId, kind])
 }
 
 // §4.6 The heavy half of an upload, kept out of Upload so the main table stays small.
-// `parsed` is JSON: GlucoseReading[] | Visit[] | SleepNight[] (lib/types.ts). `raw` goes to S3 in T11.
+// `parsed` is JSON: GlucoseReading[] | Visit[] | SleepNight[] (lib/types.ts). The raw bytes are not here and
+// never were meant to be (§3.3): they are in object storage under `Upload.s3Key`.
 model UploadData {
   uploadId String @id
   upload   Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   parsed   String
-  raw      String?
 }
 
 // §4.7 Sweetie chat transcript. role is sweetie | patient.

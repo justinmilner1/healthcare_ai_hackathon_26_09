@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dexcomConfig, DEXCOM_COOKIE, encryptTokens, exchangeCode, fetchSnapshot, hash, SANDBOX_FILENAME } from "@/lib/dexcom";
 import { withRoute } from "@/lib/log";
+import { newUploadKey, putObject } from "@/lib/storage";
+import { contentTypeFor } from "@/lib/uploads";
 
 async function getHandler(req: NextRequest) {
   let config;
@@ -45,6 +47,11 @@ async function getHandler(req: NextRequest) {
       update: { encryptedTokens, expiresAt: new Date(Date.now() + tokens.expires_in * 1000) },
     });
     const snapshot = await fetchSnapshot(tokens.access_token);
+    // An import is an upload like any other (§4.6): the API response is the raw file, so it goes to storage
+    // and the row keeps the key (§3.3). Dexcom answers in JSON, where a Clarity upload would be a CSV.
+    const s3Key = newUploadKey(visit.id, "dexcom", "json");
+    const rawBytes = new TextEncoder().encode(snapshot.raw);
+    await putObject(s3Key, rawBytes, contentTypeFor("json"));
     await db.$transaction(async (tx) => {
       const fresh = await tx.visit.findUnique({ where: { id: visit.id } });
       if (!fresh?.isSandbox) throw new Error("Not a sandbox visit.");
@@ -52,9 +59,10 @@ async function getHandler(req: NextRequest) {
         visitId: fresh.id,
         kind: "dexcom",
         filename: SANDBOX_FILENAME,
-        bytes: snapshot.raw.length,
+        s3Key,
+        bytes: rawBytes.byteLength,
         parsedRows: snapshot.readings.length,
-        data: { create: { parsed: JSON.stringify(snapshot.readings), raw: snapshot.raw } },
+        data: { create: { parsed: JSON.stringify(snapshot.readings) } },
       } });
       // Never serve an older narrative against newly imported sandbox readings.
       await tx.summary.deleteMany({ where: { visitId: fresh.id } });

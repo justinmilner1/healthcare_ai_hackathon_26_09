@@ -1,5 +1,6 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
+import { DEGRADED_MAIL_DIR, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 
 // Design 6.3 / 11.3: when the model gateway is down Sweetie answers from the scripted path and the page says so.
 // Two servers, started by playwright.config.ts, are the whole fixture; nothing in the app is stubbed.
@@ -16,15 +17,21 @@ const LOADED = { timeout: 30_000 };
 /** The scripted second question, from UPDATE.default.fallbackQuestion in lib/sweetie.ts. */
 const SCRIPTED_FOLLOW_UP = /Since you last saw the doctor/;
 
-async function bookAndOpen(page: Page, request: APIRequestContext, name: string) {
-  // No providerId: /api/book books against the seeded demo provider, so this spec needs no sign-in. What it
-  // is about is the patient side of a model outage, and /s/<token> is the patient's own credential (§5.3).
-  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
+async function bookAndOpen(page: Page, name: string, mailDir: string) {
+  // Booking is behind the session and the staff role now (§5.2), so the visit starts with someone at the
+  // practice signing in — on whichever of the two servers this describe block is pointed at, which is why the
+  // mailbox is a parameter: each server writes its sign-in links only to its own (playwright.config.ts).
+  // postJson adds the CSRF header the way the dashboard does (§10.8, e2e/api.ts), and takes page.request so
+  // it posts as the signed-in provider.
+  await signInAsDemo(page, { mailDir });
   const booked = await (
-    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
+    await postJson(page.request, "/api/book", { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 
+  // What this spec is about is the patient side of a model outage, and the patient has no session: the token
+  // in the link is their whole credential (§5.3). So the provider's is dropped before the page is opened.
+  await signOutOfBrowser(page);
   await page.goto(`/s/${booked.token}`);
   // The greeting needs no model, so it is the same on both servers and marks the page as loaded.
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
@@ -41,7 +48,7 @@ test.describe("model gateway unreachable", () => {
   test.use({ baseURL: `http://localhost:${PORT + 1}` });
 
   test("Sweetie keeps asking from the scripted path and the page says the assistant is unavailable", async ({ page, request }) => {
-    const token = await bookAndOpen(page, request, "E2E Degraded");
+    const token = await bookAndOpen(page, "E2E Degraded", DEGRADED_MAIL_DIR);
     const note = page.locator(".sweetie-degraded-note");
 
     await answerFirstQuestion(page);
@@ -63,8 +70,8 @@ test.describe("model gateway unreachable", () => {
 test.describe("no model configured", () => {
   test.use({ baseURL: `http://localhost:${PORT}` });
 
-  test("the offline demo is not an outage: same scripted questions, no degraded note", async ({ page, request }) => {
-    await bookAndOpen(page, request, "E2E Scripted");
+  test("the offline demo is not an outage: same scripted questions, no degraded note", async ({ page }) => {
+    await bookAndOpen(page, "E2E Scripted", MAIL_DIR);
     await answerFirstQuestion(page);
 
     await expect(page.locator(".sweetie-messages")).toContainText(SCRIPTED_FOLLOW_UP, LOADED);

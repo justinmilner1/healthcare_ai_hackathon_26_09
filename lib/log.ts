@@ -20,6 +20,7 @@
 // and the build fails. The global is the same implementation under Node (>= 19; this repo is on 22) and is
 // what the edge runtime provides. node:async_hooks stays: Next supports it in both runtimes.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { HttpError } from "./httpError";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type Fields = Record<string, unknown>;
@@ -43,6 +44,8 @@ export const ALLOWED_FIELDS: readonly string[] = [
   "messageId",
   "jobId",
   // Operational facts about what happened, not about whom.
+  "role",       // admin | clinician | staff (§5.2). One of three constants; never a name.
+  "capability", // the capability a refused request asked for (lib/access.ts).
   "kind",
   "audience",
   "visitType",
@@ -205,16 +208,23 @@ export function withRoute<R extends Request, C>(route: string, handler: RouteHan
     const requestId = requestIdFrom(req.headers);
     const started = Date.now();
     return runWithRequestContext({ requestId, route }, async () => {
-      try {
-        const res = await handler(req, ctx);
-        log.info("request", { method: req.method, status: res.status, durationMs: Date.now() - started });
+      // Exactly one access line per request. A refusal names itself in `event` — `request_forbidden` rather
+      // than `request` — so a burst of them is one query away, and carries the guard's own allow-listed fields.
+      const done = (res: Response, level: LogLevel, event: string, fields: Fields = {}): Response => {
+        write(level, event, { method: req.method, status: res.status, durationMs: Date.now() - started, ...fields });
         try {
           res.headers.set("x-request-id", requestId);
         } catch {
           // A frozen header set is not worth failing a request over.
         }
         return res;
+      };
+      try {
+        return done(await handler(req, ctx), "info", "request");
       } catch (e) {
+        // A guard's refusal (lib/guard.ts) is an answer the route meant to give, not a crash: it carries its
+        // own status and a message that says nothing about what is behind it.
+        if (e instanceof HttpError) return done(e.response(), "warn", e.event, e.fields);
         // The message is scrubbed and capped; the stack says where, which is what a 500 needs.
         log.error("request_failed", { method: req.method, status: 500, durationMs: Date.now() - started, error: e, stack: e });
         throw e;

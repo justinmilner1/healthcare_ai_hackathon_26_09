@@ -17,6 +17,7 @@ const good = (): Record<string, string | undefined> => ({
   BEDROCK_OPENAI_MODEL_ID: "global.openai.gpt-5.6-terra",
   RESEND_API_KEY: "resend-key-not-real",
   EMAIL_FROM: "Sweet Spot <visits@example.com>",
+  UPLOADS_BUCKET: "sweetspot-uploads-production",
 });
 
 const errors = (env: Record<string, string | undefined>) => validateConfig(env).filter((p) => p.level === "error");
@@ -225,6 +226,27 @@ test("static AWS credentials come in pairs, but only as a warning", () => {
   assert.deepEqual(errors(half), []);
   assert.match(warnings(half)[0].message, /AWS_SECRET_ACCESS_KEY is required when AWS_ACCESS_KEY_ID is set/);
   assert.deepEqual(validateConfig({ ...half, AWS_SECRET_ACCESS_KEY: "secret-not-real" }), []);
+});
+
+test("uploads: a bucket is expected in production, and asking for S3 without one is refused", () => {
+  // T11, design §3.3. Without a bucket the files land on the instance's own disk, which a deployment loses on
+  // redeploy — a warning, not a refusal, because that is exactly how development and the e2e suite run.
+  const noBucket = { ...good(), UPLOADS_BUCKET: undefined };
+  assert.deepEqual(errors(noBucket), []);
+  assert.deepEqual(warnings(noBucket).map((p) => p.variable), ["UPLOADS_BUCKET"]);
+  assert.match(warnings(noBucket)[0].message, /local filesystem/);
+  assert.deepEqual(validateConfig({ ...noBucket, NODE_ENV: "development" }), [], "quiet in development");
+
+  // Forcing the S3 backend with nowhere to write is not a degraded path, it is every upload failing.
+  const forced = errors({ ...good(), UPLOADS_BUCKET: undefined, STORAGE_BACKEND: "s3" });
+  assert.deepEqual(forced.map((p) => p.variable), ["UPLOADS_BUCKET"]);
+  assert.match(forced[0].message, /required when STORAGE_BACKEND is set/);
+  assert.deepEqual(errors({ ...good(), STORAGE_BACKEND: "local" }), [], "the filesystem backend needs no bucket");
+
+  assert.match(errors({ ...good(), UPLOADS_BUCKET: "Sweet_Spot_Uploads" })[0].message, /S3 bucket name/);
+  assert.match(errors({ ...good(), UPLOADS_BUCKET: "10.0.0.1" })[0].message, /S3 bucket name/);
+  assert.match(errors({ ...good(), STORAGE_BACKEND: "disk" })[0].message, /must be one of s3, local/);
+  assert.match(errors({ ...good(), UPLOADS_REGION: "us east 1" })[0].message, /AWS region/);
 });
 
 test("Dexcom is all four variables or none", () => {

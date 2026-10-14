@@ -29,3 +29,9 @@ async function tokenFromJar(request: APIRequestContext): Promise<string | null> 
 export async function postJson(request: APIRequestContext, path: string, data: unknown) {
   return request.post(path, { data, headers: { [CSRF_HEADER]: await csrfToken(request) } });
 }
+
+/** The same for PATCH, which the practice settings routes use (T06). `isStateChanging` covers both, so a
+ *  PATCH without the header is refused by middleware exactly as a POST is. */
+export async function patchJson(request: APIRequestContext, path: string, data: unknown) {
+  return request.patch(path, { data, headers: { [CSRF_HEADER]: await csrfToken(request) } });
+}

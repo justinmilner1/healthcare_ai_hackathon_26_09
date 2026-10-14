@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
-import { signInAsDemo } from "./auth";
+import { signInAsDemo, signOutOfBrowser } from "./auth";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -14,28 +14,6 @@ const shot = async (page: Page, name: string) => {
 // slow runner can take longer than the 5s default to come back, so these get their own budget.
 const LOADED = { timeout: 30_000 };
 
-/** The patient `npm run seed` creates, with a week of sample uploads already attached. */
-const SEEDED_PATIENT = "Sam Sample";
-
-type VisitRow = { id: string; name: string; uploads: string[]; hasSummary: boolean };
-
-/**
- * The seeded visit, by name rather than by "the first row that has uploads".
- *
- * Both projects and both servers share one database, so other tests' patients are in this list too — and at
- * least one of them (the staleness test below) exists precisely to carry uploads and an out-of-date summary.
- * Matching on uploads alone picked whichever row came first and made this file order-dependent.
- *
- * page.request rather than request: GET /api/provider answers for the signed-in session (§5.1), and the page
- * is what holds that cookie.
- */
-async function seededVisit(page: Page): Promise<VisitRow> {
-  const detail = await (await page.request.get("/api/provider")).json();
-  const seeded = (detail.visits as VisitRow[]).find((v) => v.name === SEEDED_PATIENT && v.uploads.length > 0);
-  expect(seeded, `npm run seed creates ${SEEDED_PATIENT} with sample uploads`).toBeTruthy();
-  return seeded!;
-}
-
 test("landing renders", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
@@ -43,6 +21,10 @@ test("landing renders", async ({ page }) => {
 });
 
 test("practice flow: sign in, dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
+  // page.request, not request, for everything below that speaks as a provider: §5.2 (T06) puts every provider
+  // route behind the session and the role, and the page's cookies are that session. The patient's own way in —
+  // the invite token — is the one thing still asked for without one, and is asked for through `request` on
+  // purpose, to show it needs no session at all.
   // The demo provider exists after `npm run seed`; signInAsDemo takes the emailed link (design §5.1).
   const demo = await signInAsDemo(page);
   await expect(page).toHaveURL(/\/provider/);
@@ -53,7 +35,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
@@ -62,17 +44,18 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // so the hackathon's patient-keyed lookup is gone.
   const byToken = await (await request.get(`/api/patient/${booked.token}`)).json();
   expect(byToken.visitId).toBe(booked.visitId);
-  const byVisitId = await (await request.get(`/api/patient/${booked.visitId}`)).json();
+  const byVisitId = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(byVisitId.patient.name).toBe("E2E Patient");
-  expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
 
   // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
   // page.request, not request: /api/provider answers for the session (§5.1) and the page holds the cookie.
   const providerRows = await (await page.request.get("/api/provider")).json();
   expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
-  // Through postJson: without the CSRF header these are a 403 from middleware and assert nothing about §4.4.
-  expect((await postJson(request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
-  expect((await postJson(request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
+  // Through postJson, and as the signed-in page: without the CSRF header these are a 403 from middleware and
+  // without the session a 401 from the guard, and neither asserts anything about §4.4.
+  expect((await postJson(page.request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
+  expect((await postJson(page.request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
@@ -92,8 +75,12 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
 // queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
 test("summary generation goes through the job queue", async ({ page, request }) => {
   const demo = await signInAsDemo(page);
-  // Rows are visits now (design §4.4); this is the seeded one, with its week of uploaded files.
-  const seeded = await seededVisit(page);
+  const detail = await (await page.request.get("/api/provider")).json();
+  // The seeded visit is the one with uploaded files (`npm run seed`); rows are visits now (design §4.4).
+  // Named, not just "the first row with uploads": other specs upload files too (e2e/uploads.spec.ts), and
+  // this one wants the four-source demo patient, both for the assertions and for the screenshot.
+  const seeded = detail.visits.find((v: { name: string; uploads: string[] }) => v.name === "Sam Sample" && v.uploads.length > 0);
+  expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
 
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief")).toContainText(seeded.name, LOADED);
@@ -143,11 +130,15 @@ test("summary generation goes through the job queue", async ({ page, request }) 
 });
 
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
-  // No sign-in and no providerId: the patient's credential is the token in the link (§5.3), and /api/book
-  // falls back to the seeded demo provider.
+  // Someone at the practice books the visit — staff's job, and it needs their session now (§5.2) — and from
+  // there the patient has no account and no sign-in: the token in the link is their credential (§5.3), which
+  // is why every request below goes through `request` rather than the signed-in page.
+  await signInAsDemo(page);
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
 
   await page.goto(`/s/${booked.token}`);
   await expect(page.locator("body")).toContainText(/Sweetie/i);
