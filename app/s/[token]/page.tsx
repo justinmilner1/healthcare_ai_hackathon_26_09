@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
+import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
 import type {
   ChatMessage,
@@ -181,7 +182,7 @@ export default function SweetiePage({
     if (micOn.current) setMic("thinking");
 
     try {
-      const response = await fetch("/api/sweetie", {
+      const response = await apiFetch("/api/sweetie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, message: mine }),
@@ -224,7 +225,7 @@ export default function SweetiePage({
     form.set("file", file);
 
     try {
-      const response = await fetch("/api/upload", {
+      const response = await apiFetch("/api/upload", {
         method: "POST",
         body: form,
       });
@@ -245,7 +246,7 @@ export default function SweetiePage({
         listener.current?.stop();
         setMic("thinking");
       }
-      const sweetieResponse = await fetch("/api/sweetie", {
+      const sweetieResponse = await apiFetch("/api/sweetie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -277,7 +278,7 @@ export default function SweetiePage({
     setSkipping(true);
     setSkipError("");
     try {
-      const response = await fetch("/api/sweetie", {
+      const response = await apiFetch("/api/sweetie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, event: { type: "skip_questions" } }),

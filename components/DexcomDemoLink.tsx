@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiFetch } from "@/lib/csrf";
 
 export default function DexcomDemoLink({ token, disabled = false, compact = false, buttonClassName }: { token: string; disabled?: boolean; compact?: boolean; buttonClassName?: string }) {
   const [busy, setBusy] = useState(false);
@@ -10,7 +11,7 @@ export default function DexcomDemoLink({ token, disabled = false, compact = fals
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/dexcom/demo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+      const res = await apiFetch("/api/dexcom/demo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? "Could not start the demo.");
       if (typeof data?.token !== "string" || !/^[A-Za-z0-9_-]+$/.test(data.token)) throw new Error("Invalid demo response.");

@@ -19,6 +19,7 @@ import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { visitLabel } from "@/lib/visits";
 import type { PatientBundle } from "@/lib/types";
+import { apiFetch } from "@/lib/csrf";
 
 /** How long the page waits for a queued summary: 20 polls, 1.5s apart. Longer than Sour's two model calls
  *  take, short enough that a stuck job is visible rather than a spinner forever. */
@@ -82,7 +83,7 @@ export default function SourView({ id }: { id: string }) {
       setSummaryError("");
       const had = bundleSummaryAt.current;
       try {
-        const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) });
+        const res = await apiFetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) });
         if (!res.ok) throw new Error("Could not generate the summary. Please retry.");
         // The summary is written by a `sour.run` job, so it lands a moment after this request returns. Poll
         // the bundle until a summary newer than the one on screen appears, or give up and say so: the work is
@@ -128,7 +129,7 @@ export default function SourView({ id }: { id: string }) {
 
   async function sendLink(visitId: string) {
     setInvite("Sending…");
-    const d = await (await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
+    const d = await (await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
     // The send is a `notify.invite` job now, so this says it is on its way rather than that it arrived; the
     // link is here to share directly either way, and per-channel delivery status is T19 (§8.3).
     if (d.queued) setInvite(`Sending the link to this patient now. Share it directly if you'd rather: ${d.link}`);
@@ -143,7 +144,7 @@ export default function SourView({ id }: { id: string }) {
     setAsking(true);
     setChatError("");
     try {
-      const res = await fetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId, question, history: qa.slice(-6) }) });
+      const res = await apiFetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId, question, history: qa.slice(-6) }) });
       const d = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
       if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");

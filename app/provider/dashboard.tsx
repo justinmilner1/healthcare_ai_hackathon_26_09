@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
 import { VISIT_TYPES, visitLabel } from "@/lib/visits";
+import { apiFetch } from "@/lib/csrf";
 
 // One booked visit (design §4.4): `id` is the visit, `patientId` the person it is for. Every request the
 // dashboard makes — invite, summary, Sour — is keyed by the visit id.
@@ -115,7 +116,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
 
     setBusy(true);
     try {
-      const response = await fetch("/api/book", {
+      const response = await apiFetch("/api/book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -150,7 +151,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
   async function sendLink(visit: Row) {
     setRowNote((notes) => ({ ...notes, [visit.id]: "Sending…" }));
     const data = await (
-      await fetch("/api/invite", {
+      await apiFetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ visitId: visit.id }),

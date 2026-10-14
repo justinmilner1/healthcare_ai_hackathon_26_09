@@ -120,6 +120,9 @@ See README. Put parsers in `lib/`, keep API routes thin, keep pages thin. Sample
 - Small commits, push often, `main` only. No PR reviews today.
 - One owner per file where possible. Front end: `app/**/page.tsx`. Back end: `app/api/**`, `lib/**`.
 - No new dependencies without a one-line reason in the commit message.
+- Client code that changes something calls `apiFetch` from `lib/csrf.ts`, never bare `fetch`: middleware
+  refuses an unsafe method with no CSRF token (design §10.8). A dependency advisory at high or above either
+  gets fixed or gets a dated, owned entry in `security/audit-exceptions.json`. See `docs/SECURITY.md`.
 - Log through `lib/log.ts`, never `console.*`: it drops every field outside its allow-list so PHI cannot reach
   the logs, and carries the request id. Routes are exported through `withRoute`. See `docs/LOGGING.md`.
 - If something doesn't work in 10 minutes, stub it and move on. A hardcoded provider beats a broken login.

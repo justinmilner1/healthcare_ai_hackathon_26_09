@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { ROLES, roleDescription, roleLabel, type Role } from "@/lib/access";
+import { apiFetch } from "@/lib/csrf";
 import { MAX_RETENTION_DAYS, MIN_RETENTION_DAYS, type PracticeTeam } from "@/lib/team";
 
 type Note = { kind: "success" | "error"; text: string } | null;
@@ -48,9 +49,11 @@ export default function PracticeSettings({ meId }: { meId: string }) {
     load();
   }, [load]);
 
-  /** One place for "post it, read the error the route wrote, keep the reply". Every form below uses it. */
+  /** One place for "post it, read the error the route wrote, keep the reply". Every form below uses it.
+   *  apiFetch, not fetch: middleware refuses a state-changing request that does not echo the CSRF cookie
+   *  back in a header (§10.8, lib/csrf.ts), which is a 403 before the route is reached. */
   async function send(url: string, method: string, body: unknown): Promise<Record<string, unknown>> {
-    const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await apiFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "That did not work. Try again.");
     return data;

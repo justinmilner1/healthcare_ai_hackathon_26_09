@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { postJson } from "./api";
 import { DEGRADED_MAIL_DIR, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 
 // Design 6.3 / 11.3: when the model gateway is down Sweetie answers from the scripted path and the page says so.
@@ -17,14 +18,14 @@ const LOADED = { timeout: 30_000 };
 const SCRIPTED_FOLLOW_UP = /Since you last saw the doctor/;
 
 async function bookAndOpen(page: Page, name: string, mailDir: string) {
-  // Booking is behind the session and the staff role (§5.2), so the visit starts with someone at the practice
-  // signing in — on whichever of the two servers this describe block is pointed at, which is why the mailbox
-  // is a parameter: each server writes its sign-in links only to its own (playwright.config.ts).
+  // Booking is behind the session and the staff role now (§5.2), so the visit starts with someone at the
+  // practice signing in — on whichever of the two servers this describe block is pointed at, which is why the
+  // mailbox is a parameter: each server writes its sign-in links only to its own (playwright.config.ts).
+  // postJson adds the CSRF header the way the dashboard does (§10.8, e2e/api.ts), and takes page.request so
+  // it posts as the signed-in provider.
   await signInAsDemo(page, { mailDir });
   const booked = await (
-    await page.request.post("/api/book", {
-      data: { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false },
-    })
+    await postJson(page.request, "/api/book", { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 
