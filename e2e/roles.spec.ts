@@ -73,10 +73,17 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.locator(".provider-table")).toContainText("Invited");
   await shot(page, "provider-settings");
 
-  // A retention window that is not a number of days inside the bounds is refused, not rounded.
-  await page.getByLabel("Keep patient data for").fill("3");
-  await page.getByRole("button", { name: "Save practice" }).click();
-  await expect(page.locator(".ss-error").first()).toContainText(/between 30 and 3650/);
+  // A retention window outside the bounds never leaves the browser — the input carries min and max, so the
+  // form does not submit — which is why the server's own refusal is checked where it can be reached. §10.4's
+  // sweep reads this number, so "keep nothing" has to be refused by the route and not only by the screen.
+  for (const retentionDays of [3, 99999, 90.5, "ninety"]) {
+    const refused = await page.request.patch("/api/practice", { data: { retentionDays } });
+    expect(refused.status(), `retentionDays=${retentionDays}`).toBe(400);
+    expect((await refused.json()).error).toMatch(/between 30 and 3650/);
+  }
+  // And the name cannot be blanked by a rename.
+  expect((await page.request.patch("/api/practice", { data: { name: "   " } })).status()).toBe(400);
+  expect((await (await page.request.get("/api/practice")).json()).practice).toMatchObject({ name: "Northstar Roles", retentionDays: 90 });
 
   // The admin books a visit, so the practice has one for the colleague to find.
   const booked = await (

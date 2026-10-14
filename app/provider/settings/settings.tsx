@@ -143,9 +143,6 @@ export default function PracticeSettings({ meId }: { meId: string }) {
               What this practice is called, how long its data is kept, and who works in it. Admins only.
             </p>
           </div>
-          <span>
-            {team.users.length} user{team.users.length === 1 ? "" : "s"}
-          </span>
         </section>
 
         <section className="settings-grid">
@@ -258,7 +255,7 @@ export default function PracticeSettings({ meId }: { meId: string }) {
 
           <div className="provider-table-card ss-card">
             <div className="provider-table-scroll">
-              <table className="provider-table">
+              <table className="provider-table settings-users">
                 <thead>
                   <tr>
                     <th>Person</th>
@@ -269,7 +266,7 @@ export default function PracticeSettings({ meId }: { meId: string }) {
                 <tbody>
                   {team.users.map((user) => (
                     <tr key={user.id}>
-                      <td>
+                      <td data-label="Person">
                         <div className="provider-patient">
                           <span className="provider-patient-avatar">{(user.name ?? user.email).charAt(0).toUpperCase()}</span>
                           <span>
@@ -277,18 +274,20 @@ export default function PracticeSettings({ meId }: { meId: string }) {
                               {user.name ?? user.email}
                               {user.id === meId ? " (you)" : ""}
                             </strong>
-                            <small>{user.email}</small>
+                            {/* The address is the heading when there is no name yet, so printing it twice
+                                says nothing; what is worth saying is that the name is still to come. */}
+                            <small>{user.name ? user.email : "Adds their name when they first sign in"}</small>
                           </span>
                         </div>
                       </td>
-                      <td>
+                      <td data-label="Status">
                         {user.pending ? (
                           <span className="ss-pill ss-pill-warning">Invited</span>
                         ) : (
                           <span className="ss-pill ss-pill-success">Signed in</span>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Role">
                         <label className="settings-role-select">
                           <span className="sr-only">Role for {user.name ?? user.email}</span>
                           <select
@@ -317,7 +316,7 @@ export default function PracticeSettings({ meId }: { meId: string }) {
 
         <footer className="provider-footer">
           <span>Sweet Spot · Practice settings</span>
-          <span>Admins manage users and settings · §5.2</span>
+          <span>Only admins can change these</span>
         </footer>
       </div>
     </main>
