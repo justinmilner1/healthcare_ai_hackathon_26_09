@@ -17,6 +17,13 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 // end without a model. e2e/degraded.spec.ts is the only spec that uses it. Playwright starts web servers one
 // after another, so this one begins after the first has built and is answering, and reuses that build.
 const DEGRADED_PORT = PORT + 1;
+// A third server on the next port again, the only one with a JOBS_SECRET. Configuring the secret is what puts
+// the app in "scheduled" mode (lib/jobs.ts), so this is the one place the §3.4 runner answers the way a
+// deployed environment does: 401 without the secret, a drain report with it. e2e/security.spec.ts uses it to
+// prove the CSRF middleware stands down for the runner — EventBridge sends a bearer token and no cookie, and
+// a 403 in front of that route means the queue never drains in production.
+const RUNNER_PORT = PORT + 2;
+const RUNNER_SECRET = "e2e-jobs-secret";
 // Where the sign-in links land (design §5.1, e2e/auth.ts) and the secret that signs the session cookie. Neither
 // is a secret in a throwaway test database; production supplies AUTH_SECRET from SSM (§10.6).
 const MAIL_DIR = process.env.DEV_MAIL_DIR ?? "e2e/.mail";
@@ -67,5 +74,22 @@ export default defineConfig({
         DEV_MAIL_DIR: `${MAIL_DIR}-degraded`, // its own mailbox, so neither server's links show up in the other's
       },
     },
+    {
+      command: `npx next start -p ${RUNNER_PORT}`,
+      url: `http://localhost:${RUNNER_PORT}/api/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000, // no build of its own either
+      env: {
+        ...process.env,
+        PORT: String(RUNNER_PORT),
+        APP_URL: `http://localhost:${RUNNER_PORT}`,
+        OPENAI_API_KEY: "",
+        JOBS_SECRET: RUNNER_SECRET,
+        AUTH_SECRET,
+        DEV_MAIL_DIR: `${MAIL_DIR}-runner`, // its own mailbox too, for the same reason
+      },
+    },
   ],
 });
+
+export { RUNNER_PORT, RUNNER_SECRET };

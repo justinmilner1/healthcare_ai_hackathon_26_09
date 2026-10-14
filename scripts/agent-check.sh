@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The one command both routines (and CI) run. Installs, prepares a throwaway DB, seeds, then typecheck, lint,
-# unit tests with a coverage table, and the Playwright suite with screenshots in e2e/screenshots/. Exit code is
-# the verdict.
+# The one command both routines (and CI) run. Installs, audits the dependency tree, prepares a throwaway DB,
+# seeds, then typecheck, lint, unit tests with a coverage table, and the Playwright suite with screenshots in
+# e2e/screenshots/. Exit code is the verdict.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,12 +13,20 @@ export E2E_PORT="${E2E_PORT:-3100}"
 # and production takes it from SSM (§10.6).
 export DEV_MAIL_DIR="${DEV_MAIL_DIR:-e2e/.mail}"
 export AUTH_SECRET="${AUTH_SECRET:-e2e-session-secret-not-for-deployment}"
-rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded"
+# One mailbox per server in playwright.config.ts (the main one, the degraded one, the jobs runner), so a link
+# from one never shows up in another's.
+rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded" "${DEV_MAIL_DIR}-runner"
 export APP_URL="http://localhost:${E2E_PORT}"
 export NEXT_TELEMETRY_DISABLED=1
 
 echo "== install"
 if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+
+echo "== dependency audit"
+# `npm audit --audit-level=high` minus the advisories written down in security/audit-exceptions.json
+# (design 10.8, 12.4). scripts/audit.ts explains the subtraction; docs/SECURITY.md is the process. It needs
+# the registry, so outside CI an unreachable registry is a skip with a warning rather than a failure.
+npx tsx scripts/audit.ts
 
 echo "== database"
 # Postgres, never SQLite (design §3.2). The run gets its own database, sweetspot_e2e, dropped and recreated every
