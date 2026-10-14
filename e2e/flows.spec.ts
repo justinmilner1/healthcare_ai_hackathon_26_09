@@ -85,6 +85,8 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
 });
 
 // T04 (design §3.4, §7.1): the summary is written by a `sour.run` job, not by the request that asks for it.
+// T15 adds the tail of this test: the job's state on the page, and that asking again over unchanged inputs
+// returns the summary already saved rather than writing a second one.
 // With no scheduler the app drains its own queue after the response, so opening a patient who has uploads and
 // no summary must still end with a summary on the page — through the queue, with the two "it's ready" links
 // queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
@@ -113,28 +115,15 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const refused = await request.post("/api/jobs/run");
   expect(refused.status()).toBe(503);
   expect((await refused.json()).error).toMatch(/not configured/i);
-});
 
-// T15 (design §7.1): "a second run with unchanged inputs returns the existing summary". Asked of the real
-// queue end to end, because the saving is only half the point — the other half is that the page can tell the
-// difference, since a reused summary leaves its own timestamp exactly where it was.
-test("a second run with unchanged inputs returns the saved summary", async ({ page, request }) => {
-  await signInAsDemo(page);
-  const seeded = await seededVisit(page);
-
+  // T15 (§7.1): "a second run with unchanged inputs returns the existing summary". Asked here, of the visit
+  // the queue has just summarized, rather than from a test of its own — every sign-in competes for the same
+  // demo mailbox, and a magic link is single use, so the cheapest way to keep this assertion reliable is not
+  // to ask for a second session to make it. The saving is only half the point: the other half is that the
+  // page can tell the difference, since a reused summary leaves its own timestamp exactly where it was.
   const read = async () => (await page.request.get(`/api/patient/${seeded.id}`)).json();
-  /** Wait until nothing is in flight: an earlier test, or the other project's run, may still be draining. */
-  const settled = async () => {
-    for (let tries = 0; tries < 40; tries++) {
-      const bundle = await read();
-      const status = bundle.sourJob?.status;
-      if (bundle.providerSummary && status !== "queued" && status !== "running") return bundle;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    throw new Error("no summary settled for the seeded visit");
-  };
-
-  const before = await settled();
+  const before = await read();
+  expect(before.providerSummary, "the queue wrote one above").toBeTruthy();
   expect(before.summaryStale, "nothing has changed since that summary was written").toBe(false);
 
   // Through postJson: a bare POST is a 403 from the CSRF middleware (§10.8) and would assert nothing.
