@@ -57,7 +57,9 @@ export type AuditWrite = {
  *  here is logged and swallowed: see the note at the top of the file. */
 export async function recordAudit(entry: AuditWrite): Promise<void> {
   try {
-    const detail = auditDetailJson(entry.detail);
+    // A coalescable row carries its count from the first one, so the column reads `count: 1` and then
+    // `count: 2` rather than nothing and then `count: 2` — the same fact, said the same way each time.
+    const detail = auditDetailJson(entry.coalesceMs ? { count: 1, ...entry.detail } : entry.detail);
     if (entry.coalesceMs && (await absorbed(entry, detail))) return;
     await db.auditLog.create({
       data: {
