@@ -15,6 +15,7 @@ import { runSour } from "./sourRun";
 import { db } from "./db";
 import type { Summary } from "./types";
 import { findVisit, providerName } from "./visit";
+import { invitableChannels, recordDeliveries } from "./visitStore";
 
 /** The one field every payload has. Anything else is a bug in the enqueue site, so it fails loudly. */
 function visitIdOf(payload: JobPayload): string {
@@ -56,7 +57,9 @@ export const handlers: JobHandlers = {
     await runSour(visitIdOf(payload));
   },
 
-  // §8.2 The invite: the presigned link by SMS and email, no clinical content.
+  // §8.2 The invite: the presigned link, on the channels staff recorded consent for (§2.2), no clinical
+  // content. §8.3: what each channel did is written back onto the visit, which is what staff read on the
+  // dashboard — it goes in before assertSendable, so a failure that is about to be retried is on screen too.
   "notify.invite": async (payload) => {
     const visit = await visitOf(payload);
     const result: InviteResult = await sendIntakeInvite({
@@ -68,7 +71,9 @@ export const handlers: JobHandlers = {
       token: visit.token,
       providerName: providerName(visit),
       apptAt: visit.scheduledAt,
+      channels: invitableChannels(visit),
     });
+    await recordDeliveries(visit.id, "notify.invite", { sms: result.sms, email: result.email });
     assertSendable("invite", visit.id, { sms: result.sms, email: result.email });
   },
 
@@ -91,6 +96,9 @@ export const handlers: JobHandlers = {
       providerSummary,
       patientSummary,
     });
+    // The summary's own delivery rows wait for T19 (§8.3): a channel here is one of two emails to two
+    // different people, which is not the same thing as "did the invite reach the patient" that
+    // VisitDelivery answers for the dashboard today, and guessing at the shape now would only have to change.
     assertSendable("summary", visit.id, { provider: result.provider, patient: result.patient });
   },
 };

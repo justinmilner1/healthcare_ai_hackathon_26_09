@@ -172,6 +172,8 @@ export function parseVisitDraft(input: VisitInput): DraftResult {
   const visitType = parseVisitType(input.visitType);
   if (visitType === undefined) errors.push(`Visit type must be one of: ${VISIT_TYPES.map((t) => t.id).join(", ")}.`);
 
+  // "both" is the form's default, and what a visit created before T07 behaved as. The CSV reader passes an
+  // explicit "none" rather than leaning on this, for the reason given in parseVisitCsv.
   const channelRaw = input.channel === undefined || input.channel === null || input.channel === "" ? "both" : input.channel;
   const channel = isContactChannel(channelRaw) ? channelRaw : null;
   if (!channel) errors.push(`Contact channel must be one of: ${CONTACT_CHANNELS.map((c) => c.id).join(", ")}.`);
@@ -341,9 +343,11 @@ export function parseVisitCsv(text: string): CsvParse {
       scheduledAt: value("scheduled_at"),
       visitType: value("visit_type"),
       reason: value("reason"),
-      // A file with no channel column is the common export: everything in it was booked by someone who took
-      // consent at the desk, so the row still has to say so — it just says so once, in the consent column.
-      channel: value("channel") || undefined,
+      // A blank or absent channel column means *nothing is sent* for that row — the one place this differs
+      // from the form, where the default is "both". A scheduler's export knows about appointments and not
+      // about consent, so a file that says nothing about either cannot be read as permission to message
+      // anyone (§2.2): the rows import, staff see them on the dashboard, and the link is theirs to hand over.
+      channel: value("channel") || "none",
       consentMethod: value("consent"),
       consentAt: value("consent_at"),
     };

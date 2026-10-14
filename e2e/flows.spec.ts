@@ -34,7 +34,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
@@ -101,7 +101,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // is why every request below goes through `request` rather than the signed-in page.
   await signInAsDemo(page);
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", channel: "none" })
   ).json();
   expect(booked.token, "the visit's invite token").toBeTruthy();
   await signOutOfBrowser(page);

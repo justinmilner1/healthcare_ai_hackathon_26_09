@@ -1487,6 +1487,37 @@ textarea.ss-input {
   background: #eaf5ea;
 }
 
+/* 8.3 Per-channel delivery, in the Invite column. `queued` wears the neutral pill: the send is a job, so
+   between adding the patient and SES answering there is genuinely nothing to report yet. */
+.provider-invite {
+  min-width: 118px;
+}
+
+.provider-invite > small {
+  display: block;
+  margin-top: 5px;
+}
+
+.provider-delivery-sent {
+  color: #3c7649;
+  background: #eaf5ea;
+}
+
+.provider-delivery-failed {
+  color: #8c3b33;
+  background: #fbeae8;
+}
+
+.provider-stage-cancelled {
+  color: #8a8781;
+  background: #eeece6;
+  text-decoration: line-through;
+}
+
+.provider-stage-cancelled i {
+  background: #b6b2a8;
+}
+
 .provider-progress-copy {
   min-width: 105px;
   color: #88867b;
@@ -2133,40 +2164,34 @@ textarea.ss-input {
   font-size: 9px;
 }
 
-.patient-opt-in {
-  display: flex;
-  margin-top: 12px;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 15px 16px;
-  border: 1px solid #e6e0c9;
-  border-radius: 15px;
-  background: white;
-  cursor: pointer;
+/* The contact channel and the recorded consent behind it (design 2.2). Replaced the single opt-in checkbox:
+   a channel and a how are two choices, and the second one is what makes the first one lawful. */
+.patient-consent {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
 }
 
-.patient-opt-in input {
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  accent-color: var(--sour-green);
+.patient-consent > legend {
+  padding: 0;
 }
 
-.patient-opt-in strong,
-.patient-opt-in small {
-  display: block;
+.patient-channel-row {
+  display: grid;
+  margin: 8px 0 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
-.patient-opt-in strong {
-  color: var(--sour-ink);
-  font-size: 11px;
-}
-
-.patient-opt-in small {
-  margin-top: 4px;
+.patient-consent-note {
+  margin: 6px 0 0;
   color: var(--ss-muted);
   font-size: 9px;
-  line-height: 1.45;
+  line-height: 1.5;
+}
+
+.patient-consent .ss-label {
+  margin-top: 12px;
 }
 
 .patient-wizard-actions {
@@ -2182,6 +2207,95 @@ textarea.ss-input {
 .patient-wizard-actions > span {
   color: var(--ss-muted);
   font-size: 9px;
+}
+
+/* 2.2's CSV import. Shares the wizard's backdrop; a single column, because the preview table wants width. */
+.import-dialog {
+  display: flex;
+  width: min(880px, 100%);
+  max-height: 88svh;
+  flex-direction: column;
+  gap: 12px;
+  padding: 26px 28px 20px;
+  overflow-y: auto;
+  border-radius: 22px;
+}
+
+.import-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-head .patient-wizard-close {
+  position: static;
+  flex: none;
+}
+
+.import-dialog code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #f3f1e8;
+  font-size: 9px;
+}
+
+.import-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.import-textarea {
+  min-height: 92px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-tally {
+  margin: 0;
+  color: var(--ss-muted);
+  font-size: 10px;
+}
+
+.import-tally strong {
+  color: var(--sour-ink);
+}
+
+.import-table-scroll {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--ss-line);
+  border-radius: 14px;
+}
+
+.import-table th,
+.import-table td {
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.import-row-bad {
+  background: #fdf4f2;
+}
+
+.import-errors {
+  margin: 0;
+  padding-left: 14px;
+  color: #8c3b33;
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .patient-wizard-success {
@@ -4332,6 +4446,17 @@ button.sweetie-agent-badge {
     max-height: 94svh;
     grid-template-columns: 1fr;
     border-radius: 24px 24px 0 0;
+  }
+
+  .import-dialog {
+    width: 100%;
+    max-height: 94svh;
+    padding: 22px 18px 16px;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .patient-channel-row {
+    grid-template-columns: 1fr;
   }
 
   .patient-wizard-side {

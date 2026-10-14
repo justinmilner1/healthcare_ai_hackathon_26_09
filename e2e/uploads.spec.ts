@@ -21,7 +21,7 @@ const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "tim
 async function bookVisit(request: import("@playwright/test").APIRequestContext, name: string) {
   // postJson adds the CSRF header the way the app's own pages do (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "mornings running high", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
   return booked as { token: string; visitId: string };
