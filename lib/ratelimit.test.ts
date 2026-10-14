@@ -157,11 +157,13 @@ test("enforceLimit throws a 429 HttpError once the window is spent, with the hea
   assert.equal(thrown.event, "rate_limited");
   assert.match(thrown.message, /^Too many requests just now\./);
   assert.equal(thrown.headers["Retry-After"], String(thrown.fields.retryAfter));
-  // The log line names the key that was spent and the visit, never an address (§10.3).
+  // The log line names the key that was spent and the visit, never an address (§10.3) — and no `route`,
+  // which withRoute puts on every line from the request context and a field here would overwrite.
   assert.deepEqual(
-    { route: thrown.fields.route, scope: thrown.fields.scope, limit: thrown.fields.limit, visitId: thrown.fields.visitId },
-    { route: "verify", scope: "visit", limit: LIMITS.verify.visit.limit, visitId: key },
+    { scope: thrown.fields.scope, limit: thrown.fields.limit, visitId: thrown.fields.visitId },
+    { scope: "visit", limit: LIMITS.verify.visit.limit, visitId: key },
   );
+  assert.equal(thrown.fields.route, undefined, "the limiter must not overwrite withRoute's own route field");
   // And the body the caller gets carries the header too, which is what a well-behaved client waits on.
   assert.equal(thrown.response().headers.get("retry-after"), String(thrown.fields.retryAfter));
   resetLimits();

@@ -184,12 +184,14 @@ export function tooManyHeaders(verdict: Extract<RateVerdict, { ok: false }>): Re
  * into the response and into one `rate_limited` log line (lib/log.ts), so a route spends one line on this.
  *
  * `visitId` is passed through to that log line when the key is a visit, because an opaque id is allow-listed
- * and useful: it is how the clinic answers "which visit was that". The IP never is (§10.3).
+ * and useful: it is how the clinic answers "which visit was that". The IP never is (§10.3). The route is not
+ * passed either, and not because of §10.3: `withRoute` already puts the real one ("POST /api/verify") on
+ * every line from the request context, and a field of the same name here would overwrite it.
  */
 export function enforceLimit(route: LimitedRoute, scope: RateScope, key: string, fields: Record<string, unknown> = {}): void {
   const verdict = limit(route, scope, key);
   if (verdict.ok) return;
-  throw new HttpError(429, tooManyMessage(verdict), "rate_limited", { route, scope, limit: verdict.limit, retryAfter: retryAfterSeconds(verdict), ...fields }, tooManyHeaders(verdict));
+  throw new HttpError(429, tooManyMessage(verdict), "rate_limited", { scope, limit: verdict.limit, retryAfter: retryAfterSeconds(verdict), ...fields }, tooManyHeaders(verdict));
 }
 
 /** The per-IP half of §5.4 for a route handler. A request with no client address to key on still counts,

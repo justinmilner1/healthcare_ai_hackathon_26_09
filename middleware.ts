@@ -65,7 +65,7 @@ function linkRefusal(req: NextRequest): NextResponse | null {
   const token = LINK_ROUTE.exec(req.nextUrl.pathname)?.[1];
   if (!token) return null;
   const byIp = limit("link", "ip", clientIp(req.headers));
-  const verdict = byIp.ok ? limit("link", "visit", keyFingerprint(decodeURIComponent(token))) : byIp;
+  const verdict = byIp.ok ? limit("link", "visit", keyFingerprint(decodeToken(token))) : byIp;
   if (verdict.ok) return null;
 
   // An HTML page, not JSON: this is a link a patient typed into a browser, so what comes back has to be
@@ -75,6 +75,17 @@ function linkRefusal(req: NextRequest): NextResponse | null {
   const headers = new Headers({ "content-type": "text/html; charset=utf-8", ...tooManyHeaders(verdict) });
   for (const h of STATIC_SECURITY_HEADERS) headers.set(h.key, h.value);
   return new NextResponse(linkPage(tooManyMessage(verdict)), { status: 429, headers });
+}
+
+/** The path as the patient's link spells it. A stray `%` makes decodeURIComponent throw, and a middleware
+ *  that throws is a 500 on every page under /s — so the raw segment stands in. Either way one link is one
+ *  window; the two spellings being two windows matters only to whoever typed the broken one. */
+function decodeToken(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 /** The whole page a refused link gets. Plain, self-contained, and it says the one thing worth saying. */
