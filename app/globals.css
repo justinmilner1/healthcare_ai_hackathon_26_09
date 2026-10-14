@@ -4374,7 +4374,10 @@ button.sweetie-agent-badge {
     width: 100%;
   }
 
-  .provider-top-actions .ss-button:first-child {
+  /* The top bar fits one action on a phone. Importing a day of visits from a scheduler's CSV is desk work,
+     so that is the one that goes; adding a patient stays, and its wizard has a phone layout below. Named by
+     class rather than :first-child, which used to hide whichever button happened to come first. */
+  .provider-import-button {
     display: none;
   }
 

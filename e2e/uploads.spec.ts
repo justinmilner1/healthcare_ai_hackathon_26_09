@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
+import { signInAsDemo } from "./auth";
 
 // T11 (design §3.3, §9.1): the upload gates and the storage adapter, through the real route. The file a
 // patient picks is checked for size and shape before any parser sees it, the bytes go to the storage
@@ -16,19 +17,27 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "timeline_android.json"), "utf8");
 
-// No sign-in: the patient's credential is the token in the link (§5.3), and an unattributed booking lands on
-// the seeded demo provider, the same way e2e/flows.spec.ts opens its patient flow.
-async function bookVisit(request: import("@playwright/test").APIRequestContext, name: string) {
+/**
+ * A visit to upload into. Booking one is staff work, so it signs in first: §5.2 (T06) put `visits:create`
+ * on POST /api/book, and an unattributed booking is a 401. `page.request` is what carries that session;
+ * everything below it stays on the bare `request` context, because the patient's credential is the token in
+ * the link (§5.3) and that is what these tests are about.
+ *
+ * Same fix as the pull request on #73 (T50), carried here because `scripts/agent-check.sh` cannot pass on any
+ * branch without it; it no-ops once that one merges.
+ */
+async function bookVisit(page: Page, name: string) {
+  await signInAsDemo(page);
   // postJson adds the CSRF header the way the app's own pages do (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "mornings running high", channel: "none" })
+    await postJson(page.request, "/api/book", { name, visitType: "follow_up", reason: "mornings running high", channel: "none" })
   ).json();
-  expect(booked.token).toBeTruthy();
+  expect(booked.token, "booking needs a signed-in provider with visits:create (§5.2)").toBeTruthy();
   return booked as { token: string; visitId: string };
 }
 
-test("intake uploads: a real export is stored, the wrong file is refused in plain language", async ({ page, request }) => {
-  const { token } = await bookVisit(request, "E2E Uploader");
+test("intake uploads: a real export is stored, the wrong file is refused in plain language", async ({ page }) => {
+  const { token } = await bookVisit(page, "E2E Uploader");
   await page.goto(`/s/${token}/intake`);
   // The intake screen opens on its welcome step; the data sources are the step after it.
   await page.getByRole("button", { name: /Let's get started/i }).click();
@@ -49,8 +58,8 @@ test("intake uploads: a real export is stored, the wrong file is refused in plai
   await shot(page, "patient-intake-uploads");
 });
 
-test("upload gates: oversized, wrong format, and empty files never reach a parser", async ({ request }) => {
-  const { token } = await bookVisit(request, "E2E Gatekeeper");
+test("upload gates: oversized, wrong format, and empty files never reach a parser", async ({ page, request }) => {
+  const { token } = await bookVisit(page, "E2E Gatekeeper");
   // A multipart upload is state-changing too, so it carries the same CSRF header the intake page sends.
   const post = async (kind: string, name: string, buffer: Buffer, mimeType = "text/csv") =>
     request.post("/api/upload", {
@@ -102,8 +111,8 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
 // that the whole body arrived: a truncated upload still parses, it just loses the rows at the end. Filler
 // rather than 11 MB of real readings because 400,000 of those take the server a minute to parse and store,
 // and everything else in the suite is waiting on the same event loop.
-test("a large export, under the cap but over what a proxied body carries, arrives whole", async ({ request }) => {
-  const { token } = await bookVisit(request, "E2E Big Export");
+test("a large export, under the cap but over what a proxied body carries, arrives whole", async ({ page, request }) => {
+  const { token } = await bookVisit(page, "E2E Big Export");
   const header = "Index,Timestamp (YYYY-MM-DDThh:mm:ss),Glucose Value (mg/dL)\n";
   const skipped = `${",".repeat(8)}\n`.repeat(Math.ceil((11 * 1024 * 1024) / 9));
   const readings = Array.from({ length: 100 }, (_, i) => `${i + 1},2026-10-01T${String(i % 24).padStart(2, "0")}:00:00,${100 + i}\n`).join("");
@@ -121,8 +130,8 @@ test("a large export, under the cap but over what a proxied body carries, arrive
 });
 
 // §10.8 still holds for this route even though middleware does not see it: the handler runs the same check.
-test("the upload route is still CSRF-protected, from inside the handler", async ({ request }) => {
-  const { token } = await bookVisit(request, "E2E Forged");
+test("the upload route is still CSRF-protected, from inside the handler", async ({ page, request }) => {
+  const { token } = await bookVisit(page, "E2E Forged");
   const noToken = await request.post("/api/upload", {
     multipart: { token, kind: "dexcom", file: { name: "Clarity.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) } },
     headers: { cookie: "" },

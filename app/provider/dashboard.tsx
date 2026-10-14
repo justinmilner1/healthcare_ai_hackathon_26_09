@@ -255,7 +255,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
           <div className="provider-top-actions">
             {mayBook && (
               <>
-                <button className="ss-button" onClick={() => setImportOpen(true)}>
+                <button className="ss-button provider-import-button" onClick={() => setImportOpen(true)}>
                   Import a day
                 </button>
                 <button
