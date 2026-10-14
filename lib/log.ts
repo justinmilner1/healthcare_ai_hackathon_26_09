@@ -14,7 +14,6 @@
 // the database, and the audit log (§10.2) is where reads of patient data get recorded.
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
 import { HttpError } from "./httpError";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -93,7 +92,13 @@ const OPAQUE_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 export function requestIdFrom(headers: Headers | null | undefined): string {
   const given = headers?.get("x-request-id")?.trim();
   if (given && OPAQUE_REQUEST_ID.test(given)) return given.toLowerCase();
-  return randomUUID();
+  // Web Crypto, not `node:crypto`. This module is reached from the edge bundle — instrumentation.ts's
+  // `await import("./lib/config")` is compiled for every runtime the entry is built for, whatever the
+  // NEXT_RUNTIME guard does at runtime, and middleware.ts is what gives the build an edge runtime at all.
+  // `node:crypto` has no edge implementation, so importing it there fails the build outright (T45);
+  // `globalThis.crypto` is standard in both runtimes and mints the same v4 UUID. `node:async_hooks` above
+  // stays: the edge runtime does provide AsyncLocalStorage.
+  return globalThis.crypto.randomUUID();
 }
 
 /** Remove the shapes PHI arrives in (emails, phone numbers, long digit runs) and cap the length. */
