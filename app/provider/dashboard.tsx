@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
+import { confirmsDeletion } from "@/lib/retention";
 import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
 import {
   channelLabel,
@@ -724,7 +725,9 @@ function DeletionDialog({
   onConfirm: (typedName: string) => void;
 }) {
   const [typed, setTyped] = useState("");
-  const matches = typed.replace(/\s+/g, " ").trim().toLowerCase() === visit.name.replace(/\s+/g, " ").trim().toLowerCase();
+  // The same function the route decides by (lib/retention.ts, which imports nothing so it can be on both
+  // sides): what the button does and what the server accepts cannot drift apart.
+  const matches = confirmsDeletion(typed, visit.name);
 
   return (
     <div className="patient-wizard-backdrop" role="presentation">

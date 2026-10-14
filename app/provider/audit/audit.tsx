@@ -194,7 +194,10 @@ export default function AuditTrail({ meId }: { meId: string }) {
           )}
 
           <div className="provider-table-card ss-card">
-            <div className="provider-table-scroll">
+            {/* Its own class beside the shared one: on a phone this table is not a table at all but a stack of
+                cards, and the horizontal scroll the dashboard needs is what pushes a wide row off the screen
+                there instead of letting it wrap (app/globals.css). */}
+            <div className="provider-table-scroll audit-table-scroll">
               <table className="provider-table audit-table">
                 <thead>
                   <tr>

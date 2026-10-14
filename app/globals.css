@@ -5324,6 +5324,14 @@ button.sweetie-agent-badge {
     justify-content: flex-start;
   }
 
+  /* Nothing here is a table any more, so nothing here scrolls sideways. Left scrolling, a row whose detail
+     carries six or seven counts — which is what a deletion records (§10.4, §10.5) — makes the whole stack as
+     wide as that one row and hangs every card off the right edge, instead of the counts wrapping onto a
+     second line inside the card. */
+  .audit-table-scroll {
+    overflow-x: visible;
+  }
+
   .audit-table,
   .audit-table tbody,
   .audit-table tr,
@@ -5331,6 +5339,10 @@ button.sweetie-agent-badge {
     display: block;
     width: 100%;
     min-width: 0;
+  }
+
+  .audit-detail {
+    max-width: 100%;
   }
 
   .audit-table thead {
