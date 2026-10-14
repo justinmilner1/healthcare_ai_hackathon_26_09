@@ -5,10 +5,22 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
-import { VISIT_TYPES, visitLabel } from "@/lib/visits";
+import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
+import {
+  channelLabel,
+  channelsOf,
+  CONSENT_METHODS,
+  consentLabel,
+  CONTACT_CHANNELS,
+  CSV_TEMPLATE,
+  warningsFor,
+  type ConsentMethod,
+  type ContactChannel,
+  type VisitDraft,
+} from "@/lib/visitIntake";
 import { apiFetch } from "@/lib/csrf";
 
 // One booked visit (design §4.4): `id` is the visit, `patientId` the person it is for. Every request the
@@ -20,7 +32,16 @@ type Row = {
   apptAt: string | null;
   visitType: string | null;
   reason: string | null;
+  /** §4.4's own value: invited | verified | in_intake | intake_done | summary_ready | reviewed | cancelled. */
   status: string;
+  /** §2.2's contact channel. Null on a visit created before T07, which means "both" (lib/visitIntake.ts). */
+  channel: string | null;
+  /** The recorded consent (§2.2): how it was taken, and when. Who took it is a user id, shown as "recorded". */
+  consentChannel: string | null;
+  consentRecordedAt: string | null;
+  consentRecordedBy: string | null;
+  /** §8.3 What each channel did with the invite. Empty until a `notify.invite` job has run. */
+  deliveries: { channel: string; kind: string; status: string; error: string | null; at: string }[];
   token: string;
   phone: string | null;
   email: string | null;
@@ -48,7 +69,11 @@ type PatientForm = {
   apptAt: string;
   visitType: string;
   reason: string;
-  optIn: boolean;
+  /** §2.2's contact channel. "none" is "we will hand them the link ourselves". */
+  channel: ContactChannel;
+  /** How the patient's consent to be contacted was taken. Empty until staff say, which the server insists on
+   *  for every channel but "none" (lib/visitIntake.ts) — a visit is not messaged on an unrecorded consent. */
+  consentMethod: ConsentMethod | "";
 };
 
 const EMPTY_FORM: PatientForm = {
@@ -58,7 +83,8 @@ const EMPTY_FORM: PatientForm = {
   apptAt: "",
   visitType: "follow_up",
   reason: "",
-  optIn: true,
+  channel: "both",
+  consentMethod: "",
 };
 
 // The signed-in provider's id comes from the session, server-side in page.tsx (design §5.1), so this
@@ -67,6 +93,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
   const [provider, setProvider] = useState<Provider | null>(null);
   const [form, setForm] = useState<PatientForm>(EMPTY_FORM);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [addStep, setAddStep] = useState(0);
   const [result, setResult] = useState<{
     message: string;
@@ -123,6 +150,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
           ...form,
           providerId,
           apptAt: form.apptAt || undefined,
+          consentMethod: form.consentMethod || undefined,
         }),
       });
       const data = await response.json();
@@ -134,9 +162,10 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
       // arrived, so the wizard says so and shows the link, which works regardless. Per-channel delivery
       // status lands on the visit and in this list in T19 (§8.3).
       setResult({
-        message: data.queued
-          ? "Patient added. The invite is on its way by text and email."
-          : `Patient added. No invite sent${data.reason ? `: ${data.reason}.` : "."} Share the link below.`,
+        message: [
+          data.patientReused ? "Visit added for a patient you already had." : "Patient added.",
+          data.queued ? `The invite is on its way by ${channelLabel(form.channel).toLowerCase()}.` : `No invite sent${data.reason ? `: ${data.reason}.` : "."} Share the link below.`,
+        ].join(" "),
         link: data.link,
       });
       setAddStep(3);
@@ -247,13 +276,18 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
           <PersonaBrand persona="sour" context="Practice command center" />
           <div className="provider-top-actions">
             {mayBook && (
-              <button
-                className="ss-button ss-button-accent"
-                onClick={openWizard}
-              >
-                <span className="provider-button-plus">+</span>
-                Add patient
-              </button>
+              <>
+                <button className="ss-button provider-import-button" onClick={() => setImportOpen(true)}>
+                  Import a day
+                </button>
+                <button
+                  className="ss-button ss-button-accent"
+                  onClick={openWizard}
+                >
+                  <span className="provider-button-plus">+</span>
+                  Add patient
+                </button>
+              </>
             )}
             {can(provider.role, "audit:read") && (
               <Link href="/provider/audit" className="ss-button">
@@ -346,6 +380,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                     <th>Patient</th>
                     <th>Visit</th>
                     <th>Stage</th>
+                    <th>Invite</th>
                     <th>Connected data</th>
                     <th>Sweetie</th>
                     <th>
@@ -391,6 +426,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                       </td>
                       <td>
                         <Stage visit={visit} />
+                      </td>
+                      <td>
+                        <Invite visit={visit} />
                       </td>
                       <td>
                         <div className="provider-data-pills">
@@ -499,7 +537,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                   ))}
                   {provider && visits.length === 0 && (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         <div className="provider-empty">
                           <Image
                             src="/assets/sour/sour.png"
@@ -535,6 +573,14 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
           <span>Demo only · Verify all AI-generated summaries</span>
         </footer>
       </div>
+
+      {importOpen && (
+        <ImportDialog
+          providerId={providerId}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+        />
+      )}
 
       {wizardOpen && (
         <PatientWizard
@@ -579,29 +625,48 @@ function Metric({
   );
 }
 
+/** Where the visit is, from `Visit.status` (design §4.4). The screen used to infer this from upload and
+ *  answer counts, which could say "Invited" about a visit the rest of the app had already moved on. */
 function Stage({ visit }: { visit: Row }) {
-  const stage = visit.hasSummary
-    ? "ready"
-    : visit.wrapped
-      ? "finished"
-      : visit.answered > 0
-      ? "chatting"
-      : visit.uploads.length
-        ? "uploading"
-        : "invited";
-  const labels = {
-    ready: "Summary ready",
-    finished: "Intake finished",
-    chatting: "Talking to Sweetie",
-    uploading: "Shared data",
-    invited: "Invited",
-  };
+  return (
+    <span className={`provider-stage provider-stage-${visitStatusTone(visit.status)}`}>
+      <i />
+      {visitStatusLabel(visit.status)}
+    </span>
+  );
+}
+
+/** §8.3 What happened to the invite, per channel, with the consent behind it underneath (§2.2). A channel
+ *  staff chose and no job has reported on yet reads "queued": the send is a job, so that is the honest word
+ *  for the gap between adding the patient and SES answering. */
+function Invite({ visit }: { visit: Row }) {
+  const wanted = visit.channel === "none" ? [] : channelsOf(visit.channel);
+  const reported = new Map(visit.deliveries.filter((d) => d.kind === "notify.invite").map((d) => [d.channel, d]));
+  const consent = visit.consentChannel ? `${consentLabel(visit.consentChannel)}${visit.consentRecordedAt ? `, ${new Date(visit.consentRecordedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}` : null;
 
   return (
-    <span className={`provider-stage provider-stage-${stage}`}>
-      <i />
-      {labels[stage]}
-    </span>
+    <div className="provider-invite">
+      {wanted.length === 0 ? (
+        <span className="provider-data-pill">Not messaged</span>
+      ) : (
+        <div className="provider-data-pills">
+          {wanted.map((channel) => {
+            const delivery = reported.get(channel);
+            const status = delivery?.status ?? "queued";
+            return (
+              <span
+                key={channel}
+                className={`provider-data-pill provider-delivery-${status}`}
+                title={delivery?.error ?? undefined}
+              >
+                {channel === "sms" ? "Text" : "Email"} {status === "sent" ? "✓" : status === "failed" ? "✕" : "…"}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <small className="provider-cell-sub">{consent ? `Consent: ${consent}` : "No consent recorded"}</small>
+    </div>
   );
 }
 
@@ -808,7 +873,7 @@ function PatientWizard({
                 <h3 className="ss-title">Ready for the handoff.</h3>
                 <p className="ss-lede">
                   Saving creates the patient and sends their private Sweetie
-                  link when they have opted in.
+                  link on the channel you choose here.
                 </p>
               </div>
               <div className="patient-review-card">
@@ -831,24 +896,64 @@ function PatientWizard({
                   {form.reason && <small>Called about: {form.reason}</small>}
                 </div>
               </div>
-              <label className="patient-opt-in">
-                <input
-                  type="checkbox"
-                  checked={form.optIn}
-                  onChange={(e) =>
-                    setForm({ ...form, optIn: e.target.checked })
-                  }
-                />
-                <span>
-                  <strong>Patient opted in to pre-visit messages</strong>
-                  <small>
-                    Send the secure link to{" "}
-                    {[form.phone, form.email].filter(Boolean).join(" and ") ||
-                      "the contact method added later"}
-                    .
-                  </small>
-                </span>
-              </label>
+              {/* §2.2: the contact channel, and a consent with a who, a when and a how behind it. The
+                  server applies the same rules again (lib/visitIntake.ts) — a channel with no consent
+                  recorded, or no address to reach the patient on, comes back as a 400 with the sentence. */}
+              <fieldset className="patient-consent">
+                <legend className="ss-label">
+                  <span>Contact channel</span>
+                </legend>
+                <div className="patient-channel-row">
+                  {CONTACT_CHANNELS.map((channel) => (
+                    <label
+                      key={channel.id}
+                      className={`visit-type-card ${form.channel === channel.id ? "visit-type-card-selected" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name="channel"
+                        value={channel.id}
+                        checked={form.channel === channel.id}
+                        onChange={() => setForm({ ...form, channel: channel.id })}
+                      />
+                      <span>{channel.label}</span>
+                      <b>✓</b>
+                    </label>
+                  ))}
+                </div>
+                <p className="patient-consent-note">
+                  {form.channel === "none"
+                    ? "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code."
+                    : `The secure link goes to ${[form.channel !== "email" && form.phone, form.channel !== "sms" && form.email].filter(Boolean).join(" and ") || "— add a number or address on the first step"}.`}
+                </p>
+                {/* Not an error: a visit with no contact details is creatable, and the link says so honestly
+                    (T08, §5.3). Staff should know at the desk rather than when the patient calls back. */}
+                {warningsFor({ phone: form.phone.trim() || null, email: form.email.trim() || null }).map((warning) => (
+                  <p className="patient-consent-warning" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+                {form.channel !== "none" && (
+                  <label className="ss-label">
+                    <span>How did the patient agree to be contacted?</span>
+                    <select
+                      className="ss-input"
+                      value={form.consentMethod}
+                      onChange={(e) => setForm({ ...form, consentMethod: e.target.value as ConsentMethod | "" })}
+                    >
+                      <option value="">Choose how consent was taken…</option>
+                      {CONSENT_METHODS.map((method) => (
+                        <option key={method.id} value={method.id}>
+                          {method.label}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="patient-consent-note">
+                      Recorded against you, with the time you save this.
+                    </small>
+                  </label>
+                )}
+              </fieldset>
             </div>
           )}
 
@@ -898,6 +1003,213 @@ function PatientWizard({
             </div>
           )}
         </form>
+      </section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// §2.2's CSV import: "A CSV import creates a day's visits in one go." Preview first, per-row errors, and
+// nothing written until the person has read the preview and pressed the button. POST /api/visits/import does
+// both halves — the same call with `commit: true` — so what gets created is exactly what was previewed.
+
+type PreviewRow = { line: number; name: string; visit: VisitDraft | null; errors: string[]; warnings: string[]; created?: { link: string } | null };
+type Preview = {
+  columns: string[];
+  ignored: string[];
+  error: string | null;
+  valid: number;
+  invalid: number;
+  committed: boolean;
+  created?: number;
+  rows: PreviewRow[];
+};
+
+function ImportDialog({ providerId, onClose, onImported }: { providerId: string; onClose: () => void; onImported: () => Promise<void> }) {
+  const [csv, setCsv] = useState("");
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  // The preview arrives below the fold of a laptop-height dialog, and it is the thing the person just asked
+  // for, so the dialog goes to it rather than leaving them to find it.
+  const previewRef = useRef<HTMLDivElement | null>(null);
+
+  async function send(commit: boolean) {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await apiFetch("/api/visits/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv, providerId, commit }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "That file could not be read.");
+      setPreview(data as Preview);
+      requestAnimationFrame(() => previewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      if (commit) await onImported();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That file could not be read.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Read in the browser rather than posting multipart: the route takes the text, which is also what the
+  // textarea holds, so pasting a day out of a spreadsheet and picking a file end up in the same place.
+  async function readFile(file: File | undefined) {
+    if (!file) return;
+    setPreview(null);
+    setError("");
+    setCsv(await file.text());
+  }
+
+  return (
+    <div className="patient-wizard-backdrop" role="presentation">
+      <section className="import-dialog ss-card" role="dialog" aria-modal="true" aria-label="Import a day of visits">
+        {/* One scrolling body with the actions fixed under it: at a laptop's height the preview is taller
+            than the dialog, and a Create button below the fold is a button nobody presses. */}
+        <div className="import-scroll">
+          <header className="import-head">
+            <div>
+              <p className="ss-eyebrow">IMPORT A DAY</p>
+              <h3 className="ss-title">One CSV, a day of visits.</h3>
+            </div>
+            <button className="patient-wizard-close" onClick={onClose} aria-label="Close">
+              ×
+            </button>
+          </header>
+
+          <p className="ss-lede">
+            Columns: <code>name, phone, email, scheduled_at, visit_type, reason, channel, consent, consent_at</code>. Every row is checked before anything is created, and a row
+            with a blank <code>channel</code> is created without an invite — hand those patients the link yourself, and opening it still sends them a code.
+          </p>
+
+          <div className="import-controls">
+            <label className="ss-label">
+              <span>CSV file</span>
+              <input className="ss-input" type="file" accept=".csv,text/csv" aria-label="CSV file" onChange={(e) => readFile(e.target.files?.[0])} />
+            </label>
+            <button type="button" className="ss-text-button" onClick={() => { setPreview(null); setCsv(CSV_TEMPLATE); }}>
+              Fill in the example
+            </button>
+          </div>
+
+          <label className="ss-label">
+            <span>Or paste the rows</span>
+            <textarea
+              className="ss-input import-textarea"
+              // Smaller once there is a preview: the rows and their errors are what wants the room then.
+              rows={preview ? 3 : 5}
+              spellCheck={false}
+              value={csv}
+              placeholder="name,phone,email,scheduled_at,visit_type,reason,channel,consent,consent_at"
+              onChange={(e) => {
+                setPreview(null);
+                setCsv(e.target.value);
+              }}
+            />
+          </label>
+
+          {error && (
+            <div className="ss-error" role="alert">
+              {error}
+            </div>
+          )}
+
+          {preview && (
+            <div className="import-preview" ref={previewRef}>
+              {preview.error ? (
+                <div className="ss-error" role="alert">
+                  {preview.error}
+                </div>
+              ) : (
+                <p className="import-tally">
+                  {preview.committed ? (
+                    <strong>{preview.created} created.</strong>
+                  ) : (
+                    <strong>
+                      {preview.valid} ready to create
+                      {preview.invalid ? `, ${preview.invalid} to fix` : ""}.
+                    </strong>
+                  )}
+                  {preview.ignored.length > 0 && <span> Columns ignored: {preview.ignored.join(", ")}.</span>}
+                </p>
+              )}
+              {preview.rows.length > 0 && (
+                <div className="import-table-scroll">
+                  <table className="provider-table import-table">
+                    <thead>
+                      <tr>
+                        <th>Line</th>
+                        <th>Patient</th>
+                        <th>Visit</th>
+                        <th>Invite</th>
+                        <th>Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row) => (
+                        <tr key={row.line} className={row.errors.length ? "import-row-bad" : ""}>
+                          <td>{row.line}</td>
+                          <td>
+                            <strong className="provider-cell-main">{row.name || "—"}</strong>
+                          </td>
+                          <td>
+                            <small className="provider-cell-sub">
+                              {row.visit
+                                ? `${visitLabel(row.visit.visitType)} · ${row.visit.scheduledAt ? new Date(row.visit.scheduledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date pending"}`
+                                : "—"}
+                            </small>
+                          </td>
+                          <td>
+                            <small className="provider-cell-sub">{row.visit ? `${channelLabel(row.visit.channel)} · ${consentLabel(row.visit.consentMethod)}` : "—"}</small>
+                          </td>
+                          <td>
+                            {row.errors.length ? (
+                              <ul className="import-errors">
+                                {row.errors.map((message) => (
+                                  <li key={message}>{message}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <>
+                                {row.created ? <span className="ss-pill ss-pill-success">Created</span> : <span className="ss-pill ss-pill-info">Ready</span>}
+                                {/* A warning does not stop the row; it is the thing staff would otherwise
+                                    find out about when the patient rings back (§5.3). */}
+                                {row.warnings.map((warning) => (
+                                  <small className="import-warning" key={warning}>
+                                    {warning}
+                                  </small>
+                                ))}
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+
+        <div className="patient-wizard-actions">
+          <button type="button" className="ss-text-button" onClick={onClose}>
+            {preview?.committed ? "Back to dashboard" : "Cancel"}
+          </button>
+          {preview?.committed ? null : preview && !preview.error && preview.valid > 0 ? (
+            <button type="button" className="ss-button ss-button-primary" disabled={busy} onClick={() => send(true)}>
+              {busy ? "Creating…" : `Create ${preview.valid} visit${preview.valid === 1 ? "" : "s"} →`}
+            </button>
+          ) : (
+            <button type="button" className="ss-button ss-button-primary" disabled={busy || !csv.trim()} onClick={() => send(false)}>
+              {busy ? "Checking…" : "Check the rows →"}
+            </button>
+          )}
+        </div>
       </section>
     </div>
   );

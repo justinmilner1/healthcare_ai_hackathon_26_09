@@ -28,7 +28,7 @@ async function bookAndOpen(page: Page, name: string, mailDir: string) {
   // The patient's six-digit code goes to this address (T08, §5.3), and it lands in the same mailbox.
   const email = patientEmail(name);
   const booked = await (
-    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
+    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "numbers all over the place", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
 

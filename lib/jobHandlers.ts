@@ -18,6 +18,7 @@ import { runSour } from "./sourRun";
 import { db } from "./db";
 import type { Summary } from "./types";
 import { findVisit, providerName } from "./visit";
+import { invitableChannels, recordDeliveries } from "./visitStore";
 
 /** The one field every payload has. Anything else is a bug in the enqueue site, so it fails loudly. */
 function visitIdOf(payload: JobPayload): string {
@@ -88,7 +89,9 @@ export const handlers: JobHandlers = {
     await runSour(visitIdOf(payload));
   },
 
-  // §8.2 The invite: the presigned link by SMS and email, no clinical content.
+  // §8.2 The invite: the presigned link, on the channels staff recorded consent for (§2.2), no clinical
+  // content. §8.3: what each channel did is written back onto the visit, which is what staff read on the
+  // dashboard — it goes in before assertSendable, so a failure that is about to be retried is on screen too.
   "notify.invite": async (payload) => {
     const visit = await visitOf(payload);
     const result: InviteResult = await sendIntakeInvite({
@@ -100,7 +103,12 @@ export const handlers: JobHandlers = {
       token: visit.token,
       providerName: providerName(visit),
       apptAt: visit.scheduledAt,
+      channels: invitableChannels(visit),
     });
+    // Two records of one send, for two different readers. §8.3's delivery rows are what staff see on the
+    // dashboard — did this patient's invite reach them — and §10.2's audit row is what an admin reads months
+    // later. Neither stands in for the other, so both go in.
+    await recordDeliveries(visit.id, "notify.invite", { sms: result.sms, email: result.email });
     await recordSends("invite.sent", visit, { sms: result.sms, email: result.email });
     assertSendable("invite", visit.id, { sms: result.sms, email: result.email });
   },
@@ -152,8 +160,11 @@ export const handlers: JobHandlers = {
       providerSummary,
       patientSummary,
     });
-    // Keyed by audience rather than by channel: both of these are email, and which of the two people got
-    // their link is the thing worth being able to ask about afterwards (§8.2).
+    // The summary's own delivery rows wait for T19 (§8.3): a channel here is one of two emails to two
+    // different people, which is not the same thing as "did the invite reach the patient" that
+    // VisitDelivery answers for the dashboard today, and guessing at the shape now would only have to change.
+    // The audit row does not wait, because §10.2 counts this as a send like any other. Keyed by audience
+    // rather than by channel for the same reason: which of the two people got their link is the question.
     await recordSends("summary.sent", visit, { provider: result.provider, patient: result.patient }, "audience");
     assertSendable("summary", visit.id, { provider: result.provider, patient: result.patient });
   },

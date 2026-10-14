@@ -1343,6 +1343,27 @@ textarea.ss-input {
   text-transform: uppercase;
 }
 
+/* The dashboard's own table runs a column wider than the Sour page's (T07's Invite, §8.3), so its cells are
+   tighter and its floor is higher: squeezed into the card the row actions were the thing cut off at the right
+   edge, and a table that says how wide it needs to be scrolls inside .provider-table-scroll instead. */
+.provider-dashboard .provider-table {
+  min-width: 1120px;
+}
+
+.provider-dashboard .provider-table th,
+.provider-dashboard .provider-table td {
+  padding-right: 11px;
+  padding-left: 11px;
+}
+
+/* The two secondary lines (the patient's contact details, the visit's type and reason) are the widest things
+   in their columns and the least load-bearing: capped here, the seven columns and T08's four row actions fit
+   the card at a laptop width instead of pushing the last button past its right edge. */
+.provider-dashboard .provider-patient small,
+.provider-dashboard .provider-cell-sub {
+  max-width: 172px;
+}
+
 .provider-table td {
   padding: 15px 16px;
   border-top: 1px solid #eeeade;
@@ -1360,7 +1381,7 @@ textarea.ss-input {
 
 .provider-patient {
   display: flex;
-  min-width: 190px;
+  min-width: 176px;
   align-items: center;
   gap: 11px;
 }
@@ -1487,8 +1508,51 @@ textarea.ss-input {
   background: #eaf5ea;
 }
 
+/* 8.3 Per-channel delivery, in the Invite column. `queued` wears the neutral pill: the send is a job, so
+   between adding the patient and SES answering there is genuinely nothing to report yet. */
+.provider-invite {
+  min-width: 96px;
+  max-width: 116px;
+}
+
+.provider-invite .provider-data-pills {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.provider-invite > small {
+  display: block;
+  /* Wraps instead of ellipsing like the shared .provider-cell-sub: who gave consent and when is the whole
+     point of the line (§2.2), and two short lines cost the table less width than one long one. */
+  max-width: none;
+  margin-top: 5px;
+  overflow: visible;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.provider-delivery-sent {
+  color: #3c7649;
+  background: #eaf5ea;
+}
+
+.provider-delivery-failed {
+  color: #8c3b33;
+  background: #fbeae8;
+}
+
+.provider-stage-cancelled {
+  color: #8a8781;
+  background: #eeece6;
+  text-decoration: line-through;
+}
+
+.provider-stage-cancelled i {
+  background: #b6b2a8;
+}
+
 .provider-progress-copy {
-  min-width: 105px;
+  min-width: 92px;
   color: #88867b;
   font-size: 9px;
 }
@@ -1498,7 +1562,7 @@ textarea.ss-input {
 }
 
 .provider-mini-progress {
-  width: 88px;
+  width: 76px;
   height: 4px;
   margin-top: 6px;
   overflow: hidden;
@@ -2137,40 +2201,48 @@ textarea.ss-input {
   font-size: 9px;
 }
 
-.patient-opt-in {
-  display: flex;
-  margin-top: 12px;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 15px 16px;
-  border: 1px solid #e6e0c9;
-  border-radius: 15px;
-  background: white;
-  cursor: pointer;
+/* The contact channel and the recorded consent behind it (design 2.2). Replaced the single opt-in checkbox:
+   a channel and a how are two choices, and the second one is what makes the first one lawful. */
+.patient-consent {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
 }
 
-.patient-opt-in input {
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  accent-color: var(--sour-green);
+.patient-consent > legend {
+  padding: 0;
 }
 
-.patient-opt-in strong,
-.patient-opt-in small {
-  display: block;
+.patient-channel-row {
+  display: grid;
+  margin: 8px 0 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
-.patient-opt-in strong {
-  color: var(--sour-ink);
-  font-size: 11px;
-}
-
-.patient-opt-in small {
-  margin-top: 4px;
+.patient-consent-note {
+  margin: 6px 0 0;
   color: var(--ss-muted);
   font-size: 9px;
-  line-height: 1.45;
+  line-height: 1.5;
+}
+
+/* True of the visit, and not a reason to refuse it (lib/visitIntake.ts warningsFor): amber, not the red of
+   .ss-error, because the Add patient button still works. */
+.patient-consent-warning,
+.import-warning {
+  display: block;
+  margin: 6px 0 0;
+  padding: 7px 9px;
+  border-radius: 9px;
+  color: #6c5b25;
+  background: #fff3c5;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.patient-consent .ss-label {
+  margin-top: 12px;
 }
 
 .patient-wizard-actions {
@@ -2186,6 +2258,153 @@ textarea.ss-input {
 .patient-wizard-actions > span {
   color: var(--ss-muted);
   font-size: 9px;
+}
+
+/* 2.2's CSV import. Shares the wizard's backdrop; a single column, because the preview table wants width. */
+.import-dialog {
+  display: flex;
+  width: min(880px, 100%);
+  max-height: 88svh;
+  flex-direction: column;
+  padding: 26px 28px 20px;
+  overflow: hidden;
+  border-radius: 22px;
+}
+
+.import-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.import-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-head .patient-wizard-close {
+  position: static;
+  flex: none;
+}
+
+.import-dialog code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #f3f1e8;
+  font-size: 9px;
+}
+
+.import-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.import-controls .ss-label {
+  flex: 1 1 320px;
+}
+
+.import-textarea {
+  min-height: 64px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-dialog .patient-wizard-actions {
+  flex: 0 0 auto;
+}
+
+.import-tally {
+  margin: 0;
+  color: var(--ss-muted);
+  font-size: 10px;
+}
+
+.import-tally strong {
+  color: var(--sour-ink);
+}
+
+.import-table-scroll {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--ss-line);
+  border-radius: 14px;
+}
+
+/* Fixed layout, unlike the dashboard's: every cell here holds a sentence or two (a row's errors, what an
+   un-messaged visit costs the patient) and reading them is the point of the preview, so the columns are given
+   their share of the dialog and the text wraps inside them. Left to itself the table grew past its scroll box
+   and the reasons ran off the right-hand edge, which is the one thing this screen must not do. */
+/* Written as a descendant of the dialog so it outweighs `.provider-dashboard .provider-table`, which sets
+   the dashboard table's floor and would otherwise apply to this table too: the dialog is inside that main. */
+.import-dialog .import-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  font-size: 10px;
+}
+
+.import-dialog .import-table th,
+.import-dialog .import-table td {
+  overflow-wrap: anywhere;
+}
+
+.import-dialog .import-table th:first-child,
+.import-dialog .import-table td:first-child {
+  /* Wide enough for the word LINE on one line: fixed layout wraps a header as readily as a cell. */
+  width: 54px;
+}
+
+.import-dialog .import-table th:nth-child(2),
+.import-dialog .import-table td:nth-child(2),
+.import-dialog .import-table th:nth-child(3),
+.import-dialog .import-table td:nth-child(3) {
+  width: 21%;
+}
+
+.import-dialog .import-table th:nth-child(4),
+.import-dialog .import-table td:nth-child(4) {
+  width: 19%;
+}
+
+.import-table th,
+.import-table td {
+  padding: 8px 12px;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.import-dialog .import-table .provider-cell-sub {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+}
+
+.import-row-bad {
+  background: #fdf4f2;
+}
+
+.import-errors {
+  margin: 0;
+  padding-left: 14px;
+  color: #8c3b33;
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .patient-wizard-success {
@@ -4428,7 +4647,10 @@ button.sweetie-agent-badge {
     width: 100%;
   }
 
-  .provider-top-actions .ss-button:first-child {
+  /* The top bar fits one action on a phone. Importing a day of visits from a scheduler's CSV is desk work,
+     so that is the one that goes; adding a patient stays, and its wizard has a phone layout below. Named by
+     class rather than :first-child, which used to hide whichever button happened to come first. */
+  .provider-import-button {
     display: none;
   }
 
@@ -4500,6 +4722,17 @@ button.sweetie-agent-badge {
     max-height: 94svh;
     grid-template-columns: 1fr;
     border-radius: 24px 24px 0 0;
+  }
+
+  .import-dialog {
+    width: 100%;
+    max-height: 94svh;
+    padding: 22px 18px 16px;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .patient-channel-row {
+    grid-template-columns: 1fr;
   }
 
   .patient-wizard-side {
