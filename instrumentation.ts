@@ -10,7 +10,11 @@
 //                 machine legitimately has no database URL or API key. Validating there would turn every
 //                 build without production secrets into a failure, so the gate waits for the server.
 //
-// The import is dynamic so nothing in lib/ is pulled into an edge bundle by the mere existence of this file.
+// The import is dynamic so lib/ is not *evaluated* in the edge runtime — but it is still bundled there.
+// Webpack traces a dynamic import whether or not a guard above it means the import never runs, so since T27
+// added middleware.ts (which is what makes Next compile this file for edge at all), everything reachable from
+// lib/config.ts has to be edge-safe. That is why lib/log.ts uses the Web Crypto global rather than
+// node:crypto; without it the production build fails with an unhandled `node:` scheme.
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;

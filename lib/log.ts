@@ -13,6 +13,12 @@
 // summary, a visit reason, or a link token. Opaque database ids are fine; they are meaningless without
 // the database, and the audit log (§10.2) is where reads of patient data get recorded.
 
+// `crypto.randomUUID()` rather than node:crypto's, so this module can be reached from the edge runtime.
+// Since T27 added middleware.ts, Next compiles instrumentation.ts for edge as well as node, and webpack
+// traces a dynamic import even when a NEXT_RUNTIME guard means it never runs — so instrumentation.ts's
+// `import("./lib/config")` pulls this file into the edge bundle, where `node:crypto` is an unhandled scheme
+// and the build fails. The global is the same implementation under Node (>= 19; this repo is on 22) and is
+// what the edge runtime provides. node:async_hooks stays: Next supports it in both runtimes.
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -89,10 +95,6 @@ const OPAQUE_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 export function requestIdFrom(headers: Headers | null | undefined): string {
   const given = headers?.get("x-request-id")?.trim();
   if (given && OPAQUE_REQUEST_ID.test(given)) return given.toLowerCase();
-  // The Web Crypto global, not node:crypto. T31's instrumentation hook reaches this module through
-  // lib/config.ts, and Next compiles that hook for the edge runtime as well as node — where a `node:` import
-  // is an unresolvable scheme and fails the whole build (see the commit message). The global is available in
-  // both runtimes and on Node 20+, so this is the one import that had to go.
   return crypto.randomUUID();
 }
 
