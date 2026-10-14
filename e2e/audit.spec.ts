@@ -14,11 +14,12 @@ import { signInAsDemo } from "./auth";
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
 // JSON the page reads, and found in neither.
 
-// Not fullPage, unlike the other specs: this practice's whole trail is on screen, every other spec in the
-// run adds to it, and on a phone each row stacks into five lines — so a full-page shot of it is tens of
-// thousands of pixels tall and shows a reviewer nothing. The viewport is the screen. The filtered shot below
-// is the one with a known number of rows in it.
-const shot = async (page: Page, name: string, fullPage = false) => {
+// The whole practice's trail is on this screen and every other spec in the run adds rows to it, so the
+// unfiltered shot has no fixed height. Full-page on the desktop project, where a row is a line of a table;
+// the viewport on the phone, where each row stacks into five labelled lines and the same page came out
+// 25,000 pixels tall — a picture that shows a reviewer nothing. The filtered shot below is full-page on
+// both, because by then exactly this visit's three rows are on screen.
+const shot = async (page: Page, name: string, fullPage = test.info().project.name === "desktop") => {
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
 };
 
