@@ -46,6 +46,9 @@ export const ALLOWED_FIELDS: readonly string[] = [
   // Operational facts about what happened, not about whom.
   "role",       // admin | clinician | staff (§5.2). One of three constants; never a name.
   "capability", // the capability a refused request asked for (lib/access.ts).
+  "scope",      // which rate-limit key was spent, "ip" or "visit" (§5.4). Never the address itself.
+  "limit",      // the rate-limit ceiling that was reached. A number from LIMITS in lib/ratelimit.ts.
+  "retryAfter", // seconds until that window resets, the same number the 429 header carries.
   "kind",
   "audience",
   "visitType",

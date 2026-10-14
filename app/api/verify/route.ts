@@ -26,6 +26,7 @@ import {
   startVerification,
   verifyCode,
 } from "@/lib/patientSession";
+import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { visitByToken } from "@/lib/visit";
 
 /** What the screen says for each way a code can fail. Vague on purpose about which visit exists. */
@@ -49,11 +50,17 @@ function overTls(req: Request): boolean {
 }
 
 async function postHandler(req: Request) {
+  // §5.4 by IP, before the body is read: a sweep over tokens never reaches the database.
+  enforceIpLimit("verify", req);
   const body = (await req.json().catch(() => ({}))) as { token?: string; code?: string; resend?: boolean };
   const visit = await visitByToken(body.token ?? null);
   // One answer for a token that was never ours and one for a token that has been regenerated (§5.5): there
   // is nothing to tell apart, and nothing here confirms that a visit exists.
   if (!visit) return NextResponse.json({ error: "That link is not valid. Check the text or email from your doctor's office." }, { status: 404 });
+  // §5.4 by visit, before a code is minted or a guess is checked. Deliberately in front of both halves of
+  // this route: whoever holds the link should not be able to text the patient forty codes, and the per-code
+  // attempt count (§5.3) only ever sees one code at a time.
+  enforceVisitLimit("verify", visit.id);
 
   if (typeof body.code === "string" && body.code.trim()) return verify(req, visit, body.code);
   return send(visit, Boolean(body.resend));

@@ -20,6 +20,9 @@ export class HttpError extends Error {
     readonly event: string = "request_refused",
     /** Allow-listed fields for the log line only. Never sent to the caller. */
     readonly fields: Fields = {},
+    /** Extra response headers, for a status whose meaning is partly in them: `Retry-After` on the 429 a rate
+     *  limit throws (lib/ratelimit.ts, §5.4). Headers, so they must say nothing the body may not. */
+    readonly headers: Readonly<Record<string, string>> = {},
   ) {
     super(message);
     this.name = "HttpError";
@@ -29,7 +32,7 @@ export class HttpError extends Error {
   response(): Response {
     return new Response(JSON.stringify({ error: this.message }), {
       status: this.status,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...this.headers },
     });
   }
 }

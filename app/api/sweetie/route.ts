@@ -17,6 +17,7 @@ import { enqueue, nudge } from "@/lib/jobs";
 import { llmStatus, LLMUnavailable } from "@/lib/llm";
 import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
+import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
@@ -44,11 +45,16 @@ function logScripted(event: string, visit: { id: string; patientId: string }, fi
 }
 
 async function getHandler(req: Request) {
+  // §5.4 by IP first, so a caller with no token and no session is turned away before any query runs.
+  enforceIpLimit("sweetie", req);
   const token = new URL(req.url).searchParams.get("token");
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   // §5.3 The token names the visit; the verified session is what opens it.
   await requireVerifiedPatient(req, visit);
+  // §5.4 by visit, and after that check on purpose: a refused request costs almost nothing, and someone a
+  // link was forwarded to must not be able to spend the real patient's window.
+  enforceVisitLimit("sweetie", visit.id);
   const bundle = await loadBundle(visit.id);
   const rows = await db.message.findMany({ where: { visitId: visit.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
@@ -61,11 +67,15 @@ async function getHandler(req: Request) {
 }
 
 async function postHandler(req: Request) {
+  // §5.4 by IP, before the body is read: a POST here can cost a model call, which is the expensive thing.
+  enforceIpLimit("sweetie", req);
   const body = (await req.json().catch(() => ({}))) as { token?: string; message?: string; event?: UploadEvent | { type: "skip_questions" } };
   const visit = await visitByToken(body.token ?? null);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   // §5.3 The token names the visit; the verified session is what opens it.
   await requireVerifiedPatient(req, visit);
+  // §5.4 by visit, after the session check for the reason given in getHandler.
+  enforceVisitLimit("sweetie", visit.id);
   const message = body.message?.trim();
   const event = body.event?.type === "upload" ? body.event : undefined;
   const skippingQuestions = body.event?.type === "skip_questions";

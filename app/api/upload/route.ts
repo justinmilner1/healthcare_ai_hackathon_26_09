@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { parseClarityCsv } from "@/lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "@/lib/location";
 import { log, withRoute } from "@/lib/log";
+import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { parseWhoopCsv } from "@/lib/sleep";
 import { deleteObjects, newUploadKey, putObject, storageBackend } from "@/lib/storage";
 import type { UploadKind } from "@/lib/types";
@@ -40,6 +41,8 @@ function csrfRefusal(req: Request): NextResponse | null {
 async function deleteHandler(req: Request) {
   const refused = csrfRefusal(req);
   if (refused) return refused;
+  // §5.4 by IP. Same two-step as the POST below: the address before the body, the visit once it is known.
+  enforceIpLimit("upload", req);
   const body = await req.json().catch(() => null);
   if (!body || typeof body.token !== "string" || !body.token || !KINDS.includes(body.kind)) {
     return NextResponse.json({ error: "A token and valid upload kind are required." }, { status: 400 });
@@ -48,6 +51,7 @@ async function deleteHandler(req: Request) {
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   // §5.3 The token names the visit; the verified session is what opens it.
   await requireVerifiedPatient(req, visit);
+  enforceVisitLimit("upload", visit.id);
 
   // Hand-labelled visits also contain location history and must not survive Timeline removal.
   const kinds = body.kind === "timeline" ? ["timeline", "visits"] : [body.kind];
@@ -69,6 +73,10 @@ async function deleteHandler(req: Request) {
 async function postHandler(req: Request) {
   const refused = csrfRefusal(req);
   if (refused) return refused;
+
+  // §5.4 by IP, ahead of every gate below: this is the only check that can refuse a 20 MB body without
+  // reading it, and the per-visit window cannot be reached until the multipart form has named a token.
+  enforceIpLimit("upload", req);
 
   // §9.1 gate 0: the declared length of the request, before anything reads or buffers the body.
   const oversizedRequest = checkContentLength(req.headers.get("content-length"));
@@ -97,6 +105,8 @@ async function postHandler(req: Request) {
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   // §5.3 The token names the visit; the verified session is what opens it.
   await requireVerifiedPatient(req, visit);
+  // §5.4 by visit. After the session check, so a forwarded link cannot spend the patient's own window.
+  enforceVisitLimit("upload", visit.id);
   if (visit.isSandbox) return NextResponse.json({ error: "This demo patient accepts only Dexcom sandbox imports. Use a separate patient for real uploads." }, { status: 403 });
 
   // §9.1 gate 1: the declared size, so an oversized export is refused without being read into memory.
