@@ -4142,6 +4142,114 @@ button.sweetie-agent-badge {
   }
 }
 
+/* The consent screen between the code and Sweetie (design §2.4, components/ConsentScreen.tsx). Four short
+   statements and one tap, in the same narrow column as the code screen: a phone is where it is read (§6.5),
+   so nothing here is wider than the card and the whole of it fits without sideways scrolling. */
+.patient-consent-page {
+  display: grid;
+  place-items: center;
+}
+
+.patient-consent-card {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 32px 30px 24px;
+  text-align: center;
+}
+
+.patient-consent-card img {
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 14px;
+  border-radius: 25px;
+  background: var(--sweetie-soft);
+  object-fit: cover;
+}
+
+.patient-consent-card .ss-eyebrow {
+  margin-bottom: 8px;
+}
+
+.patient-consent-card .ss-title {
+  margin: 0 0 10px;
+}
+
+.patient-consent-card .ss-lede {
+  margin: 0 auto 20px;
+  max-width: 44ch;
+}
+
+.patient-consent-points {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 22px;
+  text-align: left;
+}
+
+.patient-consent-point {
+  padding: 13px 15px;
+  border-bottom: 1px solid #f0e6ea;
+}
+
+.patient-consent-point:last-child {
+  border-bottom: 0;
+}
+
+.patient-consent-point dt {
+  margin: 0 0 4px;
+  color: var(--ss-ink);
+  font-size: 12px;
+  font-weight: 670;
+}
+
+.patient-consent-point dd {
+  margin: 0;
+  color: var(--ss-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.patient-consent-actions {
+  display: grid;
+  gap: 4px;
+  justify-items: stretch;
+}
+
+.patient-consent-actions .ss-button {
+  min-height: 46px;
+  text-align: center;
+}
+
+.patient-consent-card .ss-error {
+  margin: 14px 0 0;
+  text-align: left;
+}
+
+.patient-consent-help {
+  margin: 14px 0 0;
+  color: var(--ss-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* Declining is the end of the session (§2.4), so the card loses its actions and keeps its manners. The
+   heading takes focus when it replaces the question, which is why it is focusable without being a control. */
+.patient-consent-declined .ss-title:focus-visible {
+  outline: 2px solid var(--ss-ink);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+@media (max-width: 560px) {
+  .patient-consent-card {
+    padding: 24px 18px 20px;
+  }
+
+  .patient-consent-point {
+    padding: 12px 2px;
+  }
+}
+
 @media (max-height: 760px) and (min-width: 841px) {
   .sweetie-chat-sidebar {
     padding: 20px 23px 16px;

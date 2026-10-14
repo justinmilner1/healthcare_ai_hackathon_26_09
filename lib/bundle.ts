@@ -65,6 +65,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   return {
     visitId: visit.id,
     visitStatus: visit.status,
+    intakeConsentAt: visit.intakeConsentAt?.toISOString() ?? null,
     patient: {
       id: visit.patientId,
       name: visit.patient.name,
