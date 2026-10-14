@@ -13,7 +13,7 @@
 // about them and nothing about anyone else. The filename the patient chose stays in `Upload.filename`.
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { log } from "./log";
 import type { UploadKind } from "./types";
@@ -128,6 +128,63 @@ export async function deleteObjects(keys: string[]): Promise<{ deleted: number; 
       log.warn("object_delete_failed", { provider: backend, error: e });
     }
   }
+  if (deleted) log.info("objects_deleted", { provider: backend, count: deleted });
+  return { deleted, failed };
+}
+
+/** A prefix has to be a key's worth of path and end at a boundary, or `visits/abc` would also match
+ *  `visits/abcdef` — one patient's deletion taking another's bytes with it. */
+function assertSafePrefix(prefix: string): void {
+  assertSafeKey(prefix.replace(/\/$/, ""));
+  if (!prefix.endsWith("/")) throw new Error("a storage prefix must end at a path boundary");
+}
+
+/**
+ * Delete everything stored under `prefix`, and report how many objects that was.
+ *
+ * This is the deletion §10.5 needs and `deleteObjects` cannot give it. Deleting by key means knowing the
+ * keys, which means reading the `Upload` rows — so an object whose row is already gone (a half-finished
+ * earlier attempt, a row removed before T11 ever wrote a key) is invisible and stays for ever. A prefix is
+ * the visit itself (`visits/<visitId>/`, lib/storage.ts newUploadKey), so it removes what the database can no
+ * longer point at, and running it twice is a no-op rather than an error. Idempotent, which is what makes the
+ * `patient.delete` job safe to retry.
+ */
+export async function deletePrefix(prefix: string): Promise<{ deleted: number; failed: number }> {
+  assertSafePrefix(prefix);
+  const backend = storageBackend();
+  if (backend === "local") {
+    const dir = localPath(prefix.replace(/\/$/, ""));
+    let deleted = 0;
+    try {
+      // Counted before the removal, because afterwards there is nothing left to count.
+      deleted = (await readdir(dir, { recursive: true, withFileTypes: true })).filter((e) => e.isFile()).length;
+      await rm(dir, { recursive: true, force: true });
+    } catch (e) {
+      // A prefix with nothing under it is a success: the caller is asking for it to be gone, and it is.
+      if ((e as { code?: string }).code === "ENOENT") return { deleted: 0, failed: 0 };
+      log.warn("objects_delete_failed", { provider: backend, error: e });
+      return { deleted: 0, failed: 1 };
+    }
+    if (deleted) log.info("objects_deleted", { provider: backend, count: deleted });
+    return { deleted, failed: 0 };
+  }
+
+  const { DeleteObjectsCommand, ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+  const client = await s3Client();
+  let deleted = 0;
+  let failed = 0;
+  let token: string | undefined;
+  do {
+    // One page at a time: DeleteObjects takes a thousand keys, which is also the listing's page size.
+    const page = await client.send(new ListObjectsV2Command({ Bucket: bucket(), Prefix: prefix, ContinuationToken: token }));
+    const keys = (page.Contents ?? []).map((o) => o.Key).filter((k): k is string => !!k);
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    if (keys.length === 0) continue;
+    const out = await client.send(new DeleteObjectsCommand({ Bucket: bucket(), Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true } }));
+    failed += out.Errors?.length ?? 0;
+    deleted += keys.length - (out.Errors?.length ?? 0);
+  } while (token);
+  if (failed) log.warn("objects_delete_failed", { provider: backend, count: failed });
   if (deleted) log.info("objects_deleted", { provider: backend, count: deleted });
   return { deleted, failed };
 }

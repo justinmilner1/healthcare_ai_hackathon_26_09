@@ -12,6 +12,7 @@
 import "dotenv/config";
 import { db } from "../lib/db";
 import { drainJobs } from "../lib/jobs";
+import { scheduleRetentionSweep } from "../lib/retentionStore";
 
 const WATCH_MS = 5000;
 
@@ -29,6 +30,9 @@ async function main() {
   if (args.includes("--list")) return list();
 
   const once = async () => {
+    // The same daily sweep the runner route queues (design §10.4): an environment with no scheduler still
+    // sweeps when somebody drains the queue, and the twenty-hour window keeps --watch from queueing a second.
+    if (await scheduleRetentionSweep()) console.log("queued the nightly retention sweep");
     const report = await drainJobs();
     if (report.claimed > 0 || !args.includes("--watch")) {
       console.log(`claimed ${report.claimed}, done ${report.done}, retried ${report.retried}, failed ${report.failed}`);

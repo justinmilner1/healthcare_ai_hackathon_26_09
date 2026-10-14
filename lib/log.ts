@@ -56,6 +56,13 @@ export const ALLOWED_FIELDS: readonly string[] = [
   "rows",
   "days",
   "bytes",
+  // Counts of what a deletion removed (§10.4, §10.5, lib/retention.ts). Sizes, never contents.
+  "visits",
+  "uploads",
+  "messages",
+  "summaries",
+  "objects",
+  "orphans",
   "attempt",
   "attempts",
   "ok",

@@ -32,9 +32,10 @@ export type VisitPart = (typeof VISIT_PARTS)[number];
  * new action is added here and nowhere else; a row written by an older build whose action this one does not
  * know is still shown, under its stored name (see actionLabel).
  *
- * The four `*.read` actions are §10.2's reads, the `sent` ones its sends, the `deleted` ones its deletions,
- * and `patient.verified` its patient-link verification. T14 adds `patient.deleted` and `retention.swept` when
- * the deletion action and the nightly sweep exist (§10.4, §10.5).
+ * The four `*.read` actions are §10.2's reads, the `sent` ones its sends, the `deleted` and `swept` ones its
+ * deletions, and `patient.verified` its patient-link verification. `patient.deleted` is the staff action of
+ * §10.5, written against the person who asked for it; `retention.swept` is the nightly job of §10.4, whose
+ * actor is the job, and there is one row per visit it cleared — a visit's data going is one deletion.
  */
 export const AUDIT_ACTIONS = {
   "intake.read": "Intake answers read",
@@ -47,6 +48,8 @@ export const AUDIT_ACTIONS = {
   "summary.sent": "Summary notice sent",
   "upload.deleted": "Upload deleted",
   "summary.deleted": "Summaries discarded",
+  "patient.deleted": "Patient data deleted",
+  "retention.swept": "Visit data removed by retention",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
@@ -117,6 +120,15 @@ export const AUDIT_DETAIL_FIELDS: readonly string[] = [
   "bytes",
   "summaries",
   "visitType", // one of lib/visits.ts's five ids, or "other"
+  // §10.4, §10.5: what a purge removed. Counts and one boolean, so a deletion records its size and never
+  // what was in it (lib/retention.ts PurgeCounts).
+  "visits",
+  "uploads",
+  "messages",
+  "objects",  // stored files removed from S3 or the local backend
+  "orphans",  // objects the storage backend would not remove, so an admin can see bytes were left behind
+  "dexcom",   // whether the patient's encrypted Dexcom tokens were among the things deleted (§4.10)
+  "days",     // the practice's retention window, on a sweep row
 ];
 
 const ALLOWED_DETAIL = new Set(AUDIT_DETAIL_FIELDS);

@@ -45,6 +45,9 @@ type Row = {
   token: string;
   phone: string | null;
   email: string | null;
+  /** §10.5 Set once a deletion has been asked for and until the `patient.delete` job has run. The row is on
+   *  its way out, so the screen stops offering anything to do with it. */
+  patientDeletedAt: string | null;
   uploads: string[];
   answered: number;
   required: number;
@@ -102,6 +105,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
+  // §10.5 The visit whose patient a staff member is about to delete, and nothing else: the dialog is the
+  // confirmation, so it opens on one row and closes when that row is dealt with.
+  const [deleting, setDeleting] = useState<Row | null>(null);
 
   // GET /api/provider answers for whoever the session cookie says is signed in; a 401 means the session
   // ended under us, and the sign-in page is where that gets sorted out.
@@ -213,6 +219,35 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
     }
   }
 
+  /**
+   * §2.8, §10.5 The deletion a patient asked for, passed on by the practice. Everything the patient gave us,
+   * across every visit, and their contact details with it; what is left is an audit record that it happened.
+   *
+   * The server checks the typed name again (lib/retention.ts confirmsDeletion), so this is not the lock — it
+   * is the part that stops the wrong row being the one that goes. The purge itself is a job (§3.4), so the
+   * answer here is "queued" and the rows disappear on the next load.
+   */
+  async function requestDeletion(visit: Row, typedName: string) {
+    setError("");
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/deletion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId: visit.patientId, confirm: typedName }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not delete this patient's data.");
+      setDeleting(null);
+      setRowNote((notes) => ({ ...notes, [visit.id]: "Deletion in progress — this record is being removed." }));
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete this patient's data.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copyIntakeLink(visit: Row) {
     const link = `${window.location.origin}/s/${encodeURIComponent(
       visit.token,
@@ -268,6 +303,8 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
   const mayBook = can(provider.role, "visits:create");
   const mayInvite = can(provider.role, "visits:invite");
   const maySeeSummaries = can(provider.role, "summaries:read");
+  // §10.5's staff action. Irreversible, so it is the one button on the row that opens a dialog first.
+  const mayDelete = can(provider.role, "patients:delete");
 
   return (
     <main className="ss-page sour-theme provider-dashboard">
@@ -480,6 +517,12 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                       </td>
                       <td>
                         <div className="provider-row-actions">
+                          {visit.patientDeletedAt ? (
+                            // Asked for and not finished yet: the job is draining (§3.4). Nothing on this row
+                            // is worth offering — a link to a record that is being destroyed least of all.
+                            <span className="ss-pill ss-pill-danger">Deleting…</span>
+                          ) : (
+                            <>
                           {mayInvite && (
                             <>
                               <button
@@ -526,6 +569,23 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                               Summarize
                             </Link>
                           ) : null}
+                          {/* §2.8, §10.5 Last on the row and quiet about it: a deletion request is rare
+                              and nothing else here cannot be undone. */}
+                          {mayDelete && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setError("");
+                                setDeleting(visit);
+                              }}
+                              className="ss-button provider-delete-button"
+                              title="Delete everything this patient gave us, across every visit. Cannot be undone."
+                            >
+                              Delete data
+                            </button>
+                          )}
+                            </>
+                          )}
                         </div>
                         {rowNote[visit.id] && (
                           <small className="provider-row-note">
@@ -582,6 +642,19 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
         />
       )}
 
+      {deleting && (
+        <DeletionDialog
+          visit={deleting}
+          busy={busy}
+          error={error}
+          onClose={() => {
+            setError("");
+            setDeleting(null);
+          }}
+          onConfirm={(typed) => requestDeletion(deleting, typed)}
+        />
+      )}
+
       {wizardOpen && (
         <PatientWizard
           step={addStep}
@@ -622,6 +695,97 @@ function Metric({
       <strong>{value}</strong>
       <small>{detail}</small>
     </article>
+  );
+}
+
+/**
+ * §2.8, §10.5 The confirmation in front of a deletion.
+ *
+ * It asks for the patient's name to be typed rather than for one more click, because the mistake this is
+ * here to catch is not "I did not mean to delete" but "I did not mean to delete *this* one" — and a dialog
+ * with a single button cannot tell the two apart. The same check runs on the server, which is where it
+ * counts (lib/retention.ts confirmsDeletion).
+ *
+ * It also says what goes, in the plainest words there are: a patient who asks for their data to be deleted
+ * is owed an answer about what that covered, and the person reading this screen is the one who has to give
+ * it. What stays is the audit record of the deletion itself (§2.8).
+ */
+function DeletionDialog({
+  visit,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  visit: Row;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onConfirm: (typedName: string) => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const matches = typed.replace(/\s+/g, " ").trim().toLowerCase() === visit.name.replace(/\s+/g, " ").trim().toLowerCase();
+
+  return (
+    <div className="patient-wizard-backdrop" role="presentation">
+      <section className="deletion-dialog ss-card" role="dialog" aria-modal="true" aria-label="Delete this patient's data">
+        <header className="deletion-head">
+          <div>
+            <p className="ss-eyebrow">DELETION REQUEST</p>
+            <h3 className="ss-title">Delete {visit.name}&rsquo;s data?</h3>
+          </div>
+          <button className="patient-wizard-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+
+        <p className="ss-lede">
+          This removes everything this patient gave us, across every visit: their check-in answers, the chat
+          with Sweetie, every uploaded file and the summaries written from them, their Dexcom connection, and
+          their name, phone number and email. It cannot be undone.
+        </p>
+        <p className="deletion-keeps">
+          What stays is a record that the deletion happened — who asked for it, when, and how much went — on
+          the practice&rsquo;s audit page.
+        </p>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (matches && !busy) onConfirm(typed);
+          }}
+        >
+          <label className="ss-label">
+            <span>Type the patient&rsquo;s name to confirm</span>
+            <input
+              className="ss-input"
+              value={typed}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={visit.name}
+              aria-label="Type the patient's name to confirm"
+              onChange={(e) => setTyped(e.target.value)}
+            />
+          </label>
+
+          {error && (
+            <div className="ss-error" role="alert">
+              {error}
+            </div>
+          )}
+
+          <div className="deletion-actions">
+            <button type="button" className="ss-button" onClick={onClose}>
+              Keep this record
+            </button>
+            <button type="submit" className="ss-button ss-button-danger" disabled={!matches || busy}>
+              {busy ? "Deleting…" : "Delete permanently"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
