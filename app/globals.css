@@ -4664,7 +4664,7 @@ button.sweetie-agent-badge {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  width: min(820px, 100%);
+  width: min(210mm, 100%);
   margin: 0 auto 14px;
 }
 
@@ -4678,12 +4678,17 @@ button.sweetie-agent-badge {
   text-decoration: underline;
 }
 
+/* A4, margins and all: 210mm wide with the @page margin drawn as padding, so the content box on screen is
+   the printable area to the millimetre. That is not decoration. Recharts measures its container in the
+   browser and writes the number it found onto the svg; if the sheet were a different width on screen than
+   on paper, every chart would print at the wrong size, letterboxed inside its card. Keeping one width means
+   there is nothing to re-measure, and what is on the screen is what comes out of the printer. */
 .sour-print-sheet {
   display: grid;
   gap: 13px;
-  width: min(820px, 100%);
+  width: min(210mm, 100%);
   margin: 0 auto;
-  padding: 30px 34px 24px;
+  padding: 12mm;
   border-radius: 6px;
   background: #ffffff;
   box-shadow: 0 18px 50px rgba(72, 71, 49, 0.14);
@@ -4840,6 +4845,8 @@ button.sweetie-agent-badge {
     padding: 14px 12px 32px;
   }
 
+  /* Narrower than a page, so it stops pretending to be one: the paper fidelity above is for a screen wide
+     enough to show a sheet, and a phone is reading rather than printing. */
   .sour-print-sheet {
     padding: 20px 16px 18px;
   }
@@ -4916,11 +4923,14 @@ button.sweetie-agent-badge {
     background: #ffffff;
   }
 
+  /* The desk, the shadow and the drawn margin go: @page supplies the margin now. The width is written out
+     rather than left at 100% so that it is the same 186mm whatever is printing — the paper, Chrome's print
+     preview, or a print-media screenshot at some viewport width. 100% would be the viewport's in the last
+     case, and the chart Recharts then re-measured for a 1280px sheet is the one that lands on the A4. */
   .sour-print-sheet {
-    width: 100%;
-    max-width: none;
+    width: min(186mm, 100%);
     gap: 9px;
-    margin: 0;
+    margin: 0 auto;
     padding: 0;
     border-radius: 0;
     box-shadow: none;
@@ -4938,17 +4948,6 @@ button.sweetie-agent-badge {
   .sour-print-grid,
   .sour-print-footer {
     break-inside: avoid;
-  }
-
-  /* Recharts measures its container once in the browser and writes that number onto the svg. The paper is a
-     different width, so without this the chart comes out at the screen's size in the middle of the card —
-     narrow on A4, overflowing on a smaller sheet. The svg carries a viewBox, so letting it fill the card
-     scales the whole drawing to whatever the page turns out to be. */
-  .sour-print-sheet .recharts-responsive-container,
-  .sour-print-sheet .recharts-wrapper,
-  .sour-print-sheet .recharts-surface {
-    width: 100% !important;
-    height: auto !important;
   }
 
   /* Nothing on paper is hovered. A tooltip left open by the last pointer position prints over the data. */
