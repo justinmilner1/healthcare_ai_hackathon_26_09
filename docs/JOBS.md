@@ -6,7 +6,7 @@ Everything that is slow or can fail on its own runs as a row in `Job`, not insid
 | Kind | Enqueued by | Does |
 |---|---|---|
 | `sour.run` | the turn that wraps intake (`/api/sweetie`), the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
-| `notify.invite` | adding a patient with consent (`/api/book`), Send link (`/api/invite`) | the presigned `/s/<token>` link by SMS and email |
+| `notify.invite` | adding a patient with consent (`/api/book`), a CSV import (`/api/visits/import`), Send link (`/api/invite`) | the presigned `/s/<token>` link, on the channels the visit consented to (§2.2); what each channel did is recorded on the visit (§8.3) |
 | `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
 

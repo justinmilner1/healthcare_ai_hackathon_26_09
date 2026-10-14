@@ -20,7 +20,7 @@ async function book(page: import("@playwright/test").Page, name: string, contact
   const email = patientEmail(name);
   await signInAsDemo(page);
   const booked = await (
-    await postJson(page.request, "/api/book", { name, ...(contact ? { email } : {}), visitType: "follow_up", reason: "checking the lock", optIn: false })
+    await postJson(page.request, "/api/book", { name, ...(contact ? { email } : {}), visitType: "follow_up", reason: "checking the lock", channel: "none" })
   ).json();
   expect(booked.token, JSON.stringify(booked)).toBeTruthy();
   await signOutOfBrowser(page);
@@ -131,7 +131,7 @@ test("regenerating a link invalidates the old one and the session on it (§5.5)"
   const demo = await signInAsDemo(page);
   const email = patientEmail("E2E Regenerated");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Regenerated", email, providerId: demo.id, visitType: "follow_up", reason: "lost the text", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Regenerated", email, providerId: demo.id, visitType: "follow_up", reason: "lost the text", channel: "none" })
   ).json();
 
   // The patient verifies in their own browser; the clinician is in `page`.

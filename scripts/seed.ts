@@ -22,7 +22,13 @@ async function main() {
   const visit = await db.visit.create({
     data: {
       providerUser: { connect: { id: provider.id } },
+      // The demo visit carries a channel and a consent (design §2.2), so the dashboard's Invite column shows
+      // what a real row shows rather than "No consent recorded". Both are synthetic, like the patient.
       optIn: true,
+      contactChannel: "both",
+      consentChannel: "phone",
+      consentRecordedBy: provider.id,
+      consentRecordedAt: new Date(Date.now() - 86400000),
       token,
       scheduledAt: new Date(Date.now() + 2 * 86400000),
       // An email as well as a phone, because opening the link now sends a six-digit code (design §5.3) and

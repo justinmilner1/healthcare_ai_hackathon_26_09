@@ -8,7 +8,7 @@ Healthcare AI Hackathon, 26 Sep 2026. Built in 3 hours on Next.js and GPT-5.5 vi
 
 ## Flow
 
-1. **Booking.** A new diabetes patient books an endo appointment in the practice's scheduling system. That creates the patient here (demo: the provider page's Add patient form, or `POST /api/book`). If they opted in, they get a text or email with a presigned link. Patients never come to the site on their own.
+1. **Booking.** A new diabetes patient books an endo appointment in the practice's scheduling system. That creates the patient here: the provider page's Add patient form (`POST /api/book`), or a day's visits at once from the scheduler's CSV (`POST /api/visits/import`, previewed row by row before anything is created). Staff record which channel the patient agreed to be contacted on and how that consent was taken, and the link goes out by text or email on that channel. Patients never come to the site on their own.
 2. **Before the visit (Sweetie 🍬).** The patient opens the link and chats with Sweetie, the patient-facing agent. Sweetie asks them to connect Dexcom, WHOOP and Google Maps location, then asks a few quick questions about meals and symptoms.
 3. **During the visit (Sour 🍋).** The doctor opens Sour, the provider-facing agent. Sour gives a one-page summary: glucose trends, spikes linked to places, sleep, and key questions to ask the patient.
 

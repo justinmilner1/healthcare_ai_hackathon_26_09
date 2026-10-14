@@ -21,6 +21,7 @@ import { requireCapability } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
 import { signUpPractice } from "@/lib/practice";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "@/lib/sweetie";
+import { deliveriesByVisit } from "@/lib/visitStore";
 
 async function postHandler(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { name?: unknown; email?: unknown; practice?: unknown };
@@ -41,6 +42,9 @@ async function getHandler() {
       summaries: { select: { audience: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
+  // §8.3 What each channel did with this visit's invite, in one query for the whole list rather than a
+  // relation on every row: the dashboard prints it beside the send button (lib/visitStore.ts).
+  const deliveries = await deliveriesByVisit(visits.map((v) => v.id));
   return NextResponse.json({
     id: provider.id,
     name: provider.name,
@@ -61,7 +65,14 @@ async function getHandler() {
         apptAt: v.scheduledAt,
         visitType: v.visitType,
         reason: v.reason,
+        // §4.4's own status, printed as it is stored. The screen used to infer a stage from upload counts
+        // and answer counts, which could disagree with the column every other part of the app reads.
         status: v.status,
+        channel: v.contactChannel,
+        consentChannel: v.consentChannel,
+        consentRecordedAt: v.consentRecordedAt,
+        consentRecordedBy: v.consentRecordedBy,
+        deliveries: deliveries[v.id] ?? [],
         token: v.token,
         phone: v.patient.phone,
         email: v.patient.email,

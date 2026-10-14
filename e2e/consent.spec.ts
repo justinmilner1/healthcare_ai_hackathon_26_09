@@ -18,7 +18,7 @@ async function book(page: Page, name: string) {
   const email = patientEmail(name);
   await signInAsDemo(page);
   const booked = await (
-    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "reading the small print", optIn: false })
+    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "reading the small print", channel: "none" })
   ).json();
   expect(booked.token, JSON.stringify(booked)).toBeTruthy();
   await signOutOfBrowser(page);

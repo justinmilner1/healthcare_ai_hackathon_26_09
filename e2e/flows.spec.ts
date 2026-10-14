@@ -38,7 +38,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // the patient's six-digit code goes (T08, §5.3), so a booking without one could never be opened.
   const email = patientEmail("E2E Patient");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Patient", email, providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Patient", email, providerId: demo.id, visitType: "follow_up", reason: "mornings running high", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
@@ -148,7 +148,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   await signInAsDemo(page);
   const email = patientEmail("E2E Talker");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Talker", email, visitType: "follow_up", reason: "tired all the time", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Talker", email, visitType: "follow_up", reason: "tired all the time", channel: "none" })
   ).json();
   expect(booked.token, "the visit's invite token").toBeTruthy();
   await signOutOfBrowser(page);
@@ -197,7 +197,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   // verified session it earns (§5.3, T08), which is what the address below is for.
   const email = patientEmail("E2E Fresh Data");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", email, visitType: "follow_up", reason: "spikes after dinner", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", email, visitType: "follow_up", reason: "spikes after dinner", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
   // The uploads below go through `request`, so that is the context the patient session has to land in (§5.3).

@@ -62,7 +62,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // page.request, not the bare fixture: /api/book is behind the session and the staff role now (T06, §5.2),
   // and this walk needs the visit, not an unauthenticated POST. The CSRF header is still postJson's job.
   const email = patientEmail("E2E Csp");
-  const booked = await (await postJson(page.request, "/api/book", { name: "E2E Csp", email, providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
+  const booked = await (await postJson(page.request, "/api/book", { name: "E2E Csp", email, providerId: demo.id, visitType: "follow_up", reason: "checking the policy", channel: "none" })).json();
   expect(booked.token, "the CSP walk needs a visit to open").toBeTruthy();
 
   // T08 (§5.3): the code screen is the first thing a patient link shows, so it is a screen on this walk too —
@@ -106,7 +106,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
 });
 
 test("a POST with no CSRF token is refused and nothing is created", async ({ request }) => {
-  const res = await request.post("/api/book", { data: { name: "E2E Forged", optIn: false } });
+  const res = await request.post("/api/book", { data: { name: "E2E Forged", channel: "none" } });
   expect(res.status()).toBe(403);
   const body = await res.json();
   expect(body.code).toBe("csrf_failed");
@@ -120,7 +120,7 @@ test("a POST with no CSRF token is refused and nothing is created", async ({ req
 test("a POST whose token does not match the cookie is refused", async ({ request }) => {
   await csrfToken(request); // take the cookie, then send a different header
   const res = await request.post("/api/book", {
-    data: { name: "E2E Mismatch", optIn: false },
+    data: { name: "E2E Mismatch", channel: "none" },
     headers: { [CSRF_HEADER]: "A".repeat(43) },
   });
   expect(res.status()).toBe(403);
@@ -129,7 +129,7 @@ test("a POST whose token does not match the cookie is refused", async ({ request
 test("a cross-site POST is refused even when it carries the token", async ({ request }) => {
   const token = await csrfToken(request);
   const res = await request.post("/api/book", {
-    data: { name: "E2E Cross Site", optIn: false },
+    data: { name: "E2E Cross Site", channel: "none" },
     headers: { [CSRF_HEADER]: token, origin: "https://evil.example" },
   });
   expect(res.status()).toBe(403);
@@ -147,7 +147,7 @@ test("the same POST with the token succeeds, and a GET never needed one", async 
 
   // As the signed-in page: the token is what this asserts, but §5.2 means a POST with a perfect token and no
   // session is a 401, which would say nothing about CSRF either way.
-  const res = await postJson(page.request, "/api/book", { name: "E2E Csrf Ok", providerId: demo.id, optIn: false });
+  const res = await postJson(page.request, "/api/book", { name: "E2E Csrf Ok", providerId: demo.id, channel: "none" });
   expect(res.status()).toBe(200);
   expect((await res.json()).token).toBeTruthy();
 });
