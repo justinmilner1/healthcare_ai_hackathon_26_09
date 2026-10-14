@@ -4,6 +4,7 @@
 import { randomBytes } from "crypto";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { appUrl } from "../lib/config";
 import { db } from "../lib/db";
 import { parseClarityCsv } from "../lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "../lib/location";
@@ -39,10 +40,12 @@ async function main() {
     console.log(`${kind}: ${parsed.length} rows`);
   }
 
-  const base = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   console.log(`\nSweetie (patient chat):  ${base}/s/${token}`);
   console.log(`Sour (provider view):    ${base}/provider/${provider.id}`);
   console.log(`Patient summary:         ${base}/patient/${token}`);
+  // The provider pages are behind sign-in now (design §5.1); the patient links above are not.
+  console.log(`\nSign in as ${provider.email} at ${base}/provider, then \`npm run mail\` for the link.`);
 }
 
 main().finally(() => db.$disconnect());

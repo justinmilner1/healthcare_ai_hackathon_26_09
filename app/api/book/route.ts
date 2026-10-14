@@ -26,7 +26,8 @@ async function postHandler(req: Request) {
   };
   if (!body.name) return NextResponse.json({ error: "name is required" }, { status: 400 });
 
-  // A hardcoded demo provider beats a broken login (AGENTS.md); sign-in is T05.
+  // An unattributed booking lands on the seeded demo provider. Requiring the caller's own session and the
+  // staff role is T06/T07 (§5.2); the patient's own credential is the token this hands back (§5.3).
   const provider = body.providerId
     ? await db.user.findUnique({ where: { id: body.providerId } })
     : await ensureDemoProvider();

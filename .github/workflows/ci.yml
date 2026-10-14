@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
+      # One command, the same one both routines run: install, dependency audit (npm audit --audit-level=high
+      # minus security/audit-exceptions.json, design 10.8 and 12.4), typecheck, lint, unit tests, Playwright.
       - run: bash scripts/agent-check.sh
         env:
           CI: "1"

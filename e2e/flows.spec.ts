@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { csrfToken, postJson } from "./api";
+import { signInAsDemo } from "./auth";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -12,14 +14,6 @@ const shot = async (page: Page, name: string) => {
 // slow runner can take longer than the 5s default to come back, so these get their own budget.
 const LOADED = { timeout: 30_000 };
 
-/** The seeded demo practice, which every flow below hangs off. */
-async function demoProvider(request: APIRequestContext) {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  expect(demo).toBeTruthy();
-  return demo as { id: string; name: string };
-}
-
 /** The patient `npm run seed` creates, with a week of sample uploads already attached. */
 const SEEDED_PATIENT = "Sam Sample";
 
@@ -31,9 +25,12 @@ type VisitRow = { id: string; name: string; uploads: string[]; hasSummary: boole
  * Both projects and both servers share one database, so other tests' patients are in this list too — and at
  * least one of them (the staleness test below) exists precisely to carry uploads and an out-of-date summary.
  * Matching on uploads alone picked whichever row came first and made this file order-dependent.
+ *
+ * page.request rather than request: GET /api/provider answers for the signed-in session (§5.1), and the page
+ * is what holds that cookie.
  */
-async function seededVisit(request: APIRequestContext, providerId: string): Promise<VisitRow> {
-  const detail = await (await request.get(`/api/provider?id=${providerId}`)).json();
+async function seededVisit(page: Page): Promise<VisitRow> {
+  const detail = await (await page.request.get("/api/provider")).json();
   const seeded = (detail.visits as VisitRow[]).find((v) => v.name === SEEDED_PATIENT && v.uploads.length > 0);
   expect(seeded, `npm run seed creates ${SEEDED_PATIENT} with sample uploads`).toBeTruthy();
   return seeded!;
@@ -45,23 +42,18 @@ test("landing renders", async ({ page }) => {
   await shot(page, "landing");
 });
 
-test("practice flow: dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
-  // The demo provider exists after `npm run seed`.
-  await page.goto("/demo");
+test("practice flow: sign in, dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
+  // The demo provider exists after `npm run seed`; signInAsDemo takes the emailed link (design §5.1).
+  const demo = await signInAsDemo(page);
   await expect(page).toHaveURL(/\/provider/);
-  // The dashboard fills in from two client fetches (cookie -> provider, then its patients). Wait for the seeded
-  // patient, or the screenshot catches an empty workspace and shows nothing about the data behind it.
+  // The dashboard fills in from a client fetch of GET /api/provider. Wait for the seeded patient, or the
+  // screenshot catches an empty workspace and shows nothing about the data behind it.
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
   await shot(page, "provider-dashboard");
 
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  expect(demo).toBeTruthy();
-
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
@@ -75,10 +67,12 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
 
   // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
-  const providerRows = await (await request.get(`/api/provider?id=${demo.id}`)).json();
+  // page.request, not request: /api/provider answers for the session (§5.1) and the page holds the cookie.
+  const providerRows = await (await page.request.get("/api/provider")).json();
   expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
-  expect((await request.post("/api/sour", { data: { patientId: booked.patientId } })).status()).toBe(400);
-  expect((await request.post("/api/invite", { data: { patientId: booked.patientId } })).status()).toBe(400);
+  // Through postJson: without the CSRF header these are a 403 from middleware and assert nothing about §4.4.
+  expect((await postJson(request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
+  expect((await postJson(request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
@@ -95,9 +89,9 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
 // no summary must still end with a summary on the page — through the queue, with the two "it's ready" links
 // queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
 test("summary generation goes through the job queue", async ({ page, request }) => {
-  const demo = await demoProvider(request);
+  const demo = await signInAsDemo(page);
   // Rows are visits now (design §4.4); this is the seeded one, with its week of uploaded files.
-  const seeded = await seededVisit(request, demo.id);
+  const seeded = await seededVisit(page);
 
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief")).toContainText(seeded.name, LOADED);
@@ -124,11 +118,11 @@ test("summary generation goes through the job queue", async ({ page, request }) 
 // T15 (design §7.1): "a second run with unchanged inputs returns the existing summary". Asked of the real
 // queue end to end, because the saving is only half the point — the other half is that the page can tell the
 // difference, since a reused summary leaves its own timestamp exactly where it was.
-test("a second run with unchanged inputs returns the saved summary", async ({ request }) => {
-  const demo = await demoProvider(request);
-  const seeded = await seededVisit(request, demo.id);
+test("a second run with unchanged inputs returns the saved summary", async ({ page, request }) => {
+  await signInAsDemo(page);
+  const seeded = await seededVisit(page);
 
-  const read = async () => (await request.get(`/api/patient/${seeded.id}`)).json();
+  const read = async () => (await page.request.get(`/api/patient/${seeded.id}`)).json();
   /** Wait until nothing is in flight: an earlier test, or the other project's run, may still be draining. */
   const settled = async () => {
     for (let tries = 0; tries < 40; tries++) {
@@ -143,7 +137,8 @@ test("a second run with unchanged inputs returns the saved summary", async ({ re
   const before = await settled();
   expect(before.summaryStale, "nothing has changed since that summary was written").toBe(false);
 
-  const queued = await (await request.post("/api/sour", { data: { visitId: seeded.id } })).json();
+  // Through postJson: a bare POST is a 403 from the CSRF middleware (§10.8) and would assert nothing.
+  const queued = await (await postJson(request, "/api/sour", { visitId: seeded.id })).json();
   expect(queued.jobId).toBeTruthy();
 
   let after = before;
@@ -159,12 +154,10 @@ test("a second run with unchanged inputs returns the saved summary", async ({ re
 });
 
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
+  // No sign-in and no providerId: the patient's credential is the token in the link (§5.3), and /api/book
+  // falls back to the seeded demo provider.
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Talker", providerId: demo.id, visitType: "follow_up", reason: "tired all the time", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
 
   await page.goto(`/s/${booked.token}`);
@@ -203,16 +196,16 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
 // it was made from, so a file arriving afterwards has to be visible as such — the chip says the summary is
 // out of date, and Regenerate really writes a new one rather than handing back the saved pair.
 test("a file arriving after a summary makes it out of date, and regenerating writes a new one", async ({ page, request }) => {
-  const demo = await demoProvider(request);
+  const demo = await signInAsDemo(page);
   const booked = await (
-    await request.post("/api/book", {
-      data: { name: "E2E Fresh Data", providerId: demo.id, visitType: "follow_up", reason: "spikes after dinner", optIn: false },
-    })
+    await postJson(request, "/api/book", { name: "E2E Fresh Data", visitType: "follow_up", reason: "spikes after dinner", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 
+  // Multipart, so postJson does not fit; the CSRF header is the same one it would have added (§10.8).
   const upload = async (kind: string, path: string, name: string) => {
     const res = await request.post("/api/upload", {
+      headers: { "x-csrf-token": await csrfToken(request) },
       multipart: { token: booked.token, kind, file: { name, mimeType: "text/csv", buffer: readFileSync(path) } },
     });
     expect(res.ok(), `${kind} upload`).toBeTruthy();
@@ -224,7 +217,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   const chip = page.locator(".sour-job-state");
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
   await shot(page, "provider-sour-ready");
-  const first = await (await request.get(`/api/patient/${booked.visitId}`)).json();
+  const first = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(first.summaryStale).toBe(false);
 
   // A WHOOP export lands afterwards: the saved summary no longer describes the visit.
@@ -237,7 +230,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   // And Regenerate is a real run, not the saved pair coming back.
   await page.getByRole("button", { name: /Regenerate/ }).click();
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
-  const second = await (await request.get(`/api/patient/${booked.visitId}`)).json();
+  const second = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(second.summaryStale).toBe(false);
   expect(second.providerSummaryAt).not.toBe(first.providerSummaryAt);
 });

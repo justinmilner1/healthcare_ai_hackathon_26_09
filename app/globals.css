@@ -1085,6 +1085,19 @@ textarea.ss-input {
   font-size: 10px;
 }
 
+/* The sign-in and check-email hints end in a link ("Create a workspace"), which is the only way out of those
+   screens for someone without an account. Muted text alone does not read as one. */
+.onboard-hint a {
+  color: var(--ss-ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.onboard-hint code {
+  font-size: 10px;
+}
+
 .provider-loading {
   position: relative;
   z-index: 1;

@@ -47,6 +47,13 @@ data/*
 # Test fixtures are synthetic by construction and are the inputs every parser test reads (design §9.4).
 !data/fixtures/
 
+# The local mail drop: with no email provider configured, lib/mailer.ts writes sign-in links here instead of
+# sending them (design §5.1). They are credentials, so they never get committed. `npm run mail` reads it.
+.mail/
+e2e/.mail/
+e2e/.mail-degraded/
+e2e/.mail-runner/
+
 # local tooling
 .claude/
 

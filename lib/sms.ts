@@ -4,6 +4,7 @@
 //           US destinations also need an origination number registered in the account)
 // Unconfigured -> { sent: false, error } and the UI shows the link instead.
 
+import { appUrl } from "./config";
 import type { SendResult } from "./email";
 
 export function smsProvider(): "twilio" | "sns" | null {
@@ -56,6 +57,5 @@ async function viaSns(to: string, body: string): Promise<SendResult> {
 /** The presigned link in every invite. Lands directly in the Sweetie chat, which is where onboarding happens;
  *  uploads live in the chat's sidebar, so no intermediate page. */
 export function intakeLink(token: string): string {
-  const base = process.env.APP_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/$/, "")}/s/${token}`;
+  return `${appUrl()}/s/${token}`;
 }

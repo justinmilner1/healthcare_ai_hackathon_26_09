@@ -2,13 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
-import { rememberProvider } from "@/lib/providerSession";
+import { apiFetch } from "@/lib/csrf";
 
+// Creating the workspace and signing in are two steps: POST /api/provider makes the practice and the admin
+// user (design §4.1, §4.2), then Auth.js emails a sign-in link to the same address (§5.1). Nobody is signed
+// in by filling in a form; the link in the inbox is the proof the address is theirs.
 export default function ProviderSignup() {
-  const router = useRouter();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({ name: "", email: "", practice: "" });
   const [busy, setBusy] = useState(false);
@@ -25,7 +27,7 @@ export default function ProviderSignup() {
 
     setBusy(true);
     try {
-      const res = await fetch("/api/provider", {
+      const res = await apiFetch("/api/provider", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -34,8 +36,8 @@ export default function ProviderSignup() {
       if (!res.ok) {
         throw new Error(provider.error ?? "Could not create the practice.");
       }
-      rememberProvider(provider.id);
-      router.push("/provider");
+      // signIn redirects the browser to /provider/check-email (authConfig.pages.verifyRequest).
+      await signIn("email", { email: form.email.trim().toLowerCase(), callbackUrl: "/provider" });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not create the practice.",
@@ -105,8 +107,8 @@ export default function ProviderSignup() {
                   <p className="ss-eyebrow">YOUR PROVIDER PROFILE</p>
                   <h2 className="ss-title">First, tell Sour who you are.</h2>
                   <p className="ss-lede">
-                    This demo uses your email to remember the practice. No
-                    password or setup call required.
+                    We&apos;ll email you a sign-in link when the workspace is
+                    ready. No password to pick, no setup call.
                   </p>
                 </div>
                 <div className="onboard-fields">
@@ -200,7 +202,7 @@ export default function ProviderSignup() {
                   ? "Creating workspace…"
                   : step === 0
                     ? "Continue →"
-                    : "Create workspace →"}
+                    : "Create workspace and email me a link →"}
               </button>
             </div>
           </form>
