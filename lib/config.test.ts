@@ -394,8 +394,15 @@ test("every environment variable read in lib/ and app/ has a row in SPEC", () =>
   // code is a variable a deployment has to set, so it needs documenting and checking.
   const known = new Set(SPEC.map((s) => s.name));
   const found = new Map<string, string>();
-  const files = [...sourceFiles(path.join(repoRoot, "lib")), ...sourceFiles(path.join(repoRoot, "app"))]
-    .filter((file) => file !== path.join(repoRoot, "lib", "config.ts")); // the list itself, read by name
+  const files = [
+    ...sourceFiles(path.join(repoRoot, "lib")),
+    ...sourceFiles(path.join(repoRoot, "app")),
+    // middleware.ts lives at the root and runs on every request, so what it reads is deployment
+    // configuration like any other. instrumentation.ts is deliberately not here: NEXT_RUNTIME and NEXT_PHASE
+    // are set by Next per process, not by an operator, and listing them in .env.example would invite someone
+    // to set them. It is also the file that runs this check rather than a consumer of it.
+    path.join(repoRoot, "middleware.ts"),
+  ].filter((file) => file !== path.join(repoRoot, "lib", "config.ts")); // the list itself, read by name
   for (const file of files) {
     const text = readFileSync(file, "utf8");
     for (const match of text.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
