@@ -106,11 +106,13 @@ export const AUDIT_DETAIL_FIELDS: readonly string[] = [
   "kinds",
   "audience",  // provider | patient
   "channel",   // sms | email
+  "method",    // how something was proved or done: one_time_code
   "provider",  // which sender or storage backend: ses | sns | twilio | resend | dev | s3 | fs
   "sent",
   "code",      // a short failure constant, never a message
   "count",     // how many identical events this row stands for (lib/auditStore.ts, coalescing)
   "rows",      // how many rows the action itself touched: uploads removed, readings parsed
+  "hours",     // how long something lasts: the verified patient session's 24 (§5.3)
   "bytes",
   "summaries",
   "visitType", // one of lib/visits.ts's five ids, or "other"

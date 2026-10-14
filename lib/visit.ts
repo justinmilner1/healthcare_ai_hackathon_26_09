@@ -2,7 +2,6 @@
 // invite token identifies the visit (§5.3). Routes and pages speak in visit ids and tokens only: a patient id
 // is not a way in, because a patient has many visits and only the visit knows which week is being discussed.
 
-import { recordPatientVerified } from "./auditStore";
 import { db } from "./db";
 
 /** The care team name shown to a patient when the provider row has no name yet (Auth.js, §5.1). */
@@ -22,21 +21,12 @@ export async function findVisit(idOrToken: string) {
   });
 }
 
-/**
- * The visit an invite link opens. Only the token matches, so a guessed visit id is not a way in.
- *
- * A token that resolves here is §10.2's "patient-link verification": the token is the patient's credential
- * (§5.3), and accepting it is the moment worth recording. The row is written here rather than in each of the
- * six routes that take a token — intake, upload, the three Dexcom routes, the summary — so none of them can
- * be the one that forgets, and so T08's six-digit code has one place to add itself. Repeated calls inside a
- * quarter of an hour are one row (lib/auditStore.ts): a patient working through intake presents the same
- * link on every message, which is one session and not forty verifications.
- */
+/** The visit an invite link opens. Only the token matches, so a guessed visit id is not a way in — and
+ *  since T08 the token alone opens nothing but the code screen: §5.3's verification is the six-digit code,
+ *  and that is where §10.2's audit row is written (app/api/verify/route.ts, lib/auditStore.ts). */
 export async function visitByToken(token: string | null | undefined) {
   if (!token) return null;
-  const visit = await db.visit.findUnique({ where: { token }, include: WITH_CONTEXT });
-  if (visit) await recordPatientVerified(visit);
-  return visit;
+  return db.visit.findUnique({ where: { token }, include: WITH_CONTEXT });
 }
 
 export type VisitWithContext = NonNullable<Awaited<ReturnType<typeof findVisit>>>;

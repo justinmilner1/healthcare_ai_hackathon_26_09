@@ -15,7 +15,7 @@
 //      clinician per visit is not a record anybody can read, so a read that matches the previous one moves
 //      its `at` forward and counts itself in `detail.count` instead. Nothing is lost — the row says how many
 //      and when the last one was — and §10.2's question, "who read this visit and when", still has its
-//      answer. Sends and deletions are never coalesced: each one is its own event.
+//      answer. Verifications, sends and deletions are never coalesced: each one is its own event.
 
 import {
   auditDetailJson,
@@ -35,10 +35,6 @@ import { log } from "./log";
 /** How close two identical reads have to be to become one row. One minute: long enough to swallow a page's
  *  polling, short enough that opening a visit again after a consultation is its own row. */
 export const READ_COALESCE_MS = 60_000;
-
-/** The same for a patient presenting their link. A patient works through intake over several minutes and
- *  every message resolves the token again (§5.3); the useful record is the session, not the keystroke. */
-export const VERIFY_COALESCE_MS = 15 * 60_000;
 
 export type AuditWrite = {
   practiceId: string;
@@ -147,10 +143,15 @@ export async function recordVisitRead(opts: {
   }
 }
 
-/** §10.2's patient-link verification: the invite token was presented and accepted (§5.3). Called from
- *  lib/visit.ts, where the token is resolved, so every one of the patient's entry points is covered by one
- *  line. T08's six-digit code adds its own action beside this one. */
-export async function recordPatientVerified(visit: { id: string; patientId: string; patient: { practiceId: string } }): Promise<void> {
+/**
+ * §10.2's patient-link verification: a six-digit code from this visit's own phone or email was accepted and
+ * the browser now holds a 24-hour session (§5.3, lib/patientSession.ts). Called from POST /api/verify, which
+ * is the one place that can be true — the token on its own opens the code screen and nothing else (§2.3).
+ *
+ * Not coalesced. Verifying again is a second session on a second browser, which is exactly the thing an
+ * admin would want to see twice.
+ */
+export async function recordPatientVerified(visit: { id: string; patientId: string; patient: { practiceId: string } }, detail: AuditFields = {}): Promise<void> {
   await recordAudit({
     practiceId: visit.patient.practiceId,
     actorType: "patient",
@@ -158,7 +159,7 @@ export async function recordPatientVerified(visit: { id: string; patientId: stri
     action: "patient.verified",
     entityType: "visit",
     entityId: visit.id,
-    coalesceMs: VERIFY_COALESCE_MS,
+    detail,
   });
 }
 

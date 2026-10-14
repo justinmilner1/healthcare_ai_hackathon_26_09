@@ -18,7 +18,7 @@ and is the record of who touched whose data. Both exist; neither does the other'
 | Action | Written where | Actor |
 |---|---|---|
 | `intake.read`, `messages.read`, `summary.read`, `uploads.read` | `GET /api/patient/[id]` when a provider reads it; `POST /api/sour` with a question | the signed-in user |
-| `patient.verified` | `visitByToken` in `lib/visit.ts` — any route that accepts an invite link | the patient |
+| `patient.verified` | `POST /api/verify`, when a six-digit code is accepted (T08, §5.3) | the patient |
 | `invite.sent`, `summary.sent` | `lib/jobHandlers.ts`, after the send returns | the job (`system`) |
 | `upload.deleted`, `summary.deleted` | `DELETE /api/upload` | the patient |
 
@@ -26,9 +26,12 @@ One row per **part** of a visit, and only for the parts that were really in the 
 uploads records no `uploads.read`. `messages` is the transcript as a provider gets it — `Visit.notes`, the
 chat rendered for Sour by `renderNotes` — because that is the patient's own account of their week either way.
 
-The verification row is written where the token is resolved rather than in each of the six routes that take
-one, so none of them can be the route that forgets. T08 adds the six-digit code's own row beside it; T14 adds
-`patient.deleted` and the nightly `retention.swept` (§10.4, §10.5).
+The verification row is the code, not the link. Since T08 a token on its own opens the code screen and
+nothing else (§2.3), so resolving one is not a verification and records nothing; what §10.2 is asking about
+is the moment a code from the visit's own phone or email is accepted and the browser gets a 24-hour session.
+That route writes it through `recordPatientVerified`, so it speaks the same vocabulary as the rest of the
+trail and its detail goes through the gate below. T14 adds `patient.deleted` and the nightly
+`retention.swept` (§10.4, §10.5).
 
 ### What deliberately does not write a row
 
@@ -41,11 +44,12 @@ not to a patient's data.
 
 ### Repeated reads
 
-The Sour page polls `GET /api/patient/[id]` up to twenty times while a summary is generated, and a patient
-presents their link again on every message of a ten-minute intake. Identical rows that close together become
-one: the row's `at` moves forward and `detail.count` says how many. One minute for reads, fifteen for link
-verifications (`READ_COALESCE_MS`, `VERIFY_COALESCE_MS`). Nothing is lost — the row still says who, what, how
-many and when it last happened — and the page stays a record a person can read.
+The Sour page polls `GET /api/patient/[id]` up to twenty times while a summary is generated, and a clinician
+opens the same visit before and during an appointment. Identical rows inside `READ_COALESCE_MS` (one minute)
+become one: the row's `at` moves forward and `detail.count` says how many. Nothing is lost — the row still
+says who, what, how many and when it last happened — and the page stays a record a person can read.
+Verifications, sends and deletions are never coalesced: each is its own event, and a second verification is a
+second browser, which is exactly what an admin would want to see twice.
 
 A write never fails the request it belongs to. The thing being recorded has already happened by then, so
 `recordAudit` catches, writes `audit_write_failed` to the application log, and returns.

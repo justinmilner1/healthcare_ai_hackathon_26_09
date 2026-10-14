@@ -3,12 +3,13 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { patientEmail, verifyByApi } from "./patient";
 
 // T12 (design §4.8, §10.2): the audit trail end to end. Three of §10.2's four categories are produced here by
-// doing the thing rather than by writing a row — a patient presents their link and uploads a file, a clinician
-// reads the visit, the patient withdraws the upload — and then the admin page is asked what it saw. Sends are
-// the fourth; no email or SMS backend is configured in this run, so nothing is sent and a row saying otherwise
-// would be a lie (lib/jobHandlers.ts, recordSends).
+// doing the thing rather than by writing a row — a patient verifies their link with the six-digit code (T08)
+// and uploads a file, a clinician reads the visit, the patient withdraws the upload — and then the admin page
+// is asked what it saw. Sends are the fourth; no email or SMS backend is configured in this run, so nothing
+// leaves the machine and a row saying otherwise would be a lie (lib/jobHandlers.ts, recordSends).
 //
 // The last assertions are §4.8's promise, checked against the real table rather than against the allow-list
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
@@ -28,19 +29,28 @@ const LOADED = { timeout: 30_000 };
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 
 /** Everything about this patient that must never reach an audit row, plus the seeded patient's details: a
- *  practice has more than one patient and the export is of the whole practice. */
-const PATIENT = { name: "Audit Patient", phone: "+14155550199", email: "audit.patient@example.com", reason: "mornings running high" };
+ *  practice has more than one patient and the export is of the whole practice. The address is per run and
+ *  per booking, because it is also where the six-digit code goes (e2e/patient.ts). */
+const patientUnder = () => ({
+  name: "Audit Patient",
+  phone: "+14155550199",
+  email: patientEmail("Audit Patient"),
+  reason: "mornings running high",
+});
 const SEEDED = ["Sam Sample", "+14155550100"];
 
 test("the audit trail records reads, link use and deletions, and exports them without PHI", async ({ page, request }) => {
   const demo = await signInAsDemo(page);
   expect(demo.role, "the seeded provider is their practice's admin, which §10.2 makes the audience for this").toBe("admin");
 
-  const booked = await (await postJson(page.request, "/api/book", { ...PATIENT, visitType: "follow_up", optIn: false })).json();
+  const patient = patientUnder();
+  const booked = await (await postJson(page.request, "/api/book", { ...patient, visitType: "follow_up", optIn: false })).json();
   expect(booked.visitId).toBeTruthy();
 
-  // The patient, on their own link and with no session: the upload resolves the token, which is §5.3's
-  // verification and §10.2's first row. `request`, not `page.request`, so no provider session is in play.
+  // The patient, on their own link and with no provider session: the code from their own email turns the
+  // link into a 24-hour session (§2.3, §5.3), which is §10.2's verification and the first row. `request`,
+  // not `page.request`, so nothing a provider holds is in play.
+  await verifyByApi(request, booked.token, patient.email);
   const token = await csrfToken(request);
   const uploaded = await request.post("/api/upload", {
     multipart: { token: booked.token, kind: "dexcom", file: { name: "Clarity.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) } },
@@ -103,7 +113,7 @@ test("the audit trail records reads, link use and deletions, and exports them wi
     ["the CSV export", exported],
     ["the JSON the page reads", JSON.stringify(listing)],
   ] as const) {
-    for (const phi of [...Object.values(PATIENT), ...SEEDED, booked.token, "Clarity.csv"]) {
+    for (const phi of [...Object.values(patient), ...SEEDED, booked.token, "Clarity.csv"]) {
       expect(haystack, `${where} contains ${phi}`).not.toContain(phi);
     }
   }
