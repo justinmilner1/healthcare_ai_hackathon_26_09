@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { postJson } from "./api";
 
 // Design 6.3 / 11.3: when the model gateway is down Sweetie answers from the scripted path and the page says so.
 // Two servers, started by playwright.config.ts, are the whole fixture; nothing in the app is stubbed.
@@ -18,10 +19,9 @@ const SCRIPTED_FOLLOW_UP = /Since you last saw the doctor/;
 async function bookAndOpen(page: Page, request: APIRequestContext, name: string) {
   // No providerId: /api/book books against the seeded demo provider, so this spec needs no sign-in. What it
   // is about is the patient side of a model outage, and /s/<token> is the patient's own credential (§5.3).
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await request.post("/api/book", {
-      data: { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false },
-    })
+    await postJson(request, "/api/book", { name, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 

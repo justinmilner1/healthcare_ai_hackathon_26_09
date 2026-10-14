@@ -1,0 +1,41 @@
+{
+  "$comment": "Advisories at high or above that are allowed to stay in the dependency tree. scripts/audit.ts subtracts this list from `npm audit --audit-level=high`; docs/SECURITY.md is the process. Every entry needs a reason, a named owner, and an expiry, and the gate fails once an expiry passes, so nothing lives here by being forgotten.",
+  "exceptions": [
+    {
+      "advisory": 1124252,
+      "package": "postcss",
+      "url": "https://github.com/advisories/GHSA-6g55-p6wh-862q",
+      "scope": "build-time, via next",
+      "reason": "No fixed release exists: the advisory range covers every postcss published so far, and every Next.js version depends on one. postcss runs only in the build, over our own stylesheets; the attack needs an attacker-supplied stylesheet or sourceMappingURL comment, and nothing in either flow (design 2.2, 2.3) lets a patient or a clinician contribute CSS. It is not in the server runtime and not in the client bundle.",
+      "owner": "compliance",
+      "expires": "2027-01-09"
+    },
+    {
+      "advisory": 1139510,
+      "package": "postcss",
+      "url": "https://github.com/advisories/GHSA-r28c-9q8g-f849",
+      "scope": "build-time, via next",
+      "reason": "Same package, same reach, same absence of a fix as advisory 1124252: a path traversal through a sourceMappingURL comment in a stylesheet we wrote ourselves.",
+      "owner": "compliance",
+      "expires": "2027-01-09"
+    },
+    {
+      "advisory": 1145093,
+      "package": "deepmerge-ts",
+      "url": "https://github.com/advisories/GHSA-ggr8-5vv4-36mx",
+      "scope": "devDependency, via prisma -> @prisma/config",
+      "reason": "Stack exhaustion when merging a recursive object graph. Reached only by the Prisma CLI merging prisma.config.ts during `prisma generate` and `prisma migrate`, which run on a developer's machine and in CI, never in the deployed app. The only fix npm offers is prisma 6.12.0, a downgrade past the migrations this repo already has.",
+      "owner": "compliance",
+      "expires": "2027-01-09"
+    },
+    {
+      "advisory": 1240992,
+      "package": "braces",
+      "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+      "scope": "devDependency, via eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch",
+      "reason": "Denial of service on a deeply nested glob pattern. Reached only by eslint expanding the file globs in eslint.config.mjs, which we wrote. Not in the deployed app. The only fix npm offers is eslint-config-next 14.2.35, which does not support Next 15.",
+      "owner": "compliance",
+      "expires": "2027-01-09"
+    }
+  ]
+}
