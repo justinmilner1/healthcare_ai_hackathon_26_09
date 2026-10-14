@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 // Signing in the way a provider does (design §5.1): type the address, read the link out of the mail that was
@@ -46,10 +46,53 @@ export function latestSignInLink(email: string, dir = MAIL_DIR): string | null {
   return null;
 }
 
-/** Wait for the link rather than sleeping: the send happens inside the POST, but the file write races it. */
+/**
+ * Take one of this address's sign-in links out of the mailbox, so nobody else can use it, and return it.
+ *
+ * A magic link is good once (§5.1): Auth.js deletes the token when it is redeemed. The suite signs in as the
+ * seeded demo provider from several specs and two projects at a time, all against one mailbox, so "read the
+ * newest link for this address" hands the same one-use token to two tests — and the second lands on
+ * `/provider/signin?error=Verification`, "That link has already been used or has expired". Claiming is what
+ * stops that: the rename is atomic, so of two tests reaching for one file exactly one gets it and the other
+ * moves on to the next. Whose link a test ends up with does not matter, since every link for an address signs
+ * in as that address; using one twice is the only thing that fails.
+ */
+function claimSignInLink(email: string, dir: string): string | null {
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith(".txt")).sort().reverse();
+  } catch {
+    return null;
+  }
+  // An address is not a pattern: `nurse+demo@...` would otherwise match half the mailbox.
+  const to = `To: ${email}`;
+  for (const name of names) {
+    const path = join(dir, name);
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch {
+      continue; // claimed and renamed between the listing and the read
+    }
+    if (!raw.split("\n").includes(to)) continue;
+    const link = raw.match(/https?:\/\/\S*\/api\/auth\/callback\/email\S*/)?.[0];
+    if (!link) continue;
+    try {
+      // The claim. `.claimed` does not end in .txt, so no later listing offers it again.
+      renameSync(path, `${path}.claimed`);
+    } catch {
+      continue; // someone else claimed it first
+    }
+    return link;
+  }
+  return null;
+}
+
+/** Wait for a link to claim rather than sleeping: the send happens inside the POST, but the file write
+ *  races it, and another test may be holding the only one that has arrived so far. */
 async function waitForSignInLink(email: string, dir: string): Promise<string> {
   for (let attempt = 0; attempt < 40; attempt++) {
-    const link = latestSignInLink(email, dir);
+    const link = claimSignInLink(email, dir);
     if (link) return link;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -67,23 +110,21 @@ async function waitForSignInLink(email: string, dir: string): Promise<string> {
  */
 export async function signInAs(page: Page, email: string, opts: SignInOptions = {}): Promise<SignedInProvider> {
   const dir = opts.mailDir ?? MAIL_DIR;
-  const before = latestSignInLink(email, dir);
 
   await page.goto("/provider/signin");
   await page.getByLabel("Work email").fill(email);
   await page.getByRole("button", { name: /Email me a link/i }).click();
   await expect(page.locator("body")).toContainText(/emailed you a link/i, { timeout: 30_000 });
 
-  // A link from an earlier test in the same run is still in the mailbox; wait for a different one.
-  let link = await waitForSignInLink(email, dir);
-  for (let attempt = 0; attempt < 40 && link === before; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    link = await waitForSignInLink(email, dir);
-  }
+  // Claimed, so this token is this test's alone and no other test can spend it first.
+  const link = await waitForSignInLink(email, dir);
 
   // The link is absolute and built from the request, so it already points at the right port.
   await page.goto(link);
   await expect(page).toHaveURL(/\/provider(\?|$|\/)/, { timeout: 30_000 });
+  // Auth.js sends a refused link back to /provider/signin?error=Verification, which the pattern above matches
+  // too — so without this a spent link read as a successful sign-in and failed later as a puzzling 401.
+  await expect(page, "the link should sign in, not bounce back to the form").not.toHaveURL(/\/provider\/signin/);
 
   const response = await page.request.get("/api/provider");
   expect(response.ok(), `GET /api/provider after sign-in: ${response.status()}`).toBeTruthy();
