@@ -37,18 +37,50 @@ test("every part of a visit §10.2 counts as a read has an action, and nothing i
 test("§10.2's four categories are all in the vocabulary", () => {
   // Reads, patient-link verification, sends, deletions — the sentence, item by item.
   assert.deepEqual(AUDIT_ACTION_NAMES.filter((a) => a.endsWith(".read")).length, VISIT_PARTS.length);
-  for (const action of ["patient.verified", "invite.sent", "code.sent", "summary.sent", "upload.deleted", "summary.deleted"]) {
+  for (const action of [
+    "patient.verified",
+    "invite.sent",
+    "code.sent",
+    "summary.sent",
+    "upload.deleted",
+    "summary.deleted",
+    // §10.4's nightly sweep and §10.5's staff action are deletions too, and the sentence says every one.
+    "patient.deleted",
+    "retention.swept",
+  ]) {
     assert.ok(AUDIT_ACTION_NAMES.includes(action as never), `${action} is missing`);
   }
 });
 
 test("an action from a newer build is shown as stored rather than blank", () => {
-  assert.equal(actionLabel("retention.swept"), "retention.swept");
+  assert.equal(actionLabel("export.downloaded"), "export.downloaded");
   assert.equal(actionLabel("summary.read"), AUDIT_ACTIONS["summary.read"]);
+  assert.equal(actionLabel("retention.swept"), AUDIT_ACTIONS["retention.swept"], "but one this build knows reads in words");
 });
 
 // ---------------------------------------------------------------------------------------------
 // §4.8: "detail JSON without PHI".
+
+test("what a deletion recorded is counts, and §4.8's gate takes them (§10.4, §10.5)", () => {
+  // Every field lib/retentionStore.ts writes, in the two shapes it writes them.
+  assert.deepEqual(auditDetail({ days: 365, uploads: 2, turns: 11, summaries: 2, objects: 2, orphans: 0 }), {
+    days: 365,
+    uploads: 2,
+    turns: 11,
+    summaries: 2,
+    objects: 2,
+    orphans: 0,
+  });
+  assert.deepEqual(auditDetail({ visits: 3, uploads: 4, turns: 20, summaries: 6, objects: 4, orphans: 1, dexcom: true }), {
+    visits: 3,
+    uploads: 4,
+    turns: 20,
+    summaries: 6,
+    objects: 4,
+    orphans: 1,
+    dexcom: true,
+  });
+});
 
 test("the allow-listed fields go through as they are", () => {
   const detail = auditDetail({ part: "summary", kind: "dexcom", channel: "sms", provider: "ses", sent: true, count: 3, rows: 288, bytes: 10240 });

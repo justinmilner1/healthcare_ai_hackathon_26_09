@@ -12,6 +12,7 @@ import { recordAudit } from "./auditStore";
 import type { AuditAction } from "./auditLog";
 import type { JobHandlers, JobPayload } from "./jobs";
 import { log } from "./log";
+import { purgePatient, sweepRetention } from "./retentionStore";
 import { sendIntakeInvite, sendSummaryEmails, sendVerificationCode, type CodeResult, type SummaryNotifyResult, type InviteResult } from "./notify";
 import { CODE_TTL_MS, mintCode } from "./patientSession";
 import { runSour } from "./sourRun";
@@ -20,11 +21,25 @@ import type { Summary } from "./types";
 import { findVisit, providerName } from "./visit";
 import { invitableChannels, recordDeliveries } from "./visitStore";
 
-/** The one field every payload has. Anything else is a bug in the enqueue site, so it fails loudly. */
+/** The field every visit-shaped payload has. Anything else is a bug in the enqueue site, so it fails loudly. */
 function visitIdOf(payload: JobPayload): string {
   const visitId = payload.visitId;
   if (typeof visitId !== "string" || !visitId) throw new Error("job payload needs a visitId");
   return visitId;
+}
+
+/** The same for the one job that is about a person rather than an appointment (§10.5). */
+function patientIdOf(payload: JobPayload): string {
+  const patientId = payload.patientId;
+  if (typeof patientId !== "string" || !patientId) throw new Error("job payload needs a patientId");
+  return patientId;
+}
+
+/** An opaque user id, or nothing. A `patient.delete` queued by the runbook (§13.5) has no person behind it,
+ *  and lib/retentionStore.ts writes the audit row against the job in that case. */
+function optionalUserId(payload: JobPayload): string | null {
+  const id = payload.requestedBy;
+  return typeof id === "string" && id ? id : null;
 }
 
 async function visitOf(payload: JobPayload) {
@@ -167,5 +182,21 @@ export const handlers: JobHandlers = {
     // rather than by channel for the same reason: which of the two people got their link is the question.
     await recordSends("summary.sent", visit, { provider: result.provider, patient: result.patient }, "audience");
     assertSendable("summary", visit.id, { provider: result.provider, patient: result.patient });
+  },
+
+  // §10.5 The deletion a staff member asked for (app/api/deletion), carried out here because it touches an
+  // object store and a dozen tables and must survive a failure half way through. The payload is a patient id
+  // and the id of whoever pressed it — both opaque, neither PHI (§10.3). purgePatient is idempotent, so the
+  // three attempts §3.4 allows cannot do any of it twice, and it writes the audit row itself.
+  "patient.delete": async (payload) => {
+    await purgePatient({ patientId: patientIdOf(payload), requestedBy: optionalUserId(payload) });
+  },
+
+  // §10.4 The nightly sweep. No visit and no patient: the payload is empty, or carries one `practiceId` when
+  // somebody is sweeping a single practice by hand. Queued by the runner itself once a day
+  // (lib/retentionStore.ts scheduleRetentionSweep), which is the one clock §3.4 gives us.
+  "retention.sweep": async (payload) => {
+    const practiceId = typeof payload.practiceId === "string" && payload.practiceId ? payload.practiceId : undefined;
+    await sweepRetention({ practiceId });
   },
 };

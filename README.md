@@ -204,6 +204,8 @@ app/
     practice/users/route.ts     POST invite a colleague with a role (admin)
     practice/users/[id]/route.ts PATCH one colleague's role (admin)
     audit/route.ts              GET the practice's audit log, filtered; ?format=csv exports it (admin)
+    deletion/route.ts           POST { patientId, confirm } delete a patient's data (§2.8, §10.5)
+    jobs/run/route.ts           POST drain the queue; queues the nightly retention sweep (§3.4, §10.4)
 components/
   VerifyGate.tsx                decides, on the server, whether a link shows its page, a code screen or consent
   VerifyScreen.tsx              that code screen
@@ -226,6 +228,8 @@ lib/
   access.ts                     roles and capabilities: the whole of §5.2, pure
   auditLog.ts                   audit vocabulary, the PHI gate on detail, CSV, filters (client-safe)
   auditStore.ts                 the database half: write a row, read the trail back (§4.8, §10.2)
+  retention.ts                  how long data is kept, and the typed confirmation (client-safe; §2.8, §10.4)
+  retentionStore.ts             the database half: the nightly sweep and the patient purge (§10.4, §10.5)
   guard.ts                      the 401 / 403 / 404 every provider route starts with
   httpError.ts                  a guard's refusal, answered and logged by withRoute
   team.ts                       practice/team shapes and validators (client-safe)

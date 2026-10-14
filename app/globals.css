@@ -334,6 +334,25 @@ a {
   cursor: wait;
 }
 
+/* The one irreversible action in the app (§10.5). Red only once it is armed — the confirm button in the
+   deletion dialog — so the quiet "Delete data" on a row does not read as an alarm. */
+.ss-button-danger {
+  border-color: #a32f49;
+  color: white;
+  background: #a32f49;
+  box-shadow: 0 10px 22px rgba(163, 47, 73, 0.22);
+}
+
+.ss-button-danger:hover {
+  border-color: #8c2840;
+  color: white;
+  background: #8c2840;
+}
+
+.ss-button-danger:disabled {
+  cursor: not-allowed;
+}
+
 .ss-text-button {
   padding: 7px 2px;
   border: 0;
@@ -2284,6 +2303,58 @@ textarea.ss-input {
 }
 
 /* 2.2's CSV import. Shares the wizard's backdrop; a single column, because the preview table wants width. */
+/* §2.8, §10.5 The deletion confirmation. Narrow, because all it holds is a paragraph and one field. */
+.deletion-dialog {
+  display: flex;
+  width: min(520px, 100%);
+  max-height: 88svh;
+  flex-direction: column;
+  gap: 14px;
+  padding: 26px 28px 22px;
+  overflow-y: auto;
+  border-radius: 22px;
+}
+
+.deletion-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.deletion-head .patient-wizard-close {
+  position: static;
+  flex: none;
+}
+
+.deletion-keeps {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--sour-green-soft);
+  color: var(--ss-ink-soft);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.deletion-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.deletion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Last on a crowded row and no louder than the rest of it. */
+.provider-delete-button {
+  color: #a32f49;
+}
+
 .import-dialog {
   display: flex;
   width: min(880px, 100%);
@@ -5322,6 +5393,14 @@ button.sweetie-agent-badge {
     justify-content: flex-start;
   }
 
+  /* Nothing here is a table any more, so nothing here scrolls sideways. Left scrolling, a row whose detail
+     carries six or seven counts — which is what a deletion records (§10.4, §10.5) — makes the whole stack as
+     wide as that one row and hangs every card off the right edge, instead of the counts wrapping onto a
+     second line inside the card. */
+  .audit-table-scroll {
+    overflow-x: visible;
+  }
+
   .audit-table,
   .audit-table tbody,
   .audit-table tr,
@@ -5329,6 +5408,14 @@ button.sweetie-agent-badge {
     display: block;
     width: 100%;
     min-width: 0;
+  }
+
+  /* Capped against the viewport and not against the card. The card is in a grid whose items size to their
+     content (`min-width: auto`), so a row of seven counts widens the card itself and a `max-width: 100%` on
+     the counts then resolves against that wider card and wraps nothing. 100vw minus the container's gutter
+     and the cell's padding is a width nothing inside can argue with. */
+  .audit-detail {
+    max-width: calc(100vw - 72px);
   }
 
   .audit-table thead {

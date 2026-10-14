@@ -10,15 +10,21 @@
 import { NextResponse } from "next/server";
 import { authorizeRunner, drainJobs } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
+import { scheduleRetentionSweep } from "@/lib/retentionStore";
 
 async function postHandler(req: Request) {
   const auth = authorizeRunner(req.headers);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  // §10.4's "nightly" wants a clock, and this tick is the only one the app has. scheduleRetentionSweep
+  // queues a sweep at most once in twenty hours, so a minute-by-minute schedule still sweeps once a day, and
+  // an environment with no second EventBridge rule still sweeps at all. Before the drain, so the sweep it
+  // queues runs in this same pass rather than waiting for the next minute.
+  const sweep = await scheduleRetentionSweep();
   const report = await drainJobs();
   // One line per job is written by the drain itself (job_done, job_retry, job_failed), which is what an alarm
   // reads; this is just the shape of the call. The full report goes back to the caller in the body.
   log.info("job_drain", { count: report.claimed });
-  return NextResponse.json(report);
+  return NextResponse.json({ ...report, sweepQueued: Boolean(sweep) });
 }
 
 export const POST = withRoute("POST /api/jobs/run", postHandler);
