@@ -32,8 +32,13 @@ test("the audit log is readable by practice admins and nobody else (§10.2)", ()
 test("clinician sees and reviews summaries; staff does not", () => {
   assert.equal(can("clinician", "summaries:read"), true);
   assert.equal(can("clinician", "summaries:generate"), true);
+  // §7.3's sign-off is the "reviews" half of that sentence, and is a clinical attestation: the two roles
+  // §5.2 gives summaries to, and nobody else.
+  assert.equal(can("clinician", "summaries:review"), true);
+  assert.equal(can("admin", "summaries:review"), true);
   assert.equal(can("staff", "summaries:read"), false);
   assert.equal(can("staff", "summaries:generate"), false);
+  assert.equal(can("staff", "summaries:review"), false);
 });
 
 test("staff creates visits and sends invites; clinician does not", () => {
@@ -87,7 +92,7 @@ test("every capability belongs to at least one role, and names only roles that e
 
 test("capabilitiesOf is the row of the table, in table order", () => {
   assert.deepEqual(capabilitiesOf("staff"), ["visits:read", "visits:create", "visits:invite", "patients:delete"]);
-  assert.deepEqual(capabilitiesOf("clinician"), ["visits:read", "summaries:read", "summaries:generate"]);
+  assert.deepEqual(capabilitiesOf("clinician"), ["visits:read", "summaries:read", "summaries:generate", "summaries:review"]);
   assert.deepEqual(capabilitiesOf("admin"), CAPABILITY_NAMES);
   assert.deepEqual(capabilitiesOf("whatever"), []);
 });

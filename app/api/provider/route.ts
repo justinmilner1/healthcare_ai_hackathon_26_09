@@ -20,6 +20,7 @@ import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
 import { signUpPractice } from "@/lib/practice";
+import { FORMER_COLLEAGUE, reviewerNames } from "@/lib/review";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "@/lib/sweetie";
 import { deliveriesByVisit } from "@/lib/visitStore";
 
@@ -45,6 +46,9 @@ async function getHandler() {
   // §8.3 What each channel did with this visit's invite, in one query for the whole list rather than a
   // relation on every row: the dashboard prints it beside the send button (lib/visitStore.ts).
   const deliveries = await deliveriesByVisit(visits.map((v) => v.id));
+  // §7.3 "shows in the dashboard": the status pill comes off the row, but who signed it off is a user id, so
+  // the names are joined in one query for the whole list rather than one per row (lib/review.ts).
+  const reviewers = await reviewerNames(visits.map((v) => v.reviewedBy));
   return NextResponse.json({
     id: provider.id,
     name: provider.name,
@@ -87,6 +91,9 @@ async function getHandler() {
         wrapped: intake.wrapped,
         hasSummary: v.summaries.length > 0,
         summaryAt: v.summaries[0]?.createdAt ?? null,
+        // §7.3 The sign-off, in the shape the one-pager uses too (ReviewRecord, lib/types.ts): null until a
+        // clinician has pressed Mark reviewed.
+        review: v.reviewedAt ? { at: v.reviewedAt.toISOString(), by: v.reviewedBy, byName: (v.reviewedBy && reviewers[v.reviewedBy]) || FORMER_COLLEAGUE } : null,
       };
     }),
   });

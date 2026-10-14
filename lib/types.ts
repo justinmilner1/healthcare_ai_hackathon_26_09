@@ -90,6 +90,15 @@ export type SourJobState = {
   createdAt: string;
 };
 
+// §7.3 A clinician's sign-off on a visit's summary: who marked it reviewed and when. `byName` is joined at
+// read time from the user id (lib/review.ts), never stored beside it, so a renamed account reads correctly
+// and a departed one reads as a former colleague rather than as a blank.
+export type ReviewRecord = {
+  at: string; // ISO time
+  by: string | null; // the reviewer's user id
+  byName: string; // their name, or their address, in the words the screens print
+};
+
 // Everything a summary page needs in one fetch: GET /api/patient/[id]  (a visit id or the invite token).
 // Keyed by the visit (design §4.4): `visitId` is what the pages send back to /api/sour and /api/invite, while
 // `patient` describes the person the visit is for.
@@ -126,4 +135,6 @@ export type PatientBundle = {
   /** True when a saved summary no longer matches the current intake and uploads, so a run would redo it
    *  rather than return the saved pair (§7.1). False when there is no summary yet. */
   summaryStale: boolean;
+  /** The clinician's sign-off, or null while nobody has marked this summary reviewed (§7.3). */
+  review: ReviewRecord | null;
 };

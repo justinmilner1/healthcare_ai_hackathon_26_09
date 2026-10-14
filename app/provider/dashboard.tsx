@@ -23,6 +23,7 @@ import {
   type VisitDraft,
 } from "@/lib/visitIntake";
 import { apiFetch } from "@/lib/csrf";
+import type { ReviewRecord } from "@/lib/types";
 
 // One booked visit (design §4.4): `id` is the visit, `patientId` the person it is for. Every request the
 // dashboard makes — invite, summary, Sour — is keyed by the visit id.
@@ -56,6 +57,8 @@ type Row = {
   wrapped: boolean;
   hasSummary: boolean;
   summaryAt: string | null;
+  /** §7.3 Who signed this summary off and when, or null while nobody has. */
+  review: ReviewRecord | null;
 };
 type Provider = {
   id: string;
@@ -295,6 +298,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
 
   const visits = provider?.visits ?? [];
   const ready = visits.filter((visit) => visit.hasSummary).length;
+  // §7.3: a summary a clinician has signed off is not still waiting to be read, so the tile says how many of
+  // the ready ones are done rather than counting them all as outstanding.
+  const reviewed = visits.filter((visit) => visit.review).length;
   const active = visits.filter(
     (visit) => !visit.hasSummary && (visit.answered > 0 || visit.uploads.length > 0),
   ).length;
@@ -392,7 +398,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
         <section className="provider-stats" aria-label="Practice overview">
           <Metric label="All visits" value={visits.length} detail="in this workspace" />
           <Metric label="Intake active" value={active} detail="sharing data or chatting" />
-          <Metric label="Summaries ready" value={ready} detail="ready to review" accent />
+          <Metric label="Summaries ready" value={ready} detail={reviewed ? `${reviewed} reviewed` : "ready to review"} accent />
           <Metric
             label="Needs attention"
             value={flagged}
@@ -796,10 +802,23 @@ function DeletionDialog({
  *  answer counts, which could say "Invited" about a visit the rest of the app had already moved on. */
 function Stage({ visit }: { visit: Row }) {
   return (
-    <span className={`provider-stage provider-stage-${visitStatusTone(visit.status)}`}>
-      <i />
-      {visitStatusLabel(visit.status)}
-    </span>
+    <div className="provider-stage-cell">
+      <span className={`provider-stage provider-stage-${visitStatusTone(visit.status)}`}>
+        <i />
+        {visitStatusLabel(visit.status)}
+      </span>
+      {/* §7.3 "shows in the dashboard": the pill says Reviewed, this line says who and when. Printed under
+          the pill rather than inside it so the name has room to wrap in a narrow column. */}
+      {visit.review && (
+        <small className="provider-reviewed-by">
+          by {visit.review.byName}
+          <time dateTime={visit.review.at}>
+            {" · "}
+            {new Date(visit.review.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+          </time>
+        </small>
+      )}
+    </div>
   );
 }
 

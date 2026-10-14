@@ -36,6 +36,10 @@ export type VisitPart = (typeof VISIT_PARTS)[number];
  * deletions, and `patient.verified` its patient-link verification. `patient.deleted` is the staff action of
  * §10.5, written against the person who asked for it; `retention.swept` is the nightly job of §10.4, whose
  * actor is the job, and there is one row per visit it cleared — a visit's data going is one deletion.
+ *
+ * `summary.reviewed` is not one of §10.2's four categories; it is §7.3's clinical sign-off, recorded here
+ * because "a clinician reviewed this before the visit" is exactly the kind of claim an admin is later asked
+ * to stand behind, and the row is the only place it is visible next to who read what.
  */
 export const AUDIT_ACTIONS = {
   "intake.read": "Intake answers read",
@@ -46,6 +50,7 @@ export const AUDIT_ACTIONS = {
   "invite.sent": "Invite sent",
   "code.sent": "Verification code sent",
   "summary.sent": "Summary notice sent",
+  "summary.reviewed": "Summary marked reviewed",
   "upload.deleted": "Upload deleted",
   "summary.deleted": "Summaries discarded",
   "patient.deleted": "Patient data deleted",

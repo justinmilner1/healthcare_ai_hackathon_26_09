@@ -1463,6 +1463,29 @@ textarea.ss-input {
   background: #a7a69e;
 }
 
+/* T16 (design §7.3): the pill, with who signed the summary off underneath. The column is narrow, so the
+   name wraps onto its own lines rather than being ellipsed away — it is the half of §7.3 the pill cannot
+   say. */
+.provider-stage-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.provider-reviewed-by {
+  max-width: 150px;
+  color: #6f8a73;
+  font-size: 9px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+/* The date stays whole when the name above it wraps. */
+.provider-reviewed-by time {
+  white-space: nowrap;
+}
+
 .provider-stage-ready {
   color: #2f7041;
   background: #e8f4e8;
@@ -2922,6 +2945,42 @@ textarea.ss-input {
 .sour-job-state[data-phase="failed"] .sour-job-chip,
 .sour-job-state[data-phase="failed"] .sour-job-detail {
   color: #a42b48;
+}
+
+/* T16 (design §7.3): the sign-off. Green and quiet, under the job chip, and the one thing in that strip
+   that prints — "who read this before the visit" belongs on the paper the clinician carries in. */
+.sour-reviewed {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #cfe4d1;
+  border-radius: 12px;
+  background: #f1f8f1;
+  color: #2c6540;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.sour-reviewed-check {
+  flex: none;
+  font-weight: 750;
+}
+
+.sour-reviewed strong {
+  font-weight: 700;
+}
+
+.sour-review-button {
+  border-color: #cfe4d1;
+  color: #2c6540;
+  white-space: nowrap;
+}
+
+.sour-review-button:disabled {
+  border-color: #e9e6d7;
+  color: var(--viz-muted);
 }
 
 .sour-invite-note {
@@ -4617,6 +4676,13 @@ button.sweetie-agent-badge {
     break-inside: avoid;
     box-shadow: none;
   }
+
+  /* §7.3 on paper: the record, without the screen's tint. */
+  .sour-reviewed {
+    border-color: #999;
+    background: white !important;
+    color: black;
+  }
 }
 
 @media (max-width: 840px) {
@@ -5005,12 +5071,15 @@ button.sweetie-agent-badge {
     flex-direction: column;
   }
 
+  /* T16 added a fourth button to this row. At 375px four buttons sharing one line squeezed "Mark reviewed"
+     onto two lines of its own, so the row wraps into pairs instead (§6.5). */
   .sour-brief-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .sour-brief-actions .ss-button {
-    flex: 1;
+    flex: 1 1 calc(50% - 7px);
   }
 
   .sour-card {
