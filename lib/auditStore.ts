@@ -183,7 +183,9 @@ export async function auditListing(practiceId: string, filter: AuditFilter): Pro
     ...(filter.entityId ? { entityId: filter.entityId } : {}),
     ...(filter.from || filter.to ? { at: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lt: filter.to } : {}) } } : {}),
   };
-  const [rows, total, users] = await Promise.all([
+  // One transaction, not three parallel queries: the page prints "4 of 5 shown" if a row lands between the
+  // page and the count, which reads as a bug in the very table whose job is to be trusted.
+  const [rows, total, users] = await db.$transaction([
     db.auditLog.findMany({ where, orderBy: { at: "desc" }, take: filter.limit }),
     db.auditLog.count({ where }),
     db.user.findMany({ where: { practiceId }, select: { id: true, name: true, email: true }, orderBy: { email: "asc" } }),
