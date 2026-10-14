@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { signInAsDemo } from "./auth";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -17,18 +18,14 @@ test("landing renders", async ({ page }) => {
   await shot(page, "landing");
 });
 
-test("practice flow: dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
-  // The demo provider exists after `npm run seed`.
-  await page.goto("/demo");
+test("practice flow: sign in, dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
+  // The demo provider exists after `npm run seed`; signInAsDemo takes the emailed link (design §5.1).
+  const demo = await signInAsDemo(page);
   await expect(page).toHaveURL(/\/provider/);
-  // The dashboard fills in from two client fetches (cookie -> provider, then its patients). Wait for the seeded
-  // patient, or the screenshot catches an empty workspace and shows nothing about the data behind it.
+  // The dashboard fills in from a client fetch of GET /api/provider. Wait for the seeded patient, or the
+  // screenshot catches an empty workspace and shows nothing about the data behind it.
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
   await shot(page, "provider-dashboard");
-
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  expect(demo).toBeTruthy();
 
   const booked = await (
     await request.post("/api/book", {
@@ -47,7 +44,8 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
   expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
 
   // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
-  const providerRows = await (await request.get(`/api/provider?id=${demo.id}`)).json();
+  // page.request, not request: /api/provider answers for the session (§5.1) and the page holds the cookie.
+  const providerRows = await (await page.request.get("/api/provider")).json();
   expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
   expect((await request.post("/api/sour", { data: { patientId: booked.patientId } })).status()).toBe(400);
   expect((await request.post("/api/invite", { data: { patientId: booked.patientId } })).status()).toBe(400);
@@ -67,9 +65,8 @@ test("practice flow: dashboard, add visit, invite link, Sour view", async ({ pag
 // no summary must still end with a summary on the page — through the queue, with the two "it's ready" links
 // queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
 test("summary generation goes through the job queue", async ({ page, request }) => {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
-  const detail = await (await request.get(`/api/provider?id=${demo.id}`)).json();
+  const demo = await signInAsDemo(page);
+  const detail = await (await page.request.get("/api/provider")).json();
   // The seeded visit is the one with uploaded files (`npm run seed`); rows are visits now (design §4.4).
   const seeded = detail.visits.find((v: { name: string; uploads: string[] }) => v.uploads.length > 0);
   expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
@@ -91,11 +88,11 @@ test("summary generation goes through the job queue", async ({ page, request }) 
 });
 
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
-  const providers = await (await request.get("/api/provider?list=1")).json();
-  const demo = providers.find((p: { name: string }) => /demo/i.test(p.name)) ?? providers[0];
+  // No sign-in and no providerId: the patient's credential is the token in the link (§5.3), and /api/book
+  // falls back to the seeded demo provider.
   const booked = await (
     await request.post("/api/book", {
-      data: { name: "E2E Talker", providerId: demo.id, visitType: "follow_up", reason: "tired all the time", optIn: false },
+      data: { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false },
     })
   ).json();
 

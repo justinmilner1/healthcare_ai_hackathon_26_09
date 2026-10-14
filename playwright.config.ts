@@ -17,6 +17,10 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 // end without a model. e2e/degraded.spec.ts is the only spec that uses it. Playwright starts web servers one
 // after another, so this one begins after the first has built and is answering, and reuses that build.
 const DEGRADED_PORT = PORT + 1;
+// Where the sign-in links land (design §5.1, e2e/auth.ts) and the secret that signs the session cookie. Neither
+// is a secret in a throwaway test database; production supplies AUTH_SECRET from SSM (§10.6).
+const MAIL_DIR = process.env.DEV_MAIL_DIR ?? "e2e/.mail";
+const AUTH_SECRET = process.env.AUTH_SECRET ?? "e2e-session-secret-not-for-deployment";
 // scripts/agent-check.sh sets PW_CHROMIUM_PATH when the Playwright CDN is blocked but a Chromium is pre-installed.
 const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {};
 
@@ -41,7 +45,9 @@ export default defineConfig({
       url: `http://localhost:${PORT}/api/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 300_000, // the build is most of this; it takes about a minute here
-      env: { ...process.env, PORT: String(PORT), OPENAI_API_KEY: "", APP_URL: `http://localhost:${PORT}` },
+      // DEV_MAIL_DIR: with no email provider configured, lib/mailer.ts writes the sign-in links here instead
+      // of sending them (design §5.1), and e2e/auth.ts reads them. scripts/agent-check.sh empties it first.
+      env: { ...process.env, PORT: String(PORT), OPENAI_API_KEY: "", APP_URL: `http://localhost:${PORT}`, DEV_MAIL_DIR: MAIL_DIR, AUTH_SECRET },
     },
     {
       command: `npx next start -p ${DEGRADED_PORT}`,
@@ -57,6 +63,8 @@ export default defineConfig({
         LLM_TIMEOUT_MS: "2000",
         LLM_CIRCUIT_THRESHOLD: "1", // one failed call is enough; the test has no time to earn three
         LLM_CIRCUIT_COOLDOWN_MS: "600000",
+        AUTH_SECRET,
+        DEV_MAIL_DIR: `${MAIL_DIR}-degraded`, // its own mailbox, so neither server's links show up in the other's
       },
     },
   ],

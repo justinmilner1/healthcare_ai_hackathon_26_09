@@ -56,6 +56,19 @@ The suite runs two app servers (T20). Port 3100 is the usual one, with no model 
 build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
 the real degraded path (design §6.3). Playwright starts them one after another, so only the first one builds.
 
+### Signing in from a test (T05)
+
+The provider pages are behind Auth.js magic links (design §5.1), so a test that needs the dashboard has to sign
+in. There is no mail server here and no inbox to read, so the local mailer does the sending: with no email
+provider configured, `lib/mailer.ts` writes each message to `DEV_MAIL_DIR` as a file instead of sending it, and
+`e2e/auth.ts` reads the newest link out of it. `scripts/agent-check.sh` sets `DEV_MAIL_DIR=e2e/.mail`, empties
+it before the run so a stale link cannot be picked up, and sets `AUTH_SECRET` (nothing signed with it outlives
+the throwaway database). Humans get the same thing from `npm run mail`.
+
+The link is a credential, which is why it is a file rather than a log line: §10.3 keeps link tokens out of the
+logs, and `npm run lint` plus `lib/log.test.ts` stop application code writing to stdout at all. Both the
+mailbox directories are gitignored.
+
 ### The database in the sandbox (T01)
 
 The app is Postgres only (design §3.2). `scripts/dev-db.sh` is the one thing that brings a server up, and it tries
