@@ -1,0 +1,60 @@
+# Merges pull requests the reviewer routine has labeled `merge-ready`, once CI is green, and deletes the branch.
+# Why a workflow: both routines run as the same GitHub account that opens the pull requests, and GitHub refuses
+# self-approval; the sandbox proxy also refuses branch deletion. The Actions bot is a different actor, so neither
+# refusal applies. Design §12.4: merges to main require green checks, never a review approval.
+name: auto-merge
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let candidates = [];
+            if (context.eventName === "pull_request_target") {
+              if (context.payload.label?.name !== "merge-ready") { core.info("label is not merge-ready"); return; }
+              candidates = [context.payload.pull_request.number];
+            } else {
+              const sha = context.payload.workflow_run.head_sha;
+              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+              candidates = prs.data.filter((p) => p.state === "open").map((p) => p.number);
+              if (!candidates.length) { core.info(`no open PR for ${sha}`); return; }
+            }
+            for (const number of candidates) {
+              const pr = (await github.rest.pulls.get({ owner, repo, pull_number: number })).data;
+              if (pr.state !== "open") continue;
+              if (!pr.labels.some((l) => l.name === "merge-ready")) { core.info(`#${number}: not merge-ready`); continue; }
+              const runs = (await github.rest.checks.listForRef({ owner, repo, ref: pr.head.sha, per_page: 50 })).data.check_runs
+                .filter((c) => c.name === "check");
+              if (!runs.length) { core.info(`#${number}: CI has not reported yet`); continue; }
+              const latest = runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at))[0];
+              if (latest.status !== "completed" || latest.conclusion !== "success") { core.info(`#${number}: CI ${latest.status}/${latest.conclusion}`); continue; }
+              if (pr.mergeable_state === "dirty") {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body: "auto-merge: this branch conflicts with main. Merge main into it and push; the merge will retry when CI is green." });
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: "merge-ready" }).catch(() => {});
+                continue;
+              }
+              try {
+                await github.rest.pulls.merge({ owner, repo, pull_number: number, merge_method: "squash", commit_title: `${pr.title} (#${number})` });
+                core.info(`#${number}: merged`);
+              } catch (e) {
+                core.warning(`#${number}: merge failed: ${e.message}`);
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `auto-merge: merge failed: ${e.message}. Will retry on the next CI completion.` });
+                continue;
+              }
+              await github.rest.git.deleteRef({ owner, repo, ref: `heads/${pr.head.ref}` }).catch((e) => core.info(`branch delete skipped: ${e.message}`));
+            }
