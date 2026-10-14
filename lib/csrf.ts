@@ -62,6 +62,21 @@ export const CSRF_EXEMPT_PATHS: readonly string[] = ["/api/jobs/run"];
  */
 export const CSRF_EXEMPT_PREFIXES: readonly string[] = ["/api/auth/"];
 
+/**
+ * Paths that run this same check from inside the route handler instead of from middleware, and are therefore
+ * left out of middleware.ts's matcher. Not an exemption: the request is checked by `checkCsrfRequest` below,
+ * with the same token, the same Origin rule and the same 403.
+ *
+ * `/api/upload` is here because middleware is what breaks it. A request that passes through middleware is
+ * proxied through the edge runtime, which will not carry a body much over 10 MB: a 12 MB Clarity export
+ * reached the route truncated and `formData()` threw, while §9.1 promises uploads up to 20 MB. Nothing
+ * about the route's authority changes — it is still the patient's visit token plus this check.
+ *
+ * The bar for another entry: the route must call `checkCsrfRequest` on every state-changing method, and the
+ * reason it cannot go through middleware must be a limit of the runtime, not a preference.
+ */
+export const CSRF_SELF_CHECKED_PATHS: readonly string[] = ["/api/upload"];
+
 export function isCsrfExemptPath(pathname: string): boolean {
   // Exact match for the paths. A prefix match there would exempt /api/jobs/runner-admin the day someone
   // adds it; the prefixes are a separate, shorter list for exactly that reason.
@@ -213,4 +228,44 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
   const headers = new Headers(init.headers);
   headers.set(CSRF_HEADER, ensureCsrfToken());
   return fetch(input, { ...init, headers });
+}
+
+/**
+ * The same check against a whole Request, for the routes in CSRF_SELF_CHECKED_PATHS. Returns the reason the
+ * request is refused, or null when it is fine. Web APIs only, like the rest of this module.
+ */
+export function checkCsrfRequest(req: Request): string | null {
+  const url = new URL(req.url);
+  return checkCsrf({
+    method: req.method,
+    pathname: url.pathname,
+    serverAction: req.headers.get(SERVER_ACTION_HEADER),
+    origin: req.headers.get("origin"),
+    referer: req.headers.get("referer"),
+    host: req.headers.get("host"),
+    forwardedHost: req.headers.get("x-forwarded-host"),
+    headerToken: req.headers.get(CSRF_HEADER),
+    urlToken: url.searchParams.get(CSRF_PARAM),
+    cookieToken: cookieValue(req.headers.get("cookie"), CSRF_COOKIE),
+  });
+}
+
+/** One cookie out of a Cookie header. No library: middleware has `req.cookies`, a route handler has this. */
+export function cookieValue(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    const raw = part.slice(eq + 1).trim();
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      // A header is whatever the caller typed, and `%ZZ` makes decodeURIComponent throw. Returning the
+      // undecoded value keeps this a 403 from checkCsrf ("malformed csrf token") rather than a 500 from a
+      // route handler, which is the difference between refusing a request and failing on it.
+      return raw;
+    }
+  }
+  return null;
 }

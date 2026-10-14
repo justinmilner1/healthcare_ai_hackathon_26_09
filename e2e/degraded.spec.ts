@@ -1,6 +1,7 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
-import { MAIL_DIR, patientEmail, verifyLink } from "./patient";
+import { DEGRADED_MAIL_DIR, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
+import { patientEmail, verifyLink } from "./patient";
 
 // Design 6.3 / 11.3: when the model gateway is down Sweetie answers from the scripted path and the page says so.
 // Two servers, started by playwright.config.ts, are the whole fixture; nothing in the app is stubbed.
@@ -17,21 +18,28 @@ const LOADED = { timeout: 30_000 };
 /** The scripted second question, from UPDATE.default.fallbackQuestion in lib/sweetie.ts. */
 const SCRIPTED_FOLLOW_UP = /Since you last saw the doctor/;
 
-async function bookAndOpen(page: Page, request: APIRequestContext, name: string, mailDir: string) {
-  // No providerId: /api/book books against the seeded demo provider, so this spec needs no sign-in. What it
-  // is about is the patient side of a model outage, and the link plus a code is the patient's own credential
-  // (§5.3) — the code goes to the address booked here, and each server has its own mailbox.
-  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
+async function bookAndOpen(page: Page, name: string, mailDir: string) {
+  // Booking is behind the session and the staff role now (§5.2), so the visit starts with someone at the
+  // practice signing in — on whichever of the two servers this describe block is pointed at, which is why the
+  // mailbox is a parameter: each server writes its sign-in links only to its own (playwright.config.ts).
+  // postJson adds the CSRF header the way the dashboard does (§10.8, e2e/api.ts), and takes page.request so
+  // it posts as the signed-in provider.
+  await signInAsDemo(page, { mailDir });
+  // The patient's six-digit code goes to this address (T08, §5.3), and it lands in the same mailbox.
   const email = patientEmail(name);
   const booked = await (
-    await postJson(request, "/api/book", { name, email, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
+    await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", reason: "numbers all over the place", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
 
+  // What this spec is about is the patient side of a model outage, and the patient has no provider session:
+  // the link plus a code is their whole credential (§5.3). So the provider's is dropped before the page is
+  // opened, and the patient verifies the way a patient does.
+  await signOutOfBrowser(page);
   await verifyLink(page, booked.token, email, mailDir);
   // The greeting needs no model, so it is the same on both servers and marks the page as loaded.
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
-  return { token: booked.token as string, email };
+  return booked.token as string;
 }
 
 async function answerFirstQuestion(page: Page) {
@@ -43,9 +51,8 @@ async function answerFirstQuestion(page: Page) {
 test.describe("model gateway unreachable", () => {
   test.use({ baseURL: `http://localhost:${PORT + 1}` });
 
-  test("Sweetie keeps asking from the scripted path and the page says the assistant is unavailable", async ({ page, request }) => {
-    // The degraded server has its own mailbox (playwright.config.ts), so the code is read from there.
-    const { token } = await bookAndOpen(page, request, "E2E Degraded", `${MAIL_DIR}-degraded`);
+  test("Sweetie keeps asking from the scripted path and the page says the assistant is unavailable", async ({ page }) => {
+    const token = await bookAndOpen(page, "E2E Degraded", DEGRADED_MAIL_DIR);
     const note = page.locator(".sweetie-degraded-note");
 
     await answerFirstQuestion(page);
@@ -59,6 +66,7 @@ test.describe("model gateway unreachable", () => {
     await expect(page.locator(".sweetie-messages")).toContainText(SCRIPTED_FOLLOW_UP, LOADED);
     await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-sweetie-degraded.png`, fullPage: true });
 
+    // page.request: the verified patient session lives in the browser's cookie jar (T08, §5.3).
     const bundle = await (await page.request.get(`/api/patient/${token}`)).json();
     expect(bundle.status.answered).toBeGreaterThanOrEqual(1);
   });
@@ -67,8 +75,8 @@ test.describe("model gateway unreachable", () => {
 test.describe("no model configured", () => {
   test.use({ baseURL: `http://localhost:${PORT}` });
 
-  test("the offline demo is not an outage: same scripted questions, no degraded note", async ({ page, request }) => {
-    await bookAndOpen(page, request, "E2E Scripted", MAIL_DIR);
+  test("the offline demo is not an outage: same scripted questions, no degraded note", async ({ page }) => {
+    await bookAndOpen(page, "E2E Scripted", MAIL_DIR);
     await answerFirstQuestion(page);
 
     await expect(page.locator(".sweetie-messages")).toContainText(SCRIPTED_FOLLOW_UP, LOADED);

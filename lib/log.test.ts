@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { HttpError } from "./httpError";
 import { ALLOWED_FIELDS, formatLine, log, runWithRequestContext, requestIdFrom, sanitize, scrub, setLogSink, withRoute } from "./log";
 
 const parse = (line: string) => JSON.parse(line) as Record<string, unknown>;
@@ -176,6 +177,43 @@ test("withRoute logs one access line and echoes the request id on the response",
   assert.equal(parsed[1].method, "GET");
   assert.equal(parsed[1].status, 200);
   assert.equal(typeof parsed[1].durationMs, "number");
+});
+
+test("withRoute answers a guard's refusal and logs it as the access line, not as a crash", async () => {
+  // A 403 from lib/guard.ts is an answer the route meant to give (§5.2), so there is still exactly one access
+  // line — named after the refusal, and carrying the role and capability the allow-list now admits (§10.3).
+  const lines: string[] = [];
+  setLogSink((_level, line) => lines.push(line));
+  let res: Response;
+  try {
+    const handler = withRoute("POST /api/practice/users", async () => {
+      throw new HttpError(403, "A staff account cannot do this. Ask an admin in your practice.", "request_forbidden", {
+        userId: "cuser0000000000000000000a",
+        role: "staff",
+        capability: "users:manage",
+        email: "maya@practice.com",
+      });
+    });
+    res = await handler(new Request("http://localhost/api/practice/users", { method: "POST" }));
+  } finally {
+    setLogSink();
+  }
+
+  assert.equal(res.status, 403);
+  assert.deepEqual(await res.json(), { error: "A staff account cannot do this. Ask an admin in your practice." });
+  assert.equal(res.headers.get("x-request-id"), parse(lines[0]).requestId);
+
+  assert.equal(lines.length, 1, "one access line per request, refused or not");
+  const line = parse(lines[0]);
+  assert.equal(line.level, "warn");
+  assert.equal(line.event, "request_forbidden");
+  assert.equal(line.status, 403);
+  assert.equal(line.route, "POST /api/practice/users");
+  assert.equal(line.role, "staff");
+  assert.equal(line.capability, "users:manage");
+  // The allow-list still applies to a guard's fields: an address is dropped by name, like anywhere else.
+  assert.equal(JSON.stringify(line).includes("maya@practice.com"), false);
+  assert.deepEqual(line.droppedFields, ["email"]);
 });
 
 test("withRoute logs a scrubbed failure and rethrows", async () => {

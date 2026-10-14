@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { postJson } from "./api";
+import { MAIL_DIR } from "./auth";
 
 // Verifying a patient link the way a patient does (design §2.3, §5.3): open the link, read the six-digit
 // code out of the message that was "sent", type it in. Nothing is stubbed — with no SMS or email backend
@@ -10,9 +11,8 @@ import { postJson } from "./api";
 // ticket's acceptance criteria name), and these helpers read it back out of there.
 //
 // One mailbox per server, because playwright.config.ts starts three of them and a code from one must never
-// be read as another's. MAIL_DIR is the main server's; the degraded spec passes its own.
-
-export const MAIL_DIR = process.env.DEV_MAIL_DIR ?? "e2e/.mail";
+// be read as another's. MAIL_DIR and DEGRADED_MAIL_DIR come from e2e/auth.ts, which already names them for
+// the sign-in links; a code and a sign-in link land in the same directory.
 
 /**
  * Every patient these specs book needs a contact method, because that is where the code goes — and a
@@ -61,11 +61,17 @@ export async function waitForCode(email: string, dir = MAIL_DIR, notBefore: stri
   throw new Error(`no verification code arrived for ${email} in ${dir}`);
 }
 
-/** Type the code on a code screen that is already showing, and wait for the page behind it. */
-export async function enterCode(page: Page, email: string, dir = MAIL_DIR): Promise<string> {
+/**
+ * Type the code on a code screen that is already showing, and wait for the page behind it.
+ *
+ * `notBefore` is the code this address was last sent, for a test that verifies the same patient twice — a
+ * regenerated link (§5.5) sends a second code to the same address, and the first one is still the newest
+ * file in the mailbox until it lands. Without it the screen gets the old code and stays where it is.
+ */
+export async function enterCode(page: Page, email: string, dir = MAIL_DIR, notBefore: string | null = null): Promise<string> {
   const field = page.getByLabel("6-digit code");
   await expect(field).toBeVisible({ timeout: 30_000 });
-  const code = await waitForCode(email, dir);
+  const code = await waitForCode(email, dir, notBefore);
   await field.fill(code);
   await page.getByRole("button", { name: /Continue/i }).click();
   // The gate is a server component, so a verified link is a navigation away from the code screen.
@@ -77,9 +83,9 @@ export async function enterCode(page: Page, email: string, dir = MAIL_DIR): Prom
  * Verify in the browser: open the link, which is what sends the code, then type it. Leaves the page on
  * whatever the link opens, with the session cookie in the browser's jar.
  */
-export async function verifyLink(page: Page, token: string, email: string, dir = MAIL_DIR): Promise<string> {
+export async function verifyLink(page: Page, token: string, email: string, dir = MAIL_DIR, notBefore: string | null = null): Promise<string> {
   await page.goto(`/s/${token}`);
-  return enterCode(page, email, dir);
+  return enterCode(page, email, dir, notBefore);
 }
 
 /**

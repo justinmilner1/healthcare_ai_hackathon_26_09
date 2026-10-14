@@ -6,41 +6,36 @@
 // second click while the first send is still in flight joins it; a resend later is a real resend (lib/jobs.ts).
 // Per-channel delivery status is recorded on the visit and shown to staff in T19 (§8.3).
 //
-// Regenerating is the destructive half, so it takes a signed-in provider from the practice that owns the
-// visit, and it does what §5.5 says: the old token stops working, and every patient session and pending code
+// Sending invites is staff's job (§5.2, `visits:invite`), and the visit has to be one of the caller's own
+// practice's: another practice's visit id is a 404, not a 403, so the refusal says nothing about whether that
+// visit exists (lib/guard.ts). Regenerating is the same job and the same capability — §5.5 gives it to staff —
+// and it does what that section says: the old token stops working, and every patient session and pending code
 // that stood on it is gone, so a browser still holding the cookie is out too.
 
 import { randomBytes } from "node:crypto";
 import { after, NextResponse } from "next/server";
-import { currentProvider } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requireCapability, requireVisitInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
 import { revokeSessions } from "@/lib/patientSession";
 import { intakeLink } from "@/lib/sms";
-import { findVisit } from "@/lib/visit";
 
 async function postHandler(req: Request) {
+  const me = await requireCapability("visits:invite");
   const body = (await req.json().catch(() => ({}))) as { visitId?: string; regenerate?: boolean };
   if (!body.visitId) return NextResponse.json({ error: "visitId is required" }, { status: 400 });
-  const visit = await findVisit(body.visitId);
-  if (!visit) return NextResponse.json({ error: "visit not found" }, { status: 404 });
+  const visit = await requireVisitInPractice(body.visitId, me);
 
   let token = visit.token;
   if (body.regenerate) {
-    const provider = await currentProvider();
-    if (!provider) return NextResponse.json({ error: "sign in first" }, { status: 401 });
-    if (provider.practiceId !== visit.patient.practiceId) {
-      log.warn("invite_regenerate_cross_practice", { visitId: visit.id, userId: provider.id, practiceId: provider.practiceId });
-      return NextResponse.json({ error: "that visit belongs to another practice" }, { status: 403 });
-    }
     token = randomBytes(16).toString("base64url");
     const revoked = await revokeSessions(visit.id);
     await db.visit.update({ where: { id: visit.id }, data: { token } });
     // The old link's holder is no longer verified, so the visit is back to waiting for someone to open the
     // new one. Only from `verified`: a visit already in intake keeps the state it earned (§4.4).
     await db.visit.updateMany({ where: { id: visit.id, status: "verified" }, data: { status: "invited" } });
-    log.info("invite_regenerated", { visitId: visit.id, userId: provider.id, count: revoked });
+    log.info("invite_regenerated", { visitId: visit.id, userId: me.id, count: revoked });
   }
 
   const { job, deduped } = await enqueue({ kind: "notify.invite", payload: { visitId: visit.id }, idempotencyKey: `notify.invite:${visit.id}` });

@@ -15,11 +15,11 @@ import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { enqueue, nudge } from "@/lib/jobs";
 import { llmStatus, LLMUnavailable } from "@/lib/llm";
+import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
 import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
-import { patientAllowed, VERIFICATION_REQUIRED } from "@/lib/patientSession";
 import { providerName, visitByToken } from "@/lib/visit";
 
 const MAX_TURNS = 6;
@@ -48,7 +48,7 @@ async function getHandler(req: Request) {
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   // §5.3 The token names the visit; the verified session is what opens it.
-  if (!(await patientAllowed(req, visit))) return NextResponse.json(VERIFICATION_REQUIRED, { status: 401 });
+  await requireVerifiedPatient(req, visit);
   const bundle = await loadBundle(visit.id);
   const rows = await db.message.findMany({ where: { visitId: visit.id }, orderBy: { createdAt: "asc" } });
   const messages: ChatMessage[] = rows.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content, createdAt: m.createdAt.toISOString() }));
@@ -65,7 +65,7 @@ async function postHandler(req: Request) {
   const visit = await visitByToken(body.token ?? null);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
   // §5.3 The token names the visit; the verified session is what opens it.
-  if (!(await patientAllowed(req, visit))) return NextResponse.json(VERIFICATION_REQUIRED, { status: 401 });
+  await requireVerifiedPatient(req, visit);
   const message = body.message?.trim();
   const event = body.event?.type === "upload" ? body.event : undefined;
   const skippingQuestions = body.event?.type === "skip_questions";

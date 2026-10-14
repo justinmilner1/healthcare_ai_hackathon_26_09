@@ -249,15 +249,6 @@ export async function verifiedSession(
 }
 
 /**
- * The refusal every patient route gives when the link has not been verified (§5.3). A `code` the page can
- * branch on, and a sentence that says what to do rather than what went wrong.
- */
-export const VERIFICATION_REQUIRED = {
-  error: "Verify your link before continuing: open it again and type the code we text or email you.",
-  code: "verification_required",
-} as const;
-
-/**
  * Whether this visit needs a verified session at all. A sandbox visit is the isolated Dexcom demonstration
  * (§9.2, POST /api/dexcom/demo): a synthetic patient with no phone and no email, so there is nobody to send
  * a code to and no real data behind the link. Everything else needs one.
@@ -276,9 +267,9 @@ export async function patientAllowed(
 }
 
 /**
- * The verified session behind one request, or null — which every patient route turns into
- * VERIFICATION_REQUIRED. Takes the headers rather than a NextRequest so this module stays free of
- * next/server and the unit tests can load it.
+ * The verified session behind one request, or null — which requireVerifiedPatient in lib/guard.ts turns into
+ * the 401. Takes the headers rather than a NextRequest so this module stays free of next/server and the unit
+ * tests can load it.
  */
 export async function sessionForRequest(
   req: { headers: { get(name: string): string | null } },

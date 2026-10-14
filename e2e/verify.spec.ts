@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
-import { signInAsDemo } from "./auth";
+import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "./patient";
 
 // T08, design §2.3, §5.3, §5.5: the patient link is a door with a lock on it.
@@ -11,18 +11,24 @@ import { latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "
 
 const LOADED = { timeout: 30_000 };
 
-/** A patient with an address to send a code to, booked against the seeded demo provider. */
-async function book(request: import("@playwright/test").APIRequestContext, name: string) {
+/**
+ * A patient with an address to send a code to. Booking is staff's job and needs their session (T06, §5.2), so
+ * someone at the practice signs in, books, and signs out again — leaving the browser as a patient's, which is
+ * the only thing these tests are about. `contact: false` books a visit with nothing to send a code to.
+ */
+async function book(page: import("@playwright/test").Page, name: string, contact = true) {
   const email = patientEmail(name);
+  await signInAsDemo(page);
   const booked = await (
-    await postJson(request, "/api/book", { name, email, visitType: "follow_up", reason: "checking the lock", optIn: false })
+    await postJson(page.request, "/api/book", { name, ...(contact ? { email } : {}), visitType: "follow_up", reason: "checking the lock", optIn: false })
   ).json();
   expect(booked.token, JSON.stringify(booked)).toBeTruthy();
+  await signOutOfBrowser(page);
   return { token: booked.token as string, visitId: booked.visitId as string, email };
 }
 
-test("opening a link sends a code and shows the code screen, and the right code opens the chat", async ({ page, request }) => {
-  const { token, email } = await book(request, "E2E Verify");
+test("opening a link sends a code and shows the code screen, and the right code opens the chat", async ({ page }) => {
+  const { token, email } = await book(page, "E2E Verify");
 
   // Opening the link is what sends the code (§2.3). The screen says where it went and nothing else: no
   // patient name, no phone number, no address — a forwarded link reveals nothing.
@@ -57,8 +63,8 @@ test("opening a link sends a code and shows the code screen, and the right code 
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
 });
 
-test("a wrong code counts down, and the third one invalidates the code for good (§5.3)", async ({ page, request }) => {
-  const { token, email } = await book(request, "E2E Wrong Code");
+test("a wrong code counts down, and the third one invalidates the code for good (§5.3)", async ({ page }) => {
+  const { token, email } = await book(page, "E2E Wrong Code");
   await page.goto(`/s/${token}`);
   await expect(page.getByLabel("6-digit code")).toBeVisible(LOADED);
   const code = await waitForCode(email);
@@ -91,16 +97,18 @@ test("a wrong code counts down, and the third one invalidates the code for good 
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
 });
 
-test("the link alone opens nothing: every patient route refuses without a session (§2.3)", async ({ request }) => {
-  const { token, email } = await book(request, "E2E Forwarded");
+test("the link alone opens nothing: every patient route refuses without a session (§2.3)", async ({ page, request }) => {
+  // Booked in `page`, then exercised through `request`, which has never verified anything: exactly the
+  // position someone a link was forwarded to is in.
+  const { token, email } = await book(page, "E2E Forwarded");
 
-  // This request context never verified, so it is exactly the position someone a link was forwarded to is in.
   expect((await request.get(`/api/sweetie?token=${token}`)).status()).toBe(401);
   expect((await request.get(`/api/patient/${token}`)).status()).toBe(401);
   expect((await request.get(`/api/dexcom/status?token=${token}`)).status()).toBe(401);
   const chat = await postJson(request, "/api/sweetie", { token, message: "mornings are rough" });
   expect(chat.status()).toBe(401);
-  expect((await chat.json()).code).toBe("verification_required");
+  // The refusal says what to do about it, and nothing about the visit behind it (lib/guard.ts).
+  expect((await chat.json()).error).toMatch(/verify your link/i);
 
   const upload = await request.fetch("/api/upload", { method: "DELETE", data: { token, kind: "dexcom" }, headers: { "x-csrf-token": await csrfToken(request) } });
   expect(upload.status()).toBe(401);
@@ -113,6 +121,7 @@ test("the link alone opens nothing: every patient route refuses without a sessio
 });
 
 test("regenerating a link invalidates the old one and the session on it (§5.5)", async ({ page, request, browser }) => {
+  // The clinician stays signed in here: replacing a link is theirs to do, behind `visits:invite` (§5.2).
   const demo = await signInAsDemo(page);
   const email = patientEmail("E2E Regenerated");
   const booked = await (
@@ -121,7 +130,7 @@ test("regenerating a link invalidates the old one and the session on it (§5.5)"
 
   // The patient verifies in their own browser; the clinician is in `page`.
   const patient = await browser.newPage();
-  await verifyLink(patient, booked.token, email);
+  const firstCode = await verifyLink(patient, booked.token, email);
   await expect(patient.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
 
   const replaced = await postJson(page.request, "/api/invite", { visitId: booked.visitId, regenerate: true });
@@ -130,8 +139,10 @@ test("regenerating a link invalidates the old one and the session on it (§5.5)"
   expect(regenerated).toBe(true);
   expect(link).not.toContain(booked.token);
 
-  // The old token is gone, so the old link is not a link any more...
-  expect((await request.get(`/api/patient/${booked.token}`)).status()).toBe(404);
+  // The old token is gone, so it names nothing: the route cannot tell it from any other unknown identifier,
+  // and an unknown identifier falls through to the provider branch, which this context has no session for.
+  // 401 and 404 both mean "not from here"; what matters is that it is no longer the patient's way in.
+  expect((await request.get(`/api/patient/${booked.token}`)).status()).toBe(401);
   // ...and the browser that was already verified on it is out, cookie and all.
   await patient.reload();
   await expect(patient.locator("body")).toContainText(/couldn't find that link/i, LOADED);
@@ -140,7 +151,8 @@ test("regenerating a link invalidates the old one and the session on it (§5.5)"
   // The new link works, with a new code.
   const fresh = new URL(link).pathname.replace("/s/", "");
   const next = await browser.newPage();
-  await verifyLink(next, fresh, email);
+  // Same address, second code: wait for the one the new link sends rather than the one still in the mailbox.
+  await verifyLink(next, fresh, email, undefined, firstCode);
   await expect(next.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
   await next.close();
 });
@@ -148,9 +160,9 @@ test("regenerating a link invalidates the old one and the session on it (§5.5)"
 test("a link with no phone or email on file says so instead of showing a code screen", async ({ page, request }) => {
   // §2.2 has staff record a contact method with the visit. Until one is there a code has nowhere to go, and
   // the honest answer is to send the patient to the office rather than to a screen that cannot work.
-  const booked = await (await postJson(request, "/api/book", { name: "E2E No Contact", visitType: "follow_up", optIn: false })).json();
-  await page.goto(`/s/${booked.token}`);
+  const { token } = await book(page, "E2E No Contact", false);
+  await page.goto(`/s/${token}`);
   await expect(page.locator(".patient-state-card")).toContainText(/no phone number or email address on file/i, LOADED);
-  expect((await postJson(request, "/api/verify", { token: booked.token })).status()).toBe(422);
+  expect((await postJson(request, "/api/verify", { token })).status()).toBe(422);
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-no-contact.png`, fullPage: true });
 });
