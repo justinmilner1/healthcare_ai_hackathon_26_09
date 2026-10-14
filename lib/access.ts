@@ -44,6 +44,15 @@ export const CAPABILITIES = {
   "users:manage": ["admin"],
   /** Rename the practice, change its retention window (§2.8, §10.4). */
   "practice:manage": ["admin"],
+  /**
+   * Delete a patient's data end to end, on the patient's request (§2.8, §10.5). §10.5 calls it "a staff
+   * action" and §2.8 has the request arriving "through the practice", which is the front desk: the people who
+   * take the phone call are the people who act on it, so this is staff's as much as an admin's. Not a
+   * clinician's — reading a summary is not a reason to be able to destroy the record behind it — and nothing
+   * about the capability is reversible, which is why the route also insists on the patient's typed name
+   * (lib/retention.ts confirmsDeletion).
+   */
+  "patients:delete": ["admin", "staff"],
   /** Read and export the practice's audit log (§10.2). "Readable by practice admins", in those words. */
   "audit:read": ["admin"],
 } as const satisfies Record<string, readonly Role[]>;

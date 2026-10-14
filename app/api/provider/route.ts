@@ -76,6 +76,9 @@ async function getHandler() {
         token: v.token,
         phone: v.patient.phone,
         email: v.patient.email,
+        // §10.5 Set the moment a deletion is asked for and cleared only by the row going. The dashboard
+        // stops offering anything on a row whose patient is on the way out (app/provider/dashboard.tsx).
+        patientDeletedAt: v.patient.deletedAt,
         createdAt: v.createdAt,
         uploads,
         answered: answeredCount(intake, defs),

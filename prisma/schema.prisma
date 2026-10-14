@@ -136,6 +136,12 @@ model Visit {
   reviewedBy String?
   reviewedAt DateTime?
 
+  // §10.4 When the nightly retention sweep removed this visit's data. Set once, by lib/retentionStore.ts, and
+  // what keeps the next sweep from picking the same visit up again: the row itself stays — the appointment
+  // happened, and the audit record of the deletion points at it — but intake, notes, messages, uploads and
+  // summaries are gone. Null on every visit inside the practice's retention window, which is nearly all of them.
+  retentionSweptAt DateTime?
+
   notes  String? // Sweetie's collected answers rendered as text for Sour
   intake String? // Sweetie's structured IntakeState as JSON (lib/types.ts)
 
@@ -152,6 +158,7 @@ model Visit {
 
   @@index([patientId])
   @@index([providerUserId])
+  @@index([retentionSweptAt])
 }
 
 // §8.3 What one channel did with one message to this visit: "Delivery results are recorded on the visit

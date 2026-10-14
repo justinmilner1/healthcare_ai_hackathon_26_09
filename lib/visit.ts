@@ -26,7 +26,11 @@ export async function findVisit(idOrToken: string) {
  *  and that is where §10.2's audit row is written (app/api/verify/route.ts, lib/auditStore.ts). */
 export async function visitByToken(token: string | null | undefined) {
   if (!token) return null;
-  return db.visit.findUnique({ where: { token }, include: WITH_CONTEXT });
+  // A visit the retention sweep has cleared is not reachable by its link any more (§10.4): there is nothing
+  // behind it, and letting the patient in would have them refill a row that is already marked swept — data
+  // kept past the practice's window, by the very job whose point is that it is not. The provider path reads
+  // visits by id (findVisit above) and still sees the emptied row.
+  return db.visit.findFirst({ where: { token, retentionSweptAt: null }, include: WITH_CONTEXT });
 }
 
 export type VisitWithContext = NonNullable<Awaited<ReturnType<typeof findVisit>>>;
