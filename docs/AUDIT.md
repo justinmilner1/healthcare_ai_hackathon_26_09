@@ -30,8 +30,16 @@ The verification row is the code, not the link. Since T08 a token on its own ope
 nothing else (§2.3), so resolving one is not a verification and records nothing; what §10.2 is asking about
 is the moment a code from the visit's own phone or email is accepted and the browser gets a 24-hour session.
 That route writes it through `recordPatientVerified`, so it speaks the same vocabulary as the rest of the
-trail and its detail goes through the gate below. T14 adds `patient.deleted` and the nightly
-`retention.swept` (§10.4, §10.5).
+trail and its detail goes through the gate below.
+
+Deletions are three different events and each has its own action. `upload.deleted` and `summary.deleted` are
+the patient withdrawing one upload from their own link. `patient.deleted` is §10.5's staff action — one row
+for the whole person, written against the staff member who asked for it even though a job carried it out,
+because somebody pressed it. `retention.swept` is §10.4's nightly job, one row per visit it cleared, with the
+job as the actor: nobody pressed anything. All three carry counts and nothing else (`visits`, `uploads`,
+`turns`, `summaries`, `objects`, `orphans`, `dexcom`, `days`), so the trail says how much went and never what
+it was. `orphans` above zero is the one to read twice: it means the rows are gone and some bytes were left in
+the object store.
 
 ### What deliberately does not write a row
 

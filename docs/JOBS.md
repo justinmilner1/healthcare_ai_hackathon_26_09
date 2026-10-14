@@ -1,7 +1,8 @@
 # Background jobs
 
 Everything that is slow or can fail on its own runs as a row in `Job`, not inside the request that asked for it
-(design §3.4, §4.9). Today that is Sour and the two notifications; retention and patient deletion join later.
+(design §3.4, §4.9). Today that is Sour, the three notifications, the nightly retention sweep and patient
+deletion.
 
 | Kind | Enqueued by | Does |
 |---|---|---|
@@ -9,15 +10,31 @@ Everything that is slow or can fail on its own runs as a row in `Job`, not insid
 | `notify.invite` | adding a patient with consent (`/api/book`), a CSV import (`/api/visits/import`), Send link (`/api/invite`) | the presigned `/s/<token>` link, on the channels the visit consented to (§2.2); what each channel did is recorded on the visit (§8.3) |
 | `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
+| `patient.delete` | the Delete data button on the dashboard (`/api/deletion`) | §10.5: one patient's data end to end — every visit, the stored objects behind their uploads, their Dexcom tokens, and their own name and contact details. Payload `{ patientId, requestedBy }`, and the audit row names the person who asked |
+| `retention.sweep` | the runner itself, once in twenty hours (`scheduleRetentionSweep`) | §10.4: every practice's visits past its own `retentionDays` lose their intake, notes, messages, uploads and summaries. The `Visit` row stays, marked `retentionSweptAt`. Payload is empty, or `{ practiceId }` to sweep one practice |
 
 Why a table and not an awaited call: two model calls and an SES round trip made a patient or a clinician wait
 for something they were not reading, and a crash or a redeploy mid-request lost the work with nothing left to
 say it was owed. A job row says what to do, when it may run, how often it has been tried and why it last
 failed, so the work survives the process and a clinician can see where it got to.
 
-**No payload holds PHI.** Every payload is `{ visitId }`; the handler reads the visit back. The row outlives
-the request, so nothing in it may be a name, a phone number, an address or clinical text (§10.3). `lastError`
-is scrubbed by the same function the logger uses.
+**No payload holds PHI.** Every payload is `{ visitId }` — or, for `patient.delete`, a patient id and the
+opaque user id of whoever asked; the handler reads the rest back. The row outlives the request, so nothing in
+it may be a name, a phone number, an address or clinical text (§10.3). `lastError` is scrubbed by the same
+function the logger uses.
+
+**Where "nightly" comes from.** §3.4 gives the app one clock: EventBridge calling `POST /api/jobs/run` every
+minute. That route asks `scheduleRetentionSweep` on every tick, which queues a `retention.sweep` only if none
+has been queued in the last twenty hours — so the sweep is nightly with no second schedule to create, and an
+environment without one still sweeps. The guard is the last sweep's `createdAt` and not its idempotency key,
+because the key is released the moment the job finishes, which for this job is seconds later.
+`npm run jobs:drain` asks the same thing, so a local database sweeps when somebody drains the queue.
+
+**Deleting is idempotent, and the bytes go by prefix.** Both deletion jobs can be retried, which §3.4 will do
+three times: the sweep skips what it has marked, and the purge works from whatever is still there and reports
+nothing when there is nothing left. Stored objects are deleted by prefix (`visits/<visitId>/`) rather than by
+the keys on the `Upload` rows, because an object whose row a half-finished earlier attempt already removed
+would otherwise be invisible and stay for ever.
 
 ## Who drains the queue
 
@@ -75,7 +92,8 @@ was down is stored with a null fingerprint and is never reused at all.
 
 1. Add the name to `JOB_KINDS` in `lib/jobs.ts`.
 2. Add a handler to `handlers` in `lib/jobHandlers.ts`. Throwing is how a job asks to be retried; returning is
-   success. Take `{ visitId }` (or another opaque id) and read the rest from the database.
+   success. Take `{ visitId }` (or another opaque id — `patient.delete` takes a patient id, `retention.sweep`
+   takes nothing) and read the rest from the database.
 3. Enqueue it from the route that wants it, and `nudge(after)` so local development still runs it.
 
 A kind with no handler is not silently dropped: the job fails with `no handler for job kind ...`, three times,
