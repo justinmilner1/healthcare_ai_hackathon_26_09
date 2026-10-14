@@ -257,7 +257,15 @@ export function cookieValue(header: string | null, name: string): string | null 
     const eq = part.indexOf("=");
     if (eq === -1) continue;
     if (part.slice(0, eq).trim() !== name) continue;
-    return decodeURIComponent(part.slice(eq + 1).trim());
+    const raw = part.slice(eq + 1).trim();
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      // A header is whatever the caller typed, and `%ZZ` makes decodeURIComponent throw. Returning the
+      // undecoded value keeps this a 403 from checkCsrf ("malformed csrf token") rather than a 500 from a
+      // route handler, which is the difference between refusing a request and failing on it.
+      return raw;
+    }
   }
   return null;
 }
