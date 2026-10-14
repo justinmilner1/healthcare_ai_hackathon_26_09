@@ -14,8 +14,12 @@ import { signInAsDemo } from "./auth";
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
 // JSON the page reads, and found in neither.
 
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
+// Not fullPage, unlike the other specs: this practice's whole trail is on screen, every other spec in the
+// run adds to it, and on a phone each row stacks into five lines — so a full-page shot of it is tens of
+// thousands of pixels tall and shows a reviewer nothing. The viewport is the screen. The filtered shot below
+// is the one with a known number of rows in it.
+const shot = async (page: Page, name: string, fullPage = false) => {
+  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
 };
 
 const LOADED = { timeout: 30_000 };
@@ -71,6 +75,10 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await page.getByLabel("Visit or upload id").fill(booked.visitId);
   await expect(table).toContainText("Upload deleted", LOADED);
   await expect(page.locator(".audit-table tbody tr")).not.toHaveCount(0);
+  // Three rows, all of them this visit's: the link accepted, the clinician's read, the deletion.
+  await expect(table).toContainText("Patient link accepted");
+  await expect(table).toContainText("Uploaded data read");
+  await shot(page, "provider-audit-visit", true);
 
   // A filter that matches nothing says so, rather than looking like an empty log.
   await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");

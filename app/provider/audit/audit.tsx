@@ -23,9 +23,9 @@ const BLANK = { action: "", actorId: "", entityId: "", from: "", to: "", limit: 
 type Filters = typeof BLANK;
 
 /** The filter form as a query string, leaving out what was not filled in. */
-function queryOf(filters: Filters): string {
+function queryOf(filters: Filters, extra: Record<string, string> = {}): string {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
+  for (const [key, value] of Object.entries({ ...filters, ...extra })) if (value) params.set(key, value);
   return params.toString();
 }
 
@@ -82,6 +82,8 @@ export default function AuditTrail({ meId }: { meId: string }) {
         <header className="ss-topbar">
           <PersonaBrand persona="sour" context="Audit trail" />
           <div className="provider-top-actions">
+            {/* First, because a phone hides the first button in this row (globals.css, under 680px) and the
+                way back to the dashboard is the one an admin on a phone needs. */}
             <Link href="/provider/settings" className="ss-button">
               Settings
             </Link>
@@ -165,7 +167,7 @@ export default function AuditTrail({ meId }: { meId: string }) {
 
           <div className="audit-filter-actions">
             {/* A GET, so it needs no CSRF token and can be a plain link: the browser saves it as a file. */}
-            <a className="ss-button ss-button-accent" href={`/api/audit?${query}&format=csv`} download>
+            <a className="ss-button ss-button-accent" href={`/api/audit?${queryOf(filters, { format: "csv" })}`} download>
               Export CSV
             </a>
             <button type="button" className="ss-text-button" onClick={() => setFilters(BLANK)} disabled={!filtered}>
@@ -236,7 +238,7 @@ export default function AuditTrail({ meId }: { meId: string }) {
                           <span className="audit-detail">
                             {Object.entries(entry.detail).map(([key, value]) => (
                               <span key={key} className={key === "droppedFields" ? "ss-pill ss-pill-warning" : "ss-pill ss-pill-info"}>
-                                {key} {Array.isArray(value) ? value.join(" ") : String(value)}
+                                {key}: {Array.isArray(value) ? value.join(", ") : String(value)}
                               </span>
                             ))}
                           </span>
