@@ -153,7 +153,8 @@ test("DEV_MAIL_DIR wins over a configured backend, so a sandbox with AWS keys in
     process.env.DEV_MAIL_DIR = dir;
     setLogSink(() => {});
     const result = await sendSignInLink("maya@practice.com", LINK, 15);
-    assert.deepEqual(result, { sent: true, provider: "dev-mailbox" });
+    // The result says where it landed, so a caller can tell a developer where to look for it.
+    assert.deepEqual(result, { sent: true, provider: "dev-mailbox", target: dir });
     assert.equal(linkIn(readDevMail(dir)[0].text), LINK);
   } finally {
     setLogSink();
@@ -174,7 +175,8 @@ test("with no email backend the link goes to the local mailbox, and the log line
     setLogSink((_level, line) => lines.push(line));
 
     const result = await sendSignInLink("maya@practice.com", LINK, 15);
-    assert.deepEqual(result, { sent: true, provider: "dev-mailbox" });
+    // The result says where it landed, so a caller can tell a developer where to look for it.
+    assert.deepEqual(result, { sent: true, provider: "dev-mailbox", target: dir });
     assert.equal(linkIn(readDevMail(dir)[0].text), LINK);
 
     const line = lines.join("\n");
