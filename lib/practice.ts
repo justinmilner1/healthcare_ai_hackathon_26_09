@@ -51,7 +51,7 @@ export const ensureDemoProvider = () => upsertProvider(DEMO);
  * write §5.2 forbids. An address that is already somewhere is sent to sign in instead, where the link in their
  * own inbox is the proof the address is theirs.
  */
-export async function signUpPractice(p: { name: unknown; email: unknown; practice?: unknown }) {
+export async function signUpPractice(p: { name?: unknown; email?: unknown; practice?: unknown }) {
   const email = normalizeEmail(p.email);
   if (!email) throw new HttpError(400, "That does not look like an email address.", "signup_email_invalid");
   const name = cleanPersonName(p.name);
