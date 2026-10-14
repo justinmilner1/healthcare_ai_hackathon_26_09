@@ -1,10 +1,11 @@
-# Security headers, CSRF, and the dependency audit
+# Security headers, CSRF, rate limits, and the dependency audit
 
-Fulfils design §10.8 (security headers, CSRF protection on state-changing routes, dependency audit in CI)
-and §12.4 (the audit runs on every pull request).
+Fulfils design §10.8 (security headers, CSRF protection on state-changing routes, dependency audit in CI),
+§5.4 (rate limits on the public routes) and §12.4 (the audit runs on every pull request).
 
-Three separate things live here because they fail in three different ways: a header that is missing on half
-the responses, a route that trusts a cookie it should not, and a dependency nobody re-checked.
+Four separate things live here because they fail in four different ways: a header that is missing on half
+the responses, a route that trusts a cookie it should not, a public route anyone can call as often as they
+like, and a dependency nobody re-checked.
 
 ---
 
@@ -180,7 +181,114 @@ Nothing to do.
 
 ---
 
-## 3. Dependency audit
+## 3. Rate limits on the public routes
+
+Fulfils design §5.4: "Rate limits on `/api/sweetie`, `/api/upload`, the code endpoints, and the invite link
+route, keyed by IP and by visit."
+
+Everything is in `lib/ratelimit.ts`. Four routes, two keys each, one table:
+
+| Route | Where the check runs | Per visit | Per IP |
+|---|---|---|---|
+| `/s/<token>` and the intake page under it | `middleware.ts` | 60 / min | 600 / min |
+| `POST /api/verify` (ask for a code, type one back) | the handler | 12 / min | 300 / min |
+| `GET`/`POST /api/sweetie` | the handler | 60 / min | 300 / min |
+| `POST`/`DELETE /api/upload` | the handler | 20 / min | 120 / min |
+
+### Why two keys
+
+They catch different things, and neither on its own is enough.
+
+**By visit** is the precise lock. One visit is one patient's half-hour of intake, so a visit asking for its
+fortieth six-digit code is not a patient, and the key holds however that caller is connected — a VPN, a phone
+and a laptop at once, a fresh address per request. The per-visit numbers are set from what the screen in
+front of the patient can produce: the code screen asks for a code on mount and on each "Send a new code",
+Sweetie is one message a turn, the intake page one upload a button. Each is several times the busiest honest
+run of that screen.
+
+**By IP** is the blunt backstop, for the flood the per-visit key cannot see because every request names a
+different visit — a token-enumeration sweep over the link route is exactly that shape. It is deliberately
+loose, a ceiling in requests per second rather than a per-patient budget: patients arrive through carrier
+NAT, where one address stands for a whole city, and a clinic waiting room is one address too, so a tight
+per-IP number locks out real patients long before it inconveniences anyone.
+
+What this is *not* is the brute-force defence for the codes themselves. Three wrong tries kill a code and
+ten minutes kill it anyway (§5.3, `lib/patientSession.ts`). §5.4 is about load and about cost — every code
+request is an SMS or an email somebody pays for.
+
+### Where each check runs, and in what order
+
+The three API routes limit themselves in the handler, in two steps:
+
+1. **By IP, first thing** — before the body is read. On `/api/upload` that is the only check that can refuse a
+   20 MB request without reading it (§9.1), and on `/api/sweetie` it is in front of the model call.
+2. **By visit, once the token has named one** — so a request with an unknown token never gets a window of its
+   own. On `/api/sweetie` and `/api/upload` this sits *after* the verified-session check, on purpose: a 401
+   costs almost nothing, and someone a link was forwarded to must not be able to spend the real patient's
+   window. On `/api/verify` it sits in front of both halves of the route, because spamming the patient's phone
+   with codes is the thing being prevented.
+
+The link route is a page, so it has no handler to put a check in, and `middleware.ts` is the only thing in
+front of it. Middleware runs on the edge runtime and cannot reach the database to turn a token into a visit
+id, so the per-visit window there is keyed by a fingerprint of the token, which names the visit (§5.3).
+A fingerprint and not the token itself: a patient's live link should not be sitting in a map key. Its refusal
+is an HTML page rather than JSON — whoever is reading it typed a link into a browser — and it carries the
+§10.8 static headers like any other response middleware returns itself.
+
+Every refusal is a `429` with `Retry-After` in seconds, `Cache-Control: no-store`, and one plain sentence:
+*"Too many requests just now. Please wait about 24 seconds and try again."* No numbers about the limit, so a
+caller learns when to come back and nothing about the shape of the ceiling. The code screen already shows
+whatever `/api/verify` says, so the patient sees that sentence with no new code on that page.
+
+A refusal is also one log line, `rate_limited`, through `withRoute` (`docs/LOGGING.md`). It carries the route,
+which key was spent (`ip` or `visit`), the ceiling, the retry seconds, and the visit id where there is one.
+**Never the address**: an IP is an identifier, and §10.3's allow-list is the thing that keeps it out.
+
+### In memory means per instance — and the production option
+
+The windows are counted in a `Map` in the app process. Fixed windows: a count and the instant it resets.
+
+That has one consequence worth being plain about. Two app servers behind the load balancer each allow the
+numbers above, so the real limit is the number in the table times the instance count, and a deploy resets
+every window. For a cost control that is a fair trade — no new dependency, nothing that can fail in a way
+that takes the app down with it — but it is not a security boundary, which is why nothing in §5.3 or §10.2
+rests on it.
+
+The production option is to move the counting into a store every instance shares. `RateLimitStore` in
+`lib/ratelimit.ts` is the entire seam:
+
+```ts
+export interface RateLimitStore {
+  hit(key: string, windowMs: number, now: number): Window;  // count one request, return { count, resetAt }
+  reset(): void;
+}
+```
+
+Two implementations fit it with no other change:
+
+- **ElastiCache (Redis)** — `INCR` on `<key>:<window start>` plus `EXPIRE windowMs`, which is the canonical
+  fixed-window counter and one round trip. The ceiling then holds across instances. Costs a VPC-attached
+  cache and a dependency that can be down; `hit` should fail open (allow the request, log it) rather than
+  refuse a patient because a cache is unreachable.
+- **DynamoDB** — `UpdateItem` with an `ADD` on the counter and a TTL attribute on the row. No new
+  infrastructure beyond a table, and it fits the per-request write volume of a clinic comfortably.
+
+Pick one when the app runs on more than one instance. Until then the in-memory store is the honest answer,
+and `MAX_KEYS` (20,000 windows, oldest and already-closed first) is what keeps it from becoming a memory leak
+when someone sweeps the link route from a botnet.
+
+### Testing it
+
+`lib/ratelimit.test.ts` covers the windows, the eviction, the key derivation and the message, with the clock
+and the store passed in so nothing waits on real time. `e2e/ratelimit.spec.ts` drives the shipped limits
+end to end: a burst of code requests for one visit gets the 429 and the sentence on the code screen, another
+visit booked at the same moment is unaffected, and the link route answers a burst with its HTML page. The
+per-IP ceilings are not driven from a test on purpose — tripping one would take the rest of the suite's
+traffic down with it.
+
+---
+
+## 4. Dependency audit
 
 `npm audit --audit-level=high` runs on every pull request, as the `== dependency audit` step of
 `scripts/agent-check.sh` (which is all CI runs — `.github/workflows/ci.yml`). Run it alone with:
