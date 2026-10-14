@@ -193,11 +193,15 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
 test("a file arriving after a summary makes it out of date, and regenerating writes a new one", async ({ page, request }) => {
   const demo = await signInAsDemo(page);
   // Booking is staff's job and needs the session (§5.2, T06), so it goes through the signed-in page. The
-  // uploads below do not: a patient's credential is the token in their link (§5.3), not a provider session.
+  // uploads below do not use that session: a patient's credential is the token in their link plus the
+  // verified session it earns (§5.3, T08), which is what the address below is for.
+  const email = patientEmail("E2E Fresh Data");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", visitType: "follow_up", reason: "spikes after dinner", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", email, visitType: "follow_up", reason: "spikes after dinner", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
+  // The uploads below go through `request`, so that is the context the patient session has to land in (§5.3).
+  await verifyByApi(request, booked.token, email);
 
   // Multipart, so postJson does not fit; the CSRF header is the same one it would have added (§10.8).
   const upload = async (kind: string, path: string, name: string) => {
