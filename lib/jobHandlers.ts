@@ -8,6 +8,8 @@
 // phone number, email address or clinical text in a row that outlives the request (§10.3), and a job that
 // runs a minute later works from the current state of the visit rather than a stale copy of it.
 
+import { recordAudit } from "./auditStore";
+import type { AuditAction } from "./auditLog";
 import type { JobHandlers, JobPayload } from "./jobs";
 import { log } from "./log";
 import { sendIntakeInvite, sendSummaryEmails, type SummaryNotifyResult, type InviteResult } from "./notify";
@@ -38,6 +40,35 @@ async function visitOf(payload: JobPayload) {
  * one: nothing to retry with, and the job is done having sent what it could. A configured channel that
  * errored keeps its retries.
  */
+/**
+ * §10.2 records "every send". One row per channel that a backend really tried, whether or not it landed: a
+ * channel with no address on file and an unconfigured sender never sent anything (that is what a missing
+ * `provider` means, see assertSendable), and a row saying so would be a record of nothing happening.
+ *
+ * The actor is the job, not a person — a send is queued by a booking or by Sour finishing and goes out
+ * minutes later (§3.4). What went out is named by its channel and its backend; the address it went to is the
+ * patient's and stays out of `detail` (§4.8).
+ */
+async function recordSends(
+  action: AuditAction,
+  visit: { id: string; patient: { practiceId: string } },
+  results: Record<string, { sent: boolean; error?: string; provider?: string }>,
+  /** What the keys of `results` are: the invite's are channels, the summary's are the two audiences (§8.2). */
+  field: "channel" | "audience" = "channel",
+): Promise<void> {
+  for (const [key, result] of Object.entries(results)) {
+    if (!result.provider) continue;
+    await recordAudit({
+      practiceId: visit.patient.practiceId,
+      actorType: "system",
+      action,
+      entityType: "visit",
+      entityId: visit.id,
+      detail: { [field]: key, provider: result.provider, sent: result.sent },
+    });
+  }
+}
+
 function assertSendable(event: string, visitId: string, channels: Record<string, { sent: boolean; error?: string; provider?: string }>): void {
   const results = Object.values(channels);
   if (results.some((r) => r.sent)) return;
@@ -69,6 +100,7 @@ export const handlers: JobHandlers = {
       providerName: providerName(visit),
       apptAt: visit.scheduledAt,
     });
+    await recordSends("invite.sent", visit, { sms: result.sms, email: result.email });
     assertSendable("invite", visit.id, { sms: result.sms, email: result.email });
   },
 
@@ -91,6 +123,9 @@ export const handlers: JobHandlers = {
       providerSummary,
       patientSummary,
     });
+    // Keyed by audience rather than by channel: both of these are email, and which of the two people got
+    // their link is the thing worth being able to ask about afterwards (§8.2).
+    await recordSends("summary.sent", visit, { provider: result.provider, patient: result.patient }, "audience");
     assertSendable("summary", visit.id, { provider: result.provider, patient: result.patient });
   },
 };

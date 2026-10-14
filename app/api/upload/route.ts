@@ -5,6 +5,7 @@
 // Owners: Dexcom -> Nisarga, location -> Robbert, WHOOP -> unassigned.
 
 import { NextResponse } from "next/server";
+import { recordAudit } from "@/lib/auditStore";
 import { loadBundle } from "@/lib/bundle";
 import { checkCsrfRequest } from "@/lib/csrf";
 import { db } from "@/lib/db";
@@ -49,11 +50,33 @@ async function deleteHandler(req: Request) {
   const kinds = body.kind === "timeline" ? ["timeline", "visits"] : [body.kind];
   // Read the keys before the rows go, or the stored bytes outlive the only record of where they are.
   const doomed = await db.upload.findMany({ where: { visitId: visit.id, kind: { in: kinds } }, select: { s3Key: true } });
-  await db.$transaction([
+  const [removed, discarded] = await db.$transaction([
     db.upload.deleteMany({ where: { visitId: visit.id, kind: { in: kinds } } }),
     // Cached narratives may cite the removed data. Regenerate them from the remaining sources.
     db.summary.deleteMany({ where: { visitId: visit.id } }),
   ]);
+  // §10.2 records every deletion, and these are two: the files the patient withdrew, and the summaries
+  // written from them. The patient did it with their own link, so they are the actor (§5.3).
+  await recordAudit({
+    practiceId: visit.patient.practiceId,
+    actorType: "patient",
+    actorId: visit.patientId,
+    action: "upload.deleted",
+    entityType: "visit",
+    entityId: visit.id,
+    detail: { kinds, count: removed.count },
+  });
+  if (discarded.count > 0) {
+    await recordAudit({
+      practiceId: visit.patient.practiceId,
+      actorType: "patient",
+      actorId: visit.patientId,
+      action: "summary.deleted",
+      entityType: "visit",
+      entityId: visit.id,
+      detail: { count: discarded.count, kinds },
+    });
+  }
   // Best effort, after the rows: a storage error must not leave the patient looking at data they deleted.
   // deleteObjects logs any key it could not remove; the retention sweep (§10.4) is the backstop.
   await deleteObjects(doomed.map((u) => u.s3Key).filter((k): k is string => !!k));

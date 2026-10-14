@@ -54,6 +54,31 @@ export const AUDIT_ACTION_NAMES = Object.keys(AUDIT_ACTIONS) as AuditAction[];
 /** The read action for one part of a visit. `VISIT_PARTS` and the keys above are kept in step by a test. */
 export const readAction = (part: VisitPart): AuditAction => `${part}.read` as AuditAction;
 
+/**
+ * Which parts of a visit a `PatientBundle` actually carried (lib/bundle.ts), so the rows say what was seen
+ * rather than what the screen has room for: a visit with no uploads records no `uploads.read`.
+ *
+ * `messages` is the transcript as a provider reads it. They are not handed the chat rows; they are handed
+ * `Visit.notes`, which is those rows in the words Sweetie rendered for Sour (AGENTS.md, lib/sweetie.ts
+ * renderNotes) — the patient's own account of their week either way, so reading it is reading the chat.
+ *
+ * Typed structurally rather than against PatientBundle, so this module stays free of imports (see the top of
+ * the file); a PatientBundle satisfies it.
+ */
+export function visitPartsRead(bundle: {
+  status: { hasDexcom: boolean; hasLocation: boolean; hasWhoop: boolean; answered: number };
+  patient: { notes: string | null };
+  providerSummary: unknown;
+  patientSummary: unknown;
+}): VisitPart[] {
+  const parts: VisitPart[] = [];
+  if (bundle.status.answered > 0) parts.push("intake");
+  if (bundle.patient.notes?.trim()) parts.push("messages");
+  if (bundle.providerSummary || bundle.patientSummary) parts.push("summary");
+  if (bundle.status.hasDexcom || bundle.status.hasLocation || bundle.status.hasWhoop) parts.push("uploads");
+  return parts;
+}
+
 /** What the page prints for an action, including one it does not know: shown as stored rather than blank, so
  *  a row from a newer build is still legible to the admin reading it. */
 export const actionLabel = (action: string): string => (AUDIT_ACTIONS as Record<string, string>)[action] ?? action;

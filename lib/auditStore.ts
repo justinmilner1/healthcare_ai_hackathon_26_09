@@ -114,8 +114,10 @@ async function absorbed(entry: AuditWrite, detail: string | null): Promise<boole
 function stripCount(raw: string | null): string {
   const detail = parseAuditDetail(raw);
   if (!detail) return "";
-  const { count: _count, requestId: _requestId, ...rest } = detail;
-  return JSON.stringify(Object.fromEntries(Object.entries(rest).sort(([a], [b]) => a.localeCompare(b))));
+  const rest = Object.entries(detail)
+    .filter(([key]) => key !== "count" && key !== "requestId")
+    .sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(Object.fromEntries(rest));
 }
 
 /**

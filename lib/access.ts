@@ -44,6 +44,8 @@ export const CAPABILITIES = {
   "users:manage": ["admin"],
   /** Rename the practice, change its retention window (§2.8, §10.4). */
   "practice:manage": ["admin"],
+  /** Read and export the practice's audit log (§10.2). "Readable by practice admins", in those words. */
+  "audit:read": ["admin"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Capability = keyof typeof CAPABILITIES;
