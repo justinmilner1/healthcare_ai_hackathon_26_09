@@ -43,11 +43,8 @@ async function waitForSignInLink(email: string): Promise<string> {
   throw new Error(`no sign-in link arrived for ${email} in ${MAIL_DIR}`);
 }
 
-/**
- * Sign in as the seeded demo provider and return their id and practice, read back from the session-scoped
- * GET /api/provider. The page's cookies are the session afterwards, so page.request speaks as them too.
- */
-export async function signInAsDemo(page: Page): Promise<SignedInProvider> {
+/** Ask for a link, open it, and say whether a session came of it. */
+async function attemptSignIn(page: Page): Promise<boolean> {
   const before = latestSignInLink(DEMO_EMAIL);
 
   await page.goto("/provider/signin");
@@ -65,6 +62,25 @@ export async function signInAsDemo(page: Page): Promise<SignedInProvider> {
   // The link is absolute and built from the request, so it already points at the right port.
   await page.goto(link);
   await expect(page).toHaveURL(/\/provider(\?|$|\/)/, { timeout: 30_000 });
+  return (await page.request.get("/api/provider")).ok();
+}
+
+/**
+ * Sign in as the seeded demo provider and return their id and practice, read back from the session-scoped
+ * GET /api/provider. The page's cookies are the session afterwards, so page.request speaks as them too.
+ *
+ * Retried, because every test that needs the dashboard signs in as the same address and the suite runs more
+ * than one worker: two tests asking for a link at the same time each take "the newest link for
+ * demo@sweetspot.local" out of the mailbox, and Auth.js deletes a token the moment it is redeemed, so the
+ * slower of the two opens a link the faster one already used and lands back on the sign-in page. Nothing
+ * about that is the app misbehaving — a one-time link used once is the point — so the answer is to ask for
+ * another one rather than to make the test's own race into a failure.
+ */
+export async function signInAsDemo(page: Page): Promise<SignedInProvider> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (await attemptSignIn(page)) break;
+    expect(attempt, "three sign-in links in a row were already redeemed by another worker").toBeLessThan(3);
+  }
 
   const response = await page.request.get("/api/provider");
   expect(response.ok(), `GET /api/provider after sign-in: ${response.status()}`).toBeTruthy();

@@ -267,11 +267,14 @@ describe("verification against the database", { skip: SERVER_URL ? false : "DATA
   it("invalidates the code after three wrong attempts, so even the right one stops working (§5.3)", async () => {
     const code = await issue();
     const wrong = code === "000000" ? "111111" : "000000";
-    for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt < MAX_CODE_ATTEMPTS; attempt++) {
       const outcome = await verifyCode(visitId, wrong, NOW, db);
-      assert.equal(outcome.ok, false);
-      assert.equal((outcome as { reason: string }).reason, "wrong", `attempt ${attempt}`);
+      assert.deepEqual(outcome, { ok: false, reason: "wrong", remaining: MAX_CODE_ATTEMPTS - attempt }, `attempt ${attempt}`);
     }
+    // The attempt that spends the last try is the one that invalidates the code, and says so rather than
+    // inviting a fourth try that can only fail.
+    assert.deepEqual(await verifyCode(visitId, wrong, NOW, db), { ok: false, reason: "locked", remaining: 0 });
+
     const after = await verifyCode(visitId, code, NOW, db);
     assert.deepEqual(after, { ok: false, reason: "locked", remaining: 0 });
     const stored = await db.patientSession.findFirst({ where: { visitId } });

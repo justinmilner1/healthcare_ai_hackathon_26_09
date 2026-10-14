@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { postJson } from "./api";
@@ -13,8 +14,15 @@ import { postJson } from "./api";
 
 export const MAIL_DIR = process.env.DEV_MAIL_DIR ?? "e2e/.mail";
 
-/** Every patient these specs book needs a contact method, because that is where the code goes. */
-export const patientEmail = (name: string) => `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}@example.test`;
+/**
+ * Every patient these specs book needs a contact method, because that is where the code goes — and a
+ * different one each time. The address is the key the mailbox is searched by, and the desktop and mobile
+ * projects run every spec against the same database and the same mailbox: two bookings sharing an address
+ * put two visits' codes under one name, and "the newest code for this address" then belongs to whichever
+ * project got there second. Call it once per booking and pass the result around.
+ */
+export const patientEmail = (name: string) =>
+  `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}.${randomBytes(4).toString("hex")}@example.test`;
 
 /** The newest code sent to this address, or null while nothing has arrived. */
 export function latestCode(email: string, dir = MAIL_DIR): string | null {
@@ -36,7 +44,14 @@ export function latestCode(email: string, dir = MAIL_DIR): string | null {
   return null;
 }
 
-/** Wait for the code: POST /api/verify answers 202 and the `notify.code` job sends after the response. */
+/**
+ * Wait for the code: POST /api/verify answers 202 and the `notify.code` job sends after the response.
+ *
+ * `notBefore` is for a resend, where the point is that the *next* code arrives. It is not the default,
+ * because reopening a link reuses a code that is still live rather than minting a second one (§5.3) — so
+ * insisting on a different one there would wait for something that is never coming. Every spec books its
+ * patient with its own address, which is what keeps "the newest code for this address" unambiguous.
+ */
 export async function waitForCode(email: string, dir = MAIL_DIR, notBefore: string | null = null): Promise<string> {
   for (let attempt = 0; attempt < 60; attempt++) {
     const code = latestCode(email, dir);
@@ -46,20 +61,25 @@ export async function waitForCode(email: string, dir = MAIL_DIR, notBefore: stri
   throw new Error(`no verification code arrived for ${email} in ${dir}`);
 }
 
+/** Type the code on a code screen that is already showing, and wait for the page behind it. */
+export async function enterCode(page: Page, email: string, dir = MAIL_DIR): Promise<string> {
+  const field = page.getByLabel("6-digit code");
+  await expect(field).toBeVisible({ timeout: 30_000 });
+  const code = await waitForCode(email, dir);
+  await field.fill(code);
+  await page.getByRole("button", { name: /Continue/i }).click();
+  // The gate is a server component, so a verified link is a navigation away from the code screen.
+  await expect(field).toBeHidden({ timeout: 30_000 });
+  return code;
+}
+
 /**
  * Verify in the browser: open the link, which is what sends the code, then type it. Leaves the page on
  * whatever the link opens, with the session cookie in the browser's jar.
  */
 export async function verifyLink(page: Page, token: string, email: string, dir = MAIL_DIR): Promise<string> {
-  const before = latestCode(email, dir);
   await page.goto(`/s/${token}`);
-  await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
-  const code = await waitForCode(email, dir, before);
-  await page.getByLabel("6-digit code").fill(code);
-  await page.getByRole("button", { name: /Continue/i }).click();
-  // The gate is a server component, so a verified link is a navigation away from the code screen.
-  await expect(page.getByLabel("6-digit code")).toBeHidden({ timeout: 30_000 });
-  return code;
+  return enterCode(page, email, dir);
 }
 
 /**

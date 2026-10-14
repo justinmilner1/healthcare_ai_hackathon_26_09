@@ -1519,6 +1519,9 @@ textarea.ss-input {
 
 .provider-row-actions {
   justify-content: flex-end;
+  /* Four actions per row since T08 added "New link" (§5.5). Wrapping the buttons keeps each label on one
+     line; without this the labels wrapped inside the buttons instead, which reads as two words stacked. */
+  flex-wrap: wrap;
 }
 
 .provider-row-actions .ss-button {
@@ -1526,6 +1529,7 @@ textarea.ss-input {
   padding: 0 10px;
   border-radius: 9px;
   font-size: 9px;
+  white-space: nowrap;
 }
 
 .provider-row-note {

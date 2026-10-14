@@ -222,9 +222,14 @@ export async function verifyCode(visitId: string, code: string, now: Date = new 
   }
   if (row && verdict.reason === "wrong") {
     const attempts = row.attempts + 1;
+    const spent = attempts >= MAX_CODE_ATTEMPTS;
     // The third wrong try invalidates the code (§5.3), and dropping the hash is what makes that final:
     // nothing can match it again, so the only way on is a new code.
-    await client.patientSession.update({ where: { id: row.id }, data: { attempts, ...(attempts >= MAX_CODE_ATTEMPTS ? { codeHash: "" } : {}) } });
+    await client.patientSession.update({ where: { id: row.id }, data: { attempts, ...(spent ? { codeHash: "" } : {}) } });
+    // checkCode judged the row as it was *before* this attempt, so on the last one it says "wrong, none
+    // left". What actually happened is that this attempt killed the code, and the screen should say that
+    // rather than invite a fourth try that can only fail.
+    if (spent) return { ok: false, reason: "locked", remaining: 0 };
   }
   return verdict;
 }

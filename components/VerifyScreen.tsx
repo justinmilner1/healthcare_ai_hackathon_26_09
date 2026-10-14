@@ -95,6 +95,9 @@ export default function VerifyScreen({
       const data = await response.json();
       if (!response.ok) {
         setCode("");
+        // The code is gone in every case but a wrong guess, so the note about it being on its way goes too:
+        // leaving it there would contradict the line right above it.
+        if (data.reason !== "wrong") setNote("");
         setError(
           data.reason === "wrong" && typeof data.remaining === "number" && data.remaining > 0
             ? `${data.error} ${data.remaining} ${data.remaining === 1 ? "try" : "tries"} left.`
@@ -126,8 +129,8 @@ export default function VerifyScreen({
           <p className="ss-eyebrow">{practiceName}</p>
           <h1 className="ss-title">Let&apos;s check it&apos;s you.</h1>
           <p className="ss-lede">
-            Before anything else, type the 6-digit code we just sent to {where(channels)}. It keeps your
-            check-in private even if this link is shared.
+            Before anything else, type the code we just sent you. It keeps your check-in private even if this
+            link is shared.
           </p>
 
           <form

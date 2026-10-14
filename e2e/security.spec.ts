@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
-import { patientEmail, verifyLink } from "./patient";
+import { enterCode, patientEmail } from "./patient";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
 // something. Both claims are checked against the running build, not against the source that sets them.
@@ -68,7 +68,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-security-verify.png`, fullPage: true });
   expect(violations, `verify: ${violations.join("\n")}`).toEqual([]);
-  await verifyLink(page, booked.token, email);
+  await enterCode(page, email);
 
   // Each screen, with text that only appears once its client JavaScript has run, and for the intake page the
   // click that reveals the data sources — the Dexcom sandbox button there is the one plain <form> in the app

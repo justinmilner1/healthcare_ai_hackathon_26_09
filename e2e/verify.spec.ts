@@ -28,7 +28,8 @@ test("opening a link sends a code and shows the code screen, and the right code 
   // patient name, no phone number, no address — a forwarded link reveals nothing.
   await page.goto(`/s/${token}`);
   await expect(page.getByLabel("6-digit code")).toBeVisible(LOADED);
-  await expect(page.locator(".patient-verify-card")).toContainText(/code we just sent to your email/i);
+  // The live note is where the channel is named, and naming the channel is as far as it goes (§2.3).
+  await expect(page.locator(".patient-verify-note")).toContainText(/code to your email/i, LOADED);
   await expect(page.locator("body")).not.toContainText("E2E Verify");
   await expect(page.locator("body")).not.toContainText(email);
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-code.png`, fullPage: true });
@@ -66,18 +67,18 @@ test("a wrong code counts down, and the third one invalidates the code for good 
   for (const left of ["2 tries left", "1 try left"]) {
     await page.getByLabel("6-digit code").fill(wrong);
     await page.getByRole("button", { name: /Continue/i }).click();
-    await expect(page.getByRole("alert")).toContainText(left, LOADED);
+    await expect(page.locator(".patient-verify-card .ss-error")).toContainText(left, LOADED);
   }
 
   // The third wrong try kills the code rather than the attempt: the right digits no longer work either.
   await page.getByLabel("6-digit code").fill(wrong);
   await page.getByRole("button", { name: /Continue/i }).click();
-  await expect(page.getByRole("alert")).toContainText(/no longer works/i, LOADED);
+  await expect(page.locator(".patient-verify-card .ss-error")).toContainText(/no longer works/i, LOADED);
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-locked.png`, fullPage: true });
 
   await page.getByLabel("6-digit code").fill(code);
   await page.getByRole("button", { name: /Continue/i }).click();
-  await expect(page.getByRole("alert")).toContainText(/no longer works/i, LOADED);
+  await expect(page.locator(".patient-verify-card .ss-error")).toContainText(/no longer works/i, LOADED);
   await expect(page.locator(".sweetie-messages")).toHaveCount(0);
 
   // A new code is the only way on, and it works.
