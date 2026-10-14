@@ -4939,6 +4939,29 @@ button.sweetie-agent-badge {
   .sour-print-footer {
     break-inside: avoid;
   }
+
+  /* Recharts measures its container once in the browser and writes that number onto the svg. The paper is a
+     different width, so without this the chart comes out at the screen's size in the middle of the card —
+     narrow on A4, overflowing on a smaller sheet. The svg carries a viewBox, so letting it fill the card
+     scales the whole drawing to whatever the page turns out to be. */
+  .sour-print-sheet .recharts-responsive-container,
+  .sour-print-sheet .recharts-wrapper,
+  .sour-print-sheet .recharts-surface {
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Nothing on paper is hovered. A tooltip left open by the last pointer position prints over the data. */
+  .sour-print-sheet .recharts-tooltip-wrapper,
+  .sour-print-sheet .recharts-tooltip-cursor {
+    display: none !important;
+  }
+
+  /* A chart's table twin is a disclosure, and a disclosure on paper is a triangle that does nothing. The
+     spike table beside it is already a table, and the sleep figures are on the tile and on the bars. */
+  .sour-print-sheet details {
+    display: none;
+  }
 }
 
 @media (max-width: 840px) {
