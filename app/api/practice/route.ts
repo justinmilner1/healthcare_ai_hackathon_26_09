@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
-import { practiceTeam, updatePracticeSettings } from "@/lib/team";
+import { practiceTeam, updatePracticeSettings } from "@/lib/teamStore";
 
 async function getHandler() {
   const me = await requireCapability("practice:manage");

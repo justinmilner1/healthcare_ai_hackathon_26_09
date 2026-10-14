@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
+import { can } from "@/lib/access";
 import { VISIT_TYPES, visitLabel } from "@/lib/visits";
 
 // One booked visit (design §4.4): `id` is the visit, `patientId` the person it is for. Every request the
@@ -34,6 +35,9 @@ type Provider = {
   id: string;
   name: string;
   practice: string | null;
+  /** From the session, server-side (design §5.2). It decides what this screen offers, never what it may do:
+   *  every route checks the role again (lib/guard.ts), so a hidden button is a courtesy, not a lock. */
+  role: string;
   visits: Row[];
 };
 type PatientForm = {
@@ -208,6 +212,11 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
     (visit) => !visit.hasSummary && (visit.answered > 0 || visit.uploads.length > 0),
   ).length;
   const flagged = visits.filter((visit) => visit.flagged).length;
+  // What this role may actually do. The routes check the same capabilities again (lib/guard.ts); offering a
+  // button that answers 403 is just a worse way of saying no.
+  const mayBook = can(provider.role, "visits:create");
+  const mayInvite = can(provider.role, "visits:invite");
+  const maySeeSummaries = can(provider.role, "summaries:read");
 
   return (
     <main className="ss-page sour-theme provider-dashboard">
@@ -215,13 +224,20 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
         <header className="ss-topbar">
           <PersonaBrand persona="sour" context="Practice command center" />
           <div className="provider-top-actions">
-            <button
-              className="ss-button ss-button-accent"
-              onClick={openWizard}
-            >
-              <span className="provider-button-plus">+</span>
-              Add patient
-            </button>
+            {mayBook && (
+              <button
+                className="ss-button ss-button-accent"
+                onClick={openWizard}
+              >
+                <span className="provider-button-plus">+</span>
+                Add patient
+              </button>
+            )}
+            {can(provider.role, "practice:manage") && (
+              <Link href="/provider/settings" className="ss-button">
+                Settings
+              </Link>
+            )}
             <Link href="/provider/signout" className="ss-text-button">
               Sign out
             </Link>
@@ -251,7 +267,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
             />
           </div>
           <div className="provider-hero-actions">
-            {ready > 0 ? (
+            {ready > 0 && maySeeSummaries ? (
               <Link
                 href={`/provider/${provider?.id}`}
                 className="ss-button ss-button-primary"
@@ -260,7 +276,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
               </Link>
             ) : (
               <span className="provider-hero-hint">
-                Sour will light up when a summary is ready.
+                {maySeeSummaries
+                  ? "Sour will light up when a summary is ready."
+                  : "Summaries are a clinician's to read. Yours is getting patients to Sweetie."}
               </span>
             )}
           </div>
@@ -391,23 +409,27 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                       </td>
                       <td>
                         <div className="provider-row-actions">
-                          <button
-                            type="button"
-                            onClick={() => copyIntakeLink(visit)}
-                            className="ss-button"
-                          >
-                            {rowNote[visit.id] === "Intake link copied"
-                              ? "Copied ✓"
-                              : "Copy intake"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => sendLink(visit)}
-                            className="ss-button"
-                          >
-                            Send link
-                          </button>
-                          {visit.hasSummary ? (
+                          {mayInvite && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => copyIntakeLink(visit)}
+                                className="ss-button"
+                              >
+                                {rowNote[visit.id] === "Intake link copied"
+                                  ? "Copied ✓"
+                                  : "Copy intake"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => sendLink(visit)}
+                                className="ss-button"
+                              >
+                                Send link
+                              </button>
+                            </>
+                          )}
+                          {!maySeeSummaries ? null : visit.hasSummary ? (
                             <Link
                               href={`/provider/${provider?.id}?visit=${visit.id}`}
                               className="ss-button ss-button-primary"
@@ -447,12 +469,14 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                             Add the first booked visit and Sweetie will take it
                             from there.
                           </span>
-                          <button
-                            className="ss-button ss-button-accent"
-                            onClick={openWizard}
-                          >
-                            + Add first patient
-                          </button>
+                          {mayBook && (
+                            <button
+                              className="ss-button ss-button-accent"
+                              onClick={openWizard}
+                            >
+                              + Add first patient
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

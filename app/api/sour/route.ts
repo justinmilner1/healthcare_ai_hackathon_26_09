@@ -17,7 +17,7 @@
 // through the practice: another practice's visit id reads as a visit that does not exist (lib/guard.ts).
 
 import { after, NextResponse } from "next/server";
-import { requireCapability, requireVisitInPractice } from "@/lib/guard";
+import { requireCapability, requireProvider, requireVisitInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
@@ -25,6 +25,9 @@ import { sourChatSystem } from "@/lib/prompts";
 import { loadSourContext } from "@/lib/sourRun";
 
 async function postHandler(req: Request) {
+  // Signed in before anything is validated: which capability this needs depends on whether a question came
+  // with it, but "who is asking" does not, and a stranger should not learn what this route wants in a 400.
+  await requireProvider();
   const body = (await req.json().catch(() => null)) as { visitId?: string; question?: unknown; history?: unknown } | null;
   if (!body || typeof body.visitId !== "string" || !body.visitId) return NextResponse.json({ error: "visitId is required" }, { status: 400 });
   if (body.question !== undefined && (typeof body.question !== "string" || !body.question.trim() || body.question.length > 4000)) {

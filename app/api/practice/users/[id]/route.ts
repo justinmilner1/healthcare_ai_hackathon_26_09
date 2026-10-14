@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
-import { practiceTeam, setMemberRole } from "@/lib/team";
+import { practiceTeam, setMemberRole } from "@/lib/teamStore";
 
 async function patchHandler(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const me = await requireCapability("users:manage");

@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
-import { inviteMember, practiceTeam } from "@/lib/team";
+import { inviteMember, practiceTeam } from "@/lib/teamStore";
 
 async function postHandler(req: Request) {
   const me = await requireCapability("users:manage");
