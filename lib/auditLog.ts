@@ -109,8 +109,8 @@ export const AUDIT_DETAIL_FIELDS: readonly string[] = [
   "provider",  // which sender or storage backend: ses | sns | twilio | resend | dev | s3 | fs
   "sent",
   "code",      // a short failure constant, never a message
-  "count",     // reads coalesced into this row, or rows removed by a deletion
-  "rows",
+  "count",     // how many identical events this row stands for (lib/auditStore.ts, coalescing)
+  "rows",      // how many rows the action itself touched: uploads removed, readings parsed
   "bytes",
   "summaries",
   "visitType", // one of lib/visits.ts's five ids, or "other"

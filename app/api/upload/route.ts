@@ -64,7 +64,7 @@ async function deleteHandler(req: Request) {
     action: "upload.deleted",
     entityType: "visit",
     entityId: visit.id,
-    detail: { kinds, count: removed.count },
+    detail: { kinds, rows: removed.count },
   });
   if (discarded.count > 0) {
     await recordAudit({
@@ -74,7 +74,7 @@ async function deleteHandler(req: Request) {
       action: "summary.deleted",
       entityType: "visit",
       entityId: visit.id,
-      detail: { count: discarded.count, kinds },
+      detail: { kinds, rows: discarded.count },
     });
   }
   // Best effort, after the rows: a storage error must not leave the patient looking at data they deleted.
