@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { CAPABILITIES, CAPABILITY_NAMES, DEFAULT_ROLE, ROLES, can, capabilitiesOf, isRole, roleDescription, roleLabel } from "./access";
 
@@ -85,4 +87,73 @@ test("the labels and descriptions are safe to put on a screen, including for an 
     const text = roleDescription(role);
     assert.ok(text.length > 20 && text.endsWith("."), `${role} needs a sentence an admin can choose by`);
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// The enforcement half of §5.2: "*Every* API route checks practice membership and role." A table nobody
+// consults is not an access rule, and the way that goes wrong is a route added later with no guard on it —
+// which no test of lib/access.ts would ever notice. So the routes are read from disk, like lib/log.test.ts
+// reads them for withRoute, and every one is either guarded or listed below with the credential it uses
+// instead. Adding a route means adding a guard or a line here, on purpose.
+
+/** Routes that answer without a provider session, and what they check instead of a role. */
+const NOT_PROVIDER_ROUTES: Record<string, string> = {
+  "api/auth/[...nextauth]": "Auth.js itself: this is where a session comes from (§5.1)",
+  "api/health": "liveness for the load balancer; says nothing about anyone (§11.2)",
+  "api/jobs/run": "the scheduler, on a shared secret in the Authorization header (§3.4)",
+  "api/sweetie": "the patient, on the invite token in the body (§5.3)",
+  "api/upload": "the patient, on the invite token in the form (§4.6, §5.3)",
+  "api/dexcom/connect": "the patient, on the invite token (§9.1)",
+  "api/dexcom/callback": "Dexcom's redirect, on the one-use state bound to an httpOnly cookie (§9.1)",
+  "api/dexcom/status": "the patient, on the invite token (§9.1)",
+  "api/dexcom/demo": "the patient, on the invite token; makes an isolated demo visit (§9.1)",
+  demo: "a redirect to the sign-in form with an address filled in; signs nobody in",
+};
+
+/** `/api/patient/[id]` and `/api/provider` take both kinds of caller, so the file-wide check below would
+ *  mislead; each is covered by name instead, and by e2e/roles.spec.ts end to end. */
+const MIXED_ROUTES = new Set(["api/patient/[id]", "api/provider"]);
+
+function routeFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) return routeFiles(full);
+    return entry === "route.ts" ? [full] : [];
+  });
+}
+
+/** `app/api/practice/users/route.ts` -> `api/practice/users`, the path a reader recognises. */
+const routeName = (file: string) => path.dirname(path.relative("app", file)).split(path.sep).join("/");
+
+test("every API route either checks a capability or is listed as one that does not need to", () => {
+  const files = routeFiles("app");
+  assert.ok(files.length > 5, "no route files found");
+
+  const unguarded: string[] = [];
+  for (const file of files) {
+    const name = routeName(file);
+    if (name in NOT_PROVIDER_ROUTES || MIXED_ROUTES.has(name)) continue;
+    if (!/requireCapability\(/.test(readFileSync(file, "utf8"))) unguarded.push(name);
+  }
+  assert.deepEqual(unguarded, [], "these routes check no role (§5.2); guard them, or say in NOT_PROVIDER_ROUTES what they check instead");
+});
+
+test("the list of routes that need no role names only routes that exist", () => {
+  const names = new Set(routeFiles("app").map(routeName));
+  const stale = [...Object.keys(NOT_PROVIDER_ROUTES), ...MIXED_ROUTES].filter((name) => !names.has(name));
+  assert.deepEqual(stale, [], "these are exempted from §5.2 but no longer exist; drop them so the list stays readable");
+});
+
+test("the two mixed-audience routes guard their provider half", () => {
+  // Each serves the patient on their invite token and a provider on a visit id, so "has a capability check"
+  // is not enough on its own: the check has to be the one that runs for the provider.
+  const patientRoute = readFileSync(path.join("app", "api", "patient", "[id]", "route.ts"), "utf8");
+  assert.match(patientRoute, /visitByToken\(id\)/, "the patient's token must be what is tried first");
+  assert.match(patientRoute, /requireCapability\("summaries:read"\)/);
+  assert.match(patientRoute, /requireVisitInPractice\(/);
+
+  // POST /api/provider is the public sign-up, which is how the first session exists; GET is the dashboard.
+  const providerRoute = readFileSync(path.join("app", "api", "provider", "route.ts"), "utf8");
+  assert.match(providerRoute, /requireCapability\("visits:read"\)/);
+  assert.match(providerRoute, /signUpPractice\(/, "sign-up must go through the create-only path");
 });
