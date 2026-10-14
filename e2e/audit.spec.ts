@@ -46,8 +46,11 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   expect(demo.role, "the seeded provider is their practice's admin, which §10.2 makes the audience for this").toBe("admin");
 
   const patient = patientUnder();
-  const booked = await (await postJson(page.request, "/api/book", { ...patient, visitType: "follow_up", optIn: false })).json();
-  expect(booked.visitId).toBeTruthy();
+  // `channel: "none"` is "do not message this patient" (T07, §2.2): there is no invite to send here, and the
+  // default would ask for a recorded consent this visit has no reason to carry. It does not touch the
+  // verification code below, which goes to whatever contact details are on file (§5.3).
+  const booked = await (await postJson(page.request, "/api/book", { ...patient, visitType: "follow_up", channel: "none" })).json();
+  expect(booked.visitId, `booking: ${JSON.stringify(booked)}`).toBeTruthy();
 
   // The patient, on their own link and with no provider session: the code from their own email turns the
   // link into a 24-hour session (§2.3, §5.3), which is §10.2's verification and the first row. `request`,
