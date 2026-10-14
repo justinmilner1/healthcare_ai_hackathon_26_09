@@ -130,6 +130,23 @@ region = "us-east-2"
 
 If Timeline was off, write `data/visits.csv` by hand (`start,end,place,lat,lng`) from card transactions and photos. Takes 20 minutes and gives cleaner meal events.
 
+## Where uploaded files go
+
+The bytes of an export never go in the database (design §3.3). `POST /api/upload` checks the file before any
+parser sees it — 20 MB cap, then magic bytes and format against the kind, so a Takeout zip or a PDF comes back
+as one plain sentence the patient can act on — then hands the bytes to `lib/storage.ts` and keeps the key,
+the byte count and the parsed rows on the `Upload` row.
+
+| Environment | Backend | Where |
+|---|---|---|
+| Deployed (staging, production) | S3 | `UPLOADS_BUCKET`, private, server-side encrypted; `UPLOADS_KMS_KEY_ID` for SSE-KMS |
+| Local, CI, the e2e suite | filesystem | `UPLOADS_DIR`, default `data/uploads/`, which `.gitignore` already covers |
+
+Nothing has to be configured to run the app: with no `UPLOADS_BUCKET` the filesystem backend is what runs, and
+the demo, the seed script and the check script all exercise the same code path a bucket would.
+`STORAGE_BACKEND=s3|local` forces either. Keys are `visits/<visitId>/<kind>/<uuid>.<ext>`: ids the database
+already has, never the name of the file the patient picked, and never anything a browser is shown.
+
 ## Repo layout
 
 ```
@@ -167,6 +184,8 @@ lib/
   match.ts                      link spikes to visits                         Robbert
   sleep.ts                      parse WHOOP CSV                               (open)
   bundle.ts                     load a visit's data + status from the DB
+  storage.ts                    raw uploaded files: S3, or the filesystem in dev and CI (§3.3)
+  uploads.ts                    the gates before a parser: 20 MB cap, type sniffing (§9.1)
   visit.ts                      resolve a visit from its id or invite token
   practice.ts                   a provider and their practice, created on demand
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
@@ -176,6 +195,7 @@ prisma/schema.prisma            Practice, User (+Auth.js), Patient, Visit, Uploa
 scripts/seed.ts                 demo data into the DB;  gen_samples.py regenerates data/
 scripts/migrate-visits.ts       give any patient without a visit one (design §4.11)
 data/                           synthetic 7-day exports (see data/README.md)
+data/uploads/                   where uploaded files land when no bucket is configured (gitignored)
 ```
 
 Everything runs end to end today with scripted agent replies. Each owner replaces the stub in their file; the API contracts in `lib/types.ts` and the route comments are the interface between us.
