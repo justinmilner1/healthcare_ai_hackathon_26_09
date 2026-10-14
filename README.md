@@ -61,11 +61,12 @@ Reset the DB with `npm run db:reset && npm run seed`.
 Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,
 phone number, email address or message text reaches them. See [docs/LOGGING.md](docs/LOGGING.md).
 
-Security headers, CSRF protection and the dependency audit are in
-[docs/SECURITY.md](docs/SECURITY.md). Two things to know before writing code: client calls that change
-something go through `apiFetch` from `lib/csrf.ts`, not `fetch`, or middleware refuses them with a 403; and
+Security headers, CSRF protection, the rate limits on the public routes and the dependency audit are in
+[docs/SECURITY.md](docs/SECURITY.md). Three things to know before writing code: client calls that change
+something go through `apiFetch` from `lib/csrf.ts`, not `fetch`, or middleware refuses them with a 403;
 a dependency advisory at high or above either gets fixed or gets a dated, owned entry in
-`security/audit-exceptions.json`.
+`security/audit-exceptions.json`; and a public route gets its limits from `lib/ratelimit.ts` — by IP before
+the body is read, by visit once the token has named one.
 
 A patient link opens a code screen first: opening it sends a six-digit code to the phone or email on the
 visit, and the chat, the uploads and the summary are all behind it (design §2.3, §5.3). With no SMS or email

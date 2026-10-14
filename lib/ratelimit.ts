@@ -20,7 +20,7 @@
 //
 // **In memory means per instance.** Two app servers behind the load balancer each allow the numbers below, so
 // the real limit is the number here times the instance count. That is the documented trade (docs/SECURITY.md
-// §4): it needs no new dependency, it cannot fail in a way that takes the app down with it, and it is honest
+// §3): it needs no new dependency, it cannot fail in a way that takes the app down with it, and it is honest
 // about being a cost control rather than a security boundary. The production option is to swap the store —
 // `RateLimitStore` below is the whole seam, and an ElastiCache (Redis `INCR`/`EXPIRE`) or DynamoDB
 // implementation of those two methods is the only code that changes.
@@ -50,12 +50,14 @@ const MINUTE = 60_000;
  * page is one upload per button. Each is several times the busiest honest run of that screen, so a patient
  * who reloads, re-uploads and retypes never meets one.
  *
- * The per-IP numbers are a flood ceiling, in requests per second: 5/s for the chat, the code screen and the
- * link, 2/s for uploads, which cost the most per request. See the header for why they are not tighter.
+ * The per-IP numbers are a flood ceiling, in requests per second: 5/s for the chat and the code screen, 2/s
+ * for uploads, which cost the most per request, and 10/s for the link route, where one patient opening one
+ * page is already several requests through middleware — the document, the router payloads behind it, and the
+ * intake page after it. See the header for why none of them is tighter.
  */
 export const LIMITS = {
   /** The invite link route, `/s/<token>` and the intake page under it. Enforced in middleware.ts. */
-  link: { ip: { limit: 300, windowMs: MINUTE }, visit: { limit: 60, windowMs: MINUTE } },
+  link: { ip: { limit: 600, windowMs: MINUTE }, visit: { limit: 60, windowMs: MINUTE } },
   /** The code endpoints: POST /api/verify, both asking for a code and typing one back. */
   verify: { ip: { limit: 300, windowMs: MINUTE }, visit: { limit: 12, windowMs: MINUTE } },
   /** GET and POST /api/sweetie. A POST can cost a model call, which is the expensive thing here. */

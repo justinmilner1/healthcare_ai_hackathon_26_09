@@ -67,6 +67,12 @@ database ids (`patientId`, `visitId`, `uploadId`, `jobId`, …), operational fac
 anything; a guard's other fields (`userId`, `practiceId`) are opaque ids, and an address passed to one is
 dropped by name like anywhere else.
 
+`scope`, `limit` and `retryAfter` are there for the `rate_limited` line a refused public route writes
+(§5.4, `lib/ratelimit.ts`): which key was spent — `ip` or `visit`, a two-word vocabulary — the ceiling, and
+the seconds until the window resets. The **address is not a field and must not become one.** An IP identifies
+a person about as well as a phone number does, so what the log says is that an address-keyed window was spent,
+which is all an alarm on a flood needs; the visit id beside it is an opaque id like any other.
+
 Two rules for changing it:
 
 - **Never add** a field that can hold a name, a phone number, an email address, a patient message, a summary,
