@@ -301,6 +301,45 @@ export const SPEC: readonly VarSpec[] = [
   },
 
   {
+    name: "UPLOADS_BUCKET",
+    group: "Uploads",
+    requirement: "recommended",
+    summary: "Private, encrypted S3 bucket the raw uploaded exports go to (design §3.3).",
+    whenMissing: "lib/storage.ts writes the files to UPLOADS_DIR on the local filesystem, which a deployment loses on redeploy and cannot share between instances",
+    // s3.amazonaws.com's own rules: 3 to 63 characters, lowercase, no underscores, and not an IP address.
+    check: (value) =>
+      /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value) && !/\.\./.test(value) && !/^\d+(\.\d+){3}$/.test(value)
+        ? undefined
+        : "must be an S3 bucket name: 3 to 63 lowercase letters, digits, dots or hyphens",
+  },
+  {
+    name: "UPLOADS_REGION",
+    group: "Uploads",
+    requirement: "optional",
+    summary: "Region of the uploads bucket, when it differs from the default region.",
+    check: awsRegion,
+  },
+  {
+    name: "UPLOADS_KMS_KEY_ID",
+    group: "Uploads",
+    requirement: "optional",
+    summary: "Encrypt objects with this KMS key (SSE-KMS) instead of the bucket default (SSE-S3).",
+  },
+  {
+    name: "UPLOADS_DIR",
+    group: "Uploads",
+    requirement: "optional",
+    summary: "Where the filesystem backend writes. Default data/uploads/.",
+  },
+  {
+    name: "STORAGE_BACKEND",
+    group: "Uploads",
+    requirement: "optional",
+    summary: "Force a backend instead of deciding from UPLOADS_BUCKET: s3 or local.",
+    check: oneOf("s3", "local"),
+  },
+
+  {
     name: "EMAIL_PROVIDER",
     group: "Email",
     requirement: "optional",
@@ -497,6 +536,9 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   if (v("EMAIL_PROVIDER") === "resend") companions("EMAIL_PROVIDER", ["RESEND_API_KEY"], "the Resend backend was selected");
   if (v("EMAIL_PROVIDER") === "ses") companions("EMAIL_PROVIDER", ["EMAIL_FROM"], "SES rejects an unverified sender");
   if (v("SMS_PROVIDER") === "twilio") companions("SMS_PROVIDER", ["TWILIO_ACCOUNT_SID"], "the Twilio backend was selected");
+  // Asking for S3 with no bucket is not a degraded path: lib/storage.ts has nowhere to put the file, so every
+  // upload fails at the moment a patient tries one.
+  if (v("STORAGE_BACKEND") === "s3") companions("STORAGE_BACKEND", ["UPLOADS_BUCKET"], "lib/storage.ts has no bucket to write to");
 
   // Dexcom is all-or-nothing: lib/dexcom.ts throws on a partial set, which reads as "not connected" in the UI
   // and hides the typo that caused it.

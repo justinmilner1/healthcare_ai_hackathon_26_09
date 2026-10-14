@@ -702,10 +702,12 @@
 
 .sourceError {
   max-width: 360px;
-  overflow: hidden;
   color: #b93353;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* A refusal names the file and says what to do about it (lib/uploads.ts, design §9.1). Clipped to one line
+     it lost the half that matters — on a phone "that looks like a zip file — unzip it and upload…" stopped
+     exactly where the instruction began — so it wraps instead. */
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .accountConnect {

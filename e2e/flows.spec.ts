@@ -69,7 +69,9 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const demo = await signInAsDemo(page);
   const detail = await (await page.request.get("/api/provider")).json();
   // The seeded visit is the one with uploaded files (`npm run seed`); rows are visits now (design §4.4).
-  const seeded = detail.visits.find((v: { name: string; uploads: string[] }) => v.uploads.length > 0);
+  // Named, not just "the first row with uploads": other specs upload files too (e2e/uploads.spec.ts), and
+  // this one wants the four-source demo patient, both for the assertions and for the screenshot.
+  const seeded = detail.visits.find((v: { name: string; uploads: string[] }) => v.name === "Sam Sample" && v.uploads.length > 0);
   expect(seeded, "npm run seed creates a patient with sample uploads").toBeTruthy();
 
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);

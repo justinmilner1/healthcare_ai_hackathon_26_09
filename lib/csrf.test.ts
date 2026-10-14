@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
-import { CSRF_COOKIE, CSRF_EXEMPT_PATHS, CSRF_EXEMPT_PREFIXES, CSRF_HEADER, apiFetch, checkCsrf, ensureCsrfToken, isCsrfExemptPath, isStateChanging, newCsrfToken, readCsrfToken, type CsrfInput } from "./csrf";
+import { CSRF_COOKIE, CSRF_EXEMPT_PATHS, CSRF_EXEMPT_PREFIXES, CSRF_HEADER, CSRF_SELF_CHECKED_PATHS, apiFetch, checkCsrf, checkCsrfRequest, cookieValue, ensureCsrfToken, isCsrfExemptPath, isStateChanging, newCsrfToken, readCsrfToken, type CsrfInput } from "./csrf";
 
 const TOKEN = newCsrfToken();
 
@@ -253,4 +255,64 @@ test("apiFetch sends the token on an unsafe method and leaves a safe one alone",
     assert.equal(seen[1].headers.get(CSRF_HEADER), null, "a GET is not challenged, so it carries nothing");
     assert.equal(seen[2].headers.get(CSRF_HEADER), TOKEN, "a DELETE is as unsafe as a POST");
   });
+});
+
+// --- The self-checked routes (CSRF_SELF_CHECKED_PATHS) ----------------------------------------------
+// /api/upload runs this check inside the handler because middleware cannot carry its body (§9.1's 20 MB).
+// Review: these three cover the two functions that move it there, which nothing but the e2e suite reached.
+
+test("checkCsrfRequest reads a whole Request the same way middleware reads its parts", () => {
+  const req = (init: { headers?: Record<string, string>; url?: string; method?: string } = {}) =>
+    new Request(init.url ?? "https://sweetspot.health/api/upload", { method: init.method ?? "POST", headers: init.headers });
+
+  assert.equal(
+    checkCsrfRequest(req({ headers: { origin: "https://sweetspot.health", host: "sweetspot.health", cookie: `${CSRF_COOKIE}=${TOKEN}`, [CSRF_HEADER]: TOKEN } })),
+    null,
+  );
+  assert.equal(
+    checkCsrfRequest(req({ headers: { origin: "https://evil.example", host: "sweetspot.health", cookie: `${CSRF_COOKIE}=${TOKEN}`, [CSRF_HEADER]: TOKEN } })),
+    "origin does not match host",
+  );
+  assert.equal(
+    checkCsrfRequest(req({ headers: { origin: "https://sweetspot.health", host: "sweetspot.health", cookie: `${CSRF_COOKIE}=${TOKEN}` } })),
+    `no ${CSRF_HEADER} header`,
+  );
+  // The token may ride in the query string here too, exactly as it may through middleware.
+  assert.equal(
+    checkCsrfRequest(req({ url: `https://sweetspot.health/api/upload?csrf=${TOKEN}`, headers: { origin: "https://sweetspot.health", host: "sweetspot.health", cookie: `${CSRF_COOKIE}=${TOKEN}` } })),
+    null,
+  );
+  // A safe method is not challenged, so no cookie and no header is fine.
+  assert.equal(checkCsrfRequest(req({ method: "GET", headers: { host: "sweetspot.health" } })), null);
+});
+
+test("cookieValue picks the right cookie out of a header and never throws on one it cannot decode", () => {
+  assert.equal(cookieValue(null, CSRF_COOKIE), null);
+  assert.equal(cookieValue("", CSRF_COOKIE), null);
+  assert.equal(cookieValue("other=1", CSRF_COOKIE), null);
+  assert.equal(cookieValue(`${CSRF_COOKIE}=${TOKEN}`, CSRF_COOKIE), TOKEN);
+  // Order and spacing are the browser's, not ours.
+  assert.equal(cookieValue(`a=1; ${CSRF_COOKIE}=${TOKEN}; z=2`, CSRF_COOKIE), TOKEN);
+  assert.equal(cookieValue(`a=1;${CSRF_COOKIE}=${TOKEN}`, CSRF_COOKIE), TOKEN);
+  // A name that merely ends with ours is a different cookie; matching it would be a way in.
+  assert.equal(cookieValue(`not_${CSRF_COOKIE}=decoy; ${CSRF_COOKIE}=${TOKEN}`, CSRF_COOKIE), TOKEN);
+  // A value may contain '=' (base64 padding), so only the first one separates name from value.
+  assert.equal(cookieValue(`${CSRF_COOKIE}=a=b`, CSRF_COOKIE), "a=b");
+  // The header is whatever the caller typed. '%ZZ' makes decodeURIComponent throw; the undecoded value
+  // comes back instead so checkCsrf can refuse it with 403 rather than the route failing with a 500.
+  assert.equal(cookieValue(`${CSRF_COOKIE}=%ZZ`, CSRF_COOKIE), "%ZZ");
+  assert.equal(checkCsrf(good({ cookieToken: "%ZZ", headerToken: "%ZZ" })), "malformed csrf token");
+});
+
+test("every self-checked path is actually left out of middleware's matcher", () => {
+  // The two have to agree: a path in this list that middleware still matches is an upload that breaks at
+  // 10 MB again, and a path dropped from the matcher that is not in this list is an unchecked route.
+  const middleware = readFileSync(path.join(import.meta.dirname, "..", "middleware.ts"), "utf8");
+  const matcher = middleware.match(/matcher:\s*\[([^\]]*)\]/)?.[1];
+  assert.ok(matcher, "middleware.ts must declare a matcher");
+  for (const p of CSRF_SELF_CHECKED_PATHS) {
+    assert.ok(matcher.includes(p.replace(/^\//, "")), `${p} is self-checked but middleware still matches it`);
+    // And it is self-checked, not exempt: the two lists must stay disjoint.
+    assert.equal(isCsrfExemptPath(p), false, `${p} cannot be both self-checked and exempt`);
+  }
 });

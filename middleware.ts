@@ -13,9 +13,12 @@ import { CSRF_COOKIE, CSRF_COOKIE_MAX_AGE, CSRF_HEADER, CSRF_PARAM, SERVER_ACTIO
 import { contentSecurityPolicy, newNonce, STATIC_SECURITY_HEADERS } from "@/lib/security";
 
 export const config = {
-  // Everything but the static output. A hashed chunk under /_next/static is immutable and public: it needs
-  // no nonce, and setting a cookie on it would make every asset response vary. Favicons likewise.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2)$).*)"],
+  // Everything but the static output and the one route that checks itself. A hashed chunk under
+  // /_next/static is immutable and public: it needs no nonce, and setting a cookie on it would make every
+  // asset response vary. Favicons likewise. `api/upload` is CSRF_SELF_CHECKED_PATHS in lib/csrf.ts: a
+  // request that goes through middleware is proxied through the edge runtime, which does not carry a body
+  // much over 10 MB, and §9.1 promises uploads up to 20 MB. It runs checkCsrfRequest in the handler instead.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/upload|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2)$).*)"],
 };
 
 const isDev = process.env.NODE_ENV !== "production";
