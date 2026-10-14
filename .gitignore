@@ -50,7 +50,10 @@ data/*
 # The local mail drop: with no email provider configured, lib/mailer.ts writes sign-in links here instead of
 # sending them (design §5.1). They are credentials, so they never get committed. `npm run mail` reads it.
 .mail/
-e2e/.mail/
+# Every mailbox, not just the one: the e2e suite runs a second server with its own (e2e/.mail-degraded,
+# playwright.config.ts), and the narrower `e2e/.mail/` let two of its sign-in links be committed by a
+# `git add -A` on the T06 branch. The glob covers whatever the next server calls its drop.
+e2e/.mail*/
 
 # local tooling
 .claude/
