@@ -1343,6 +1343,23 @@ textarea.ss-input {
   text-transform: uppercase;
 }
 
+/* The dashboard's own table runs a column wider than the Sour page's (T07's Invite, §8.3), so its cells are
+   tighter and its floor is higher: squeezed into the card the row actions were the thing cut off at the right
+   edge, and a table that says how wide it needs to be scrolls inside .provider-table-scroll instead. */
+.provider-dashboard .provider-table {
+  min-width: 1120px;
+}
+
+.provider-dashboard .provider-table th,
+.provider-dashboard .provider-table td {
+  padding-right: 11px;
+  padding-left: 11px;
+}
+
+.provider-dashboard .provider-patient small {
+  max-width: 196px;
+}
+
 .provider-table td {
   padding: 15px 16px;
   border-top: 1px solid #eeeade;
@@ -1360,7 +1377,7 @@ textarea.ss-input {
 
 .provider-patient {
   display: flex;
-  min-width: 190px;
+  min-width: 176px;
   align-items: center;
   gap: 11px;
 }
@@ -1490,12 +1507,24 @@ textarea.ss-input {
 /* 8.3 Per-channel delivery, in the Invite column. `queued` wears the neutral pill: the send is a job, so
    between adding the patient and SES answering there is genuinely nothing to report yet. */
 .provider-invite {
-  min-width: 118px;
+  min-width: 96px;
+  max-width: 116px;
+}
+
+.provider-invite .provider-data-pills {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .provider-invite > small {
   display: block;
+  /* Wraps instead of ellipsing like the shared .provider-cell-sub: who gave consent and when is the whole
+     point of the line (§2.2), and two short lines cost the table less width than one long one. */
+  max-width: none;
   margin-top: 5px;
+  overflow: visible;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .provider-delivery-sent {
@@ -1519,7 +1548,7 @@ textarea.ss-input {
 }
 
 .provider-progress-copy {
-  min-width: 105px;
+  min-width: 92px;
   color: #88867b;
   font-size: 9px;
 }
@@ -1529,7 +1558,7 @@ textarea.ss-input {
 }
 
 .provider-mini-progress {
-  width: 88px;
+  width: 76px;
   height: 4px;
   margin-top: 6px;
   overflow: hidden;
@@ -2215,10 +2244,18 @@ textarea.ss-input {
   width: min(880px, 100%);
   max-height: 88svh;
   flex-direction: column;
-  gap: 12px;
   padding: 26px 28px 20px;
-  overflow-y: auto;
+  overflow: hidden;
   border-radius: 22px;
+}
+
+.import-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
 }
 
 .import-head {
@@ -2243,13 +2280,16 @@ textarea.ss-input {
 .import-controls {
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
 }
 
+.import-controls .ss-label {
+  flex: 1 1 320px;
+}
+
 .import-textarea {
-  min-height: 92px;
+  min-height: 64px;
   padding: 10px 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
@@ -2261,6 +2301,10 @@ textarea.ss-input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.import-dialog .patient-wizard-actions {
+  flex: 0 0 auto;
 }
 
 .import-tally {
@@ -2280,10 +2324,24 @@ textarea.ss-input {
   border-radius: 14px;
 }
 
+/* Narrower than the dashboard's 1050px floor, and the cells wrap: a row's errors are sentences, and reading
+   them is the point of the preview, so they go onto a second line rather than off the right-hand edge. */
+.import-table {
+  min-width: 560px;
+  font-size: 10px;
+}
+
 .import-table th,
 .import-table td {
   padding: 8px 12px;
   vertical-align: top;
+  white-space: normal;
+}
+
+.import-table .provider-cell-sub {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
 }
 
 .import-row-bad {

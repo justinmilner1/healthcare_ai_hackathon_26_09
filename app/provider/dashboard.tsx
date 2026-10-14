@@ -1019,121 +1019,127 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
   return (
     <div className="patient-wizard-backdrop" role="presentation">
       <section className="import-dialog ss-card" role="dialog" aria-modal="true" aria-label="Import a day of visits">
-        <header className="import-head">
-          <div>
-            <p className="ss-eyebrow">IMPORT A DAY</p>
-            <h3 className="ss-title">One CSV, a day of visits.</h3>
+        {/* One scrolling body with the actions fixed under it: at a laptop's height the preview is taller
+            than the dialog, and a Create button below the fold is a button nobody presses. */}
+        <div className="import-scroll">
+          <header className="import-head">
+            <div>
+              <p className="ss-eyebrow">IMPORT A DAY</p>
+              <h3 className="ss-title">One CSV, a day of visits.</h3>
+            </div>
+            <button className="patient-wizard-close" onClick={onClose} aria-label="Close">
+              ×
+            </button>
+          </header>
+
+          <p className="ss-lede">
+            Columns: <code>name, phone, email, scheduled_at, visit_type, reason, channel, consent, consent_at</code>. Every row is checked before anything is created, and a row
+            with a blank <code>channel</code> is created without being messaged.
+          </p>
+
+          <div className="import-controls">
+            <label className="ss-label">
+              <span>CSV file</span>
+              <input className="ss-input" type="file" accept=".csv,text/csv" aria-label="CSV file" onChange={(e) => readFile(e.target.files?.[0])} />
+            </label>
+            <button type="button" className="ss-text-button" onClick={() => { setPreview(null); setCsv(CSV_TEMPLATE); }}>
+              Fill in the example
+            </button>
           </div>
-          <button className="patient-wizard-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
-        </header>
 
-        <p className="ss-lede">
-          Export tomorrow&apos;s list from your scheduler with these columns: <code>name, phone, email, scheduled_at, visit_type, reason, channel, consent, consent_at</code>. Every
-          row is checked before anything is created, and a row that leaves <code>channel</code> blank is created without being messaged — hand those patients the link yourself.
-        </p>
-
-        <div className="import-controls">
           <label className="ss-label">
-            <span>CSV file</span>
-            <input className="ss-input" type="file" accept=".csv,text/csv" aria-label="CSV file" onChange={(e) => readFile(e.target.files?.[0])} />
+            <span>Or paste the rows</span>
+            <textarea
+              className="ss-input import-textarea"
+              // Smaller once there is a preview: the rows and their errors are what wants the room then.
+              rows={preview ? 3 : 5}
+              spellCheck={false}
+              value={csv}
+              placeholder="name,phone,email,scheduled_at,visit_type,reason,channel,consent,consent_at"
+              onChange={(e) => {
+                setPreview(null);
+                setCsv(e.target.value);
+              }}
+            />
           </label>
-          <button type="button" className="ss-text-button" onClick={() => { setPreview(null); setCsv(CSV_TEMPLATE); }}>
-            Fill in the example
-          </button>
-        </div>
 
-        <label className="ss-label">
-          <span>Or paste the rows</span>
-          <textarea
-            className="ss-input import-textarea"
-            rows={5}
-            spellCheck={false}
-            value={csv}
-            placeholder="name,phone,email,scheduled_at,visit_type,reason,channel,consent,consent_at"
-            onChange={(e) => {
-              setPreview(null);
-              setCsv(e.target.value);
-            }}
-          />
-        </label>
+          {error && (
+            <div className="ss-error" role="alert">
+              {error}
+            </div>
+          )}
 
-        {error && (
-          <div className="ss-error" role="alert">
-            {error}
-          </div>
-        )}
-
-        {preview && (
-          <div className="import-preview">
-            {preview.error ? (
-              <div className="ss-error" role="alert">
-                {preview.error}
-              </div>
-            ) : (
-              <p className="import-tally">
-                {preview.committed ? (
-                  <strong>{preview.created} created.</strong>
-                ) : (
-                  <strong>
-                    {preview.valid} ready to create
-                    {preview.invalid ? `, ${preview.invalid} to fix` : ""}.
-                  </strong>
-                )}
-                {preview.ignored.length > 0 && <span> Columns ignored: {preview.ignored.join(", ")}.</span>}
-              </p>
-            )}
-            {preview.rows.length > 0 && (
-              <div className="import-table-scroll">
-                <table className="provider-table import-table">
-                  <thead>
-                    <tr>
-                      <th>Line</th>
-                      <th>Patient</th>
-                      <th>Visit</th>
-                      <th>Invite</th>
-                      <th>Result</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.rows.map((row) => (
-                      <tr key={row.line} className={row.errors.length ? "import-row-bad" : ""}>
-                        <td>{row.line}</td>
-                        <td>
-                          <strong className="provider-cell-main">{row.name || "—"}</strong>
-                        </td>
-                        <td>
-                          <small className="provider-cell-sub">
-                            {row.visit
-                              ? `${visitLabel(row.visit.visitType)} · ${row.visit.scheduledAt ? new Date(row.visit.scheduledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date pending"}`
-                              : "—"}
-                          </small>
-                        </td>
-                        <td>
-                          <small className="provider-cell-sub">{row.visit ? `${channelLabel(row.visit.channel)} · ${consentLabel(row.visit.consentMethod)}` : "—"}</small>
-                        </td>
-                        <td>
-                          {row.errors.length ? (
-                            <ul className="import-errors">
-                              {row.errors.map((message) => (
-                                <li key={message}>{message}</li>
-                              ))}
-                            </ul>
-                          ) : row.created ? (
-                            <span className="ss-pill ss-pill-success">Created</span>
-                          ) : (
-                            <span className="ss-pill ss-pill-info">Ready</span>
-                          )}
-                        </td>
+          {preview && (
+            <div className="import-preview">
+              {preview.error ? (
+                <div className="ss-error" role="alert">
+                  {preview.error}
+                </div>
+              ) : (
+                <p className="import-tally">
+                  {preview.committed ? (
+                    <strong>{preview.created} created.</strong>
+                  ) : (
+                    <strong>
+                      {preview.valid} ready to create
+                      {preview.invalid ? `, ${preview.invalid} to fix` : ""}.
+                    </strong>
+                  )}
+                  {preview.ignored.length > 0 && <span> Columns ignored: {preview.ignored.join(", ")}.</span>}
+                </p>
+              )}
+              {preview.rows.length > 0 && (
+                <div className="import-table-scroll">
+                  <table className="provider-table import-table">
+                    <thead>
+                      <tr>
+                        <th>Line</th>
+                        <th>Patient</th>
+                        <th>Visit</th>
+                        <th>Invite</th>
+                        <th>Result</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row) => (
+                        <tr key={row.line} className={row.errors.length ? "import-row-bad" : ""}>
+                          <td>{row.line}</td>
+                          <td>
+                            <strong className="provider-cell-main">{row.name || "—"}</strong>
+                          </td>
+                          <td>
+                            <small className="provider-cell-sub">
+                              {row.visit
+                                ? `${visitLabel(row.visit.visitType)} · ${row.visit.scheduledAt ? new Date(row.visit.scheduledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date pending"}`
+                                : "—"}
+                            </small>
+                          </td>
+                          <td>
+                            <small className="provider-cell-sub">{row.visit ? `${channelLabel(row.visit.channel)} · ${consentLabel(row.visit.consentMethod)}` : "—"}</small>
+                          </td>
+                          <td>
+                            {row.errors.length ? (
+                              <ul className="import-errors">
+                                {row.errors.map((message) => (
+                                  <li key={message}>{message}</li>
+                                ))}
+                              </ul>
+                            ) : row.created ? (
+                              <span className="ss-pill ss-pill-success">Created</span>
+                            ) : (
+                              <span className="ss-pill ss-pill-info">Ready</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
 
         <div className="patient-wizard-actions">
           <button type="button" className="ss-text-button" onClick={onClose}>

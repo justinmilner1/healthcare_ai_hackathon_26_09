@@ -99,6 +99,10 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   expect(created!.consentRecordedAt).toBeTruthy();
   expect(created!.status).toBe("invited");
 
+  // Reloaded so the Invite column shows what the job reported rather than the "queued" the page was painted
+  // with: the dashboard reads GET /api/provider once, and the send finished after that.
+  await page.reload();
+  await expect(row).toContainText("Consent: Over the phone", LOADED);
   await shot(page, "provider-dashboard-visit-statuses");
 });
 
