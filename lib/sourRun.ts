@@ -3,12 +3,15 @@
 // provider page's Generate button and what the Sweetie route enqueues the moment intake wraps up, so the
 // doctor's email is on its way while the patient is still in the chat. Owner: Justin.
 
+import type { PrismaClient } from "@prisma/client";
 import { baseSummary, loadBundle } from "./bundle";
 import { db } from "./db";
 import { enqueue } from "./jobs";
 import { ask, llmStatus, LLMUnavailable } from "./llm";
+import { log } from "./log";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
+import { narrativeSource, sourInputHash, sourInputsFor, type SourUploadRef } from "./sourInput";
 import type { GlucoseReading, PatientBundle, Summary } from "./types";
 import { findVisit } from "./visit";
 
@@ -22,6 +25,8 @@ export type SourContext = {
   base: Summary;
   brief: string;
   flags: string[];
+  /** The fingerprint of the intake and uploads this brief was built from (§7.1, lib/sourInput.ts). */
+  inputHash: string;
 };
 
 const clean = (xs: unknown, n: number) =>
@@ -43,7 +48,49 @@ export async function loadSourContext(idOrToken: string): Promise<SourContext | 
   const brief = (bundle.patient.isSandbox ? "SYNTHETIC DEXCOM SANDBOX DATA — demonstration only, not real patient findings.\n" : "") + renderSourInput(
     buildSourInput({ glucose, spikes: bundle.spikes, sleep: bundle.sleep, patientNotes: notes, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }),
   );
-  return { visitId: visit.id, bundle, glucose, notes, base, brief, flags };
+  const inputHash = sourInputHash(sourInputsFor(visit, await uploadRefs(visit.id), narrativeSource(llmStatus().configured)));
+  return { visitId: visit.id, bundle, glucose, notes, base, brief, flags, inputHash };
+}
+
+/** Every upload of a visit as the fingerprint sees it: ids and row counts, not the parsed rows, so this stays
+ *  a small query even for a week of five-minute readings. */
+export async function uploadRefs(visitId: string, client: SummaryClient = db): Promise<SourUploadRef[]> {
+  return client.upload.findMany({ where: { visitId }, select: { id: true, kind: true, parsedRows: true } });
+}
+
+/** The parts of the client the saved-summary lookup uses, so a test can hand it one pointed at a fixture
+ *  schema (lib/sourRun.test.ts) the way the queue tests do. */
+export type SummaryClient = Pick<PrismaClient, "summary" | "upload">;
+
+export type SavedSummaries = { provider: Summary; patient: Summary; createdAt: Date; summaryIds: string[] };
+
+/**
+ * The saved summary pair for this visit, if it was generated from exactly these inputs (§7.1).
+ *
+ * Deliberately the *newest* pair and nothing older: the provider page renders the newest row per audience, so
+ * returning an older matching pair would hand the clinician one thing and show them another. Both audiences
+ * must match, because `notify.summary` sends a link to each and half a pair is not a summary. A null
+ * `inputHash` on either row never matches, which is how a placeholder from a degraded run is kept out.
+ */
+export async function existingSummaryFor(visitId: string, inputHash: string, client: SummaryClient = db): Promise<SavedSummaries | null> {
+  if (!inputHash) return null;
+  const rows = await client.summary.findMany({ where: { visitId }, orderBy: { createdAt: "desc" } });
+  const newest = (audience: string) => rows.find((r) => r.audience === audience);
+  const provider = newest("provider");
+  const patient = newest("patient");
+  if (!provider || !patient) return null;
+  if (provider.inputHash !== inputHash || patient.inputHash !== inputHash) return null;
+  try {
+    return {
+      provider: JSON.parse(provider.json) as Summary,
+      patient: JSON.parse(patient.json) as Summary,
+      createdAt: provider.createdAt,
+      summaryIds: [provider.id, patient.id],
+    };
+  } catch {
+    // A row we cannot read is not a summary we can return; fall through and generate a fresh one.
+    return null;
+  }
 }
 
 export type SourRunResult = {
@@ -51,32 +98,47 @@ export type SourRunResult = {
   patient: Summary;
   /** The notify.summary job that will send the two links, or why no message is going out (§8.2). */
   notified: { queued: string } | { skipped: string };
+  /** True when the inputs had not changed, so the saved pair came back instead of two model calls (§7.1). */
+  reused: boolean;
 };
 
-/** Generate, save, and notify. Never throws for a missing model; does throw for a missing visit. */
-export async function runSour(idOrToken: string, ctx?: SourContext): Promise<SourRunResult> {
-  const c = ctx ?? (await loadSourContext(idOrToken));
+export type RunSourOptions = {
+  /** A context already loaded by the caller, so a route does not pay for the brief twice. */
+  ctx?: SourContext;
+  /** Writes the two narratives. Injected only by the unit tests, which have no model gateway. */
+  narrate?: Narrator;
+};
+
+/** What the model is asked for, in the order it is asked: the clinician's narrative, then the patient's. */
+export type Narrator = (c: SourContext) => Promise<{ provider: Narrative; patient: Narrative }>;
+
+/**
+ * Generate, save, and notify. Never throws for a missing model; does throw for a missing visit.
+ *
+ * Idempotent per visit and input hash (§7.1): if the intake and the uploads are exactly what the saved
+ * summary was made from, that pair comes straight back. No second pair of rows, no second pair of model
+ * calls, and no second "your summary is ready" email for a summary the clinician was already told about.
+ */
+export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Promise<SourRunResult> {
+  const c = opts.ctx ?? (await loadSourContext(idOrToken));
   if (!c) throw new Error("visit not found");
-  const { bundle, base, brief, notes, flags } = c;
+  const { bundle, base, flags } = c;
+
+  const saved = await existingSummaryFor(c.visitId, c.inputHash);
+  if (saved) {
+    log.info("sour_reused", { visitId: c.visitId, summaryId: saved.summaryIds[0] });
+    await markSummaryReady(c.visitId);
+    return { provider: saved.provider, patient: saved.patient, notified: { skipped: "Inputs unchanged: the saved summary was reused" }, reused: true };
+  }
 
   let provider: Summary;
   let patient: Summary;
   let llmOk = true;
   try {
-    const n = await ask<Narrative>(sourSystem(), brief, { json: true });
-    provider = { ...base, patterns: clean(n.patterns, 3), questions: clean(n.questions, 3), flags };
-    const p = await ask<Narrative>(
-      patientSummarySystem(),
-      [
-        `Time in range this week: ${Math.round(base.timeInRange * 100)}%`,
-        `Clinician's patterns:\n${provider.patterns.map((x) => `- ${x}`).join("\n") || "- (none)"}`,
-        `Clinician's questions for the visit:\n${provider.questions.map((x) => `- ${x}`).join("\n") || "- (none)"}`,
-        `Patient's own words:\n${notes.trim() || "(none)"}`,
-      ].join("\n\n"),
-      { json: true, effort: "low" },
-    );
+    const n = await (opts.narrate ?? modelNarrator)(c);
+    provider = { ...base, patterns: clean(n.provider.patterns, 3), questions: clean(n.provider.questions, 3), flags };
     // Safety flags are for the clinician; the patient version carries none.
-    patient = { ...base, patterns: clean(p.patterns, 3), questions: clean(p.questions, 3), flags: [] };
+    patient = { ...base, patterns: clean(n.patient.patterns, 3), questions: clean(n.patient.questions, 3), flags: [] };
   } catch (e) {
     if (!(e instanceof LLMUnavailable)) throw e;
     llmOk = false;
@@ -89,19 +151,19 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
     patient = { ...base, patterns: [note], questions: [], flags: [] };
   }
 
+  // The fingerprint is stored only on a pair worth reusing (§7.1). A narrative the model wrote qualifies, and
+  // so does the "LLM not configured" placeholder, which is the whole of what that deployment can produce and
+  // is deterministic — and whose fingerprint says `unconfigured`, so configuring a key invalidates it. The one
+  // pair that gets a null hash is the one a configured-but-unreachable gateway caused: the next run must
+  // really run rather than hand the clinician "retry in a minute" forever.
+  const inputHash = llmOk || !llmStatus().configured ? c.inputHash : null;
   await db.summary.createMany({
     data: [
-      { visitId: c.visitId, audience: "provider", json: JSON.stringify(provider) },
-      { visitId: c.visitId, audience: "patient", json: JSON.stringify(patient) },
+      { visitId: c.visitId, audience: "provider", json: JSON.stringify(provider), inputHash },
+      { visitId: c.visitId, audience: "patient", json: JSON.stringify(patient), inputHash },
     ],
   });
-  // The visit has a summary now, so the dashboard and the retention sweep can see it without reading one (§4.4).
-  // Only ever forwards, like the intake transitions in /api/sweetie: re-running Sour on a visit a clinician
-  // has already signed off must not pull it back out of `reviewed` (§4.4).
-  await db.visit.updateMany({
-    where: { id: c.visitId, status: { in: ["invited", "verified", "in_intake", "intake_done"] } },
-    data: { status: "summary_ready" },
-  });
+  await markSummaryReady(c.visitId);
 
   // Both summaries saved -> queue the two "it's ready" links (§3.4, §8.2). A job rather than two SES calls
   // here, because this function runs inside a job itself: a bounce or a throttled send must not cost Sour its
@@ -113,5 +175,32 @@ export async function runSour(idOrToken: string, ctx?: SourContext): Promise<Sou
     const { job } = await enqueue({ kind: "notify.summary", payload: { visitId: c.visitId }, idempotencyKey: `notify.summary:${c.visitId}` });
     notified = { queued: job.id };
   }
-  return { provider, patient, notified };
+  return { provider, patient, notified, reused: false };
+}
+
+/** The real narrator: the clinician's brief first, then the patient's version of it, which is written from the
+ *  clinician's patterns rather than from the raw data so the two never disagree. */
+const modelNarrator: Narrator = async (c) => {
+  const provider = await ask<Narrative>(sourSystem(), c.brief, { json: true });
+  const patient = await ask<Narrative>(
+    patientSummarySystem(),
+    [
+      `Time in range this week: ${Math.round(c.base.timeInRange * 100)}%`,
+      `Clinician's patterns:\n${clean(provider.patterns, 3).map((x) => `- ${x}`).join("\n") || "- (none)"}`,
+      `Clinician's questions for the visit:\n${clean(provider.questions, 3).map((x) => `- ${x}`).join("\n") || "- (none)"}`,
+      `Patient's own words:\n${c.notes.trim() || "(none)"}`,
+    ].join("\n\n"),
+    { json: true, effort: "low" },
+  );
+  return { provider, patient };
+};
+
+/** The visit has a summary now, so the dashboard and the retention sweep can see it without reading one
+ *  (§4.4). Only ever forwards, like the intake transitions in /api/sweetie: re-running Sour on a visit a
+ *  clinician has already signed off must not pull it back out of `reviewed`. */
+async function markSummaryReady(visitId: string): Promise<void> {
+  await db.visit.updateMany({
+    where: { id: visitId, status: { in: ["invited", "verified", "in_intake", "intake_done"] } },
+    data: { status: "summary_ready" },
+  });
 }

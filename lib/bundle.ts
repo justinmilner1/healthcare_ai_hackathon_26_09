@@ -2,8 +2,11 @@
 
 import { db } from "./db";
 import { averageGlucose, detectSpikes, downsample, timeInRange } from "./glucose";
+import { jobStateView, latestJobForVisit } from "./jobs";
+import { llmStatus } from "./llm";
 import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
+import { narrativeSource, sourInputHash, sourInputsFor } from "./sourInput";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "./sweetie";
 import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
 import { providerName } from "./visit";
@@ -52,6 +55,13 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   const prov = pick("provider");
   const pat = pick("patient");
 
+  // What the provider page needs to say where the summary got to (§7.2) and whether it still describes the
+  // visit (§7.1). The fingerprint is the same function Sour hashes with, so "stale" here and "regenerate"
+  // there can never disagree; a summary from a degraded run has no fingerprint and so always reads stale.
+  const sourJob = await latestJobForVisit("sour.run", visit.id);
+  const inputHash = sourInputHash(sourInputsFor(visit, visit.uploads, narrativeSource(llmStatus().configured)));
+  const summaryStale = Boolean(prov) && (prov?.inputHash !== inputHash || pat?.inputHash !== inputHash);
+
   return {
     visitId: visit.id,
     visitStatus: visit.status,
@@ -78,6 +88,8 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     providerSummaryAt: prov?.createdAt.toISOString() ?? null,
     patientSummary: pat ? parseOr<Summary | null>(pat.json, null) : null,
     patientSummaryAt: pat?.createdAt.toISOString() ?? null,
+    sourJob: sourJob ? jobStateView(sourJob) : null,
+    summaryStale,
   };
 }
 
