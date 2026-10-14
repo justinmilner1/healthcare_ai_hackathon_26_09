@@ -1706,6 +1706,9 @@ textarea.ss-input {
   .settings-users td {
     display: block;
     width: 100%;
+    /* .provider-table carries min-width: 1050px, which is what makes the dashboard's wide table scroll.
+       A stacked row has nothing to scroll, so the width would just push the role select past the card. */
+    min-width: 0;
   }
 
   .settings-users tr {

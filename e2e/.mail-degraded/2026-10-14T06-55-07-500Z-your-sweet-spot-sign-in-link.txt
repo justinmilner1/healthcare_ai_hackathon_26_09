@@ -1,0 +1,13 @@
+Date: 2026-10-14T06:55:07.500Z
+To: demo@sweetspot.local
+Subject: Your Sweet Spot sign-in link
+
+Someone asked for a sign-in link to the Sweet Spot provider workspace with this address.
+
+Open this link to sign in:
+http://localhost:3101/api/auth/callback/email?callbackUrl=http%3A%2F%2Flocalhost%3A3101%2Fprovider&token=ebcb78cc31776987ee0d0981b9b5428624913fc27ecd6ab852b6a5ef390df17f&email=demo%40sweetspot.local
+
+The link works once and expires in 15 minutes. If you did not ask for it, ignore this email —
+nobody can sign in without the link.
+
+Sweet Spot

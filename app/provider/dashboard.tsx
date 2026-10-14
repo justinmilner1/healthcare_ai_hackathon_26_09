@@ -248,9 +248,15 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
           <div className="provider-hero-copy">
             <p className="ss-eyebrow">PRACTICE DASHBOARD</p>
             <h1 className="ss-display">
-              Good to see you,
-              <br />
-              <em>{provider?.name ?? "Doctor"}.</em>
+              {/* An invited colleague has no name until Auth.js takes one, and calling the receptionist
+                  "Doctor" is worse than not naming them at all (§2.1). */}
+              Good to see you{provider.name ? "," : "."}
+              {provider.name && (
+                <>
+                  <br />
+                  <em>{provider.name}.</em>
+                </>
+              )}
             </h1>
             <p>
               {provider?.practice || "Your practice"} · {visits.length}{" "}
