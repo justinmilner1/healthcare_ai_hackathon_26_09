@@ -10,17 +10,24 @@
 // The model only writes patterns and questions. Safety flags (lows <54, TBR >4%, sustained >250) are
 // computed in code and attached to the provider summary regardless of the narrative.
 // Without an API key the summaries still return with placeholder patterns so the pages render.
-// The same job is queued by the Sweetie route when intake wraps up (lib/jobHandlers.ts, lib/sourRun.ts).
+// The same job is queued by the Sweetie route when intake wraps up (lib/jobHandlers.ts, lib/sourRun.ts) —
+// that path is the patient's, keyed by their token, and does not come through here.
+//
+// Both halves are clinical, so both are admin or clinician and not staff (§5.2), and both resolve the visit
+// through the practice: another practice's visit id reads as a visit that does not exist (lib/guard.ts).
 
 import { after, NextResponse } from "next/server";
+import { requireCapability, requireProvider, requireVisitInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
 import { sourChatSystem } from "@/lib/prompts";
 import { loadSourContext } from "@/lib/sourRun";
-import { findVisit } from "@/lib/visit";
 
 async function postHandler(req: Request) {
+  // Signed in before anything is validated: which capability this needs depends on whether a question came
+  // with it, but "who is asking" does not, and a stranger should not learn what this route wants in a 400.
+  await requireProvider();
   const body = (await req.json().catch(() => null)) as { visitId?: string; question?: unknown; history?: unknown } | null;
   if (!body || typeof body.visitId !== "string" || !body.visitId) return NextResponse.json({ error: "visitId is required" }, { status: 400 });
   if (body.question !== undefined && (typeof body.question !== "string" || !body.question.trim() || body.question.length > 4000)) {
@@ -37,8 +44,8 @@ async function postHandler(req: Request) {
   // Queueing a summary needs the visit and nothing else; only the follow-up question needs the brief, which
   // costs a parse of the whole Dexcom upload.
   if (typeof body.question !== "string") {
-    const visit = await findVisit(body.visitId);
-    if (!visit) return NextResponse.json({ error: "visit not found" }, { status: 404 });
+    const me = await requireCapability("summaries:generate");
+    const visit = await requireVisitInPractice(body.visitId, me);
     // Generation is a job (§3.4): two model calls and two emails are not something a clinician should hold a
     // request open for, and the row survives a redeploy mid-run. Asking twice while the first run is still in
     // flight joins it; asking again after it has finished is a real regenerate (lib/jobs.ts, enqueue).
@@ -47,7 +54,11 @@ async function postHandler(req: Request) {
     return NextResponse.json({ jobId: job.id, status: job.status, queued: true, deduped }, { status: 202 });
   }
 
-  const ctx = await loadSourContext(body.visitId);
+  // The brief is this patient's week, so the question path is read access to a summary, checked before the
+  // parse of the whole Dexcom upload that building it costs.
+  const me = await requireCapability("summaries:read");
+  const visit = await requireVisitInPractice(body.visitId, me);
+  const ctx = await loadSourContext(visit.id);
   if (!ctx) return NextResponse.json({ error: "visit not found" }, { status: 404 });
   const { brief } = ctx;
 

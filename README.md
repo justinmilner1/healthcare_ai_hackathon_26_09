@@ -177,6 +177,7 @@ app/
   provider/page.tsx             session guard; dashboard.tsx is the practice dashboard Justin
   provider/signin/page.tsx      ask for a magic link; check-email/ and signout/ finish it Justin
   provider/signup/page.tsx      create a practice, then the same emailed link  Justin
+  provider/settings/page.tsx    admin only; settings.tsx is practice, retention, users Justin
   provider/[id]/page.tsx        session guard; sour.tsx is the Sour summary view Justin
   api/
     auth/[...nextauth]/route.ts Auth.js endpoints (sign in, callback, session, sign out)
@@ -185,7 +186,10 @@ app/
     upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
     sour/route.ts               POST { visitId } generate summaries; or with question James
     patient/[id]/route.ts       GET PatientBundle for one visit (visit id or token)
-    provider/route.ts           POST sign up, GET the signed-in provider + their visits
+    provider/route.ts           POST sign up, GET the signed-in provider + the practice's visits
+    practice/route.ts           GET/PATCH the practice: name, retention, users (admin)
+    practice/users/route.ts     POST invite a colleague with a role (admin)
+    practice/users/[id]/route.ts PATCH one colleague's role (admin)
 components/
   GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
   SleepChart.tsx                hours asleep per night, with table twin        Justin
@@ -200,6 +204,11 @@ lib/
   sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
   auth.ts                       Auth.js: magic links, database sessions (§5.1)
   authAdapter.ts                Prisma adapter + the 7-day absolute session cap
+  access.ts                     roles and capabilities: the whole of §5.2, pure
+  guard.ts                      the 401 / 403 / 404 every provider route starts with
+  httpError.ts                  a guard's refusal, answered and logged by withRoute
+  team.ts                       practice/team shapes and validators (client-safe)
+  teamStore.ts                  the database half: invite, role change, settings
   mailer.ts                     where a sign-in link goes: SES, or devMailbox.ts
   devMailbox.ts                 the local .mail/ drop behind `npm run mail`
   voice.ts                      browser speech synthesis + recognition for Sweetie Justin
@@ -211,7 +220,7 @@ lib/
   storage.ts                    raw uploaded files: S3, or the filesystem in dev and CI (§3.3)
   uploads.ts                    the gates before a parser: 20 MB cap, type sniffing (§9.1)
   visit.ts                      resolve a visit from its id or invite token
-  practice.ts                   a provider and their practice, created on demand
+  practice.ts                   the first person in a practice: sign-up and the demo provider
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin
   db.ts                         Prisma singleton

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
-import { signInAsDemo } from "./auth";
+import { signInAsDemo, signOutOfBrowser } from "./auth";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -20,6 +20,10 @@ test("landing renders", async ({ page }) => {
 });
 
 test("practice flow: sign in, dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
+  // page.request, not request, for everything below that speaks as a provider: §5.2 (T06) puts every provider
+  // route behind the session and the role, and the page's cookies are that session. The patient's own way in —
+  // the invite token — is the one thing still asked for without one, and is asked for through `request` on
+  // purpose, to show it needs no session at all.
   // The demo provider exists after `npm run seed`; signInAsDemo takes the emailed link (design §5.1).
   const demo = await signInAsDemo(page);
   await expect(page).toHaveURL(/\/provider/);
@@ -30,7 +34,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
@@ -39,17 +43,18 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // so the hackathon's patient-keyed lookup is gone.
   const byToken = await (await request.get(`/api/patient/${booked.token}`)).json();
   expect(byToken.visitId).toBe(booked.visitId);
-  const byVisitId = await (await request.get(`/api/patient/${booked.visitId}`)).json();
+  const byVisitId = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(byVisitId.patient.name).toBe("E2E Patient");
-  expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
 
   // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
   // page.request, not request: /api/provider answers for the session (§5.1) and the page holds the cookie.
   const providerRows = await (await page.request.get("/api/provider")).json();
   expect(providerRows.visits.map((v: { id: string }) => v.id)).toContain(booked.visitId);
-  // Through postJson: without the CSRF header these are a 403 from middleware and assert nothing about §4.4.
-  expect((await postJson(request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
-  expect((await postJson(request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
+  // Through postJson, and as the signed-in page: without the CSRF header these are a 403 from middleware and
+  // without the session a 401 from the guard, and neither asserts anything about §4.4.
+  expect((await postJson(page.request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
+  expect((await postJson(page.request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
@@ -91,11 +96,15 @@ test("summary generation goes through the job queue", async ({ page, request }) 
 });
 
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
-  // No sign-in and no providerId: the patient's credential is the token in the link (§5.3), and /api/book
-  // falls back to the seeded demo provider.
+  // Someone at the practice books the visit — staff's job, and it needs their session now (§5.2) — and from
+  // there the patient has no account and no sign-in: the token in the link is their credential (§5.3), which
+  // is why every request below goes through `request` rather than the signed-in page.
+  await signInAsDemo(page);
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
+    await postJson(page.request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
 
   await page.goto(`/s/${booked.token}`);
   await expect(page.locator("body")).toContainText(/Sweetie/i);

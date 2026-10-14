@@ -37,7 +37,7 @@ test("the CSP carries a per-response nonce and no unsafe script source", async (
   expect(nonceOf(first)).not.toBe(nonceOf(second));
 });
 
-test("every page hydrates under the nonce policy, with no CSP violation", async ({ page, request }) => {
+test("every page hydrates under the nonce policy, with no CSP violation", async ({ page }) => {
   // The nonce is only worth having if the app still works under it, and the way it fails is quiet: the
   // scripts are refused, the shell renders, and the page simply never fills in. It bit this ticket once
   // already — a statically prerendered page is built before any nonce exists, so its bootstrap scripts come
@@ -58,7 +58,10 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   const demo = await signInAsDemo(page);
   expect(violations, `sign-in: ${violations.join("\n")}`).toEqual([]);
 
-  const booked = await (await postJson(request, "/api/book", { name: "E2E Csp", providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
+  // page.request, not the bare fixture: /api/book is behind the session and the staff role now (T06, §5.2),
+  // and this walk needs the visit, not an unauthenticated POST. The CSRF header is still postJson's job.
+  const booked = await (await postJson(page.request, "/api/book", { name: "E2E Csp", providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
+  expect(booked.token, "the CSP walk needs a visit to open").toBeTruthy();
 
   // Each screen, with text that only appears once its client JavaScript has run, and for the intake page the
   // click that reveals the data sources — the Dexcom sandbox button there is the one plain <form> in the app
@@ -114,7 +117,7 @@ test("a cross-site POST is refused even when it carries the token", async ({ req
   expect(res.headers()["x-csrf-blocked"]).toContain("origin");
 });
 
-test("the same POST with the token succeeds, and a GET never needed one", async ({ page, request }) => {
+test("the same POST with the token succeeds, and a GET never needed one", async ({ page }) => {
   // GET /api/provider answers for the session now (§5.1), so this is a safe method that really does something:
   // a 200 with the provider's own row is the proof it was not challenged, where the old ?list=1 fixture only
   // proved an unauthenticated route answered.
@@ -123,7 +126,9 @@ test("the same POST with the token succeeds, and a GET never needed one", async 
   expect(listed.status(), "a safe method is not challenged").toBe(200);
   expect((await listed.json()).id).toBe(demo.id);
 
-  const res = await postJson(request, "/api/book", { name: "E2E Csrf Ok", providerId: demo.id, optIn: false });
+  // As the signed-in page: the token is what this asserts, but §5.2 means a POST with a perfect token and no
+  // session is a 401, which would say nothing about CSRF either way.
+  const res = await postJson(page.request, "/api/book", { name: "E2E Csrf Ok", providerId: demo.id, optIn: false });
   expect(res.status()).toBe(200);
   expect((await res.json()).token).toBeTruthy();
 });

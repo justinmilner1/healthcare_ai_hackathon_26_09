@@ -50,9 +50,11 @@ data/*
 # The local mail drop: with no email provider configured, lib/mailer.ts writes sign-in links here instead of
 # sending them (design §5.1). They are credentials, so they never get committed. `npm run mail` reads it.
 .mail/
-e2e/.mail/
-e2e/.mail-degraded/
-e2e/.mail-runner/
+# Every mailbox, not just the ones that exist today: playwright.config.ts runs a server per mailbox
+# (e2e/.mail, -degraded, -runner) and gains one whenever a spec needs another. The narrower `e2e/.mail/`
+# let two sign-in links from the degraded server be committed by a `git add -A` on the T06 branch, so this
+# is a glob — it already covers the -runner box T27 added, and whatever the next server calls its drop.
+e2e/.mail*/
 
 # local tooling
 .claude/

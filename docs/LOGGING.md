@@ -37,6 +37,11 @@ log.error("sour_chat_failed", { visitId, error: e });
   carries `requestId` and `route` without being passed them;
 - writes one `request` line with the method, status, and duration when the handler returns, or a
   `request_failed` line when it throws;
+- turns an `HttpError` (`lib/httpError.ts`) into the response the guard asked for and writes the access line
+  at `warn` under the guard's own event name instead of `request` — `request_unauthenticated`,
+  `request_forbidden`, `visit_not_in_practice`, `user_not_in_practice`. There is still exactly one access line
+  per request; a refusal is an answer the route meant to give, not a crash, so no `request_failed` and no
+  stack. The alarm for a burst of refusals keys off those event names;
 - returns the id to the client as `x-request-id`, which is the thing a support request quotes.
 
 A unit test asserts that every `route.ts` goes through it.
@@ -54,8 +59,13 @@ log.info("invite_sent", { patientId: "p_1", name: "Jane Doe", email: "jane@examp
 So a mistake costs a missing field in a dashboard, not a disclosure, and the drop is visible rather than
 silent. The list holds request plumbing (`requestId`, `route`, `method`, `status`, `durationMs`), opaque
 database ids (`patientId`, `visitId`, `uploadId`, `jobId`, …), operational facts (`kind`, `count`, `rows`,
-`bytes`, `attempt`, `sent`, `provider`, `channel`, `model`, …), and scrubbed failures (`error`, `stack`,
-`code`).
+`bytes`, `attempt`, `sent`, `provider`, `channel`, `model`, `role`, `capability`, …), and scrubbed failures
+(`error`, `stack`, `code`).
+
+`role` and `capability` are there for the refusal lines above. Both are closed vocabularies out of
+`lib/access.ts` — one of three role names, one of seven capability names — so neither can carry a person's
+anything; a guard's other fields (`userId`, `practiceId`) are opaque ids, and an address passed to one is
+dropped by name like anywhere else.
 
 Two rules for changing it:
 
@@ -106,7 +116,8 @@ above can be a phone number. When you add an id field, add its format here rathe
   `scripts/` and `e2e/`, which never see production data.
 - `npm test` (`lib/log.test.ts`) asserts that non-allow-listed fields are dropped, that `scrub` removes
   addresses and numbers, that the allow-list holds no PHI-shaped field name, that request ids propagate, that
-  a hostile `x-request-id` (`Jane Doe`, an address, a phone number) is replaced by a fresh UUID, and — by
+  a hostile `x-request-id` (`Jane Doe`, an address, a phone number) is replaced by a fresh UUID, that a
+  guard's 403 is one `warn` access line with the role and capability and no address on it, and — by
   scanning the source — that no application file calls `console.*` or writes to `process.stdout` directly.
   `lib/sweetie.test.ts` covers `knownVisitType`.
 

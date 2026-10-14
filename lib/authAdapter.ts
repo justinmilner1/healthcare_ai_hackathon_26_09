@@ -6,7 +6,11 @@
 //      drops the row the first time it is read past the cap, and Auth.js then clears the cookie.
 //   2. A practice for a brand-new user. Auth.js creates the User row when an unknown address clicks its link,
 //      and `User.practiceId` is required (§4.2). The first person in a practice runs it, which is what
-//      lib/practice.ts already does for the signup form. Invite-only sign-up is T06.
+//      lib/practice.ts already does for the signup form. An invited colleague never reaches this path: their
+//      User row exists already, with the practice and the role the invite gave them (lib/teamStore.ts), so
+//      Auth.js finds them by address and signs them in as that. Sign-up stays open on purpose — §2.1 is a new
+//      admin signing themselves up — and it is `signUpPractice` that keeps it from touching an address that
+//      already belongs to someone.
 
 import type { Adapter, AdapterSession, AdapterUser } from "@auth/core/adapters";
 import { PrismaAdapter } from "@auth/prisma-adapter";

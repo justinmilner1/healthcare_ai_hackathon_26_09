@@ -1576,6 +1576,172 @@ textarea.ss-input {
   font-size: 9px;
 }
 
+/* Practice settings (design §2.1, §5.2): two forms side by side, then the users table, which borrows the
+   dashboard's .provider-table so the two screens read as one workspace. */
+
+.settings-head {
+  margin-top: 26px;
+  align-items: start;
+}
+
+.settings-head .ss-title {
+  margin: 0 0 8px;
+}
+
+.settings-head .ss-lede {
+  max-width: 520px;
+  margin: 0;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 45px;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 26px 28px 28px;
+}
+
+.settings-card h2 {
+  margin: 0;
+  color: var(--sour-ink);
+  font-size: 20px;
+  font-weight: 710;
+  letter-spacing: -0.03em;
+}
+
+.settings-hint {
+  margin: 0;
+  color: var(--ss-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.settings-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-roles legend {
+  margin-bottom: 8px;
+  color: var(--sour-ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-role {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid rgba(41, 49, 38, 0.12);
+  border-radius: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.settings-role:hover {
+  border-color: rgba(41, 49, 38, 0.3);
+}
+
+.settings-role-selected {
+  border-color: var(--sour-ink);
+  background: rgba(255, 222, 105, 0.22);
+}
+
+.settings-role input {
+  margin-top: 3px;
+  accent-color: var(--sour-ink);
+}
+
+.settings-role strong {
+  display: block;
+  color: var(--sour-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-role small {
+  display: block;
+  margin-top: 2px;
+  color: var(--ss-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.settings-role-select select {
+  min-width: 128px;
+  padding-right: 12px;
+}
+
+/* On a phone the users table is the one table whose only control — the role select — sits in the last
+   column, so sideways scrolling would hide it behind an edge with nothing to say it is there. Below 680px
+   each row becomes a stacked card and every cell carries back the heading it loses. */
+@media (max-width: 680px) {
+  .settings-users thead {
+    display: none;
+  }
+
+  .settings-users,
+  .settings-users tbody,
+  .settings-users tr,
+  .settings-users td {
+    display: block;
+    width: 100%;
+    /* .provider-table carries min-width: 1050px, which is what makes the dashboard's wide table scroll.
+       A stacked row has nothing to scroll, so the width would just push the role select past the card. */
+    min-width: 0;
+  }
+
+  .settings-users tr {
+    padding: 6px 0 12px;
+    border-bottom: 1px solid rgba(41, 49, 38, 0.08);
+  }
+
+  .settings-users tr:last-child {
+    border-bottom: 0;
+  }
+
+  .settings-users td {
+    padding: 7px 18px;
+    border: 0;
+  }
+
+  .settings-users td[data-label="Status"]::before,
+  .settings-users td[data-label="Role"]::before {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--ss-muted);
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .settings-role-select select {
+    width: 100%;
+  }
+}
+
 .practice-picker {
   display: grid;
   min-height: min(680px, calc(100svh - 126px));
@@ -4131,6 +4297,10 @@ button.sweetie-agent-badge {
 
   .provider-footer span:last-child {
     display: none;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
   }
 
   .practice-picker {
