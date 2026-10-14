@@ -9,6 +9,9 @@ import { parseClarityCsv } from "../lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "../lib/location";
 import { upsertProvider } from "../lib/practice";
 import { parseWhoopCsv } from "../lib/sleep";
+import { newUploadKey, putObject } from "../lib/storage";
+import type { UploadKind } from "../lib/types";
+import { contentTypeFor, formatFor } from "../lib/uploads";
 
 const data = (f: string) => readFileSync(join(process.cwd(), "data", f), "utf8");
 
@@ -25,16 +28,21 @@ async function main() {
     },
   });
 
-  const files: [string, string, unknown[]][] = [
+  const files: [UploadKind, string, unknown[]][] = [
     ["dexcom", "dexcom_clarity_sample.csv", parseClarityCsv(data("dexcom_clarity_sample.csv"))],
     ["timeline", "timeline_sample.json", parseTimeline(data("timeline_sample.json"))],
     ["visits", "visits.csv", parseVisitsCsv(data("visits.csv"))],
     ["whoop", "whoop_sample.csv", parseWhoopCsv(data("whoop_sample.csv"))],
   ];
   for (const [kind, filename, parsed] of files) {
-    const raw = data(filename);
+    // Seeded uploads go through the same storage adapter as a real one (§3.3), so a seeded demo exercises
+    // the path the patient page uses: data/uploads/ locally and in CI, the bucket where one is configured.
+    const bytes = new TextEncoder().encode(data(filename));
+    const format = formatFor(kind);
+    const s3Key = newUploadKey(visit.id, kind, format);
+    await putObject(s3Key, bytes, contentTypeFor(format));
     await db.upload.create({
-      data: { visitId: visit.id, kind, filename, bytes: raw.length, parsedRows: parsed.length, data: { create: { parsed: JSON.stringify(parsed), raw } } },
+      data: { visitId: visit.id, kind, filename, s3Key, bytes: bytes.byteLength, parsedRows: parsed.length, data: { create: { parsed: JSON.stringify(parsed) } } },
     });
     console.log(`${kind}: ${parsed.length} rows`);
   }
