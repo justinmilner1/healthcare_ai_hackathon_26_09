@@ -73,7 +73,13 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
   // A well-formed CSV with no rows in it is the parser's call, and still a sentence about the file.
   const noRows = await post("dexcom", "headers_only.csv", Buffer.from("Timestamp (YYYY-MM-DDThh:mm:ss),Glucose Value (mg/dL)\n"));
   expect(noRows.status()).toBe(422);
-  expect((await noRows.json()).error).toMatch(/no usable rows/);
+  expect((await noRows.json()).error).toMatch(/no glucose readings in that file/);
+
+  // JSON that is not a Timeline export: the parser's position-42 message never reaches the patient.
+  const broken = await post("timeline", "Timeline.json", Buffer.from('{"semanticSegments": ['), "application/json");
+  expect(broken.status()).toBe(422);
+  expect((await broken.json()).error).toMatch(/could not read that as a Timeline export/);
+  expect((await broken.json()).error).not.toMatch(/JSON|position|token/);
 
   // And the good file, so the refusals above are about the files and not about the route being broken.
   const good = await post("dexcom", "Clarity_export.csv", Buffer.from(clarity()));

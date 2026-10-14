@@ -13,7 +13,7 @@ import { log, withRoute } from "@/lib/log";
 import { parseWhoopCsv } from "@/lib/sleep";
 import { deleteObjects, newUploadKey, putObject, storageBackend } from "@/lib/storage";
 import type { UploadKind } from "@/lib/types";
-import { checkSize, contentTypeFor, MAX_UPLOAD_BYTES, sniffUpload } from "@/lib/uploads";
+import { checkSize, contentTypeFor, MAX_UPLOAD_BYTES, noRowsReason, sniffUpload, unreadableReason } from "@/lib/uploads";
 import { visitByToken } from "@/lib/visit";
 
 const KINDS: UploadKind[] = ["dexcom", "timeline", "whoop", "visits"];
@@ -87,13 +87,14 @@ async function postHandler(req: Request) {
       : kind === "whoop" ? parseWhoopCsv(raw)
       : parseVisitsCsv(raw);
   } catch (e) {
+    // Where the parser gave up goes in the log; what the patient gets is the step that fixes it (§9.1).
     log.warn("upload_unparsable", { patientId: visit.patientId, visitId: visit.id, kind, bytes: bytes.byteLength, error: e });
-    return NextResponse.json({ error: `could not parse ${kind}: ${e instanceof Error ? e.message : e}` }, { status: 422 });
+    return NextResponse.json({ error: unreadableReason(kind) }, { status: 422 });
   }
   if (parsed.length === 0) {
     // The filename is the patient's own words and stays out of the log; the byte count says as much.
     log.warn("upload_empty", { patientId: visit.patientId, visitId: visit.id, kind, bytes: bytes.byteLength });
-    return NextResponse.json({ error: `no usable rows found in ${file.name}` }, { status: 422 });
+    return NextResponse.json({ error: noRowsReason(kind) }, { status: 422 });
   }
 
   // §3.3: the bytes go to storage, never into the database. Stored before the row is written, so a key in

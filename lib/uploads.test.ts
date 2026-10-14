@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture } from "./fixtures";
 import type { UploadKind } from "./types";
-import { asSentence, checkSize, checkUpload, contentTypeFor, formatFor, MAX_UPLOAD_BYTES, megabytes, sniffUpload } from "./uploads";
+import { asSentence, checkSize, checkUpload, contentTypeFor, formatFor, MAX_UPLOAD_BYTES, megabytes, noRowsReason, sniffUpload, unreadableReason } from "./uploads";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const bytes = (...values: number[]) => new Uint8Array(values);
@@ -126,4 +126,17 @@ test("a refusal can also stand on its own, for the cards on the intake page", ()
   assert.equal(asSentence("Already a sentence."), "Already a sentence.");
   assert.equal(asSentence("  spaced out  "), "Spaced out.");
   assert.equal(asSentence(""), "", "nothing to say is left alone rather than turned into a bare full stop");
+});
+
+test("a parse failure is answered with the step that fixes it, not with the parser's message", () => {
+  for (const kind of ["dexcom", "timeline", "whoop", "visits"] as UploadKind[]) {
+    for (const reason of [unreadableReason(kind), noRowsReason(kind)]) {
+      assertPlainLanguage(reason);
+      assert.doesNotMatch(reason, /JSON\.parse|position \d|undefined|Unexpected token/i);
+    }
+    // The two are different problems and must not read the same: one file is unreadable, the other is empty.
+    assert.notEqual(unreadableReason(kind), noRowsReason(kind));
+  }
+  assert.match(unreadableReason("dexcom"), /Clarity/);
+  assert.match(noRowsReason("whoop"), /sleep/);
 });

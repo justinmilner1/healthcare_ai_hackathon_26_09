@@ -126,6 +126,35 @@ export function checkUpload(kind: UploadKind, declaredBytes: number, bytes: Uint
 }
 
 /**
+ * What a patient is told when the file is the right shape but the parser could not read it. The parser's own
+ * message says where in the file it gave up, which is a line for the log and no help to the person holding
+ * the phone (§9.1: "reject on parse failure with a plain-language reason"), so each kind gets the one
+ * instruction that fixes it.
+ */
+const UNREADABLE: Record<UploadKind, string> = {
+  dexcom: "we could not read that as a Clarity export — in Clarity choose Export, then CSV, and send the file it saves",
+  timeline: "we could not read that as a Timeline export — it should be the Timeline.json the phone saved, not an edited copy",
+  whoop: "we could not read that as a WHOOP export — the file from More, then Data export, is the one",
+  visits: "we could not read that places file — each line should be start,end,place,lat,lng",
+};
+
+/** The file read fine and held nothing we can use. A different problem, so a different sentence. */
+const NO_ROWS: Record<UploadKind, string> = {
+  dexcom: "there are no glucose readings in that file — if the export covered days with no data, try the last 7 days instead",
+  timeline: "there are no visits in that file from the last 7 days — Timeline only helps if it was on while you were out",
+  whoop: "there are no nights of sleep in that file — try an export that covers the last week",
+  visits: "there are no places in that file — each line should be start,end,place,lat,lng",
+};
+
+export function unreadableReason(kind: UploadKind): string {
+  return UNREADABLE[kind];
+}
+
+export function noRowsReason(kind: UploadKind): string {
+  return NO_ROWS[kind];
+}
+
+/**
  * The same refusal as a sentence that can stand on its own. The chat page splices the reason into a longer
  * line, so the reasons are written lowercase; the intake page prints it on a card by itself, where a
  * lowercase start reads as a typo.
