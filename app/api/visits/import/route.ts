@@ -48,7 +48,7 @@ async function postHandler(req: Request) {
   };
 
   if (body.commit !== true) {
-    return NextResponse.json({ ...preview, committed: false, rows: parse.rows.map((r) => ({ line: r.line, name: r.name, visit: r.draft, errors: r.errors })) });
+    return NextResponse.json({ ...preview, committed: false, rows: parse.rows.map((r) => ({ line: r.line, name: r.name, visit: r.draft, errors: r.errors, warnings: r.warnings })) });
   }
 
   const creatable = parse.rows.filter((r): r is typeof r & { draft: VisitDraft } => Boolean(r.draft));
@@ -75,6 +75,7 @@ async function postHandler(req: Request) {
         line: r.line,
         name: r.name,
         visit: r.draft,
+        warnings: r.warnings,
         // A row the database refused joins the rows the parser refused, so the screen has one list to read.
         errors: outcome?.error ? [...r.errors, outcome.error] : r.errors,
         created: outcome?.created ? { ...outcome.created, link: intakeLink(outcome.created.token) } : null,

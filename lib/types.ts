@@ -73,6 +73,23 @@ export type GlucoseStats = {
   recoveryAvg: number | null;
 };
 
+// The state of the `sour.run` job behind a visit's summary, as the provider page shows it (design §7.2).
+// Times are ISO strings because this crosses the wire inside PatientBundle. Nothing here is PHI: a job
+// payload is a visit id and `lastError` is scrubbed on the way into the row (lib/jobs.ts).
+export type SourJobState = {
+  id: string;
+  status: "queued" | "running" | "done" | "failed";
+  attempts: number;
+  maxAttempts: number;
+  /** Why the last attempt failed, scrubbed. Set on a retrying job too, not only on a failed one. */
+  lastError: string | null;
+  /** When a queued job becomes due; a retry is waiting out its backoff until then. */
+  runAfter: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+};
+
 // Everything a summary page needs in one fetch: GET /api/patient/[id]  (a visit id or the invite token).
 // Keyed by the visit (design §4.4): `visitId` is what the pages send back to /api/sour and /api/invite, while
 // `patient` describes the person the visit is for.
@@ -102,4 +119,9 @@ export type PatientBundle = {
   providerSummaryAt: string | null;
   patientSummary: Summary | null;
   patientSummaryAt: string | null;
+  /** The newest `sour.run` job for this visit, or null if one has never been queued (§7.2). */
+  sourJob: SourJobState | null;
+  /** True when a saved summary no longer matches the current intake and uploads, so a run would redo it
+   *  rather than return the saved pair (§7.1). False when there is no summary yet. */
+  summaryStale: boolean;
 };

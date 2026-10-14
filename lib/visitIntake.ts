@@ -144,6 +144,23 @@ export type VisitInput = {
 export type DraftResult = { ok: true; draft: VisitDraft } | { ok: false; errors: string[] };
 
 /**
+ * What is true about a draft that staff should see but that does not stop the visit being created.
+ *
+ * There is one, and it is T08's (§5.3): opening the invite link sends a six-digit code to the phone or email
+ * on file, so a visit with neither cannot be opened by the patient at all — the link tells them to call the
+ * office. That is a real state the front desk gets into (the appointment is booked today, the number arrives
+ * tomorrow) and `POST /api/verify` already answers it honestly, so it stays creatable; it is not something to
+ * find out about a week later, so both screens say it at the moment the visit is made.
+ *
+ * Which is also the answer to "may `do not message` carry an address": it should. The channel governs the
+ * invite, and the address is what the code goes to whether or not an invite was ever sent.
+ */
+export function warningsFor(draft: Pick<VisitDraft, "phone" | "email">): string[] {
+  if (draft.phone || draft.email) return [];
+  return ["No phone or email on file, so this patient cannot open their link: opening it sends them a six-digit code."];
+}
+
+/**
  * One visit's worth of input, validated. Every error is a whole sentence a receptionist can act on, because
  * the same strings are shown under the wizard's fields and next to a CSV row.
  *
@@ -288,6 +305,8 @@ export type CsvRow = {
   name: string;
   draft: VisitDraft | null;
   errors: string[];
+  /** True of the row, and not a reason to refuse it: see warningsFor. Empty on a row that has errors. */
+  warnings: string[];
 };
 
 export type CsvParse = {
@@ -356,7 +375,8 @@ export function parseVisitCsv(text: string): CsvParse {
     if (cells.length !== header.length) {
       errors.unshift(`This row has ${cells.length} ${cells.length === 1 ? "cell" : "cells"} and the header has ${header.length}.`);
     }
-    rows.push({ line: i + 1, name: cleanPatientName(value("name")) ?? "", draft: errors.length ? null : (parsed as { draft: VisitDraft }).draft, errors });
+    const draft = errors.length ? null : (parsed as { draft: VisitDraft }).draft;
+    rows.push({ line: i + 1, name: cleanPatientName(value("name")) ?? "", draft, errors, warnings: draft ? warningsFor(draft) : [] });
   }
 
   if (!rows.length) return { columns: mapped.filter((c): c is (typeof CSV_COLUMNS)[number] => c !== null), ignored, rows, error: "That file has a header and no visits under it." };

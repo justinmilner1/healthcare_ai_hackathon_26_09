@@ -49,8 +49,13 @@ test("a user from another practice gets 404 on this practice's visits", async ({
   const mine = await (await page.request.get("/api/provider")).json();
   expect(mine.visits).toHaveLength(0);
 
-  // The patient's own link still opens: the token is their credential and is not a practice's to hold (§5.3).
-  expect((await page.request.get(`/api/patient/${visit!.token}`)).ok()).toBeTruthy();
+  // The patient's link is not a practice's to hold either — but since T08 it is not a credential on its own
+  // (§2.3, §5.3): it names the visit and a verified session opens it. So a stranger holding the token is
+  // turned away for not having verified, not for being in the wrong practice, and the refusal says nothing
+  // about whose visit it is.
+  const forwarded = await page.request.get(`/api/patient/${visit!.token}`);
+  expect(forwarded.status()).toBe(401);
+  expect((await forwarded.json()).error).toMatch(/verify your link/i);
 });
 
 test("an admin invites a colleague, sets the practice up, and the invited role is what that colleague can do", async ({ page }) => {

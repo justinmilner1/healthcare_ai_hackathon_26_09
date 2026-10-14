@@ -14,6 +14,7 @@ import { db } from "./db";
 import { HttpError } from "./httpError";
 import { log } from "./log";
 import type { ProviderUser } from "./auth";
+import { channelsFor } from "./patientSession";
 import { channelsOf, type VisitDraft } from "./visitIntake";
 import { knownVisitType } from "./visits";
 import { newVisitToken } from "./migrateVisits";
@@ -183,9 +184,12 @@ export async function deliveriesByVisit(visitIds: string[]): Promise<Record<stri
   return byVisit;
 }
 
-/** The channels an invite for this visit should go out on: what staff chose, narrowed to what we can reach.
- *  A visit with no opt-in sends nothing at all, whatever channel is stored (§2.2). */
+/** The channels an invite for this visit should go out on: what staff chose (§2.2), narrowed to the ways
+ *  there are to reach the patient at all (`channelsFor`, §2.3). A visit with no opt-in sends nothing,
+ *  whatever channel is stored — the invite is the one message consent governs; the verification code that
+ *  T08 sends when the patient opens the link is not an invite and is not sent from here. */
 export function invitableChannels(visit: { optIn: boolean; contactChannel: string | null; patient: { phone: string | null; email: string | null } }): ("sms" | "email")[] {
   if (!visit.optIn) return [];
-  return channelsOf(visit.contactChannel).filter((c) => (c === "sms" ? visit.patient.phone : visit.patient.email));
+  const reachable = channelsFor(visit.patient);
+  return channelsOf(visit.contactChannel).filter((c) => reachable.includes(c));
 }

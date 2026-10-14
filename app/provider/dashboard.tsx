@@ -5,7 +5,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
 import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
@@ -16,6 +16,7 @@ import {
   consentLabel,
   CONTACT_CHANNELS,
   CSV_TEMPLATE,
+  warningsFor,
   type ConsentMethod,
   type ContactChannel,
   type VisitDraft,
@@ -189,6 +190,27 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
       ...notes,
       [visit.id]: data.queued ? "Sending now" : `Not sent: ${data.error ?? "unknown error"}`,
     }));
+  }
+
+  // §5.5 Staff can regenerate a link, which invalidates the old one. Destructive from the patient's side —
+  // a half-finished check-in in another browser is locked out — so it asks first and says what happened.
+  async function regenerateLink(visit: Row) {
+    if (!window.confirm(`Replace ${visit.name}'s link?\n\nThe old link stops working straight away, and anyone already signed in on it has to verify again with a new code.`)) return;
+    setRowNote((notes) => ({ ...notes, [visit.id]: "Replacing the link…" }));
+    try {
+      const response = await apiFetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitId: visit.id, regenerate: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not replace the link.");
+      setRowNote((notes) => ({ ...notes, [visit.id]: "New link sent. The old one no longer works." }));
+      // The row still carries the old token, and Copy intake reads it from there.
+      await load();
+    } catch (e) {
+      setRowNote((notes) => ({ ...notes, [visit.id]: e instanceof Error ? e.message : "Could not replace the link." }));
+    }
   }
 
   async function copyIntakeLink(visit: Row) {
@@ -470,6 +492,16 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                                 className="ss-button"
                               >
                                 Send link
+                              </button>
+                              {/* §5.5 Regenerating is the same job as inviting, so it sits behind the same
+                                  capability: `visits:invite` (lib/access.ts). */}
+                              <button
+                                type="button"
+                                onClick={() => regenerateLink(visit)}
+                                className="ss-button"
+                                title="Replace this patient's link and send the new one. The old link stops working."
+                              >
+                                New link
                               </button>
                             </>
                           )}
@@ -886,9 +918,16 @@ function PatientWizard({
                 </div>
                 <p className="patient-consent-note">
                   {form.channel === "none"
-                    ? "Nothing is sent. Copy the link from the dashboard and hand it over yourself."
+                    ? "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code."
                     : `The secure link goes to ${[form.channel !== "email" && form.phone, form.channel !== "sms" && form.email].filter(Boolean).join(" and ") || "— add a number or address on the first step"}.`}
                 </p>
+                {/* Not an error: a visit with no contact details is creatable, and the link says so honestly
+                    (T08, §5.3). Staff should know at the desk rather than when the patient calls back. */}
+                {warningsFor({ phone: form.phone.trim() || null, email: form.email.trim() || null }).map((warning) => (
+                  <p className="patient-consent-warning" key={warning}>
+                    {warning}
+                  </p>
+                ))}
                 {form.channel !== "none" && (
                   <label className="ss-label">
                     <span>How did the patient agree to be contacted?</span>
@@ -969,7 +1008,7 @@ function PatientWizard({
 // nothing written until the person has read the preview and pressed the button. POST /api/visits/import does
 // both halves — the same call with `commit: true` — so what gets created is exactly what was previewed.
 
-type PreviewRow = { line: number; name: string; visit: VisitDraft | null; errors: string[]; created?: { link: string } | null };
+type PreviewRow = { line: number; name: string; visit: VisitDraft | null; errors: string[]; warnings: string[]; created?: { link: string } | null };
 type Preview = {
   columns: string[];
   ignored: string[];
@@ -986,6 +1025,9 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // The preview arrives below the fold of a laptop-height dialog, and it is the thing the person just asked
+  // for, so the dialog goes to it rather than leaving them to find it.
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   async function send(commit: boolean) {
     setBusy(true);
@@ -999,6 +1041,7 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "That file could not be read.");
       setPreview(data as Preview);
+      requestAnimationFrame(() => previewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
       if (commit) await onImported();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That file could not be read.");
@@ -1034,7 +1077,7 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
 
           <p className="ss-lede">
             Columns: <code>name, phone, email, scheduled_at, visit_type, reason, channel, consent, consent_at</code>. Every row is checked before anything is created, and a row
-            with a blank <code>channel</code> is created without being messaged.
+            with a blank <code>channel</code> is created without an invite — hand those patients the link yourself, and opening it still sends them a code.
           </p>
 
           <div className="import-controls">
@@ -1070,7 +1113,7 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
           )}
 
           {preview && (
-            <div className="import-preview">
+            <div className="import-preview" ref={previewRef}>
               {preview.error ? (
                 <div className="ss-error" role="alert">
                   {preview.error}
@@ -1124,10 +1167,17 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
                                   <li key={message}>{message}</li>
                                 ))}
                               </ul>
-                            ) : row.created ? (
-                              <span className="ss-pill ss-pill-success">Created</span>
                             ) : (
-                              <span className="ss-pill ss-pill-info">Ready</span>
+                              <>
+                                {row.created ? <span className="ss-pill ss-pill-success">Created</span> : <span className="ss-pill ss-pill-info">Ready</span>}
+                                {/* A warning does not stop the row; it is the thing staff would otherwise
+                                    find out about when the patient rings back (§5.3). */}
+                                {row.warnings.map((warning) => (
+                                  <small className="import-warning" key={warning}>
+                                    {warning}
+                                  </small>
+                                ))}
+                              </>
                             )}
                           </td>
                         </tr>

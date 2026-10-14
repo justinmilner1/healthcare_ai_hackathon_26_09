@@ -1,4 +1,5 @@
 // POST /api/upload  multipart form: token, kind (dexcom|timeline|whoop|visits), file
+// Needs a verified patient session for the visit the token names (design §5.3).
 // The gates in lib/uploads.ts run first (20 MB cap, type sniffing — design §9.1), then the parser, then the
 // raw bytes go to the storage adapter (S3 in deployed environments, the filesystem here — §3.3) and the row
 // keeps the key, the byte count and the parsed rows (§4.6). Returns { kind, count, status }.
@@ -14,6 +15,7 @@ import { log, withRoute } from "@/lib/log";
 import { parseWhoopCsv } from "@/lib/sleep";
 import { deleteObjects, newUploadKey, putObject, storageBackend } from "@/lib/storage";
 import type { UploadKind } from "@/lib/types";
+import { requireVerifiedPatient } from "@/lib/guard";
 import { checkContentLength, checkSize, contentTypeFor, MAX_UPLOAD_BYTES, noRowsReason, sniffUpload, unreadableReason } from "@/lib/uploads";
 import { visitByToken } from "@/lib/visit";
 
@@ -44,6 +46,8 @@ async function deleteHandler(req: Request) {
   }
   const visit = await visitByToken(body.token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  // §5.3 The token names the visit; the verified session is what opens it.
+  await requireVerifiedPatient(req, visit);
 
   // Hand-labelled visits also contain location history and must not survive Timeline removal.
   const kinds = body.kind === "timeline" ? ["timeline", "visits"] : [body.kind];
@@ -91,6 +95,8 @@ async function postHandler(req: Request) {
   if (!(file instanceof File)) return NextResponse.json({ error: "file is required" }, { status: 400 });
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "invalid token" }, { status: 404 });
+  // §5.3 The token names the visit; the verified session is what opens it.
+  await requireVerifiedPatient(req, visit);
   if (visit.isSandbox) return NextResponse.json({ error: "This demo patient accepts only Dexcom sandbox imports. Use a separate patient for real uploads." }, { status: 403 });
 
   // §9.1 gate 1: the declared size, so an oversized export is refused without being read into memory.

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { enterCode, patientEmail } from "./patient";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
 // something. Both claims are checked against the running build, not against the source that sets them.
@@ -60,8 +61,18 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
 
   // page.request, not the bare fixture: /api/book is behind the session and the staff role now (T06, §5.2),
   // and this walk needs the visit, not an unauthenticated POST. The CSRF header is still postJson's job.
-  const booked = await (await postJson(page.request, "/api/book", { name: "E2E Csp", providerId: demo.id, visitType: "follow_up", reason: "checking the policy", channel: "none" })).json();
+  const email = patientEmail("E2E Csp");
+  const booked = await (await postJson(page.request, "/api/book", { name: "E2E Csp", email, providerId: demo.id, visitType: "follow_up", reason: "checking the policy", channel: "none" })).json();
   expect(booked.token, "the CSP walk needs a visit to open").toBeTruthy();
+
+  // T08 (§5.3): the code screen is the first thing a patient link shows, so it is a screen on this walk too —
+  // and the only one whose client JavaScript posts before anything has been clicked. The provider session and
+  // the patient's are different cookies, so the walk holds both and no sign-out is needed in between.
+  await page.goto(`/s/${booked.token}`);
+  await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
+  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-security-verify.png`, fullPage: true });
+  expect(violations, `verify: ${violations.join("\n")}`).toEqual([]);
+  await enterCode(page, email);
 
   // Each screen, with text that only appears once its client JavaScript has run, and for the intake page the
   // click that reveals the data sources — the Dexcom sandbox button there is the one plain <form> in the app

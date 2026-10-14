@@ -101,12 +101,13 @@ const NOT_PROVIDER_ROUTES: Record<string, string> = {
   "api/auth/[...nextauth]": "Auth.js itself: this is where a session comes from (§5.1)",
   "api/health": "liveness for the load balancer; says nothing about anyone (§11.2)",
   "api/jobs/run": "the scheduler, on a shared secret in the Authorization header (§3.4)",
-  "api/sweetie": "the patient, on the invite token in the body (§5.3)",
-  "api/upload": "the patient, on the invite token in the form (§4.6, §5.3)",
-  "api/dexcom/connect": "the patient, on the invite token (§9.1)",
+  "api/verify": "the patient, on the invite token alone: this is the route that turns it into a session (§2.3, §5.3)",
+  "api/sweetie": "the patient, on the invite token in the body plus the session it names (§5.3)",
+  "api/upload": "the patient, on the invite token in the form plus the session it names (§4.6, §5.3)",
+  "api/dexcom/connect": "the patient, on the invite token plus the session it names (§9.1)",
   "api/dexcom/callback": "Dexcom's redirect, on the one-use state bound to an httpOnly cookie (§9.1)",
-  "api/dexcom/status": "the patient, on the invite token (§9.1)",
-  "api/dexcom/demo": "the patient, on the invite token; makes an isolated demo visit (§9.1)",
+  "api/dexcom/status": "the patient, on the invite token plus the session it names (§9.1)",
+  "api/dexcom/demo": "the patient, on the invite token plus the session it names; makes an isolated demo visit (§9.1)",
   demo: "a redirect to the sign-in form with an address filled in; signs nobody in",
 };
 
@@ -149,6 +150,7 @@ test("the two mixed-audience routes guard their provider half", () => {
   // is not enough on its own: the check has to be the one that runs for the provider.
   const patientRoute = readFileSync(path.join("app", "api", "patient", "[id]", "route.ts"), "utf8");
   assert.match(patientRoute, /visitByToken\(id\)/, "the patient's token must be what is tried first");
+  assert.match(patientRoute, /requireVerifiedPatient\(/, "and the token alone is not enough (T08, §5.3)");
   assert.match(patientRoute, /requireCapability\("summaries:read"\)/);
   assert.match(patientRoute, /requireVisitInPractice\(/);
 
@@ -156,4 +158,21 @@ test("the two mixed-audience routes guard their provider half", () => {
   const providerRoute = readFileSync(path.join("app", "api", "provider", "route.ts"), "utf8");
   assert.match(providerRoute, /requireCapability\("visits:read"\)/);
   assert.match(providerRoute, /signUpPractice\(/, "sign-up must go through the create-only path");
+});
+
+// §5.3 is the patient's half of the same promise, and it fails the same way if a route forgets it: every
+// route that takes an invite token has to ask for the session that token earned. The one exception is the
+// route that mints it. Listed rather than inferred, so adding a token route is a deliberate decision about
+// which of the two it is.
+const TOKEN_ROUTES = ["api/sweetie", "api/upload", "api/patient/[id]", "api/dexcom/status", "api/dexcom/connect", "api/dexcom/demo"];
+
+test("every route that takes an invite token asks for the verified session behind it", () => {
+  const missing = TOKEN_ROUTES.filter((name) => {
+    const file = path.join("app", ...name.split("/"), "route.ts");
+    return !/requireVerifiedPatient\(/.test(readFileSync(file, "utf8"));
+  });
+  assert.deepEqual(missing, [], "these take a token but never check the session it names (§5.3, lib/guard.ts)");
+
+  // The one that hands the session out cannot ask for it first.
+  assert.equal(/requireVerifiedPatient\(/.test(readFileSync(path.join("app", "api", "verify", "route.ts"), "utf8")), false);
 });

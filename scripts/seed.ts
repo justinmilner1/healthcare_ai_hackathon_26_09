@@ -31,7 +31,10 @@ async function main() {
       consentRecordedAt: new Date(Date.now() - 86400000),
       token,
       scheduledAt: new Date(Date.now() + 2 * 86400000),
-      patient: { create: { practiceId: provider.practiceId, name: "Sam Sample", phone: "+14155550100", email: "sam.sample@example.com" } },
+      // An email as well as a phone, because opening the link now sends a six-digit code (design §5.3) and
+      // no SMS backend is configured locally: with an address on file the code lands in the local mailbox
+      // and `npm run mail` prints it, so the patient flow can be walked offline.
+      patient: { create: { practiceId: provider.practiceId, name: "Sam Sample", phone: "+14155550100", email: "sam.sample@sweetspot.local" } },
     },
   });
 
@@ -58,8 +61,12 @@ async function main() {
   console.log(`\nSweetie (patient chat):  ${base}/s/${token}`);
   console.log(`Sour (provider view):    ${base}/provider/${provider.id}`);
   console.log(`Patient summary:         ${base}/patient/${token}`);
-  // The provider pages are behind sign-in now (design §5.1); the patient links above are not.
+  // The provider pages are behind sign-in now (design §5.1), and the patient links are behind a one-time
+  // code (§2.3, §5.3).
   console.log(`\nSign in as ${provider.email} at ${base}/provider, then \`npm run mail\` for the link.`);
+  // The patient links are behind a one-time code now (§2.3): opening one sends the code to the phone or
+  // email on file, and with no SMS or email backend configured it lands in the same local mailbox.
+  console.log(`Opening a patient link sends a six-digit code to the patient's email; \`npm run mail\` prints that too.`);
 }
 
 main().finally(() => db.$disconnect());

@@ -116,12 +116,15 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
 
   const goodName = uniqueName("CSV Good");
   const silentName = uniqueName("CSV Quiet");
-  // Four rows: one to message, one to create without messaging, and two the preview has to refuse for
+  const unreachableName = uniqueName("CSV Unreachable");
+  // Five rows: one to message, one to create without messaging, one with nothing on file at all, and two the
+  // preview has to refuse for
   // different reasons. The file is handed over the way a receptionist hands it over — as a file.
   const csv = [
     "Patient Name,Mobile,Email,Appointment,Type,Called about,Channel,Consent",
     `${goodName},${uniquePhone()},,2026-11-02 09:30,Follow-up,"mornings running high, every day",sms,phone`,
     `${silentName},${uniquePhone()},,2026-11-02 10:00,annual,,,`,
+    `${unreachableName},,,2026-11-02 10:45,follow_up,nothing on file,,`,
     `,${uniquePhone()},,2026-11-02 10:30,follow_up,no name at all,sms,phone`,
     `${uniqueName("CSV Bad")},${uniquePhone()},,2026-11-02 11:00,screening,unknown visit type,sms,phone`,
   ].join("\n");
@@ -130,20 +133,23 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   await page.getByLabel("CSV file").setInputFiles({ name: "tomorrow.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.getByRole("button", { name: /Check the rows/i }).click();
 
-  // §2.2's preview: two ready, two named problems, and nothing created yet.
-  await expect(page.locator(".import-tally")).toContainText("2 ready to create, 2 to fix", LOADED);
+  // §2.2's preview: three ready, two named problems, and nothing created yet.
+  await expect(page.locator(".import-tally")).toContainText("3 ready to create, 2 to fix", LOADED);
   await expect(page.locator(".import-table")).toContainText(/name is required/i);
   await expect(page.locator(".import-table")).toContainText(/Visit type must be one of/);
   await expect(page.locator(".import-table")).toContainText("Text message · Over the phone");
   // A row with a blank channel column is created and not messaged, which the preview says out loud.
   await expect(page.locator(".import-table")).toContainText("Do not message");
+  // And a row with nothing to reach the patient on is still importable, with what that costs on it: after
+  // T08 (§5.3) opening the link sends a code, so this visit has no way in until someone adds a number.
+  await expect(page.locator(".import-warning")).toContainText(/cannot open their link/i);
   await shot(page, "provider-import-preview");
 
   const beforeImport = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
   expect(beforeImport.visits.some((v) => v.name === goodName), "the preview writes nothing").toBeFalsy();
 
-  await page.getByRole("button", { name: /Create 2 visits/i }).click();
-  await expect(page.locator(".import-tally")).toContainText("2 created", LOADED);
+  await page.getByRole("button", { name: /Create 3 visits/i }).click();
+  await expect(page.locator(".import-tally")).toContainText("3 created", LOADED);
   await shot(page, "provider-import-created");
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
@@ -160,6 +166,7 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   expect(imported!.channel).toBe("sms");
   expect(imported!.reason).toBe("mornings running high, every day");
   expect(after.visits.find((v) => v.name === silentName)?.channel).toBe("none");
+  expect(after.visits.find((v) => v.name === unreachableName), "a row with nothing on file still imports").toBeTruthy();
 });
 
 test("a second visit for the same person reuses the patient, matched on phone", async ({ page }) => {

@@ -3,10 +3,17 @@
 //   ses     when AWS_ACCESS_KEY_ID is set (sandbox: EMAIL_FROM and every recipient must be verified identities)
 // Unconfigured -> { sent: false, error } and the UI shows the link instead.
 
-/** What one send did. `messageId` is the backend's own id for the message (design §8.3): the handle a bounce
- *  or complaint notification arrives under, recorded on the visit by lib/visitStore.ts. Absent when the send
- *  never left, and absent from a backend that does not hand one back. */
-export type SendResult = { sent: boolean; error?: string; provider?: string; messageId?: string };
+export type SendResult = {
+  sent: boolean;
+  error?: string;
+  provider?: string;
+  /** Where a diverted message landed: the local mailbox directory (lib/mailer.ts). Never an address. */
+  target?: string;
+  /** The backend's own id for the message (design §8.3): the handle a bounce or complaint notification
+   *  arrives under, recorded on the visit by lib/visitStore.ts. Absent when the send never left, and absent
+   *  from a backend that does not hand one back. */
+  messageId?: string;
+};
 
 export function emailProvider(): "resend" | "ses" | null {
   const forced = process.env.EMAIL_PROVIDER;

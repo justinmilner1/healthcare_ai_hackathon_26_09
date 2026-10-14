@@ -14,6 +14,7 @@ import {
   parseVisitDraft,
   parseVisitType,
   splitCsvLine,
+  warningsFor,
 } from "./visitIntake";
 
 // design §2.2: the rules the Add-visit form and the CSV import share. Pure, so no database here.
@@ -186,6 +187,8 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   });
   // A quoted comma inside the reason stays one cell rather than shifting every column after it.
   assert.equal(ok[1].draft?.reason, "new dose, feels shaky");
+  // Every importable row in the fixture has a number or an address, so none of them warns (§5.3).
+  assert.deepEqual(ok.flatMap((r) => r.warnings), []);
 
   const reasons = Object.fromEntries(parse.rows.filter((r) => !r.draft).map((r) => [r.line, r.errors.join(" | ")]));
   assert.match(reasons[5], /name is required/i);
@@ -195,6 +198,28 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   assert.match(reasons[9], /Record how the patient's consent/i);
   assert.match(reasons[10], /mobile number/i);
   assert.equal(Object.keys(reasons).length, 6);
+});
+
+// T08 (§5.3): opening the link sends a code to the phone or email on file, so a visit with neither cannot be
+// opened at all. §2.2 still lets staff create one — the number often arrives after the appointment does — so
+// this is a warning the screens show, never a refusal.
+test("a visit with nothing on file is created, and says what that costs the patient", () => {
+  const parsed = parseVisitDraft({ name: "Walk In", channel: "none" });
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.deepEqual(warningsFor(parsed.draft), ["No phone or email on file, so this patient cannot open their link: opening it sends them a six-digit code."]);
+
+  // Either one is enough, and "do not message" with an address on file is the deliberate combination: the
+  // channel governs the invite, the address is what the code goes to.
+  assert.deepEqual(warningsFor({ phone: null, email: "sam@example.com" }), []);
+  assert.deepEqual(warningsFor({ phone: "4155550100", email: null }), []);
+});
+
+test("a CSV row with no way to reach the patient imports with that warning on it", () => {
+  const parse = parseVisitCsv("name,phone,channel\nNo Contact,,none\nReachable,+14155550100,none\n");
+  assert.deepEqual(parse.rows.map((r) => r.errors.length), [0, 0]);
+  assert.match(parse.rows[0].warnings[0], /cannot open their link/);
+  assert.deepEqual(parse.rows[1].warnings, []);
 });
 
 test("the columns a file did not map are named rather than silently dropped", () => {

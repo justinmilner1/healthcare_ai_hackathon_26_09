@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { postJson } from "./api";
+import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { patientEmail, verifyByApi, verifyLink } from "./patient";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -32,15 +34,23 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
   await shot(page, "provider-dashboard");
 
-  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
+  // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts). The email is where
+  // the patient's six-digit code goes (T08, §5.3), so a booking without one could never be opened.
+  const email = patientEmail("E2E Patient");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", channel: "none" })
+    await postJson(page.request, "/api/book", { name: "E2E Patient", email, providerId: demo.id, visitType: "follow_up", reason: "mornings running high", channel: "none" })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
 
+  // T08 (§5.3): the token names the visit, and a verified session is what opens it. Unverified, the link is a
+  // closed door — which is the whole claim of §2.3, so it is asserted before it is opened.
+  expect((await request.get(`/api/patient/${booked.token}`)).status()).toBe(401);
+  await verifyByApi(request, booked.token, email);
+
   // Two ways to one visit (design §4.4, §5.3): the invite token and the visit id. A patient id is neither,
-  // so the hackathon's patient-keyed lookup is gone.
+  // so the hackathon's patient-keyed lookup is gone. Each has its own credential: the patient's verified
+  // session above, and the clinician's own sign-in, which is why that one goes through page.request.
   const byToken = await (await request.get(`/api/patient/${booked.token}`)).json();
   expect(byToken.visitId).toBe(booked.visitId);
   const byVisitId = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
@@ -67,6 +77,8 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
 });
 
 // T04 (design §3.4, §7.1): the summary is written by a `sour.run` job, not by the request that asks for it.
+// T15 adds the tail of this test: the job's state on the page, and that asking again over unchanged inputs
+// returns the summary already saved rather than writing a second one.
 // With no scheduler the app drains its own queue after the response, so opening a patient who has uploads and
 // no summary must still end with a summary on the page — through the queue, with the two "it's ready" links
 // queued behind it. Nothing here stubs the runner; if the job never ran, no summary appears.
@@ -86,6 +98,12 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // with this placeholder where the model's patterns would be, so its arrival is the queue having worked.
   await expect(page.locator(".sour-brief")).toContainText(/set OPENAI_API_KEY/i, LOADED);
   await expect(page.locator(".sour-brief")).not.toContainText(/Sour is reading the data/i);
+  // T15 (§7.2): the job's own state, not an inference from the summary's timestamp. Once the queue has run,
+  // the chip reads Ready; while it was queued or running it said so, and a failure would name the reason and
+  // offer the retry (lib/sourState.ts has every transition).
+  const chip = page.locator(".sour-job-state");
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  await expect(chip).toContainText(/Ready/);
   await shot(page, "provider-sour-generated");
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
@@ -93,20 +111,50 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const refused = await request.post("/api/jobs/run");
   expect(refused.status()).toBe(503);
   expect((await refused.json()).error).toMatch(/not configured/i);
+
+  // T15 (§7.1): "a second run with unchanged inputs returns the existing summary". Asked here, of the visit
+  // the queue has just summarized, rather than from a test of its own — every sign-in competes for the same
+  // demo mailbox, and a magic link is single use, so the cheapest way to keep this assertion reliable is not
+  // to ask for a second session to make it. The saving is only half the point: the other half is that the
+  // page can tell the difference, since a reused summary leaves its own timestamp exactly where it was.
+  const read = async () => (await page.request.get(`/api/patient/${seeded.id}`)).json();
+  const before = await read();
+  expect(before.providerSummary, "the queue wrote one above").toBeTruthy();
+  expect(before.summaryStale, "nothing has changed since that summary was written").toBe(false);
+
+  // page.request, not request: /api/sour needs the provider session (§5.2, T06) as well as the CSRF header
+  // (§10.8), and the page is what holds the cookie. A bare POST is a 403, a session-less one a 401, and
+  // either would assert nothing about §7.1.
+  const queued = await (await postJson(page.request, "/api/sour", { visitId: seeded.id })).json();
+  expect(queued.jobId).toBeTruthy();
+
+  let after = before;
+  for (let tries = 0; tries < 40; tries++) {
+    await new Promise((r) => setTimeout(r, 500));
+    after = await read();
+    if (after.sourJob?.id === queued.jobId && after.sourJob.status === "done") break;
+  }
+  expect(after.sourJob?.status, "the run reported back").toBe("done");
+  expect(after.providerSummaryAt, "the saved pair came back rather than a third one being written").toBe(before.providerSummaryAt);
+  expect(after.patientSummaryAt).toBe(before.patientSummaryAt);
+  expect(after.summaryStale).toBe(false);
 });
 
-test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
+test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page }) => {
   // Someone at the practice books the visit — staff's job, and it needs their session now (§5.2) — and from
-  // there the patient has no account and no sign-in: the token in the link is their credential (§5.3), which
-  // is why every request below goes through `request` rather than the signed-in page.
+  // there the patient has no provider account: the link plus the code sent to the address on file is their
+  // whole credential (§5.3). The provider's session is dropped before the link is opened, so everything after
+  // that point is the patient's own browser and nobody else's.
   await signInAsDemo(page);
+  const email = patientEmail("E2E Talker");
   const booked = await (
-    await postJson(page.request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", channel: "none" })
+    await postJson(page.request, "/api/book", { name: "E2E Talker", email, visitType: "follow_up", reason: "tired all the time", channel: "none" })
   ).json();
   expect(booked.token, "the visit's invite token").toBeTruthy();
   await signOutOfBrowser(page);
 
-  await page.goto(`/s/${booked.token}`);
+  // The link opens a code screen first (T08, §2.3); the code comes out of the console mailer (e2e/patient.ts).
+  await verifyLink(page, booked.token, email);
   await expect(page.locator("body")).toContainText(/Sweetie/i);
   // "Sweetie" is in the chrome, so it matches before the intake has loaded. GET /api/sweetie is what writes the
   // opening question and returns the field list, and until it answers the transcript is empty and the progress
@@ -128,7 +176,8 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   }
   await shot(page, "sweetie-done");
 
-  const bundle = await (await request.get(`/api/patient/${booked.token}`)).json();
+  // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
+  const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
   expect(bundle.status.answered).toBeGreaterThanOrEqual(1);
 
   await page.goto(`/patient/${booked.token}`);
@@ -136,4 +185,53 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // of a spinner. Assert on something only the loaded summary has.
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   await shot(page, "patient-summary");
+});
+
+// T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
+// it was made from, so a file arriving afterwards has to be visible as such — the chip says the summary is
+// out of date, and Regenerate really writes a new one rather than handing back the saved pair.
+test("a file arriving after a summary makes it out of date, and regenerating writes a new one", async ({ page, request }) => {
+  const demo = await signInAsDemo(page);
+  // Booking is staff's job and needs the session (§5.2, T06), so it goes through the signed-in page. The
+  // uploads below do not use that session: a patient's credential is the token in their link plus the
+  // verified session it earns (§5.3, T08), which is what the address below is for.
+  const email = patientEmail("E2E Fresh Data");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E Fresh Data", email, visitType: "follow_up", reason: "spikes after dinner", channel: "none" })
+  ).json();
+  expect(booked.token).toBeTruthy();
+  // The uploads below go through `request`, so that is the context the patient session has to land in (§5.3).
+  await verifyByApi(request, booked.token, email);
+
+  // Multipart, so postJson does not fit; the CSRF header is the same one it would have added (§10.8).
+  const upload = async (kind: string, path: string, name: string) => {
+    const res = await request.post("/api/upload", {
+      headers: { "x-csrf-token": await csrfToken(request) },
+      multipart: { token: booked.token, kind, file: { name, mimeType: "text/csv", buffer: readFileSync(path) } },
+    });
+    expect(res.ok(), `${kind} upload`).toBeTruthy();
+  };
+  await upload("dexcom", "data/dexcom_clarity_sample.csv", "clarity.csv");
+
+  // Opening a patient with data and no summary generates one without asking.
+  await page.goto(`/provider/${demo.id}?visit=${booked.visitId}`);
+  const chip = page.locator(".sour-job-state");
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  await shot(page, "provider-sour-ready");
+  const first = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
+  expect(first.summaryStale).toBe(false);
+
+  // A WHOOP export lands afterwards: the saved summary no longer describes the visit.
+  await upload("whoop", "data/whoop_sample.csv", "cycles.csv");
+  await page.reload();
+  await expect(chip).toHaveAttribute("data-phase", "stale", LOADED);
+  await expect(chip).toContainText(/Out of date/);
+  await shot(page, "provider-sour-stale");
+
+  // And Regenerate is a real run, not the saved pair coming back.
+  await page.getByRole("button", { name: /Regenerate/ }).click();
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  const second = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
+  expect(second.summaryStale).toBe(false);
+  expect(second.providerSummaryAt).not.toBe(first.providerSummaryAt);
 });

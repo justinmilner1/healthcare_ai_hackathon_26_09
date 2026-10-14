@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { PrismaClient } from "@prisma/client";
-import { authorizeRunner, backoffMs, BACKOFF_MS, claimDueJobs, drainJobs, enqueue, jobsRunner, MAX_ATTEMPTS, reapStuckJobs, STUCK_AFTER_MS, STUCK_ERROR, type JobHandlers } from "./jobs";
+import { authorizeRunner, backoffMs, BACKOFF_MS, claimDueJobs, drainJobs, enqueue, jobsRunner, jobStateView, latestJobForVisit, MAX_ATTEMPTS, reapStuckJobs, STUCK_AFTER_MS, STUCK_ERROR, type JobHandlers } from "./jobs";
 import { setLogSink } from "./log";
 
 // ---------------------------------------------------------------------------------------------
@@ -345,6 +345,85 @@ describe("job queue", { skip: SERVER_URL ? false : "DATABASE_URL is not set" }, 
       await enqueue({ kind: "sour.run", payload: { visitId: "v1" } }, db);
       await enqueue({ kind: "sour.run", payload: { visitId: "v1" } }, db);
       assert.equal(await db.job.count(), 5);
+    });
+  });
+
+  // T15 (§7.2): the provider page reads its state back from the queue, so a clinician can see where a
+  // summary got to. The wording on top of this is lib/sourState.test.ts.
+  describe("reading a job back for a visit", () => {
+    it("finds the newest job of that kind for that visit, and nobody else's", async () => {
+      const older = await enqueue({ kind: "sour.run", payload: { visitId: "v1" } }, db);
+      await new Promise((r) => setTimeout(r, 3)); // distinct createdAt, so "newest" has one answer
+      const newer = await enqueue({ kind: "sour.run", payload: { visitId: "v1" } }, db);
+      await enqueue({ kind: "sour.run", payload: { visitId: "v2" } }, db);
+      await enqueue({ kind: "notify.summary", payload: { visitId: "v1" } }, db);
+
+      assert.equal((await latestJobForVisit("sour.run", "v1", db))?.id, newer.job.id);
+      assert.notEqual(newer.job.id, older.job.id);
+      assert.equal((await latestJobForVisit("sour.run", "nobody", db)), null);
+      assert.equal(await latestJobForVisit("sour.run", "", db), null, "an empty id is not a visit");
+    });
+
+    it("does not mistake a visit id that merely appears elsewhere in a payload", async () => {
+      // The query narrows on the serialized key in Postgres and then confirms by parsing, so a future
+      // payload carrying someone else's id in another field cannot be read as this visit's job.
+      await enqueue({ kind: "sour.run", payload: { visitId: "other", requestedBy: "v1" } }, db);
+      assert.equal(await latestJobForVisit("sour.run", "v1", db), null);
+      assert.equal((await latestJobForVisit("sour.run", "other", db))?.payload, JSON.stringify({ visitId: "other", requestedBy: "v1" }));
+    });
+
+    it("follows one job through queued, running, retrying and failed", async () => {
+      // The same sequence a clinician watches on the page: each view is read from the row the drain left.
+      const { handlers } = spy(() => {
+        throw new Error("gateway said no");
+      });
+      await enqueue({ kind: "sour.run", payload: { visitId: "v1" }, idempotencyKey: "sour.run:v1" }, db);
+
+      const queued = jobStateView((await latestJobForVisit("sour.run", "v1", db))!);
+      assert.equal(queued.status, "queued");
+      assert.equal(queued.attempts, 0);
+      assert.equal(queued.maxAttempts, MAX_ATTEMPTS);
+      assert.equal(queued.lastError, null);
+      assert.equal(queued.startedAt, null);
+
+      await claimDueJobs(10, db);
+      const running = jobStateView((await latestJobForVisit("sour.run", "v1", db))!);
+      assert.equal(running.status, "running");
+      assert.equal(running.attempts, 1);
+      assert.ok(running.startedAt, "a running job says when it started");
+
+      // First failure: back on the queue after a backoff, with the reason already readable.
+      await db.job.update({ where: { id: (await latestJobForVisit("sour.run", "v1", db))!.id }, data: { status: "queued", startedAt: null } });
+      await drainJobs({ handlers, client: db });
+      const retrying = jobStateView((await latestJobForVisit("sour.run", "v1", db))!);
+      assert.equal(retrying.status, "queued");
+      assert.equal(retrying.attempts, 2);
+      assert.match(retrying.lastError ?? "", /gateway said no/);
+      assert.ok(Date.parse(retrying.runAfter) > Date.now(), "a retry waits out its backoff");
+
+      // Spend the last attempt: failed, with the reason kept for the page (§7.2).
+      await db.job.update({ where: { id: (await latestJobForVisit("sour.run", "v1", db))!.id }, data: { attempts: MAX_ATTEMPTS - 1, runAfter: new Date() } });
+      await drainJobs({ handlers, client: db });
+      const failed = jobStateView((await latestJobForVisit("sour.run", "v1", db))!);
+      assert.equal(failed.status, "failed");
+      assert.equal(failed.attempts, MAX_ATTEMPTS);
+      assert.match(failed.lastError ?? "", /gateway said no/);
+      assert.ok(failed.finishedAt, "a failed job says when it gave up");
+
+      // And the retry the page offers is a real new job, because the failure released the key.
+      const retried = await enqueue({ kind: "sour.run", payload: { visitId: "v1" }, idempotencyKey: "sour.run:v1" }, db);
+      assert.equal(retried.deduped, false);
+      assert.equal((await latestJobForVisit("sour.run", "v1", db))?.id, retried.job.id);
+      assert.equal(jobStateView(retried.job).status, "queued");
+    });
+
+    it("reports a job that succeeded as done, with no error left over", async () => {
+      await enqueue({ kind: "sour.run", payload: { visitId: "v1" } }, db);
+      await drainJobs({ handlers: spy().handlers, client: db });
+      const done = jobStateView((await latestJobForVisit("sour.run", "v1", db))!);
+      assert.equal(done.status, "done");
+      assert.equal(done.lastError, null);
+      assert.ok(done.finishedAt);
     });
   });
 });

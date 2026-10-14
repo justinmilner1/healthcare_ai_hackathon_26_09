@@ -5,6 +5,7 @@
 import { appUrl } from "./config";
 import { sendEmail, type SendResult } from "./email";
 import { log } from "./log";
+import { sendOrMailbox } from "./mailer";
 import { intakeLink, sendSms } from "./sms";
 import type { Summary } from "./types";
 
@@ -39,7 +40,7 @@ export function inviteTemplates(p: { name: string; token: string; providerName: 
         ``,
         `Before your visit with ${p.providerName}${when}, we'd like to prepare a short summary so your appointment starts with your story already told.`,
         ``,
-        `Open this link on your phone or computer. It's yours alone, no login needed:`,
+        `Open this link on your phone or computer. We'll text or email you a six-digit code to check it's you:`,
         link,
         ``,
         `Sweetie will ask you to share your glucose data, where you've been, and a few quick questions. It takes about five minutes.`,
@@ -48,6 +49,64 @@ export function inviteTemplates(p: { name: string; token: string; providerName: 
       ].join("\n"),
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The verification code (design §2.3, §5.3, §8.2). The one message in the product that is a credential
+// rather than a link, so: it goes only to the phone or email already on file, it names the practice and
+// nothing else, and it says out loud that nobody from the office will ever ask for it.
+
+export type CodeResult = { sms: SendResult; email: SendResult };
+
+/** The code templates. Practice name, the six digits, how long they last; nothing clinical, no link. */
+export function codeTemplates(p: { code: string; providerName: string; minutes: number }): { sms: string; email: EmailTemplate } {
+  return {
+    sms: `${p.providerName}'s office: your code is ${p.code}. It expires in ${p.minutes} minutes. We will never call to ask you for it.`,
+    email: {
+      subject: `Your code is ${p.code}`,
+      text: [
+        `Your one-time code for ${p.providerName}'s office is:`,
+        ``,
+        p.code,
+        ``,
+        `Type it into the page you just opened. It expires in ${p.minutes} minutes and can be used once.`,
+        ``,
+        `If you did not open the link, you can ignore this message — the code alone does nothing. Nobody from`,
+        `the office will ever call or write to ask you for it.`,
+        ``,
+        `${p.providerName}'s office`,
+      ].join("\n"),
+    },
+  };
+}
+
+/**
+ * Send one code. Both channels are tried, because the point is that the code reaches the person the practice
+ * already has on file and we do not know which of the two they read. Each fails soft; the caller decides
+ * whether that is worth a retry (lib/jobHandlers.ts).
+ *
+ * Email goes through sendOrMailbox, so with nothing configured the code lands in the local mailbox
+ * (`npm run mail`) instead of vanishing — otherwise the patient flow could not be walked offline at all.
+ */
+export async function sendVerificationCode(p: {
+  visitId: string;
+  patientId: string;
+  code: string;
+  phone?: string | null;
+  email?: string | null;
+  providerName: string;
+  minutes: number;
+}): Promise<CodeResult> {
+  const t = codeTemplates(p);
+
+  const [sms, email] = await Promise.all([
+    p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" }),
+    p.email ? sendOrMailbox(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" }),
+  ]);
+
+  // The code itself is never a field: logSend records the channel and whether it left, nothing more.
+  logSend("code_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });
+  return { sms, email };
 }
 
 export async function sendIntakeInvite(p: {
@@ -79,7 +138,7 @@ export async function sendIntakeInvite(p: {
 /** One line per channel: which channel, which backend, whether it left. Never the address or the body. */
 function logSend(event: string, ids: { visitId?: string; patientId?: string }, channels: Record<string, SendResult>): void {
   for (const [channel, result] of Object.entries(channels)) {
-    log.info(event, { ...ids, channel, sent: result.sent, provider: result.provider, error: result.error });
+    log.info(event, { ...ids, channel, sent: result.sent, provider: result.provider, target: result.target, error: result.error });
   }
 }
 
@@ -126,7 +185,7 @@ export function summaryTemplates(p: {
         ``,
         `See it here: ${patientLink}`,
         ``,
-        `The link is yours alone and needs no login. ${p.provider.name}'s office`,
+        `Opening it sends you a six-digit code, so it only works for you. ${p.provider.name}'s office`,
       ].join("\n"),
     },
   };
