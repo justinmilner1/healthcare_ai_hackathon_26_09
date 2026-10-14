@@ -198,7 +198,7 @@ test("enforceLimit allows exactly the configured number before refusing", () => 
 // ---- Keys ------------------------------------------------------------------------------------------------
 
 test("the client address comes from the last forwarded hop, which is the one the proxy wrote", () => {
-  // A client that invents a hop cannot stop the ALB appending after it: the last entry is the real one, and
+  // A client that invents a hop cannot stop the proxy appending after it: the last entry is the real one, and
   // taking the first would let a caller mint a fresh window per request.
   assert.equal(clientIp(headers({ "x-forwarded-for": "198.51.100.7" })), "198.51.100.7");
   assert.equal(clientIp(headers({ "x-forwarded-for": "1.1.1.1, 203.0.113.9" })), "203.0.113.9");

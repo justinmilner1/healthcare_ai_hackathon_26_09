@@ -209,11 +209,12 @@ export function enforceVisitLimit(route: LimitedRoute, visitId: string): void {
 /**
  * Who is calling, as well as this app can know.
  *
- * In production there is exactly one proxy in front — the ALB (§13) — and it appends the address it accepted
- * the connection from to `X-Forwarded-For`. A client can put anything it likes in that header, but it cannot
- * stop the ALB appending after it, so the **last** entry is the one entry nobody but the ALB wrote. Taking the
- * first instead would let a caller mint a fresh bucket per request by typing a new address, which is a rate
- * limiter that limits nothing.
+ * In production there is exactly one proxy in front — the CDN that fronts Amplify Hosting (§3.1) — and it
+ * appends the address it accepted the connection from to `X-Forwarded-For`. A client can put anything it likes
+ * in that header, but it cannot stop the proxy appending after it, so the **last** entry is the one entry
+ * nobody but the proxy wrote. Taking the first instead would let a caller mint a fresh bucket per request by
+ * typing a new address, which is a rate limiter that limits nothing. A deployment that puts a second proxy in
+ * front has to say so here: the last hop would then be the first proxy, and every caller would share a window.
  *
  * With no proxy header at all — `next start` on a laptop, the e2e suite — there is no client address to be
  * had, and inventing one per request would be the same hole. Everything then shares `local`, which is the
