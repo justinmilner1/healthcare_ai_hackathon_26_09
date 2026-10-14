@@ -124,7 +124,7 @@ export const AUDIT_DETAIL_FIELDS: readonly string[] = [
   // what was in it (lib/retention.ts PurgeCounts).
   "visits",
   "uploads",
-  "messages",
+  "turns",    // chat rows removed. Not "messages": §4.8's guard refuses a field that could pass for one
   "objects",  // stored files removed from S3 or the local backend
   "orphans",  // objects the storage backend would not remove, so an admin can see bytes were left behind
   "dexcom",   // whether the patient's encrypted Dexcom tokens were among the things deleted (§4.10)

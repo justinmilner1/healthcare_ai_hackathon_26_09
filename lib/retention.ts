@@ -83,7 +83,9 @@ export const DELETED_PATIENT_NAME = "Deleted patient";
 export type PurgeCounts = {
   visits: number;
   uploads: number;
-  messages: number;
+  /** Chat rows: what lib/log.ts calls the turns of a transcript, and not "messages", because §4.8's own
+   *  guard refuses any field whose name could be mistaken for the text of one (lib/auditLog.test.ts). */
+  turns: number;
   summaries: number;
   /** Stored objects removed from S3 or the local backend (§10.5 "S3 objects included"). */
   objects: number;
@@ -91,18 +93,18 @@ export type PurgeCounts = {
   orphans: number;
 };
 
-export const EMPTY_PURGE: PurgeCounts = { visits: 0, uploads: 0, messages: 0, summaries: 0, objects: 0, orphans: 0 };
+export const EMPTY_PURGE: PurgeCounts = { visits: 0, uploads: 0, turns: 0, summaries: 0, objects: 0, orphans: 0 };
 
 /** Did this purge actually remove anything? A purge that found nothing writes no audit row: a nightly sweep
  *  over a practice inside its window, and a retried job whose first attempt finished the work, are not
  *  deletions and a row saying they were would be a record of nothing happening. */
 export const removedSomething = (counts: PurgeCounts): boolean =>
-  counts.visits + counts.uploads + counts.messages + counts.summaries + counts.objects > 0;
+  counts.visits + counts.uploads + counts.turns + counts.summaries + counts.objects > 0;
 
 export const addCounts = (a: PurgeCounts, b: PurgeCounts): PurgeCounts => ({
   visits: a.visits + b.visits,
   uploads: a.uploads + b.uploads,
-  messages: a.messages + b.messages,
+  turns: a.turns + b.turns,
   summaries: a.summaries + b.summaries,
   objects: a.objects + b.objects,
   orphans: a.orphans + b.orphans,

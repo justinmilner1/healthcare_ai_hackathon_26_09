@@ -43,6 +43,14 @@ test("staff creates visits and sends invites; clinician does not", () => {
   assert.equal(can("clinician", "visits:invite"), false);
 });
 
+test("deleting a patient's data is a staff action, and not a clinician's (§10.5)", () => {
+  // §10.5 calls it "a staff action" and §2.8 has the request arriving through the practice, which is the
+  // front desk. Admin holds it too, or a one-person practice could not honour a deletion request at all.
+  assert.equal(can("staff", "patients:delete"), true);
+  assert.equal(can("admin", "patients:delete"), true);
+  assert.equal(can("clinician", "patients:delete"), false, "reading a summary is not a reason to destroy it");
+});
+
 test("everyone who works here sees the visit list, which is the floor for the dashboard", () => {
   for (const role of ROLES) assert.equal(can(role, "visits:read"), true, `${role} must see the practice's visits`);
 });
@@ -78,7 +86,7 @@ test("every capability belongs to at least one role, and names only roles that e
 });
 
 test("capabilitiesOf is the row of the table, in table order", () => {
-  assert.deepEqual(capabilitiesOf("staff"), ["visits:read", "visits:create", "visits:invite"]);
+  assert.deepEqual(capabilitiesOf("staff"), ["visits:read", "visits:create", "visits:invite", "patients:delete"]);
   assert.deepEqual(capabilitiesOf("clinician"), ["visits:read", "summaries:read", "summaries:generate"]);
   assert.deepEqual(capabilitiesOf("admin"), CAPABILITY_NAMES);
   assert.deepEqual(capabilitiesOf("whatever"), []);

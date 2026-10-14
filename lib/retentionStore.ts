@@ -92,7 +92,7 @@ async function purgeVisitData({ client, removePrefix }: Resolved, visitId: strin
   const objects = await removePrefix(visitStoragePrefix(visitId));
   // `UploadData` is the heavy half of an upload and cascades from the `Upload` row (§4.6).
   const uploads = await client.upload.deleteMany({ where: { visitId } });
-  const messages = await client.message.deleteMany({ where: { visitId } });
+  const turns = await client.message.deleteMany({ where: { visitId } });
   const summaries = await client.summary.deleteMany({ where: { visitId } });
   await client.patientSession.deleteMany({ where: { visitId } });
   await client.visitDelivery.deleteMany({ where: { visitId } });
@@ -100,7 +100,7 @@ async function purgeVisitData({ client, removePrefix }: Resolved, visitId: strin
   return {
     visits: 0,
     uploads: uploads.count,
-    messages: messages.count,
+    turns: turns.count,
     summaries: summaries.count,
     objects: objects.deleted,
     orphans: objects.failed,
@@ -179,7 +179,7 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
         detail: {
           days: practice.retentionDays,
           uploads: counts.uploads,
-          messages: counts.messages,
+          turns: counts.turns,
           summaries: counts.summaries,
           objects: counts.objects,
           orphans: counts.orphans,
@@ -191,7 +191,7 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
       days: practice.retentionDays,
       visits: expired.length,
       uploads: practiceCounts.uploads,
-      messages: practiceCounts.messages,
+      turns: practiceCounts.turns,
       summaries: practiceCounts.summaries,
       objects: practiceCounts.objects,
       orphans: practiceCounts.orphans,
@@ -270,7 +270,7 @@ export async function purgePatient(opts: RetentionDeps & { patientId: string; re
       userId: opts.requestedBy ?? undefined,
       visits: counts.visits,
       uploads: counts.uploads,
-      messages: counts.messages,
+      turns: counts.turns,
       summaries: counts.summaries,
       objects: counts.objects,
       orphans: counts.orphans,
