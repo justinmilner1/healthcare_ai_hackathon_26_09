@@ -178,6 +178,7 @@ app/
   provider/signin/page.tsx      ask for a magic link; check-email/ and signout/ finish it Justin
   provider/signup/page.tsx      create a practice, then the same emailed link  Justin
   provider/settings/page.tsx    admin only; settings.tsx is practice, retention, users Justin
+  provider/audit/page.tsx       admin only; audit.tsx is the §10.2 audit trail + CSV export
   provider/[id]/page.tsx        session guard; sour.tsx is the Sour summary view Justin
   api/
     auth/[...nextauth]/route.ts Auth.js endpoints (sign in, callback, session, sign out)
@@ -190,6 +191,7 @@ app/
     practice/route.ts           GET/PATCH the practice: name, retention, users (admin)
     practice/users/route.ts     POST invite a colleague with a role (admin)
     practice/users/[id]/route.ts PATCH one colleague's role (admin)
+    audit/route.ts              GET the practice's audit log, filtered; ?format=csv exports it (admin)
 components/
   GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
   SleepChart.tsx                hours asleep per night, with table twin        Justin
@@ -205,6 +207,8 @@ lib/
   auth.ts                       Auth.js: magic links, database sessions (§5.1)
   authAdapter.ts                Prisma adapter + the 7-day absolute session cap
   access.ts                     roles and capabilities: the whole of §5.2, pure
+  auditLog.ts                   audit vocabulary, the PHI gate on detail, CSV, filters (client-safe)
+  auditStore.ts                 the database half: write a row, read the trail back (§4.8, §10.2)
   guard.ts                      the 401 / 403 / 404 every provider route starts with
   httpError.ts                  a guard's refusal, answered and logged by withRoute
   team.ts                       practice/team shapes and validators (client-safe)

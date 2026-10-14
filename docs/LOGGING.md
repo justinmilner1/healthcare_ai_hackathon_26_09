@@ -3,7 +3,7 @@
 Fulfils design §10.3 (logging hygiene) and §11.1 (structured JSON logs to CloudWatch with request ids).
 
 Application logs carry no names, phone numbers, email addresses, chat messages, summaries, visit reasons, or
-link tokens. Reads of patient data are not recorded here at all; that is the audit log's job (§10.2, T12).
+link tokens. Reads of patient data are not recorded here at all; that is the audit log's job (§10.2, T12) — see docs/AUDIT.md.
 
 ## The shape of a line
 

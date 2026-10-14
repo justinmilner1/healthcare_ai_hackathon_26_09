@@ -22,6 +22,13 @@ test("admin manages users and practice settings", () => {
   }
 });
 
+test("the audit log is readable by practice admins and nobody else (§10.2)", () => {
+  assert.equal(can("admin", "audit:read"), true);
+  for (const role of ["clinician", "staff"] as const) {
+    assert.equal(can(role, "audit:read"), false, `${role} must not read the practice's audit log`);
+  }
+});
+
 test("clinician sees and reviews summaries; staff does not", () => {
   assert.equal(can("clinician", "summaries:read"), true);
   assert.equal(can("clinician", "summaries:generate"), true);
