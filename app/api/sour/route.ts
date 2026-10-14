@@ -19,6 +19,7 @@
 // through the practice: another practice's visit id reads as a visit that does not exist (lib/guard.ts).
 
 import { after, NextResponse } from "next/server";
+import { recordVisitRead } from "@/lib/auditStore";
 import { requireCapability, requireProvider, requireVisitInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
@@ -63,6 +64,9 @@ async function postHandler(req: Request) {
   const ctx = await loadSourContext(visit.id);
   if (!ctx) return NextResponse.json({ error: "visit not found" }, { status: 404 });
   const { brief } = ctx;
+  // §10.2: the brief put in front of the clinician is this visit's uploads and what the patient told Sweetie,
+  // so asking a follow-up is a read of both and is recorded as one. Logging the question itself is T18 (§7.5).
+  await recordVisitRead({ practiceId: me.practiceId, visitId: ctx.visitId, actor: me, parts: ["uploads", "messages"] });
 
   try {
     const answer = await ask(

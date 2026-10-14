@@ -4361,6 +4361,114 @@ button.sweetie-agent-badge {
   }
 }
 
+/* The consent screen between the code and Sweetie (design §2.4, components/ConsentScreen.tsx). Four short
+   statements and one tap, in the same narrow column as the code screen: a phone is where it is read (§6.5),
+   so nothing here is wider than the card and the whole of it fits without sideways scrolling. */
+.patient-consent-page {
+  display: grid;
+  place-items: center;
+}
+
+.patient-consent-card {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 32px 30px 24px;
+  text-align: center;
+}
+
+.patient-consent-card img {
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 14px;
+  border-radius: 25px;
+  background: var(--sweetie-soft);
+  object-fit: cover;
+}
+
+.patient-consent-card .ss-eyebrow {
+  margin-bottom: 8px;
+}
+
+.patient-consent-card .ss-title {
+  margin: 0 0 10px;
+}
+
+.patient-consent-card .ss-lede {
+  margin: 0 auto 20px;
+  max-width: 44ch;
+}
+
+.patient-consent-points {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 22px;
+  text-align: left;
+}
+
+.patient-consent-point {
+  padding: 13px 15px;
+  border-bottom: 1px solid #f0e6ea;
+}
+
+.patient-consent-point:last-child {
+  border-bottom: 0;
+}
+
+.patient-consent-point dt {
+  margin: 0 0 4px;
+  color: var(--ss-ink);
+  font-size: 12px;
+  font-weight: 670;
+}
+
+.patient-consent-point dd {
+  margin: 0;
+  color: var(--ss-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.patient-consent-actions {
+  display: grid;
+  gap: 4px;
+  justify-items: stretch;
+}
+
+.patient-consent-actions .ss-button {
+  min-height: 46px;
+  text-align: center;
+}
+
+.patient-consent-card .ss-error {
+  margin: 14px 0 0;
+  text-align: left;
+}
+
+.patient-consent-help {
+  margin: 14px 0 0;
+  color: var(--ss-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* Declining is the end of the session (§2.4), so the card loses its actions and keeps its manners. The
+   heading takes focus when it replaces the question, which is why it is focusable without being a control. */
+.patient-consent-declined .ss-title:focus-visible {
+  outline: 2px solid var(--ss-ink);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+@media (max-width: 560px) {
+  .patient-consent-card {
+    padding: 24px 18px 20px;
+  }
+
+  .patient-consent-point {
+    padding: 12px 2px;
+  }
+}
+
 @media (max-height: 760px) and (min-width: 841px) {
   .sweetie-chat-sidebar {
     padding: 20px 23px 16px;
@@ -5060,4 +5168,126 @@ button.sweetie-agent-badge {
   font-size: 0.85rem;
   line-height: 1.4;
   color: rgba(255, 255, 255, 0.8);
+}
+
+/* Audit trail (design §4.8, §10.2): a filter bar over the dashboard's own table, so the admin's two screens
+   — settings and this — read as one workspace. The table is wide and deliberately dull: timestamps, a
+   colleague's name, an action and an opaque id. */
+
+.audit-filters {
+  display: grid;
+  gap: 14px 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  margin-bottom: 28px;
+  padding: 22px 26px 24px;
+}
+
+.audit-filter-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: flex-end;
+  grid-column: 1 / -1;
+}
+
+.audit-table {
+  /* Narrower than the dashboard's 1050px: five short columns, so it fits a laptop without scrolling. */
+  min-width: 860px;
+}
+
+.audit-when {
+  color: var(--ss-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-actor-type,
+.audit-entity-type {
+  display: block;
+  color: var(--ss-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.audit-entity {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audit-entity a,
+.audit-entity code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.audit-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.audit-detail .ss-pill {
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-empty {
+  margin: 0;
+  padding: 26px 24px 28px;
+  color: var(--ss-muted);
+  text-align: center;
+}
+
+/* On a phone the whole table turns into stacked rows, the way the users table does (.settings-users above):
+   five columns of timestamps and ids have nothing useful to show behind a horizontal scrollbar. */
+@media (max-width: 680px) {
+  .audit-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audit-filter-actions {
+    justify-content: flex-start;
+  }
+
+  .audit-table,
+  .audit-table tbody,
+  .audit-table tr,
+  .audit-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .audit-table thead {
+    display: none;
+  }
+
+  .audit-table tr {
+    padding: 8px 0 14px;
+    border-bottom: 1px solid rgba(41, 49, 38, 0.08);
+  }
+
+  .audit-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .audit-table td {
+    padding: 6px 18px;
+    border: 0;
+  }
+
+  .audit-table td::before {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ss-muted);
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
 }

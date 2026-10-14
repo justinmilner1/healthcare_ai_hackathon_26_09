@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
-import { latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "./patient";
+import { acceptConsent, latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "./patient";
 
 // T08, design §2.3, §5.3, §5.5: the patient link is a door with a lock on it.
 //
@@ -46,6 +46,10 @@ test("opening a link sends a code and shows the code screen, and the right code 
 
   await page.getByLabel("6-digit code").fill(code);
   await page.getByRole("button", { name: /Continue/i }).click();
+  // The right code opens the consent screen (§2.4, T09), and the one tap there opens the chat. The
+  // screenshot stays the chat, which is what this test is about; e2e/consent.spec.ts shoots the screen.
+  await expect(page.locator(".patient-consent-card")).toBeVisible(LOADED);
+  expect(await acceptConsent(page), "the consent screen was up").toBe(true);
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-done.png`, fullPage: true });
 
@@ -58,7 +62,8 @@ test("opening a link sends a code and shows the code screen, and the right code 
   expect(hours).toBeLessThanOrEqual(24);
   expect(await page.evaluate(() => document.cookie)).not.toContain("ss_patient");
 
-  // The patient's own summary opens through the same verified link (§2.7), with no second code.
+  // The patient's own summary opens through the same verified link (§2.7), with no second code and no
+  // second consent.
   await page.goto(`/patient/${token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
 });
@@ -94,6 +99,7 @@ test("a wrong code counts down, and the third one invalidates the code for good 
   expect(fresh).not.toBe(code);
   await page.getByLabel("6-digit code").fill(fresh);
   await page.getByRole("button", { name: /Continue/i }).click();
+  expect(await acceptConsent(page), "the consent screen was up").toBe(true);
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
 });
 

@@ -22,6 +22,13 @@ test("admin manages users and practice settings", () => {
   }
 });
 
+test("the audit log is readable by practice admins and nobody else (§10.2)", () => {
+  assert.equal(can("admin", "audit:read"), true);
+  for (const role of ["clinician", "staff"] as const) {
+    assert.equal(can(role, "audit:read"), false, `${role} must not read the practice's audit log`);
+  }
+});
+
 test("clinician sees and reviews summaries; staff does not", () => {
   assert.equal(can("clinician", "summaries:read"), true);
   assert.equal(can("clinician", "summaries:generate"), true);
@@ -102,6 +109,7 @@ const NOT_PROVIDER_ROUTES: Record<string, string> = {
   "api/health": "liveness for the load balancer; says nothing about anyone (§11.2)",
   "api/jobs/run": "the scheduler, on a shared secret in the Authorization header (§3.4)",
   "api/verify": "the patient, on the invite token alone: this is the route that turns it into a session (§2.3, §5.3)",
+  "api/consent": "the patient, on the invite token in the body plus the session it names; their own answer to the consent screen (§2.4)",
   "api/sweetie": "the patient, on the invite token in the body plus the session it names (§5.3)",
   "api/upload": "the patient, on the invite token in the form plus the session it names (§4.6, §5.3)",
   "api/dexcom/connect": "the patient, on the invite token plus the session it names (§9.1)",
@@ -164,7 +172,7 @@ test("the two mixed-audience routes guard their provider half", () => {
 // route that takes an invite token has to ask for the session that token earned. The one exception is the
 // route that mints it. Listed rather than inferred, so adding a token route is a deliberate decision about
 // which of the two it is.
-const TOKEN_ROUTES = ["api/sweetie", "api/upload", "api/patient/[id]", "api/dexcom/status", "api/dexcom/connect", "api/dexcom/demo"];
+const TOKEN_ROUTES = ["api/consent", "api/sweetie", "api/upload", "api/patient/[id]", "api/dexcom/status", "api/dexcom/connect", "api/dexcom/demo"];
 
 test("every route that takes an invite token asks for the verified session behind it", () => {
   const missing = TOKEN_ROUTES.filter((name) => {

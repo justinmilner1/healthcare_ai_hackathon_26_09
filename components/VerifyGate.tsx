@@ -4,13 +4,19 @@
 // It sits in the two layouts that cover the patient's side of the app (`/s/[token]` and its intake page,
 // `/patient/[id]`), which is why there is one of these rather than a check in each page: a page added under
 // either route is behind the code screen the moment it exists.
+//
+// Behind the code and in front of everything else is the consent screen (§2.4, components/ConsentScreen.tsx).
+// It is the same gate for the same reason: §2.4 is "first open only", and the first open is whichever patient
+// page the link lands on. Accepting is what opens them all; until then there is nothing else to see.
 
 import { cookies } from "next/headers";
 import Image from "next/image";
 import type { ReactNode } from "react";
+import ConsentScreen from "@/components/ConsentScreen";
 import VerifyScreen from "@/components/VerifyScreen";
+import { consentPoints, needsConsent } from "@/lib/consent";
 import { channelsFor, CODE_TTL_MS, needsVerification, PATIENT_SESSION_COOKIE, verifiedSession } from "@/lib/patientSession";
-import { visitByToken } from "@/lib/visit";
+import { providerName, visitByToken } from "@/lib/visit";
 
 export default async function VerifyGate({ token, children }: { token: string; children: ReactNode }) {
   const visit = await visitByToken(token);
@@ -39,6 +45,13 @@ export default async function VerifyGate({ token, children }: { token: string; c
         />
       );
     }
+  }
+
+  if (needsConsent(visit)) {
+    const audience = { clinicianName: providerName(visit), practiceName: visit.patient.practice.name };
+    // The copy comes from lib/consent.ts, which reaches the database, so it is read here and handed over as
+    // data: the screen itself is a client component.
+    return <ConsentScreen token={visit.token} {...audience} points={consentPoints(audience)} />;
   }
 
   return <>{children}</>;

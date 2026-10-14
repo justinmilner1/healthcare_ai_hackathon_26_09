@@ -121,9 +121,17 @@ model Visit {
   // which lib/visitIntake.ts reads as "both", the behaviour those rows were created with.
   contactChannel String?
 
+  // §2.2 The practice's record of the patient agreeing to be contacted, taken by staff when the visit is made.
   consentRecordedBy String?
   consentRecordedAt DateTime?
   consentChannel    String?
+
+  // §2.4 The patient's own one-tap consent on the screen in front of the intake, a different thing from the
+  // three fields above: that one is staff saying "we may text them", this one is the patient saying "you may
+  // collect this". Accepting is what opens the patient pages; declining ends the session (lib/consent.ts).
+  // Both timestamps can be set, in which case the patient declined and later changed their mind.
+  intakeConsentAt         DateTime?
+  intakeConsentDeclinedAt DateTime?
 
   reviewedBy String?
   reviewedAt DateTime?

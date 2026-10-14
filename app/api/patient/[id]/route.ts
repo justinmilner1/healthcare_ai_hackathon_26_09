@@ -12,8 +12,15 @@
 // Both orders of that check matter. The token is tried first, so the patient flow never touches the provider
 // session; and a visit id from another practice answers exactly as a visit id that was never issued does,
 // because a 403 here would confirm the visit exists (lib/guard.ts).
+//
+// This is the read §10.2 is about: the bundle is a visit's intake, its transcript as Sour reads it, its
+// uploads and its summary in one response. A provider's read of it writes one audit row per part that was
+// actually in the response (lib/auditStore.ts). The patient's own read of their own visit is not that: the
+// row for them is the link verification, written where the token is accepted (lib/visit.ts).
 
 import { NextResponse } from "next/server";
+import { visitPartsRead } from "@/lib/auditLog";
+import { recordVisitRead } from "@/lib/auditStore";
 import { loadBundle } from "@/lib/bundle";
 import { requireCapability, requireVerifiedPatient, requireVisitInPractice } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
@@ -22,14 +29,19 @@ import { visitByToken } from "@/lib/visit";
 async function getHandler(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const visit = await visitByToken(id);
+  // A provider only when the id was not a token: `me` is also what says whether this read is one §10.2
+  // records, since the patient reading their own visit is not a user reading a patient's.
+  let me = null;
   if (visit) {
     await requireVerifiedPatient(req, visit);
   } else {
-    const me = await requireCapability("summaries:read");
+    me = await requireCapability("summaries:read");
     await requireVisitInPractice(id, me);
   }
   const bundle = await loadBundle(id);
   if (!bundle) return NextResponse.json({ error: "visit not found" }, { status: 404 });
+  // After the bundle, so the row records what was handed over, and not before in case it was nothing.
+  if (me) await recordVisitRead({ practiceId: me.practiceId, visitId: bundle.visitId, actor: me, parts: visitPartsRead(bundle) });
   return NextResponse.json(bundle);
 }
 
