@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { patientEmail, verifyLink } from "./patient";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
 // something. Both claims are checked against the running build, not against the source that sets them.
@@ -58,7 +59,16 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   const demo = await signInAsDemo(page);
   expect(violations, `sign-in: ${violations.join("\n")}`).toEqual([]);
 
-  const booked = await (await postJson(request, "/api/book", { name: "E2E Csp", providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
+  const email = patientEmail("E2E Csp");
+  const booked = await (await postJson(request, "/api/book", { name: "E2E Csp", email, providerId: demo.id, visitType: "follow_up", reason: "checking the policy", optIn: false })).json();
+
+  // T08 (§5.3): the code screen is the first thing a patient link shows, so it is a screen on this walk too
+  // — and the only one whose form is posted by client JavaScript before anything else has run.
+  await page.goto(`/s/${booked.token}`);
+  await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
+  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-security-verify.png`, fullPage: true });
+  expect(violations, `verify: ${violations.join("\n")}`).toEqual([]);
+  await verifyLink(page, booked.token, email);
 
   // Each screen, with text that only appears once its client JavaScript has run, and for the intake page the
   // click that reveals the data sources — the Dexcom sandbox button there is the one plain <form> in the app

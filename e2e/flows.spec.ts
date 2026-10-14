@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { patientEmail, verifyByApi, verifyLink } from "./patient";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png
@@ -29,19 +30,27 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await shot(page, "provider-dashboard");
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts).
+  const email = patientEmail("E2E Patient");
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Patient", providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
+    await postJson(request, "/api/book", { name: "E2E Patient", email, providerId: demo.id, visitType: "follow_up", reason: "mornings running high", optIn: false })
   ).json();
   expect(booked.token).toBeTruthy();
   expect(booked.visitId).toBeTruthy();
 
-  // Two ways to one visit (design §4.4, §5.3): the invite token and the visit id. A patient id is neither,
-  // so the hackathon's patient-keyed lookup is gone.
+  // T08 (§5.3): the token names the visit, and a verified session is what opens it. Unverified, the link is
+  // a closed door — which is the whole claim of §2.3, so it is asserted before it is opened.
+  expect((await request.get(`/api/patient/${booked.token}`)).status()).toBe(401);
+  await verifyByApi(request, booked.token, email);
+
+  // Two ways to one visit (design §4.4, §5.3): the invite token and the visit id. Each has its own
+  // credential now — the patient's verified session above, and the clinician's own sign-in for the visit id,
+  // which is why this one goes through page.request. A patient id is neither, so the hackathon's
+  // patient-keyed lookup is gone.
   const byToken = await (await request.get(`/api/patient/${booked.token}`)).json();
   expect(byToken.visitId).toBe(booked.visitId);
-  const byVisitId = await (await request.get(`/api/patient/${booked.visitId}`)).json();
+  const byVisitId = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(byVisitId.patient.name).toBe("E2E Patient");
-  expect((await request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/patient/${booked.patientId}`)).status()).toBe(404);
 
   // The dashboard's rows are visits, and Sour and the invite are addressed by visit, not by patient.
   // page.request, not request: /api/provider answers for the session (§5.1) and the page holds the cookie.
@@ -89,13 +98,16 @@ test("summary generation goes through the job queue", async ({ page, request }) 
 });
 
 test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page, request }) => {
-  // No sign-in and no providerId: the patient's credential is the token in the link (§5.3), and /api/book
-  // falls back to the seeded demo provider.
+  // No sign-in and no providerId: the patient's credential is the code sent to the address on file (§5.3),
+  // and /api/book falls back to the seeded demo provider. The email is what the code is sent to, so a
+  // booking without one could not be verified at all.
+  const email = patientEmail("E2E Talker");
   const booked = await (
-    await postJson(request, "/api/book", { name: "E2E Talker", visitType: "follow_up", reason: "tired all the time", optIn: false })
+    await postJson(request, "/api/book", { name: "E2E Talker", email, visitType: "follow_up", reason: "tired all the time", optIn: false })
   ).json();
 
-  await page.goto(`/s/${booked.token}`);
+  // Opening the link shows the code screen; the code comes out of the console mailer (§2.3, e2e/patient.ts).
+  await verifyLink(page, booked.token, email);
   await expect(page.locator("body")).toContainText(/Sweetie/i);
   // "Sweetie" is in the chrome, so it matches before the intake has loaded. GET /api/sweetie is what writes the
   // opening question and returns the field list, and until it answers the transcript is empty and the progress
@@ -117,7 +129,8 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   }
   await shot(page, "sweetie-done");
 
-  const bundle = await (await request.get(`/api/patient/${booked.token}`)).json();
+  // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
+  const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
   expect(bundle.status.answered).toBeGreaterThanOrEqual(1);
 
   await page.goto(`/patient/${booked.token}`);
