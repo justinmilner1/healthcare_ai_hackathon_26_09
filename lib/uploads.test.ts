@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture } from "./fixtures";
 import type { UploadKind } from "./types";
-import { checkSize, checkUpload, contentTypeFor, formatFor, MAX_UPLOAD_BYTES, megabytes, sniffUpload } from "./uploads";
+import { asSentence, checkSize, checkUpload, contentTypeFor, formatFor, MAX_UPLOAD_BYTES, megabytes, sniffUpload } from "./uploads";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const bytes = (...values: number[]) => new Uint8Array(values);
@@ -118,4 +118,12 @@ test("the stored object's content type follows the format", () => {
   assert.match(contentTypeFor("json"), /^application\/json/);
   assert.equal(formatFor("timeline"), "json");
   for (const kind of ["dexcom", "whoop", "visits"] as UploadKind[]) assert.equal(formatFor(kind), "csv");
+});
+
+test("a refusal can also stand on its own, for the cards on the intake page", () => {
+  assert.equal(asSentence("that file is empty"), "That file is empty.");
+  assert.equal(asSentence("that looks like a zip file — unzip it and upload the file inside"), "That looks like a zip file — unzip it and upload the file inside.");
+  assert.equal(asSentence("Already a sentence."), "Already a sentence.");
+  assert.equal(asSentence("  spaced out  "), "Spaced out.");
+  assert.equal(asSentence(""), "", "nothing to say is left alone rather than turned into a bare full stop");
 });

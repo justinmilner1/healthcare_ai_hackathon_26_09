@@ -5,6 +5,7 @@ import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { IntakeStatus, UploadKind } from "@/lib/types";
+import { asSentence } from "@/lib/uploads";
 import styles from "./intake.module.css";
 
 type DexcomStatus = {
@@ -196,7 +197,9 @@ export default function SweetieIntakePage({
       };
 
       if (!response.ok) {
-        throw new Error(result.error ?? "That file could not be connected.");
+        // The route's refusals are written to be read aloud mid-sentence by Sweetie (lib/uploads.ts); on a
+        // card they stand alone, so they get a capital and a full stop.
+        throw new Error(asSentence(result.error ?? "That file could not be connected."));
       }
 
       const label = result.count === 1 ? "record" : "records";

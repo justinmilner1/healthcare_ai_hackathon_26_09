@@ -125,6 +125,17 @@ export function checkUpload(kind: UploadKind, declaredBytes: number, bytes: Uint
   return checkSize(declaredBytes) ?? sniffUpload(kind, bytes);
 }
 
+/**
+ * The same refusal as a sentence that can stand on its own. The chat page splices the reason into a longer
+ * line, so the reasons are written lowercase; the intake page prints it on a card by itself, where a
+ * lowercase start reads as a typo.
+ */
+export function asSentence(reason: string): string {
+  const text = reason.trim();
+  if (!text) return text;
+  return `${text[0].toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? "" : "."}`;
+}
+
 /** The content type stored alongside the object. */
 export function contentTypeFor(format: UploadFormat): string {
   return format === "json" ? "application/json; charset=utf-8" : "text/csv; charset=utf-8";
