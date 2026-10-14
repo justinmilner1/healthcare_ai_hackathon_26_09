@@ -3,7 +3,13 @@
 //   ses     when AWS_ACCESS_KEY_ID is set (sandbox: EMAIL_FROM and every recipient must be verified identities)
 // Unconfigured -> { sent: false, error } and the UI shows the link instead.
 
-export type SendResult = { sent: boolean; error?: string; provider?: string };
+export type SendResult = {
+  sent: boolean;
+  error?: string;
+  provider?: string;
+  /** Where a diverted message landed: the local mailbox directory (lib/mailer.ts). Never an address. */
+  target?: string;
+};
 
 export function emailProvider(): "resend" | "ses" | null {
   const forced = process.env.EMAIL_PROVIDER;

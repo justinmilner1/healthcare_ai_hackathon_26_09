@@ -7,6 +7,7 @@ Everything that is slow or can fail on its own runs as a row in `Job`, not insid
 |---|---|---|
 | `sour.run` | the turn that wraps intake (`/api/sweetie`), the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
 | `notify.invite` | adding a patient with consent (`/api/book`), Send link (`/api/invite`) | the presigned `/s/<token>` link by SMS and email |
+| `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
 
 Why a table and not an awaited call: two model calls and an SES round trip made a patient or a clinician wait
@@ -58,8 +59,17 @@ work would dedupe onto a job that can never finish.
 or running, a second enqueue joins it, so a double-clicked Send link sends once and an intake that wraps while
 the clinician is already pressing Generate runs Sour once. The key is released when the job reaches `done` or
 `failed`, because a clinician asking later for a fresh summary, or staff resending a link an hour later, is
-real new work. Idempotency over Sour's *inputs* — unchanged inputs return the existing summary (§7.1) — is a
-separate thing and belongs to Sour (T15).
+real new work.
+
+That leaves the other half of §7.1 — unchanged inputs return the existing summary — to Sour, where it belongs,
+because it is a question about the data and not about the queue. `lib/sourInput.ts` fingerprints what a
+summary is made from (the structured intake, the notes rendered from it, the visit type and reason, and every
+upload by id and row count) and `runSour` stores that fingerprint on both `Summary` rows. A later run that
+hashes to the same thing returns the saved pair: no second pair of rows, no second pair of model calls, and no
+second "your summary is ready" email about a summary the clinician was already told about. The fingerprint
+also carries whether the narrative came from the model, so configuring `OPENAI_API_KEY` invalidates the "LLM
+not configured" placeholder instead of serving it for ever; a placeholder written while a *configured* gateway
+was down is stored with a null fingerprint and is never reused at all.
 
 ## Adding a kind
 
@@ -75,5 +85,10 @@ and the reason is on the row.
 
 `npm run jobs:drain -- --list` first: the status, the attempt count and `lastError` of each row say whether the
 work was queued, is waiting out a backoff, or gave up. The log lines are `job_enqueued`, `job_deduped`,
-`job_done`, `job_retry` and `job_failed`, each with `jobId` and `kind` (docs/LOGGING.md). Showing the same
-state to the clinician on the provider page, with a retry button, is T15 (§7.2).
+`job_done`, `job_retry`, `job_failed` and `sour_reused`, each with `jobId` and `kind` (docs/LOGGING.md).
+
+The clinician sees the same state without a terminal (§7.2). `GET /api/patient/[id]` carries the newest
+`sour.run` job for the visit (`latestJobForVisit`, read back through the payload because the idempotency key
+is released exactly when the state gets interesting), `lib/sourState.ts` turns it into the chip under the
+brief header — queued, running, failed with the reason, ready, or out of date — and the retry on a failed job
+posts to `/api/sour` again, which is new work because the failure released the key.

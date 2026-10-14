@@ -10,13 +10,17 @@
 //
 // The last one is a 404 on purpose and not a 403. A 403 would confirm that the visit exists, which is itself
 // another practice's data: told apart, the two answers turn a visit id into an oracle for "is this patient
-// seen at that clinic". The patient's own way in is unchanged and not here — the invite token is the
-// credential for that (§5.3, lib/visit.ts), and it is a visit id that has to be earned.
+// seen at that clinic".
+//
+// The patient's own way in is the fourth guard, and it is not a visit id at all: the invite token names the
+// visit (§5.3, lib/visit.ts) and a verified session — the six-digit code in lib/patientSession.ts — is what
+// opens it. A forwarded link has the first and not the second, which is the whole of §2.3.
 
 import { can, roleLabel, type Capability } from "./access";
 import { currentProvider, type ProviderUser } from "./auth";
 import { db } from "./db";
 import { HttpError } from "./httpError";
+import { patientAllowed } from "./patientSession";
 import { findVisit, type VisitWithContext } from "./visit";
 
 /** The signed-in provider, or 401. The session is the only thing a route trusts about who is calling. */
@@ -63,4 +67,19 @@ export async function requireMemberInPractice(userId: string | undefined | null,
     throw new HttpError(404, "user not found", "user_not_in_practice", { userId: provider.id, practiceId: provider.practiceId });
   }
   return member;
+}
+
+/**
+ * The patient's half (§2.3, §5.3): this browser has verified the link for this visit. 401 and not 404,
+ * because unlike a visit id the caller already holds the token — the link is not what is being kept from
+ * them, the visit behind it is — and the message has to say what to do about that.
+ *
+ * Takes the request rather than reading the cookie itself, so lib/patientSession.ts stays free of
+ * next/headers and its unit tests can load it.
+ */
+export async function requireVerifiedPatient(req: Request, visit: { id: string; isSandbox: boolean }): Promise<void> {
+  if (await patientAllowed(req, visit)) return;
+  throw new HttpError(401, "Verify your link before continuing: open it again and type the code we text or email you.", "patient_unverified", {
+    visitId: visit.id,
+  });
 }

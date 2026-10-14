@@ -12,7 +12,8 @@ import { recordAudit } from "./auditStore";
 import type { AuditAction } from "./auditLog";
 import type { JobHandlers, JobPayload } from "./jobs";
 import { log } from "./log";
-import { sendIntakeInvite, sendSummaryEmails, type SummaryNotifyResult, type InviteResult } from "./notify";
+import { sendIntakeInvite, sendSummaryEmails, sendVerificationCode, type CodeResult, type SummaryNotifyResult, type InviteResult } from "./notify";
+import { CODE_TTL_MS, mintCode } from "./patientSession";
 import { runSour } from "./sourRun";
 import { db } from "./db";
 import type { Summary } from "./types";
@@ -102,6 +103,31 @@ export const handlers: JobHandlers = {
     });
     await recordSends("invite.sent", visit, { sms: result.sms, email: result.email });
     assertSendable("invite", visit.id, { sms: result.sms, email: result.email });
+  },
+
+  // §2.3, §5.3 The six-digit code for a patient who has just opened their link. The payload is a visit id
+  // like every other one: the code does not exist yet when the job is queued. mintCode writes the hash on
+  // the pending PatientSession row and hands back the plaintext here, for this one send — so the digits live
+  // in memory for the length of this function and are stored nowhere (§10.3). A retry mints a new code,
+  // which is the right answer when the previous one reached nobody.
+  "notify.code": async (payload) => {
+    const visit = await visitOf(payload);
+    const code = await mintCode(visit.id);
+    if (!code) {
+      // Verified while the job sat in the queue, or the row was replaced by a resend that got there first.
+      log.info("code_nothing_to_mint", { visitId: visit.id });
+      return;
+    }
+    const result: CodeResult = await sendVerificationCode({
+      visitId: visit.id,
+      patientId: visit.patientId,
+      code,
+      phone: visit.patient.phone,
+      email: visit.patient.email,
+      providerName: providerName(visit),
+      minutes: Math.round(CODE_TTL_MS / 60_000),
+    });
+    assertSendable("code", visit.id, { sms: result.sms, email: result.email });
   },
 
   // §8.2 "Your summary is ready": a link each to the clinician and the patient. The summaries are read back

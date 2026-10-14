@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inviteTemplates, summaryTemplates } from "./notify";
+import { codeTemplates, inviteTemplates, summaryTemplates } from "./notify";
 import type { Summary } from "./types";
 
 process.env.APP_URL = "https://sweetspot.example/";
@@ -90,7 +90,8 @@ test("the summary-ready emails are a link each, provider and patient", () => {
   assert.match(t.provider.text, /This email carries no patient data\./);
   assert.equal(t.patient.subject, "Your summary is ready, Sam");
   assert.ok(t.patient.text.includes(t.patientLink));
-  assert.match(t.patient.text, /The link is yours alone and needs no login\. Dr\. Ada Bell's office$/);
+  // T08: the link alone is not the credential any more, and the copy has to stop saying it is (§2.3).
+  assert.match(t.patient.text, /Opening it sends you a six-digit code, so it only works for you\. Dr\. Ada Bell's office$/);
 });
 
 test("the provider email names no patient, and neither email carries the summary", () => {
@@ -118,4 +119,28 @@ test("a summary with no appointment date drops the date from both subjects", () 
   assert.equal(t.provider.subject, "Sour: a pre-visit summary is ready");
   assert.match(t.provider.text, /^A Sour pre-visit summary is ready\.\n/);
   assert.match(t.patient.text, /^Hi Sam,\n\nYour summary is ready\.\n/);
+});
+
+// Design §2.3, §5.3, §8.2: the verification code. The one message that is a credential rather than a link.
+test("the code message carries the digits, the practice and nothing else", () => {
+  const t = codeTemplates({ code: "480913", providerName: "Dr. Ada Bell", minutes: 10 });
+
+  assert.ok(t.sms.includes("480913"));
+  assert.ok(t.sms.includes("Dr. Ada Bell"));
+  assert.match(t.sms, /10 minutes/);
+  assert.equal(t.email.subject, "Your code is 480913");
+  assert.ok(t.email.text.includes("480913"));
+
+  const everything = `${t.sms}\n${t.email.subject}\n${t.email.text}`;
+  // No patient name, because the template is never given one, and no link: a code screen the patient is
+  // already looking at needs no second way in, and a link plus a code in one message is a phishing lesson.
+  assert.equal(everything.includes("Sam"), false);
+  assert.equal(/https?:\/\//.test(everything), false, "a code message carries no link");
+  assertNoClinicalContent("code message", everything);
+
+  // Both channels say it outright, because this is the message an attacker would ask someone to read out.
+  assert.match(t.sms, /never call to ask you for it/i);
+  assert.match(t.email.text, /ask you for it/i);
+  // An SMS segment is 160 characters; two is the practical limit before carriers start charging per part.
+  assert.ok(t.sms.length <= 320, `the code SMS is ${t.sms.length} characters`);
 });
