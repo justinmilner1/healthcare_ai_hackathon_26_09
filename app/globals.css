@@ -1550,11 +1550,11 @@ textarea.ss-input {
   background: #eaf5ea;
 }
 
-/* 8.3 Per-channel delivery, in the Invite column. `queued` wears the neutral pill: the send is a job, so
+/* 8.3 Per-message delivery, in the Messages column. `queued` wears the neutral pill: the send is a job, so
    between adding the patient and SES answering there is genuinely nothing to report yet. */
 .provider-invite {
   min-width: 96px;
-  max-width: 116px;
+  max-width: 132px;
 }
 
 .provider-invite .provider-data-pills {
@@ -1581,6 +1581,29 @@ textarea.ss-input {
 .provider-delivery-failed {
   color: #8c3b33;
   background: #fbeae8;
+}
+
+/* A send that left and came back (§8.1): SES's bounce and complaint notifications. Amber rather than the
+   failure red, because the thing to do about it is different — the address needs correcting, not resending. */
+.provider-delivery-bounced,
+.provider-delivery-complained {
+  color: #8a5a1f;
+  background: #fbf0dd;
+}
+
+.provider-delivery-summary {
+  margin-top: 4px;
+}
+
+/* Why a channel is closed, under the pill it explains. Amber and not red for the same reason: nothing is
+   broken here — a provider told us something, and staff need to read it, not fix it. */
+.provider-suppressed {
+  display: block;
+  margin-top: 5px;
+  color: #8a5a1f;
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .provider-stage-cancelled {

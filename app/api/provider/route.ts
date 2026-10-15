@@ -43,8 +43,8 @@ async function getHandler() {
       summaries: { select: { audience: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
-  // §8.3 What each channel did with this visit's invite, in one query for the whole list rather than a
-  // relation on every row: the dashboard prints it beside the send button (lib/visitStore.ts).
+  // §8.3 What each message to this visit did, in one query for the whole list rather than a relation on
+  // every row: the dashboard prints it beside the send button (lib/visitStore.ts).
   const deliveries = await deliveriesByVisit(visits.map((v) => v.id));
   // §7.3 "shows in the dashboard": the status pill comes off the row, but who signed it off is a user id, so
   // the names are joined in one query for the whole list rather than one per row (lib/review.ts).
@@ -77,6 +77,13 @@ async function getHandler() {
         consentRecordedAt: v.consentRecordedAt,
         consentRecordedBy: v.consentRecordedBy,
         deliveries: deliveries[v.id] ?? [],
+        // §8.1 Why a channel is closed, so the dashboard can say it next to the delivery result rather than
+        // leaving staff to wonder why an invite reads "skipped" (lib/suppression.ts).
+        suppression: {
+          emailUndeliverableAt: v.patient.emailUndeliverableAt,
+          emailUndeliverableReason: v.patient.emailUndeliverableReason,
+          smsOptOutAt: v.patient.smsOptOutAt,
+        },
         token: v.token,
         phone: v.patient.phone,
         email: v.patient.email,

@@ -1,0 +1,148 @@
+# Notifications
+
+Design §8. Five messages, two channels, and one webhook that tells us what happened to them.
+
+Everything in here is reached through `lib/notify.ts`. Nothing else in the app composes a message, and no
+message carries clinical content — §8.2 is explicit about it: links only, and the summary itself never leaves
+the site.
+
+## The five templates (§8.2)
+
+| Template | Where | Channels | What it carries |
+|---|---|---|---|
+| invite | `inviteTemplates` | sms, email | the practice, the patient's first name, the appointment date, the `/s/<token>` link |
+| code | `codeTemplates` | sms, email | the six digits, how long they last, and that nobody from the office will ask for them |
+| summary-ready (provider) | `summaryTemplates` | email | a link to `/provider/<id>?visit=<id>` |
+| summary-ready (patient) | `summaryTemplates` | email | a link to `/patient/<token>` |
+| deletion confirmation | `deletionTemplates` | sms, email | what was deleted, and that the practice keeps its own record |
+
+Each template is a pure function, so `lib/notify.test.ts` reads the text and asserts what is *not* in it. The
+sign-in and team-invite emails are §5.1 and §2.1 rather than §8, and live in `lib/mailer.ts`.
+
+Who sends them: every one is a job (§3.4), so a send that fails is retried rather than lost, and nothing a
+patient or a clinician is waiting for happens inside their request. `notify.invite`, `notify.code` and
+`notify.summary` are in `lib/jobHandlers.ts`; the deletion confirmation goes out at the end of
+`patient.delete`, after the purge, addressed from the contact details the purge is about to remove.
+
+## Senders
+
+| Channel | Production | Also supported | Unconfigured |
+|---|---|---|---|
+| email | SES (`lib/email.ts`) | Resend, for local use (§8.4) | `{ sent: false }`, and the UI shows the link |
+| sms | SNS / AWS End User Messaging (`lib/sms.ts`) | Twilio, for local use (§8.4) | the same |
+
+Two messages cannot simply fail: a provider's sign-in link and a patient's verification code. With no backend
+configured those go to the local mailbox instead (`lib/devMailbox.ts`, `npm run mail`), which is what makes
+both sign-ins walkable offline and is how the e2e suite reads a link. See docs/ROUTINES.md.
+
+## Delivery results (§8.3)
+
+A send writes a `VisitDelivery` row per message: `(visitId, kind, channel, audience)`, replaced by the next
+send of that same message. The dashboard's **Messages** column prints them — the invite per channel, the
+summary notice per audience — with the provider's message id and its own reason in the tooltip.
+
+`status` is one of:
+
+| status | means |
+|---|---|
+| `sent` | the backend accepted it |
+| `failed` | a backend tried and refused |
+| `skipped` | nothing tried: no address on file, no sender configured, or the channel is closed (below) |
+| `bounced` | SES came back: the address is wrong |
+| `complained` | SES came back: the recipient marked it as spam |
+
+The last two arrive minutes after the send, through the webhook.
+
+## Suppression (§8.1)
+
+Two standing facts live on the `Patient` row, and `lib/suppression.ts` is the rule every send reads:
+
+* `emailUndeliverableAt` / `emailUndeliverableReason` — a permanent bounce or a complaint. Transient bounces
+  (a full mailbox, a greylist) are left alone: SES retries those itself and the address is not what is broken.
+* `smsOptOutAt` — the patient texted STOP. AWS also keeps its own opt-out list and will drop what we publish;
+  recording it here is what stops us spending the message and what staff see on the dashboard.
+
+A closed channel is recorded as `skipped` with a reason, never `failed`, because `failed` is what the job
+retries — and a retry to a dead address is the thing SES counts against the sending domain. A patient who
+texts START reopens the channel.
+
+The verification code is suppressed like everything else. A bounced address does not deliver a code either;
+the honest answer is the other channel, or the staff member with the phone in their hand.
+
+## The webhook
+
+`POST /api/notifications/sns` is the one door SES and SNS report through. Its whole authority is the signature
+on the message, so three things are checked before a row is written (`lib/snsSignature.ts`):
+
+1. the topic ARN is one of `SNS_TOPIC_ARNS`;
+2. the signature verifies against a certificate fetched from an `sns.<region>.amazonaws.com` URL over https —
+   the certificate URL arrives *inside* the message being verified, so without this an attacker signs their
+   own body with their own key and points us at their own certificate;
+3. the envelope's timestamp is within an hour, so a captured notification cannot be replayed.
+
+Status codes are chosen for AWS, not a browser: a refusal is a 4xx so SNS stops retrying it, and a
+notification we understood is a 200 even when it changed nothing (an address belonging to no patient here is
+not a failure). With `SNS_TOPIC_ARNS` unset the route answers 503 and trusts nothing.
+
+The route is in `CSRF_EXEMPT_PATHS` (lib/csrf.ts): it derives no authority from a cookie, so there is nothing
+for a cross-site page to ride, and challenging it would make every bounce notification a 403.
+
+## Setting it up in AWS
+
+### Email: the domain, DKIM and the events topic
+
+1. **Verify the sending domain.** SES → *Verified identities* → *Create identity* → Domain. Choose *Easy
+   DKIM*, RSA 2048, and publish the three `CNAME` records SES gives you. Verification and DKIM both go green
+   within minutes of the records propagating; until DKIM is green, mail is signed only by the domain's
+   `MAIL FROM` and will land in spam.
+2. **Publish `SPF` and `DMARC`.** A `TXT` record `v=spf1 include:amazonses.com ~all` on the custom MAIL FROM
+   subdomain, and `_dmarc` as `v=DMARC1; p=none; rua=mailto:dmarc@<your domain>` to start. Tighten `p` once
+   the reports are clean.
+3. **Set `EMAIL_FROM`** to an address on that domain. SES rejects an unverified sender outright.
+4. **Leave the sandbox.** SES → *Account dashboard* → *Request production access*. In the sandbox every
+   *recipient* must be a verified identity too, which is fine for a demo and not for a practice.
+5. **Create the events topic.** SNS → *Create topic* → Standard, e.g. `sweetspot-ses-events`.
+6. **Create a configuration set** (SES → *Configuration sets*) with an *Event destination* of that SNS topic,
+   publishing **Bounce**, **Complaint** and **Delivery**. Set `SES_CONFIGURATION_SET` to its name and
+   `SNS_TOPIC_ARNS` to the topic ARN.
+7. **Subscribe the webhook.** On the topic, *Create subscription* → protocol HTTPS → endpoint
+   `https://<your APP_URL>/api/notifications/sns`. Leave *Enable raw message delivery* **off**: the signature
+   is on the envelope, and raw delivery removes it. SNS immediately posts a `SubscriptionConfirmation`, the
+   route fetches the `SubscribeURL` and the subscription goes to *Confirmed*. If it stays *Pending*, look for
+   `sns_webhook_unverified` or `sns_webhook_wrong_topic` in the log: the `code` field says which check failed.
+
+### SMS: the origination number and STOP
+
+1. **Request a number.** AWS End User Messaging → *Phone numbers* → *Request originator*. A 10DLC long code
+   or a toll-free number; both need registration, and US destinations will not deliver without one.
+   Registration is where the practice's details and a sample message go, and it takes days, not minutes.
+2. **Set `SNS_ORIGINATION_NUMBER`** to it in E.164 (`+15551234567`).
+3. **Leave the SMS sandbox** (*Account settings* → production access). In the sandbox only verified
+   destination numbers receive anything.
+4. **Turn on two-way SMS** on the number, with the destination set to an SNS topic, and add that topic's ARN
+   to `SNS_TOPIC_ARNS`. This is what delivers an inbound `STOP` to us. AWS answers the keyword itself and
+   stops delivering to the number either way; the inbound message is how the dashboard gets to say so.
+5. **Optional: SMS delivery logging** (SNS → *Text messaging preferences*) to the same topic. A number already
+   on AWS's opt-out list shows up there, which is how we learn about a STOP sent to a message we never saw a
+   reply to.
+
+### Locally
+
+Nothing above is needed. With no backend configured, mail goes to the console mailer
+(`DEV_MAIL_DIR`, `npm run mail`) and SMS reports itself unconfigured, so the invite link is shown on screen.
+`npm run send:test` sends one real message once keys are set. The webhook has nothing to listen to and
+answers 503, which is the right answer for a machine that no topic is pointed at.
+
+## Environment variables
+
+See `.env.example` for the whole list; the ones this document is about:
+
+```
+EMAIL_FROM, EMAIL_PROVIDER, AWS_SES_REGION          # who email comes from
+SNS_ORIGINATION_NUMBER, SMS_PROVIDER, AWS_SNS_REGION # who texts come from
+SES_CONFIGURATION_SET                               # which SES config set publishes events
+SNS_TOPIC_ARNS                                      # the topics POST /api/notifications/sns believes
+```
+
+`npm run config:check` prints every one of them with its requirement level, and
+`npm run config:check -- --production` judges them by production rules (§3.7).
