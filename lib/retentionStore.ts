@@ -24,8 +24,10 @@
 //      writes one audit row, with counts and no contents (§4.8). A run that removed nothing writes nothing:
 //      a row saying a sweep considered a practice and deleted none of it is a record of nothing happening.
 //
-// §13.4's demo practices are excluded from sweeps once a practice can be marked synthetic; there is no such
-// flag yet (T32), so today every practice is swept on its own `retentionDays`.
+// §13.4's demo practices are excluded from the nightly sweep: `Practice.isDemo` is the flag, and a practice
+// wearing it keeps its visits however old they are, because the point of a demo practice is that the week of
+// readings somebody walks a prospect through is still there next month. The staff action is not excluded —
+// §10.5 is a person pressing a button on a named patient, and a demo patient is as deletable as any other.
 
 import type { PrismaClient } from "@prisma/client";
 import { recordAudit, type AuditWrite } from "./auditStore";
@@ -126,8 +128,10 @@ async function purgeVisitData({ client, removePrefix }: Resolved, visitId: strin
 // §10.4 The nightly sweep
 
 export type SweepReport = {
-  /** How many practices were considered. */
+  /** How many practices were considered. Demo practices are not among them (§13.4). */
   practices: number;
+  /** How many practices were left alone for being demo practices (§13.4). */
+  demoPractices: number;
   /** How many visits were cleared. */
   visits: number;
   counts: PurgeCounts;
@@ -148,12 +152,20 @@ export const SWEEP_LIMIT = 500;
 export async function sweepRetention(opts: RetentionDeps & { practiceId?: string } = {}): Promise<SweepReport> {
   const deps = resolve(opts);
   const { client, now } = deps;
-  const practices = await client.practice.findMany({
+  // Both kinds in one query, rather than `isDemo: false` in the `where`: a sweep that says how many
+  // practices it skipped is a sweep an operator can tell from one that found no practices at all, and
+  // sweeping a single practice by hand (`practiceId`) has to be able to report that this one is a demo.
+  const all = await client.practice.findMany({
     where: opts.practiceId ? { id: opts.practiceId } : {},
-    select: { id: true, retentionDays: true },
+    select: { id: true, retentionDays: true, isDemo: true },
   });
+  const practices = all.filter((practice) => !practice.isDemo);
+  const demoPractices = all.length - practices.length;
+  // One line, not one per practice: a deployment with a dozen demo practices should not write a dozen lines
+  // every night. `demo: true` is §13.4's label for §11.1's alarm filters (lib/demo.ts).
+  if (demoPractices > 0) log.info("retention_demo_skipped", { count: demoPractices, demo: true });
 
-  const report: SweepReport = { practices: practices.length, visits: 0, counts: EMPTY_PURGE };
+  const report: SweepReport = { practices: practices.length, demoPractices, visits: 0, counts: EMPTY_PURGE };
   for (const practice of practices) {
     const cutoff = retentionCutoff(practice.retentionDays, now);
     const expired = await client.visit.findMany({

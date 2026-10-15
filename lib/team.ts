@@ -72,6 +72,9 @@ export type TeamMember = {
 };
 
 export type PracticeTeam = {
-  practice: { id: string; name: string; retentionDays: number };
+  /** `isDemo` is §13.4's flag, read-only here: the settings screen says so, and nothing on it sets it. A
+   *  practice is marked synthetic when it is seeded (lib/practice.ts), not by a form — an admin who could
+   *  turn it on would be turning off their own practice's retention sweep. */
+  practice: { id: string; name: string; retentionDays: number; isDemo: boolean };
   users: TeamMember[];
 };

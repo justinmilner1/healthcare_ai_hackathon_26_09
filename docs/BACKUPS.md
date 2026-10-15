@@ -6,8 +6,8 @@ Two halves, and the second one is the one that matters. Backups are a setting; a
 page is the setting in one table and the skill in a sequence of commands somebody can follow at 3am without
 thinking, having already followed them once on a quiet afternoon.
 
-Day-to-day operations — deploy, rollback, rotating a secret, what each alarm means — are `docs/RUNBOOK.md`
-(T35), which links here for the restore. The stack itself is `docs/DEPLOY.md`.
+Day-to-day operations — deploy, rollback, rotating a secret, what each alarm means — are `docs/RUNBOOK.md`,
+which links here for the restore. Setting a deployment up in the first place is `docs/DEPLOY.md`.
 
 ## What is backed up
 
@@ -170,8 +170,9 @@ the checkout (which is what a §13.3 rollback looks like), or no restore target 
 ### 4. Put it back in service, or throw it away
 
 A drill throws it away. A real restore does not: the app is pointed at the new endpoint by updating
-`DATABASE_URL` in SSM and redeploying (`docs/DEPLOY.md`), and the old instance is kept until the new one has
-been through a business day.
+`DATABASE_URL` in SSM and redeploying (`docs/RUNBOOK.md`), and the old instance is kept until the new one has
+been through a business day. A restore is also the only way back from a migration the previous release cannot
+read, which is why `docs/RUNBOOK.md` sends a rollback here when the schema moved.
 
 ```bash
 aws rds delete-db-instance --db-instance-identifier "$DRILL" \

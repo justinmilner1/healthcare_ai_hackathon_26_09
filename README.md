@@ -50,6 +50,24 @@ npm run mail            # prints the newest sign-in link; nothing is configured,
 Set `RESEND_API_KEY` or AWS credentials in `.env` and the same link is emailed instead. `AUTH_SECRET` signs the
 session cookie; local development falls back to a fixed development value, and a deployment must set it.
 
+Set `DEMO_SIGN_IN=1` and **Open the demo** skips the mailbox: `/demo` mints the same one-use Auth.js link it
+would have emailed and follows it, so you land on the dashboard. That is what §13.4 asks for on staging,
+where there is no inbox to read. It opens nothing else — the route checks that the practice behind the seeded
+address is marked `isDemo` before it hands anything out — and the §3.7 config check says so on every boot of
+a deployment that has it on.
+
+### Demo practices (design §13.4)
+
+`npm run seed` marks its practice synthetic (`Practice.isDemo`), and three things follow from the flag:
+
+- the nightly retention sweep leaves its visits alone, so a demo's week of readings is still there next month;
+- its log lines carry `demo: true`, and §11.1's alarm filters leave those out (`docs/LOGGING.md`);
+- it only messages reserved test addresses and `555-01xx` numbers — anything else is not sent, and says why
+  in the dashboard's Messages column (`lib/demo.ts`, `docs/NOTIFICATIONS.md`).
+
+A practice is marked when it is seeded, not from a form: the settings screen shows the flag and cannot set it,
+because an admin turning it on would be turning their own practice's retention sweep off.
+
 No Docker daemon? `npm run db:up` starts a Postgres that is already installed on the host instead and prints the
 `DATABASE_URL` to put in `.env`. Either way the database is Postgres; SQLite is gone (design §3.2).
 
@@ -217,10 +235,17 @@ The first deploy needs a human: AWS credentials, a GitHub token for Amplify, a v
 security decision about who may reach the database. [docs/DEPLOY.md](docs/DEPLOY.md) is that walkthrough, the
 six secrets SSM needs, and what each alarm means.
 
-The database keeps seven days of point-in-time backups (§11.4). Restoring one is a drill rather than a
-setting: [docs/BACKUPS.md](docs/BACKUPS.md) has the commands, the expected output of each, and what the
-three failure modes look like. Its verification step is a script — `npm run restore:drill` — and
-`scripts/agent-check.sh` rehearses it on every run so it cannot rot between quarterly drills.
+After that, deploying is a push: staging is every merge to `main` (§13.2), and production is a `v*` tag, which
+`.github/workflows/release.yml` turns into the only push the `release` branch ever gets (§13.3). The build
+migrates before it serves, so a failed migration is a failed deploy rather than an app on the wrong schema, and
+a rollback is that workflow run again with the previous tag. [docs/RUNBOOK.md](docs/RUNBOOK.md) is the
+procedure.
+
+The database keeps seven days of point-in-time backups (§11.4), which is the way back when a rollback is not
+one. Restoring is a drill rather than a setting: [docs/BACKUPS.md](docs/BACKUPS.md) has the commands, the
+expected output of each, and what the failure modes look like. Its verification step is a script —
+`npm run restore:drill` — and `scripts/agent-check.sh` rehearses it on every run so it cannot rot between
+quarterly drills.
 
 ## Repo layout
 
@@ -297,6 +322,7 @@ lib/
   uploads.ts                    the gates before a parser: 20 MB cap, type sniffing (§9.1)
   visit.ts                      resolve a visit from its id or invite token
   practice.ts                   the first person in a practice: sign-up and the demo provider
+  demo.ts                       demo practices: the sweep, the alarm label, the address rule (§13.4)
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin
   health.ts                     the three §11.2 probes, their latencies, and what makes a report 503
@@ -309,7 +335,7 @@ scripts/migrate-visits.ts       give any patient without a visit one (design §4
 scripts/check-config.ts         npm run config:check: the startup check as a command
 scripts/health-check.ts         npm run health:check: the deploy gate against a running deployment (§11.2)
 scripts/infra-check.sh          npm run infra:check: typecheck, test and `cdk synth` the stack below
-infra/bin/infra.ts              the CDK app: the staging stack today, production with T30 (§3.6, §13.2)
+infra/bin/infra.ts              the CDK app: both stacks, staging and production (§3.6, §13.2, §13.3)
 infra/lib/sweetspot-stack.ts    Amplify, RDS, S3, SES, SNS, the minute schedule, SSM, the alarms
 infra/lib/stage.ts              everything that differs between staging and production
 infra/lambda/jobs-tick/         the 60 lines EventBridge Scheduler runs to call POST /api/jobs/run (§3.4)

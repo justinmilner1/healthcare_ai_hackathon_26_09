@@ -8,7 +8,7 @@ import { appUrl } from "../lib/config";
 import { db } from "../lib/db";
 import { parseClarityCsv } from "../lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "../lib/location";
-import { upsertProvider } from "../lib/practice";
+import { ensureDemoProvider } from "../lib/practice";
 import { parseWhoopCsv } from "../lib/sleep";
 import { newUploadKey, putObject } from "../lib/storage";
 import type { UploadKind } from "../lib/types";
@@ -17,7 +17,10 @@ import { contentTypeFor, formatFor } from "../lib/uploads";
 const data = (f: string) => readFileSync(join(process.cwd(), "data", f), "utf8");
 
 async function main() {
-  const provider = await upsertProvider({ name: "Dr. Demo Endo", email: "demo@sweetspot.local", practice: "Sweet Spot Endocrinology" });
+  // §13.4: the seeded practice is marked `isDemo`, which is what keeps the nightly sweep off a demo whose
+  // week of readings has to still be there next month, keeps its failures out of §11.1's alarms, and stops
+  // anything it sends reaching an address that is not reserved. lib/practice.ts holds the row.
+  const provider = await ensureDemoProvider();
   const token = randomBytes(16).toString("base64url");
   const visit = await db.visit.create({
     data: {
@@ -133,6 +136,10 @@ async function main() {
   // email on file, and with no SMS or email backend configured it lands in the same local mailbox.
   console.log(`Opening a patient link sends a six-digit code to the patient's email; \`npm run mail\` prints that too.`);
   console.log(`\nDana Demo's row shows §8.1 and §8.3: the text arrived, the email bounced, so email is off for her.`);
+  console.log(
+    `${provider.practice.name} is a demo practice (§13.4): the nightly retention sweep skips it, its log lines carry` +
+      ` demo:true so the alarms skip them, and it only messages reserved addresses — everything above is one.`,
+  );
 }
 
 main().finally(() => db.$disconnect());

@@ -106,6 +106,44 @@ export const authConfig: NextAuthConfig = {
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
 
+// ---------------------------------------------------------------------------------------------
+// §13.4's demo sign-in (app/demo/route.ts)
+
+/**
+ * Mint one of Auth.js's own sign-in links, instead of emailing it.
+ *
+ * This is the whole of the `/demo` shortcut, and it is deliberately not a second way to sign in: what comes
+ * back is the same URL `sendVerificationRequest` would have put in an email, so the sign-in that follows is
+ * Auth.js's — one use, 15 minutes, the real `Session` row, the real `signIn` event. Nothing here sets a
+ * cookie or writes a session; the only thing skipped is the inbox.
+ *
+ * The token is stored hashed and handed out in the clear, which is what Auth.js does and what its callback
+ * expects: `@auth/core`'s sendToken writes `sha256hex(token + secret)` through the adapter and its callback
+ * hashes the token in the query the same way to find the row (`lib/actions/callback`). So the hash below is a
+ * copy of theirs, Web Crypto and all — node:crypto would pull this module's dependents into a shape the edge
+ * bundle cannot build (T45/T46) — and e2e/demo.spec.ts is what notices if a future Auth.js changes it.
+ *
+ * Only app/demo/route.ts calls this, only for the seeded demo provider of a practice marked `isDemo`, and
+ * only where DEMO_SIGN_IN says so. It is not exported to anything else for a reason: handed an arbitrary
+ * address it is a sign-in as that address, with no proof the address belongs to whoever asked.
+ */
+export async function mintSignInUrl(email: string, base: URL, callbackPath = "/provider"): Promise<string> {
+  const secret = authSecret();
+  if (!secret) throw new Error("AUTH_SECRET is not set, so no sign-in link can be minted");
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${token}${secret}`));
+  const hashed = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  await db.verificationToken.create({
+    data: { identifier: email, token: hashed, expires: new Date(Date.now() + SIGN_IN_LINK_SECONDS * 1000) },
+  });
+  const url = new URL("/api/auth/callback/email", base);
+  url.searchParams.set("callbackUrl", new URL(callbackPath, base).toString());
+  url.searchParams.set("token", token);
+  url.searchParams.set("email", email);
+  return url.toString();
+}
+
 /** The signed-in provider, or null. The one way a page or route asks who is here. */
 export async function currentProvider(): Promise<ProviderUser | null> {
   const session = await auth();

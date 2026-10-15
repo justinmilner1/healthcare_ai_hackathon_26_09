@@ -44,12 +44,19 @@ export interface StageConfig extends StageContext {
   logRetentionDays: number;
   multiAz: boolean;
   dbInstanceClass: "small" | "medium";
+  /**
+   * §13.3: production serves tagged releases only. `.github/workflows/release.yml` is the only writer of the
+   * stage's branch and it accepts nothing but a `v*` tag, so moving that branch *is* the deploy; the build
+   * spec checks the branch it was handed as well, so a build started by hand against anything else stops
+   * before the migrations rather than at the first request. Staging deploys every merge instead (§13.2).
+   */
+  deployFromTag: boolean;
 }
 
 /** The fields `stageConfig` fills in when context is silent. */
 type StageDefaults = Pick<
   StageConfig,
-  "branch" | "retainData" | "backupRetentionDays" | "logRetentionDays" | "multiAz" | "dbInstanceClass"
+  "branch" | "retainData" | "backupRetentionDays" | "logRetentionDays" | "multiAz" | "dbInstanceClass" | "deployFromTag"
 >;
 
 const DEFAULTS: Record<StageName, StageDefaults> = {
@@ -60,14 +67,18 @@ const DEFAULTS: Record<StageName, StageDefaults> = {
     logRetentionDays: 30,
     multiAz: false,
     dbInstanceClass: "small",
+    deployFromTag: false,
   },
   production: {
+    // The branch the production Amplify app watches. Nothing but `.github/workflows/release.yml` writes it,
+    // and that workflow only ever points it at a `v*` tag's commit (§13.3, docs/RUNBOOK.md).
     branch: "release",
     retainData: true,
     backupRetentionDays: 7,
     logRetentionDays: 90,
     multiAz: true,
     dbInstanceClass: "medium",
+    deployFromTag: true,
   },
 };
 

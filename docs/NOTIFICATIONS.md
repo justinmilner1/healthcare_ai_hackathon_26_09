@@ -69,6 +69,28 @@ texts START reopens the channel.
 The verification code is suppressed like everything else. A bounced address does not deliver a code either;
 the honest answer is the other channel, or the staff member with the phone in their hand.
 
+## Demo practices (§13.4)
+
+A practice marked `isDemo` only ever messages a destination that cannot belong to anybody. The rule is an
+allow-list in `lib/demo.ts`: an email address in a reserved domain (`.local`, `.test`, `.invalid`,
+`.example`, `localhost`, or `example.com`/`.net`/`.org` and their subdomains — RFC 2606 and RFC 6761), or a
+phone number in the NANP's fictitious `555-01xx` range. Everything else is not sent.
+
+It is an allow-list rather than a block-list because of the mistake it exists to stop: a demo visit booked
+against a prospect's own mobile number, and a stranger gets a text about an appointment they do not have.
+Being wrong the other way costs a demo that says, on the dashboard, why a message did not go.
+
+Mechanically it is the same shape as suppression above — `{ sent: false, error }` with **no** `provider`, so
+the send is recorded `skipped`, is shown to staff with its reason, and is never retried. It is checked
+*before* suppression, because it is the stronger statement: a bounce says this address does not work, and
+this says we must not try it. Every one of the five templates goes through it, the verification code and the
+clinician's summary notice included, and so does a team invite (`lib/mailer.ts`). The one message that does
+not is a provider's own sign-in link: nobody sends that — it goes only to an address that has just asked for
+it on the form, and gating it would lock a demo practice's admin out of their own practice.
+
+The seeded practice is the demo practice (`npm run seed`, `lib/practice.ts`), and every address and number in
+`scripts/seed.ts` is a reserved one, so the demo flow works end to end with the rule on.
+
 ## The webhook
 
 `POST /api/notifications/sns` is the one door SES and SNS report through. Its whole authority is the signature

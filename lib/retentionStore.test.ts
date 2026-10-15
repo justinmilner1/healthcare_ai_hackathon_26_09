@@ -236,6 +236,52 @@ describe("retention and deletion", { skip: SERVER_URL ? false : "DATABASE_URL is
       assert.equal((await db.visit.findUniqueOrThrow({ where: { id: theirVisit.id } })).notes, null);
     });
 
+    it("leaves a demo practice's visits alone, however old (§13.4)", async () => {
+      // §13.4: a demo practice is excluded from the sweep. The point is a sales demo whose week of readings
+      // is still there next month — so the exclusion has to beat the practice's own window, not soften it.
+      const { visitId } = await seedVisit({ name: "Demo Visit", scheduledAt: daysAgo(4000) });
+      await db.practice.update({ where: { id: practiceId }, data: { isDemo: true, retentionDays: 30 } });
+
+      const report = await sweepRetention(deps());
+      assert.equal(report.visits, 0);
+      assert.equal(report.practices, 0, "it was not one of the practices considered");
+      assert.equal(report.demoPractices, 1, "and the report says why");
+      const visit = await db.visit.findUniqueOrThrow({ where: { id: visitId } });
+      assert.equal(visit.notes, "Ate out twice this week.");
+      assert.equal(visit.retentionSweptAt, null, "not even marked: the next sweep must skip it again");
+      assert.equal(await db.upload.count({ where: { visitId } }), 2);
+      assert.deepEqual(rows, [], "nothing was deleted, so there is nothing to record (§10.2)");
+      assert.deepEqual(removed, []);
+
+      // Unsetting the flag is all it takes: the same sweep then clears the same visit.
+      await db.practice.update({ where: { id: practiceId }, data: { isDemo: false } });
+      assert.equal((await sweepRetention(deps())).visits, 1);
+    });
+
+    it("skips a demo practice it was pointed at by hand too (§13.4)", async () => {
+      await seedVisit({ name: "Demo Visit", scheduledAt: daysAgo(400) });
+      await db.practice.update({ where: { id: practiceId }, data: { isDemo: true } });
+      // Sweeping one practice by name is the runbook's lever (§13.5), and it is not a way round the flag.
+      const report = await sweepRetention({ ...deps(), practiceId });
+      assert.equal(report.visits, 0);
+      assert.equal(report.demoPractices, 1);
+    });
+
+    it("sweeps the real practices in a database that also holds a demo one (§13.4)", async () => {
+      const demo = await db.practice.create({ data: { name: "Sweet Spot Endocrinology", isDemo: true, retentionDays: 30 } });
+      const theirs = await db.patient.create({ data: { practiceId: demo.id, name: "Sam Sample" } });
+      const demoVisit = await db.visit.create({
+        data: { patientId: theirs.id, token: randomBytes(8).toString("base64url"), scheduledAt: daysAgo(400), notes: "synthetic" },
+      });
+      await seedVisit({ name: "Real Visit", scheduledAt: daysAgo(400) });
+
+      const report = await sweepRetention(deps());
+      assert.equal(report.visits, 1, "one real practice's one old visit");
+      assert.equal(report.practices, 1);
+      assert.equal(report.demoPractices, 1);
+      assert.equal((await db.visit.findUniqueOrThrow({ where: { id: demoVisit.id } })).notes, "synthetic");
+    });
+
     it("records one audit row per cleared visit, with counts and no contents (§4.8, §10.2)", async () => {
       const { visitId } = await seedVisit({ name: "Audited", scheduledAt: daysAgo(400) });
       await sweepRetention(deps());

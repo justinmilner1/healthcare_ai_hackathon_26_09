@@ -1,4 +1,4 @@
-// The Sweet Spot stack (design §3.6). One class, two instances: staging (T29) and production. Owner: ops.
+// The Sweet Spot stack (design §3.6). One class, two instances: staging (T29) and production (T30). Owner: ops.
 //
 // Everything the app needs that is not the app: the Amplify Hosting app it is served from, the RDS Postgres it
 // reads (§3.2), the private S3 bucket uploads land in (§3.3), the SES identity and SNS topics notifications go
@@ -246,8 +246,9 @@ export class SweetSpotStack extends cdk.Stack {
    *
    * Amplify publishes no stable egress range, so `dbAllowedCidrs` is how a deployment opens the door — an
    * operator's office range for migrations and psql, or `0.0.0.0/0` for a staging deployment that accepts a
-   * password-and-TLS-only perimeter. docs/DEPLOY.md spells out that trade; production (T30) is where a
-   * VPC-attached compute, or a bastion, earns its cost.
+   * password-and-TLS-only perimeter. docs/DEPLOY.md spells out that trade, and it is a per-stage decision:
+   * production names the ranges its operators and its Amplify build actually come from rather than inheriting
+   * whatever staging settled for.
    */
   private database(): rds.DatabaseInstance {
     // Two AZs because an RDS subnet group has to span two. One kind of subnet, public, because that is where
@@ -352,8 +353,10 @@ export class SweetSpotStack extends cdk.Stack {
   // Hosting
 
   /**
-   * §3.1 and §13.2: the app is Next.js SSR on Amplify Hosting, built from this repository, and every merge to
-   * the stage's branch deploys.
+   * §3.1: the app is Next.js SSR on Amplify Hosting, built from this repository, and a push to the stage's
+   * branch deploys. What pushes that branch is what separates the two stages: staging's branch is `main`, so
+   * every merge deploys (§13.2); production's is `release`, which only `.github/workflows/release.yml` writes
+   * and only ever at a `v*` tag, so every production deploy is a tagged release (§13.3).
    *
    * Connecting the repository needs a GitHub token with `repo` scope, which is a human step: it arrives as the
    * `GitHubAccessToken` template parameter (NoEcho) at deploy time rather than living in SSM, because Amplify
@@ -443,7 +446,9 @@ export class SweetSpotStack extends cdk.Stack {
       appId: app.attrAppId,
       branchName: this.config.branch,
       stage: this.config.stage === "production" ? "PRODUCTION" : "BETA",
-      enableAutoBuild: true, // §13.2: every merge to this branch deploys
+      // §13.2 for staging (every merge to main), §13.3 for production (the release workflow moving `release`
+      // onto a tag). Both are a push to the branch; only the set of things allowed to push differs.
+      enableAutoBuild: true,
       framework: "Next.js - SSR",
       environmentVariables: this.branchEnvironment(),
     });
@@ -463,14 +468,32 @@ export class SweetSpotStack extends cdk.Stack {
     return branch;
   }
 
-  /** `.env.production` from SSM, migrations, the §3.7 gate, then the build. */
+  /**
+   * `.env.production` from SSM, migrations, the §3.7 gate, then the build.
+   *
+   * Everything before `build:` is pre-deploy: Amplify runs `preBuild`, then `build`, and only publishes if
+   * both succeeded, so a failure anywhere in here leaves the version that is already serving in place. That
+   * is what §13.3 means by migrations as a pre-deploy step — `prisma migrate deploy` runs against the stage's
+   * database before the new version can take a request, and a migration that fails is a failed deploy rather
+   * than an application that boots against a schema it does not understand.
+   *
+   * A production build starts with one more check: it must be a build of the stage's branch. The release
+   * workflow is the only thing that writes that branch and it only accepts a `v*` tag, so this stops a build
+   * started by hand in the console against some other ref from migrating the production database.
+   */
   private buildSpec(): string {
+    const releaseGuard = this.config.deployFromTag
+      ? [
+          `        - test "$AWS_BRANCH" = "${this.config.branch}" || { echo "${this.config.stage} deploys the ${this.config.branch} branch only (design §13.3); got $AWS_BRANCH"; exit 1; }`,
+        ]
+      : [];
     return [
       "version: 1",
       "frontend:",
       "  phases:",
       "    preBuild:",
       "      commands:",
+      ...releaseGuard,
       "        - npm ci",
       // One parameter per line as NAME=value, which is what Next.js reads and what `npm run config:check`
       // judges. --with-decryption covers the SecureStrings a human put there (§10.6).
@@ -479,7 +502,14 @@ export class SweetSpotStack extends cdk.Stack {
       // commands below are both, so one copy is cheaper than two queries — and without it the migration would
       // run with no DATABASE_URL and the config gate would judge an empty environment and pass.
       "        - cp .env.production .env",
-      "        - npx prisma migrate deploy", // §13.2 staging migrates on deploy; §13.3 production gates it on a tag
+      // Said out loud in the build log before anything is applied, so the deploy that goes wrong can be read
+      // afterwards: which migrations this release brought, and which were already there. `migrate status`
+      // exits non-zero when anything is pending, which is the normal case here and not a failure.
+      "        - npx prisma migrate status || true",
+      // §13.2 staging migrates on every merge; §13.3 production migrates once per release tag, here, before
+      // the build that would serve it. Rolling a release back does not roll a migration back — which is why
+      // docs/RUNBOOK.md requires every migration to be readable by the release before it.
+      "        - npx prisma migrate deploy",
       "        - npm run config:check -- --production",
       "    build:",
       "      commands:",
@@ -666,10 +696,21 @@ export class SweetSpotStack extends cdk.Stack {
    * CloudWatch metric, so the alarms measure what the app said happened rather than what a load balancer
    * guessed — and the lines contain no names, no phone numbers and no message text, which is the only reason
    * they can be read by an alarm at all.
+   *
+   * §13.4: a demo practice is excluded from these alarms. There is nothing in CloudWatch an application can
+   * exempt itself from, so the app labels instead — every line it can attribute to a practice marked `isDemo`
+   * carries `demo: true` (markDemoPractice in lib/log.ts) — and `NOT_DEMO` below is the half that leaves those
+   * lines out. docs/LOGGING.md is the contract. A synthetic visit whose summary run fails wakes nobody; the
+   * same failure in a real practice still does.
    */
   private alarms(): void {
     const namespace = `SweetSpot/${this.config.stage}`;
     const action = new actions.SnsAction(this.alarmTopic);
+    // §13.4's exclusion, as a metric filter reads it: the label is absent on every line but a demo
+    // practice's, so "it is not there" is the whole test. A line from a request that never touched a
+    // practice is counted, which is the right way round — the point is that synthetic data does not page
+    // anyone, not that a deployment stops reporting what is broken.
+    const NOT_DEMO = "$.demo NOT EXISTS";
 
     const counter = (id: string, metricName: string, pattern: string): cloudwatch.Metric => {
       new logs.MetricFilter(this, id, {
@@ -699,12 +740,12 @@ export class SweetSpotStack extends cdk.Stack {
       return a;
     };
 
-    alarm("http-5xx", counter("Http5xxFilter", "http_5xx", "{ $.status >= 500 }"), {
+    alarm("http-5xx", counter("Http5xxFilter", "http_5xx", `{ $.status >= 500 && ${NOT_DEMO} }`), {
       threshold: 5,
       periodMinutes: 5,
       description: "The app answered 5xx five or more times in five minutes (design §11.1)",
     });
-    alarm("job-failed", counter("JobFailedFilter", "job_failed", '{ $.event = "job_failed" }'), {
+    alarm("job-failed", counter("JobFailedFilter", "job_failed", `{ $.event = "job_failed" && ${NOT_DEMO} }`), {
       threshold: 1,
       periodMinutes: 15,
       description: "A job exhausted its three attempts: an invite, a summary or a deletion did not happen (design §3.4)",
@@ -712,11 +753,15 @@ export class SweetSpotStack extends cdk.Stack {
     // §3.5's timeout and §11.3's degraded mode: lib/llm.ts logs `llm_call_failed` for each failed attempt
     // (a timeout among them) and `llm_circuit_opened` when it gives up and goes scripted. The first is a rate
     // worth knowing about, the second means every patient is currently reading scripted replies.
-    alarm("model-failures", counter("ModelFailedFilter", "llm_call_failed", '{ $.event = "llm_call_failed" }'), {
+    alarm("model-failures", counter("ModelFailedFilter", "llm_call_failed", `{ $.event = "llm_call_failed" && ${NOT_DEMO} }`), {
       threshold: 10,
       periodMinutes: 15,
       description: "Ten or more model calls timed out or errored in fifteen minutes (design §3.5, §11.1)",
     });
+    // The one §11.1 alarm that counts a demo practice's lines too, and deliberately: the circuit is one per
+    // process, not one per practice (lib/llm.ts). Whichever request happened to trip it, every patient on the
+    // deployment is now reading scripted replies — so a `demo` label on that line is about who was unlucky
+    // enough to be first, and excluding it would hide a real outage behind a synthetic visit.
     alarm("model-degraded", counter("ModelCircuitFilter", "llm_circuit_opened", '{ $.event = "llm_circuit_opened" }'), {
       threshold: 1,
       periodMinutes: 15,

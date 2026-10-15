@@ -8,6 +8,8 @@
 // `npx cdk synth` proves the stack is well formed. This proves it is the stack the design asked for.
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import test from "node:test";
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
@@ -30,6 +32,32 @@ function staging(context: Record<string, unknown> = {}): Template {
   });
   const stack = new SweetSpotStack(app, "SweetSpot-staging", { config: stageConfig(app, "staging"), env: { region: "us-east-1" } });
   return Template.fromStack(stack);
+}
+
+/** The context cdk.json actually carries, so these tests judge the deployment rather than a made-up one. */
+function repoContext(): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "cdk.json"), "utf8")).context;
+}
+
+/** A production stack, built the way `cdk synth` builds it: from cdk.json's own `sweetspot:production`. */
+function production(context: Record<string, unknown> = {}): Template {
+  const app = new cdk.App({
+    context: { ...repoContext(), "sweetspot:production": { ...(repoContext()["sweetspot:production"] as object), region: "us-east-1", ...context } },
+  });
+  const stack = new SweetSpotStack(app, "SweetSpot-production", { config: stageConfig(app, "production"), env: { region: "us-east-1" } });
+  return Template.fromStack(stack);
+}
+
+/** The preBuild commands of a template's Amplify app, which is where §13.3's pre-deploy steps live. */
+function preBuildCommands(template: Template): string[] {
+  const apps = Object.values(template.findResources("AWS::Amplify::App"));
+  assert.equal(apps.length, 1);
+  const spec = String(apps[0].Properties.BuildSpec);
+  const lines = spec.split("\n").map((line) => line.trim());
+  const start = lines.indexOf("preBuild:");
+  const end = lines.indexOf("build:");
+  assert.ok(start > 0 && end > start, "the build spec has no preBuild phase");
+  return lines.slice(start, end).filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
 }
 
 test("synthesizes with no context at all, which is what CI does", () => {
@@ -156,11 +184,15 @@ test("the job queue is drained once a minute by the schedule, not by the app (§
 test("the alarms §11.1 asks for exist, read the app's own log lines, and all reach the topic", () => {
   const template = staging();
   const patterns = Object.values(template.findResources("AWS::Logs::MetricFilter")).map((r) => r.Properties.FilterPattern);
+  // §13.4: the three alarms that count a failure of *this practice's* work leave a demo practice's lines
+  // out, and the label is what they leave out by (lib/log.ts, docs/LOGGING.md). The circuit is the
+  // exception and counts everything: it is one per process, so a demo visit tripping it still means every
+  // patient is reading scripted replies.
   assert.deepEqual(patterns.sort(), [
-    '{ $.event = "job_failed" }',
-    '{ $.event = "llm_call_failed" }',
+    '{ $.event = "job_failed" && $.demo NOT EXISTS }',
+    '{ $.event = "llm_call_failed" && $.demo NOT EXISTS }',
     '{ $.event = "llm_circuit_opened" }',
-    "{ $.status >= 500 }",
+    "{ $.status >= 500 && $.demo NOT EXISTS }",
   ]);
   const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
   assert.equal(alarms.length, 6, "5xx, job failures, model failures, model degraded, the tick, and database storage");
@@ -231,18 +263,70 @@ test("a stage with a domain of its own uses it for every link (§3.7)", () => {
 });
 
 test("production differs from staging only where the design says it does (§13.3)", () => {
-  const app = new cdk.App({ context: { "sweetspot:production": { region: "us-east-1", branch: "release" } } });
-  const template = Template.fromStack(new SweetSpotStack(app, "SweetSpot-production", { config: stageConfig(app, "production"), env: { region: "us-east-1" } }));
-  // §11.4 asks for seven days in both stages: production's data is worth more, but staging is where the
-  // drill is rehearsed, and a drill against a shorter window does not rehearse the real one.
+  const template = production();
+  // The data is the difference that matters: two availability zones, deletion protection, and a stack that
+  // keeps the database when it goes away. The backups are deliberately *not* a difference: §11.4 asks for
+  // seven days in both stages, and staging is where the drill is rehearsed, so a shorter window there would
+  // rehearse something production does not have.
   template.hasResourceProperties("AWS::RDS::DBInstance", {
     MultiAZ: true,
     DeletionProtection: true,
-    BackupRetentionPeriod: 7,
+    BackupRetentionPeriod: 7, // §11.4, the same seven days as staging
     PreferredBackupWindow: BACKUP_WINDOW_UTC,
     DeleteAutomatedBackups: false,
+    DBInstanceClass: "db.t4g.medium",
   });
   template.hasResourceProperties("AWS::RDS::EventSubscription", { SubscriptionName: "sweetspot-production-db-events", EventCategories: Match.arrayWith(["backup"]) });
   template.hasResource("AWS::RDS::DBInstance", { DeletionPolicy: "Retain" });
   template.hasResourceProperties("AWS::Amplify::Branch", { BranchName: "release", Stage: "PRODUCTION" });
+  // §11.1: ninety days of the app's own log lines rather than staging's thirty.
+  template.hasResourceProperties("AWS::Logs::LogGroup", Match.objectLike({ RetentionInDays: 90 }));
+  // Nothing else is shared with staging: the configuration path, and so every physical name, is the stage's.
+  const names = Object.values(template.findResources("AWS::SSM::Parameter")).map((r) => String(r.Properties.Name));
+  assert.ok(names.length > 0);
+  for (const name of names) assert.ok(name.startsWith("/sweetspot/production/"), `${name} is outside the stage's path`);
+});
+
+test("the repository's cdk.json configures both stages, and both synthesize (§13.2, §13.3)", () => {
+  const context = repoContext();
+  for (const key of ["sweetspot:staging", "sweetspot:production"]) {
+    assert.ok(context[key], `cdk.json has no ${key} context`);
+  }
+  // bin/infra.ts builds both from this context, which is what `cdk synth` with no argument does.
+  const app = new cdk.App({ context });
+  const staged = new SweetSpotStack(app, "SweetSpot-staging", { config: stageConfig(app, "staging"), env: { region: "us-east-1" } });
+  const prod = new SweetSpotStack(app, "SweetSpot-production", { config: stageConfig(app, "production"), env: { region: "us-east-1" } });
+  assert.equal(stageConfig(app, "staging").branch, "main"); // §13.2: every merge to main deploys staging
+  assert.equal(stageConfig(app, "production").branch, "release"); // §13.3: the release workflow's branch
+  // One account can hold both, which it only can if no physical name collides.
+  const nameOf = (t: Template, type: string, key: string) =>
+    Object.values(t.findResources(type)).map((r) => JSON.stringify(r.Properties[key]));
+  for (const [type, key] of [["AWS::Amplify::App", "Name"], ["AWS::RDS::DBInstance", "DBInstanceIdentifier"], ["AWS::SNS::Topic", "TopicName"]] as const) {
+    const a = nameOf(Template.fromStack(staged), type, key);
+    const b = nameOf(Template.fromStack(prod), type, key);
+    for (const name of a) assert.ok(!b.includes(name), `${type} ${name} is the same name in both stages`);
+  }
+});
+
+test("production migrates before it serves, and only from the release branch (§13.3)", () => {
+  const commands = preBuildCommands(production());
+  // The guard is first: a build of anything but `release` stops before it can touch the database. The release
+  // workflow is the only writer of that branch, so this is what makes "deploys from tagged releases" a rule
+  // and not a convention.
+  assert.match(commands[0], /^test "\$AWS_BRANCH" = "release" \|\|/);
+  assert.match(commands[0], /exit 1/);
+  // Pre-deploy, in order: the parameters, then the migration, then the §3.7 gate. All before `build:`, which
+  // is the whole point — a migration that fails is a failed deploy, not a running app on the wrong schema.
+  const migrate = commands.findIndex((c) => c === "npx prisma migrate deploy");
+  const gate = commands.findIndex((c) => c.startsWith("npm run config:check"));
+  const env = commands.findIndex((c) => c.includes("get-parameters-by-path"));
+  assert.ok(env > 0 && migrate > env && gate > migrate, `pre-deploy steps out of order: ${commands.join(" | ")}`);
+  assert.ok(commands.includes("npx prisma migrate status || true"), "the build log should say what this release migrates");
+});
+
+test("staging is not gated on a branch, so a merge to main still deploys it (§13.2)", () => {
+  const commands = preBuildCommands(staging());
+  assert.ok(!commands.some((c) => c.includes("AWS_BRANCH")), "staging must not refuse a build of its own branch");
+  assert.equal(commands[0], "npm ci");
+  assert.ok(commands.includes("npx prisma migrate deploy"));
 });

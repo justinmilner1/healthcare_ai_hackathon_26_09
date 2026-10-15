@@ -17,7 +17,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { db } from "./db";
-import { log, scrub } from "./log";
+import { log, runInChildContext, scrub } from "./log";
 import type { SourJobState } from "./types";
 
 /** Every kind the runner knows how to be asked for (§3.4). A kind with no handler fails the job. */
@@ -258,43 +258,49 @@ export async function drainJobs(opts: DrainOptions = {}): Promise<DrainReport> {
   report.retried += reaped.requeued;
   report.failed += reaped.failed;
 
+  /** One job: run it, mark it done, or record the failure and decide whether it is owed another attempt. */
+  const runOne = async (job: JobRow): Promise<void> => {
+    const started = Date.now();
+    try {
+      const handler = handlers[job.kind];
+      if (!handler) throw new Error(`no handler for job kind ${job.kind}`);
+      await handler(parsePayload(job.payload), job);
+      await client.job.update({
+        where: { id: job.id },
+        data: { status: "done", finishedAt: new Date(), lastError: null, idempotencyKey: null },
+      });
+      report.done += 1;
+      log.info("job_done", { jobId: job.id, kind: job.kind, attempt: job.attempts, durationMs: Date.now() - started });
+    } catch (e) {
+      const retrying = job.attempts < MAX_ATTEMPTS;
+      // The message is scrubbed: a handler's error can quote a gateway response, and this column is read by
+      // staff on the page (§7.2) and by the log line below (§10.3).
+      const lastError = scrub(e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+      await client.job.update({
+        where: { id: job.id },
+        data: retrying
+          ? { status: "queued", runAfter: new Date(Date.now() + backoffMs(job.attempts)), lastError, startedAt: null }
+          : { status: "failed", finishedAt: new Date(), lastError, idempotencyKey: null },
+      });
+      const line = { jobId: job.id, kind: job.kind, attempt: job.attempts, attempts: MAX_ATTEMPTS, durationMs: Date.now() - started, error: lastError };
+      if (retrying) {
+        report.retried += 1;
+        log.warn("job_retry", line);
+      } else {
+        report.failed += 1;
+        log.error("job_failed", line);
+      }
+    }
+  };
+
   while (report.claimed < maxJobs) {
     const jobs = await claimDueJobs(Math.min(batch, maxJobs - report.claimed), client, opts.now ?? new Date());
     if (jobs.length === 0) break;
     report.claimed += jobs.length;
-    for (const job of jobs) {
-      const started = Date.now();
-      try {
-        const handler = handlers[job.kind];
-        if (!handler) throw new Error(`no handler for job kind ${job.kind}`);
-        await handler(parsePayload(job.payload), job);
-        await client.job.update({
-          where: { id: job.id },
-          data: { status: "done", finishedAt: new Date(), lastError: null, idempotencyKey: null },
-        });
-        report.done += 1;
-        log.info("job_done", { jobId: job.id, kind: job.kind, attempt: job.attempts, durationMs: Date.now() - started });
-      } catch (e) {
-        const retrying = job.attempts < MAX_ATTEMPTS;
-        // The message is scrubbed: a handler's error can quote a gateway response, and this column is read by
-        // staff on the page (§7.2) and by the log line below (§10.3).
-        const lastError = scrub(e instanceof Error ? `${e.name}: ${e.message}` : String(e));
-        await client.job.update({
-          where: { id: job.id },
-          data: retrying
-            ? { status: "queued", runAfter: new Date(Date.now() + backoffMs(job.attempts)), lastError, startedAt: null }
-            : { status: "failed", finishedAt: new Date(), lastError, idempotencyKey: null },
-        });
-        const line = { jobId: job.id, kind: job.kind, attempt: job.attempts, attempts: MAX_ATTEMPTS, durationMs: Date.now() - started, error: lastError };
-        if (retrying) {
-          report.retried += 1;
-          log.warn("job_retry", line);
-        } else {
-          report.failed += 1;
-          log.error("job_failed", line);
-        }
-      }
-    }
+    // Each job in its own log context, so §13.4's `demo` label — set by a handler the moment it reads a demo
+    // practice (markDemoPractice) — covers this job's own `job_failed` line and stops at this job.
+    // Without the copy, one demo visit's summary would label every later job in the same drain.
+    for (const job of jobs) await runInChildContext(() => runOne(job));
   }
   return report;
 }
