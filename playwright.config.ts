@@ -11,6 +11,10 @@ import { defineConfig, devices } from "@playwright/test";
 // already been warmed when it failed, and CI runs one worker, so it is not concurrency between tests either.
 // `next start` serves a finished build, so there is no compile to race with.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
+
+/** The SNS topic the main server accepts notifications from (design §8.1). No such topic exists; the point is
+ *  that the route has an allow-list to check a message against. */
+const E2E_TOPIC_ARN = "arn:aws:sns:us-east-1:000000000000:sweetspot-e2e-events";
 // A second server on the next port, identical but with a model gateway that is not there: a key is configured
 // (so the app is not in "Demo mode") and OPENAI_BASE_URL points at a closed loopback port, so every call is
 // refused at once. That is the only way to see the design 6.3 degraded note and the scripted fallback end to
@@ -56,7 +60,18 @@ export default defineConfig({
       timeout: 300_000, // the build is most of this; it takes about a minute here
       // DEV_MAIL_DIR: with no email provider configured, lib/mailer.ts writes the sign-in links here instead
       // of sending them (design §5.1), and e2e/auth.ts reads them. scripts/agent-check.sh empties it first.
-      env: { ...process.env, PORT: String(PORT), OPENAI_API_KEY: "", APP_URL: `http://localhost:${PORT}`, DEV_MAIL_DIR: MAIL_DIR, AUTH_SECRET },
+      // SNS_TOPIC_ARNS: §8.1's webhook trusts nothing until a topic is configured, and answers 503 while
+      // none is. e2e/notifications.spec.ts is about the checks *after* that one, so the server is given a
+      // topic ARN that exists nowhere — it is an allow-list entry, not a credential.
+      env: {
+        ...process.env,
+        PORT: String(PORT),
+        OPENAI_API_KEY: "",
+        APP_URL: `http://localhost:${PORT}`,
+        DEV_MAIL_DIR: MAIL_DIR,
+        AUTH_SECRET,
+        SNS_TOPIC_ARNS: E2E_TOPIC_ARN,
+      },
     },
     {
       command: `npx next start -p ${DEGRADED_PORT}`,
@@ -94,4 +109,4 @@ export default defineConfig({
   ],
 });
 
-export { RUNNER_PORT, RUNNER_SECRET };
+export { E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET };
