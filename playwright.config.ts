@@ -50,7 +50,14 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } }, // Chromium-based phone profile; only Chromium is installed in CI and the sandbox
+    // Design §6.5 names 375px as the width the patient pages are tested at — the narrowest phone still in
+    // common use (iPhone SE / 8). Pixel 7 supplies the rest of the phone profile (touch, mobile user agent,
+    // device scale) because only Chromium is installed in CI and the sandbox, and its own 412px viewport is
+    // 37px of slack that hides exactly the overflow this project exists to catch (T23).
+    {
+      name: "mobile",
+      use: { ...devices["Pixel 7"], viewport: { width: 375, height: 667 } },
+    },
   ],
   webServer: [
     {
