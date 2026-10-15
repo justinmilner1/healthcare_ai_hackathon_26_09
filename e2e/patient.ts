@@ -10,8 +10,8 @@ import { MAIL_DIR } from "./auth";
 // configured, lib/mailer.ts drops the code in DEV_MAIL_DIR instead of sending it (the console mailer the
 // ticket's acceptance criteria name), and these helpers read it back out of there.
 //
-// playwright.config.ts starts three servers with a mailbox each, and a code goes in whichever one drains the
-// `notify.code` job — see latestCode, which is why these read all three and e2e/auth.ts's sign-in links do
+// playwright.config.ts starts four servers with a mailbox each, and a code goes in whichever one drains the
+// `notify.code` job — see latestCode, which is why these read all of them and e2e/auth.ts's sign-in links do
 // not. MAIL_DIR comes from e2e/auth.ts, which already names it for those links.
 
 /**
@@ -28,15 +28,16 @@ export const patientEmail = (name: string) =>
  * Every mailbox the suite's servers write to, newest file first across all of them.
  *
  * A code is not written by the server the patient is talking to: POST /api/verify enqueues a `notify.code`
- * job, and the three servers share one database, so whichever of them next drains inline is the one that
- * sends it — and it writes to *its* mailbox. Looking only in the main one loses roughly one code in fifty to
- * the degraded server's box, as a timeout fifteen seconds later with nothing to show for it.
+ * job, and the servers share one database, so whichever of them next drains inline is the one that sends it
+ * — and it writes to *its* mailbox. Looking only in the main one loses roughly one code in fifty to the
+ * degraded server's box, as a timeout fifteen seconds later with nothing to show for it.
  *
- * Searching all three is safe because every booking gets its own address (patientEmail), so a code found
+ * Searching all of them is safe because every booking gets its own address (patientEmail), so a code found
  * under one is unambiguously this patient's. Sign-in links are the opposite case and stay per-mailbox in
  * e2e/auth.ts: those all go to the one demo address, so only the directory tells them apart.
  */
-const MAIL_DIRS = (first: string) => [...new Set([first, MAIL_DIR, `${MAIL_DIR}-degraded`, `${MAIL_DIR}-runner`])];
+const MAIL_DIRS = (first: string) =>
+  [...new Set([first, MAIL_DIR, `${MAIL_DIR}-degraded`, `${MAIL_DIR}-runner`, `${MAIL_DIR}-dexcom`])];
 
 /** The newest code sent to this address, or null while nothing has arrived. */
 export function latestCode(email: string, dir = MAIL_DIR): string | null {

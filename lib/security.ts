@@ -83,9 +83,9 @@ export function contentSecurityPolicy(
     "frame-ancestors 'none'",
     "base-uri 'self'",
     // `form-action` covers where a <form> may post. Some browsers (Firefox, not Chrome) also check the
-    // redirect that follows, so the Dexcom sandbox button — a form that posts to /api/dexcom/connect and is
-    // 303'd on to Dexcom's authorization page — needs that destination listed. It comes from the same
-    // DEXCOM_BASE_URL the OAuth client is configured with, so an unconfigured deployment lists nothing.
+    // redirect that follows, so the Dexcom button — a form that posts to /api/dexcom/connect and is 303'd
+    // on to Dexcom's authorization page — needs that destination listed. It comes from the same DEXCOM_ENV
+    // switch the OAuth client is configured from (§9.2), so an unconfigured deployment lists nothing.
     ["form-action 'self'", ...formAction].join(" "),
   ];
   if (!dev) directives.push("upgrade-insecure-requests");
