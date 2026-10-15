@@ -72,7 +72,9 @@ test.describe("everything it needs is reachable", () => {
     const res = await page.goto("/api/health");
     expect(res?.status()).toBe(200);
     await expect(page.locator("body")).toContainText('"status":"ok"');
-    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-health-ok.png`, fullPage: true });
+    // Not fullPage: the body is two lines, and Chromium's JSON viewer reports a page several thousand pixels
+    // tall on the phone profile, which is a screenshot of nothing (T57).
+    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-health-ok.png` });
   });
 });
 
@@ -110,6 +112,6 @@ test.describe("the model gateway is down", () => {
     const res = await page.goto("/api/health");
     expect(res?.status()).toBe(503);
     await expect(page.locator("body")).toContainText('"status":"down"');
-    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-health-degraded.png`, fullPage: true });
+    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-health-degraded.png` });
   });
 });
