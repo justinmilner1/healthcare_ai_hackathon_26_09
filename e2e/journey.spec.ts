@@ -269,8 +269,9 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
 
 // The other half of §5.2 along this journey: the two roles that are not the clinician's cannot do a
 // clinician's half of it, through the API rather than the screens. e2e/roles.spec.ts proves this for a
-// practice's visits in general; here it is this journey's visit, after the patient has filled it with data —
-// the moment the summary is worth something, which is the moment to check who may read it.
+// practice's visits in general; here it is a visit of this journey's own making, in a practice this test
+// invites into existence the way the journey above does, so the refusals are checked on the shape of visit
+// this spec books rather than on a seeded one.
 test("the summary on a journey visit is the clinician's alone", async ({ page }) => {
   const adminEmail = freshEmail("journey-guard-admin", "journey-guard.com");
   const staffEmail = freshEmail("journey-guard-desk", "journey-guard.com");
