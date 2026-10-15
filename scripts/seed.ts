@@ -57,6 +57,23 @@ async function main() {
     console.log(`${kind}: ${parsed.length} rows`);
   }
 
+  // §7.5 One follow-up already on the record, so the demo shows what the log looks like rather than an empty
+  // panel: a clinician's question, the answer they were given, and the clinician id and time beside it. The
+  // answer is scripted for the same reason the offline summaries are (lib/llm.ts has no key here) — nothing
+  // in a seeded demo is a model's work or a real patient's.
+  await db.followUp.create({
+    data: {
+      visitId: visit.id,
+      askedBy: provider.id,
+      question: "What is driving the overnight highs?",
+      answer:
+        "Three of the four nights above 180 follow a dinner out that ended after 8pm (Tue, Thu, Sat). The fourth " +
+        "starts at 2am with no evening spike before it. Sleep on those nights is 5.8h against 7.1h on the rest.",
+      answeredAt: new Date(Date.now() - 3600000),
+      createdAt: new Date(Date.now() - 3660000),
+    },
+  });
+
   const base = appUrl();
   console.log(`\nSweetie (patient chat):  ${base}/s/${token}`);
   console.log(`Sour (provider view):    ${base}/provider/${provider.id}`);

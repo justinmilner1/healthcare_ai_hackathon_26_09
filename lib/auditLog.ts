@@ -39,7 +39,11 @@ export type VisitPart = (typeof VISIT_PARTS)[number];
  *
  * `summary.reviewed` is not one of §10.2's four categories; it is §7.3's clinical sign-off, recorded here
  * because "a clinician reviewed this before the visit" is exactly the kind of claim an admin is later asked
- * to stand behind, and the row is the only place it is visible next to who read what.
+ * to stand behind, and the row is the only place it is visible next to who read what. `summary.question` is
+ * §7.5's follow-up, and is a read of the same kind: a clinician put a question about this patient's week to
+ * the model, which is one more thing an admin has to be able to see was done. One row per question asked,
+ * never coalesced — and the question itself is not on the row, only that there was one (§4.8); what was
+ * asked lives on the visit, where only the people who may read the summary can see it (lib/followUps.ts).
  */
 export const AUDIT_ACTIONS = {
   "intake.read": "Intake answers read",
@@ -51,6 +55,7 @@ export const AUDIT_ACTIONS = {
   "code.sent": "Verification code sent",
   "summary.sent": "Summary notice sent",
   "summary.reviewed": "Summary marked reviewed",
+  "summary.question": "Follow-up question asked",
   "upload.deleted": "Upload deleted",
   "summary.deleted": "Summaries discarded",
   "patient.deleted": "Patient data deleted",

@@ -5,6 +5,8 @@
 // Uses GET /api/provider (the signed-in provider, §5.1), GET /api/patient/[id], POST /api/sour, POST /api/invite.
 // Print opens the one-pager at /provider/visit/<id>/print (§7.4), and Mark reviewed records the clinician's
 // sign-off (§7.3, POST /api/review).
+// Follow-up questions are a log on the visit, not page state: GET /api/sour reads them back and every ask
+// writes one, so a reload shows what was asked and by whom (§7.5). They are never sent anywhere.
 // page.tsx beside this file is the server component that checks the session.
 // Rows and every request are keyed by visit id (design §4.4); ?visit=<id> deep-links from the summary email.
 // Generate and Send link queue a job (§3.4) and return at once, so this page waits for the result by
@@ -23,7 +25,7 @@ import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { visitLabel } from "@/lib/visits";
-import type { PatientBundle, ReviewRecord } from "@/lib/types";
+import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
 
 /** How long the page waits for a queued summary: 20 polls, 1.5s apart. Longer than Sour's two model calls
@@ -42,7 +44,9 @@ export default function SourView({ id }: { id: string }) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [invite, setInvite] = useState("");
-  const [qa, setQa] = useState<{ q: string; a: string }[]>([]);
+  // §7.5 The visit's follow-up log, as the server holds it. Not a chat transcript this page owns: every entry
+  // is a row with the clinician who asked and when, and the panel is a view of them.
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
   const [chatError, setChatError] = useState("");
@@ -94,6 +98,15 @@ export default function SourView({ id }: { id: string }) {
     }
   }, []);
 
+  /** §7.5's log, for the panel below the one-pager. Its own request rather than part of the bundle: the
+   *  bundle is what the patient is given for their own visit too, and these questions are the clinician's. */
+  const loadFollowUps = useCallback(async (visitId: string) => {
+    const res = await fetch(`/api/sour?visitId=${encodeURIComponent(visitId)}`);
+    if (!res.ok) return;
+    const d = (await res.json().catch(() => null)) as { followUps?: FollowUp[] } | null;
+    if (activeVisit.current === visitId && Array.isArray(d?.followUps)) setFollowUps(d.followUps);
+  }, []);
+
   const generate = useCallback(
     async (visitId: string) => {
       setBusy(true);
@@ -135,7 +148,7 @@ export default function SourView({ id }: { id: string }) {
     if (!selected) return;
     activeVisit.current = selected;
     setBundle(null);
-    setQa([]);
+    setFollowUps([]);
     setQ("");
     setAsking(false);
     setBusy(false);
@@ -148,6 +161,7 @@ export default function SourView({ id }: { id: string }) {
     setChecked(new Set());
     setInvite("");
     watched.current = { jobId: null, polls: 0 };
+    void loadFollowUps(selected).catch(() => {});
     load(selected).then((b) => {
       // First open with data but no summary: generate without asking. Not when the last `sour.run` job gave
       // up, though — that one is the clinician's to retry (§7.2), and opening the page again should not quietly
@@ -160,7 +174,7 @@ export default function SourView({ id }: { id: string }) {
       if (activeVisit.current === selected) setSummaryError("Could not load this patient. Please select them again.");
     });
     return () => { activeVisit.current = null; };
-  }, [selected, load, generate]);
+  }, [selected, load, loadFollowUps, generate]);
 
   // A `sour.run` job can be in flight without this page having started it: an intake that wrapped a moment
   // ago, or another clinician pressing Generate. Without this the chip would be a snapshot of page load and
@@ -211,6 +225,9 @@ export default function SourView({ id }: { id: string }) {
     else setInvite(d.error ? `Couldn't send the link: ${d.error}` : `Couldn't send the link automatically. Share it directly: ${d.link}`);
   }
 
+  /** §7.5: ask Sour, and show what the server recorded. The question is a row before the model is called,
+   *  so the answer failing leaves it on the log — the panel shows it unanswered rather than dropping it, and
+   *  the input is cleared either way because asking again would be a second question on the record. */
   async function askSour(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || !q.trim() || asking) return;
@@ -219,12 +236,16 @@ export default function SourView({ id }: { id: string }) {
     setAsking(true);
     setChatError("");
     try {
-      const res = await apiFetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId, question, history: qa.slice(-6) }) });
-      const d = await res.json().catch(() => null);
+      const res = await apiFetch("/api/sour", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId, question }) });
+      const d = (await res.json().catch(() => null)) as { answer?: unknown; followUp?: FollowUp; error?: unknown } | null;
+      if (activeVisit.current !== visitId) return;
+      const logged = d?.followUp;
+      if (logged?.id) {
+        setFollowUps((x) => [...x.filter((f) => f.id !== logged.id), logged]);
+        setQ("");
+      }
       if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Sour could not answer. Please try again.");
       if (typeof d?.answer !== "string" || !d.answer.trim()) throw new Error("Sour returned an empty reply. Please try again.");
-      if (activeVisit.current !== visitId) return;
-      setQa((x) => [...x, { q: question, a: d.answer }]);
       setQ("");
     } catch (e) {
       if (activeVisit.current === visitId) setChatError(e instanceof Error ? e.message : "Could not reach Sour. Please try again.");
@@ -347,7 +368,7 @@ export default function SourView({ id }: { id: string }) {
               <p className="sour-reviewed" role="status">
                 <span className="sour-reviewed-check" aria-hidden="true">✓</span>
                 <span>
-                  Reviewed by <strong>{review.byName}</strong> <time dateTime={review.at}>{reviewedAtText(review.at)}</time>
+                  Reviewed by <strong>{review.byName}</strong> <time dateTime={review.at}>{stampText(review.at)}</time>
                 </span>
               </p>
             )}
@@ -490,24 +511,32 @@ export default function SourView({ id }: { id: string }) {
                 </div>
                 )}
 
+                {/* §7.5 The follow-up log: every question kept with the clinician who asked it and the
+                    answer they were given, read back from the visit and never emailed. */}
                 <section className="sour-ask-card print:hidden">
                   <div className="sour-ask-heading">
                     <span>✦</span>
                     <div>
                       <strong>Discuss with Sour</strong>
-                      <small>Ask about this patient&apos;s data · recent turns provide context</small>
+                      <small>Ask about this patient&apos;s data · questions are kept with the visit and shown to this practice</small>
                     </div>
                   </div>
                   <ol aria-live="polite" className="sour-answers">
-                    {qa.map((x, i) => (
-                      <li key={i}>
+                    {followUps.map((x) => (
+                      <li key={x.id} className="sour-followup">
                         <div className="sour-answer-question">
-                          <small>You</small>
-                          <p className="mt-1 whitespace-pre-wrap break-words">{x.q}</p>
+                          <small>
+                            {x.byName} · <time dateTime={x.at}>{stampText(x.at)}</time>
+                          </small>
+                          <p className="mt-1 whitespace-pre-wrap break-words">{x.question}</p>
                         </div>
                         <div className="sour-answer-reply">
                           <small>Sour</small>
-                          <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{x.a}</p>
+                          {x.answer ? (
+                            <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{x.answer}</p>
+                          ) : (
+                            <p className="sour-answer-unanswered">No answer recorded: Sour was unavailable. The question is kept on this visit.</p>
+                          )}
                         </div>
                       </li>
                     ))}
@@ -533,9 +562,10 @@ export default function SourView({ id }: { id: string }) {
   );
 }
 
-/** When the sign-off was recorded. Today's reads as a time, anything older carries the date — the same rule
- *  as the job chip's own timestamp (components/SourJobState.tsx). */
-function reviewedAtText(iso: string): string {
+/** When something was recorded — the sign-off (§7.3), a follow-up question (§7.5). Today's reads as a time,
+ *  anything older carries the date — the same rule as the job chip's own timestamp
+ *  (components/SourJobState.tsx). */
+function stampText(iso: string): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
   const sameDay = at.toDateString() === new Date().toDateString();

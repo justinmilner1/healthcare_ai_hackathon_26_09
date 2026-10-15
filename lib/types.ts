@@ -99,6 +99,19 @@ export type ReviewRecord = {
   byName: string; // their name, or their address, in the words the screens print
 };
 
+// §7.5 One follow-up question a clinician asked Sour about a visit, and the answer they were given.
+// `byName` is joined at read time from the user id (lib/followUps.ts), the same way the sign-off above names
+// its reviewer. `answer` is null while a question is on the record unanswered: the row is written before the
+// model call, so an outage leaves what was asked rather than losing it.
+export type FollowUp = {
+  id: string;
+  at: string; // ISO time the question was asked
+  by: string | null; // the clinician's user id
+  byName: string; // their name, or their address, in the words the screens print
+  question: string;
+  answer: string | null;
+};
+
 // Everything a summary page needs in one fetch: GET /api/patient/[id]  (a visit id or the invite token).
 // Keyed by the visit (design §4.4): `visitId` is what the pages send back to /api/sour and /api/invite, while
 // `patient` describes the person the visit is for.
