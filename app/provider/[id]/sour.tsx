@@ -3,7 +3,8 @@
 // Sour view: the one-page summary the endocrinologist reads during the visit, with a sidebar of ready summaries.
 // Patient management (add, send link, progress) lives at /provider. Owner: Justin.
 // Uses GET /api/provider (the signed-in provider, §5.1), GET /api/patient/[id], POST /api/sour, POST /api/invite.
-// Print gives the one-pager, and Mark reviewed records the clinician's sign-off (§7.3, POST /api/review).
+// Print opens the one-pager at /provider/visit/<id>/print (§7.4), and Mark reviewed records the clinician's
+// sign-off (§7.3, POST /api/review).
 // Follow-up questions are a log on the visit, not page state: GET /api/sour reads them back and every ask
 // writes one, so a reload shows what was asked and by whom (§7.5). They are never sent anywhere.
 // page.tsx beside this file is the server component that checks the session.
@@ -332,7 +333,10 @@ export default function SourView({ id }: { id: string }) {
               </div>
               <div className="sour-brief-actions print:hidden">
                 <button onClick={() => sendLink(bundle.visitId)} className="ss-button">Send link</button>
-                <button onClick={() => window.print()} className="ss-button">Print</button>
+                {/* §7.4: Print is its own page — a sheet with none of this screen on it — so it opens in a tab
+                    of its own and the clinician keeps the working summary where it was. `auto=1` puts the
+                    dialog up in that tab, since pressing Print here already asked for it. */}
+                <Link href={`/provider/visit/${bundle.visitId}/print?auto=1`} target="_blank" rel="noopener" className="ss-button">Print</Link>
                 {/* §7.3: offered only while there is a summary to sign off and nobody has. Once pressed, the
                     record below takes its place — there is no unmarking (app/api/review/route.ts). */}
                 {!review && (
