@@ -179,7 +179,11 @@ async function setSmsOptOut(phone: string, stop: boolean, deps: Resolved): Promi
 async function restateDelivery(providerMessageId: string | null, status: string, code: string | null, deps: Resolved): Promise<number> {
   if (!providerMessageId) return 0;
   const { count } = await deps.client.visitDelivery.updateMany({
-    where: { providerMessageId },
+    // A delivery notification is the weakest of the three statements and AWS posts each of them more than
+    // once, in no guaranteed order: a repeat of "SES accepted it" arriving after the bounce must not put the
+    // row back to `sent` and drop SES's subtype with it, or the dashboard would say the invite landed for an
+    // address the patient row has already closed. The same guard as closeEmail's, one table along.
+    where: status === "sent" ? { providerMessageId, status: { notIn: ["bounced", "complained"] } } : { providerMessageId },
     data: { status, error: code, at: deps.now },
   });
   return count;

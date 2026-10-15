@@ -236,7 +236,8 @@ function sesEvents(message: Record<string, unknown>, type: string): Notification
     const addresses = emails(bounce.bouncedRecipients, "emailAddress");
     if (!addresses.length) return [];
     // A transient bounce is a full mailbox or a greylist, not a wrong address: SES retries it itself and the
-    // address is not what is broken, so it is reported as a failed delivery rather than a closed channel.
+    // address is not what is broken, so nothing is reported at all — the row stays `sent`, which is what the
+    // send did, and the channel stays open.
     if ((str(bounce.bounceType) ?? "").toLowerCase() !== "permanent") return [];
     const code = `${str(bounce.bounceType) ?? "Unknown"}/${str(bounce.bounceSubType) ?? "Unknown"}`;
     return [{ kind: "email.bounce", emails: addresses, providerMessageId, code }];

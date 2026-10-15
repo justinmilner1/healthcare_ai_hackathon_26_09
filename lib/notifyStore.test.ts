@@ -202,6 +202,23 @@ describe("notification events", { skip: SERVER_URL ? false : "DATABASE_URL is no
     assert.equal(report.deliveries, 0);
   });
 
+  it("does not let a repeated delivery notification undo a bounce on the same message", async () => {
+    // AWS posts each notification more than once and in no guaranteed order, and a Delivery for a message
+    // that later bounced is an ordinary thing to receive twice. The weaker statement must not win: the
+    // dashboard would say the invite landed for an address the patient row has already closed (§8.3).
+    const { visit } = await seedPatient({ messageId: "0100018b-ses" });
+    await applyNotificationEvents([bounce("sam@example.com", "0100018b-ses")], deps());
+    const report = await applyNotificationEvents(
+      [{ kind: "email.delivered", emails: ["sam@example.com"], providerMessageId: "0100018b-ses" }],
+      deps(),
+    );
+
+    assert.equal(report.deliveries, 0, "there was nothing left for a delivery notice to restate");
+    const delivery = await db.visitDelivery.findFirstOrThrow({ where: { visitId: visit.id } });
+    assert.equal(delivery.status, "bounced");
+    assert.equal(delivery.error, "Permanent/General", "and SES's own subtype survives with it");
+  });
+
   it("applies every event in one notification, including one about several recipients", async () => {
     const first = await seedPatient({ email: "one@example.com" });
     const second = await seedPatient({ email: "two@example.com", phone: "+14155550199" });

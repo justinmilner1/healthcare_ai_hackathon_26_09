@@ -191,7 +191,10 @@ model VisitDelivery {
   visitId           String
   visit             Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   channel           String // sms | email
-  kind              String // notify.invite | notify.code | notify.summary — the job that sent it
+  // The job that sent it. The verification code is not one of them: it is a message with a life of ten
+  // minutes, recorded in the audit log (§10.2) rather than on a dashboard that would still be showing it
+  // long after it stopped meaning anything.
+  kind              String // notify.invite | notify.summary
   audience          String   @default("patient") // patient | provider — who the message went to (§8.2)
   status            String // sent | failed | skipped | bounced | complained
   providerName      String? // ses | sns | resend | twilio
