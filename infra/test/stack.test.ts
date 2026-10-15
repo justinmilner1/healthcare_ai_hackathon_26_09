@@ -118,11 +118,15 @@ test("the job queue is drained once a minute by the schedule, not by the app (§
 test("the alarms §11.1 asks for exist, read the app's own log lines, and all reach the topic", () => {
   const template = staging();
   const patterns = Object.values(template.findResources("AWS::Logs::MetricFilter")).map((r) => r.Properties.FilterPattern);
+  // §13.4: the three alarms that count a failure of *this practice's* work leave a demo practice's lines
+  // out, and the label is what they leave out by (lib/log.ts, docs/LOGGING.md). The circuit is the
+  // exception and counts everything: it is one per process, so a demo visit tripping it still means every
+  // patient is reading scripted replies.
   assert.deepEqual(patterns.sort(), [
-    '{ $.event = "job_failed" }',
-    '{ $.event = "llm_call_failed" }',
+    '{ $.event = "job_failed" && $.demo NOT EXISTS }',
+    '{ $.event = "llm_call_failed" && $.demo NOT EXISTS }',
     '{ $.event = "llm_circuit_opened" }',
-    "{ $.status >= 500 }",
+    "{ $.status >= 500 && $.demo NOT EXISTS }",
   ]);
   const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
   assert.equal(alarms.length, 6, "5xx, job failures, model failures, model degraded, the tick, and database storage");

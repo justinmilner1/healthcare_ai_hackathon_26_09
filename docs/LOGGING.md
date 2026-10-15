@@ -149,13 +149,20 @@ Nothing in the app ships logs. Writing to stdout and stderr is the whole integra
   tickets; this document is the contract they rely on.
 - **Demo practices are excluded from the alarms** (§13.4), and this is where that exclusion lives. There is
   nothing in CloudWatch an application can exempt itself from, so the app *labels* instead: every line it can
-  attribute to a practice marked `isDemo` carries `demo: true`. Each alarm filter adds `$.demo NOT EXISTS` —
-  so job failures become `{ $.event = "job_failed" && $.demo NOT EXISTS }`, and the 5xx and model-timeout
-  filters likewise. A synthetic visit whose summary run fails then wakes nobody, while the same failure in a
-  real practice still does.
+  attribute to a practice marked `isDemo` carries `demo: true`. Each of §11.1's three alarm filters adds
+  `$.demo NOT EXISTS` — so job failures become `{ $.event = "job_failed" && $.demo NOT EXISTS }`, and the 5xx
+  and model-failure filters likewise. The filters themselves are in `infra/lib/sweetspot-stack.ts` (`alarms()`)
+  and `infra/test/stack.test.ts` asserts them. A synthetic visit whose summary run fails then wakes nobody,
+  while the same failure in a real practice still does.
 
-  The label rides the request rather than the call site (`markDemo` in `lib/log.ts`, through `noteDemo` in
-  `lib/demo.ts`), which is what gets it onto the lines no demo-aware code writes: `request_failed` comes from
+  The one alarm that still counts a demo practice's lines is `llm_circuit_opened`: the model circuit is one
+  per process rather than one per practice, so whichever request tripped it, every patient on the deployment
+  is now reading scripted replies (§6.3, §11.3). Excluding it would hide a real outage behind a synthetic
+  visit.
+
+  The label rides the request rather than the call site (`markDemo` in `lib/log.ts`, reached through
+  `markDemoPractice` wherever a practice row is in hand), which is what gets it onto the lines no demo-aware
+  code writes: `request_failed` comes from
   `withRoute` and `job_failed` from the job runner, and neither has a practice in hand. One call at the point
   a practice *is* in hand covers everything after it — `lib/visit.ts`, which every patient route and every
   visit-shaped job resolves a visit through, the two job handlers that have no visit, and `lib/teamStore.ts`.

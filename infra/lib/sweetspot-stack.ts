@@ -621,10 +621,21 @@ export class SweetSpotStack extends cdk.Stack {
    * CloudWatch metric, so the alarms measure what the app said happened rather than what a load balancer
    * guessed — and the lines contain no names, no phone numbers and no message text, which is the only reason
    * they can be read by an alarm at all.
+   *
+   * §13.4: a demo practice is excluded from these alarms. There is nothing in CloudWatch an application can
+   * exempt itself from, so the app labels instead — every line it can attribute to a practice marked `isDemo`
+   * carries `demo: true` (markDemoPractice in lib/log.ts) — and `NOT_DEMO` below is the half that leaves those
+   * lines out. docs/LOGGING.md is the contract. A synthetic visit whose summary run fails wakes nobody; the
+   * same failure in a real practice still does.
    */
   private alarms(): void {
     const namespace = `SweetSpot/${this.config.stage}`;
     const action = new actions.SnsAction(this.alarmTopic);
+    // §13.4's exclusion, as a metric filter reads it: the label is absent on every line but a demo
+    // practice's, so "it is not there" is the whole test. A line from a request that never touched a
+    // practice is counted, which is the right way round — the point is that synthetic data does not page
+    // anyone, not that a deployment stops reporting what is broken.
+    const NOT_DEMO = "$.demo NOT EXISTS";
 
     const counter = (id: string, metricName: string, pattern: string): cloudwatch.Metric => {
       new logs.MetricFilter(this, id, {
@@ -654,12 +665,12 @@ export class SweetSpotStack extends cdk.Stack {
       return a;
     };
 
-    alarm("http-5xx", counter("Http5xxFilter", "http_5xx", "{ $.status >= 500 }"), {
+    alarm("http-5xx", counter("Http5xxFilter", "http_5xx", `{ $.status >= 500 && ${NOT_DEMO} }`), {
       threshold: 5,
       periodMinutes: 5,
       description: "The app answered 5xx five or more times in five minutes (design §11.1)",
     });
-    alarm("job-failed", counter("JobFailedFilter", "job_failed", '{ $.event = "job_failed" }'), {
+    alarm("job-failed", counter("JobFailedFilter", "job_failed", `{ $.event = "job_failed" && ${NOT_DEMO} }`), {
       threshold: 1,
       periodMinutes: 15,
       description: "A job exhausted its three attempts: an invite, a summary or a deletion did not happen (design §3.4)",
@@ -667,11 +678,15 @@ export class SweetSpotStack extends cdk.Stack {
     // §3.5's timeout and §11.3's degraded mode: lib/llm.ts logs `llm_call_failed` for each failed attempt
     // (a timeout among them) and `llm_circuit_opened` when it gives up and goes scripted. The first is a rate
     // worth knowing about, the second means every patient is currently reading scripted replies.
-    alarm("model-failures", counter("ModelFailedFilter", "llm_call_failed", '{ $.event = "llm_call_failed" }'), {
+    alarm("model-failures", counter("ModelFailedFilter", "llm_call_failed", `{ $.event = "llm_call_failed" && ${NOT_DEMO} }`), {
       threshold: 10,
       periodMinutes: 15,
       description: "Ten or more model calls timed out or errored in fifteen minutes (design §3.5, §11.1)",
     });
+    // The one §11.1 alarm that counts a demo practice's lines too, and deliberately: the circuit is one per
+    // process, not one per practice (lib/llm.ts). Whichever request happened to trip it, every patient on the
+    // deployment is now reading scripted replies — so a `demo` label on that line is about who was unlucky
+    // enough to be first, and excluding it would hide a real outage behind a synthetic visit.
     alarm("model-degraded", counter("ModelCircuitFilter", "llm_circuit_opened", '{ $.event = "llm_circuit_opened" }'), {
       threshold: 1,
       periodMinutes: 15,
