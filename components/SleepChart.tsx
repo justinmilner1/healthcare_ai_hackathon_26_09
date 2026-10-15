@@ -50,7 +50,9 @@ export default function SleepChart({ nights, height = 200 }: { nights: SleepNigh
         </ResponsiveContainer>
       </div>
       <details className="mt-1 text-xs text-[var(--viz-muted)]">
-        <summary className="cursor-pointer">Table</summary>
+        {/* The disclosure is a control, and on a phone it is one line of 12px type — 16px of thumb. 44px
+            from the first breakpoint down (T23, design §6.5); a mouse pointer does not need the extra. */}
+        <summary className="cursor-pointer max-sm:flex max-sm:min-h-11 max-sm:items-center">Table</summary>
         <table className="mt-1 w-full text-left tabular-nums">
           <thead><tr className="text-[var(--viz-ink-2)]"><th className="font-medium">Night</th><th className="font-medium">Asleep</th><th className="font-medium">Recovery</th></tr></thead>
           <tbody>

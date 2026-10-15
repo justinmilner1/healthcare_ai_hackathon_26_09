@@ -5467,7 +5467,7 @@ button.sweetie-agent-badge {
   }
 
   .sweetie-upload-card {
-    min-height: 37px;
+    min-height: 44px;
     grid-template-columns: 25px 1fr 16px;
   }
 
@@ -5520,8 +5520,15 @@ button.sweetie-agent-badge {
   }
 
   .sweetie-composer button {
-    min-width: 38px;
+    min-width: 44px;
+    min-height: 44px;
     padding: 7px;
+  }
+
+  .sweetie-composer .sweetie-mic-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 
   .sweetie-composer button > span {
@@ -5557,6 +5564,41 @@ button.sweetie-agent-badge {
 
   .patient-report-card {
     padding: 18px;
+  }
+
+  /* 44px of thumb (T23, design §6.5). The desktop sizes below it — a 42px button, an 11px text button with
+     7px of padding, a 36px brand lockup — are comfortable under a mouse pointer and are not under a thumb,
+     and every one of them is a control a patient has to hit on the phone: Continue on the code screen, Send
+     a new code under it, Talk to Sweetie and Connect Dexcom on the summary. Stated as a minimum rather than
+     a height, so a control that is already bigger keeps its size. */
+  .ss-button,
+  .ss-input,
+  .persona-brand,
+  .sweetie-composer input {
+    min-height: 44px;
+  }
+
+  /* A text button is a word, not a box, so it gets the height as padding and keeps its own look. */
+  .ss-text-button {
+    min-height: 44px;
+    padding: 7px 10px;
+  }
+
+  /* The three columns fit a phone once the 470px floor the desk layout needs is lifted: When and Rise keep
+     a line each and the place wraps under itself. Behind the sideways scroll inside the card, the place —
+     which is the point of the row — was the half that got cut off (T23, design §6.5). A place id with no
+     spaces in it (lib/location.ts falls back to one when the export carries no label) breaks mid-token
+     rather than widening the card. */
+  .patient-spikes {
+    overflow-x: visible;
+  }
+
+  .patient-spikes table {
+    min-width: 0;
+  }
+
+  .patient-spikes td:last-child {
+    overflow-wrap: anywhere;
   }
 
   .patient-report-empty {
@@ -5762,5 +5804,33 @@ button.sweetie-agent-badge {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   T23 (design §6.5): the narrowest phone still in common use. 375px is the width the section names and
+   the width e2e/mobile.spec.ts measures; the 680px block above is the phone layout in general, and these
+   are the few places where 375px is tighter than that layout assumed.
+   --------------------------------------------------------------------------------------------- */
+@media (max-width: 430px) {
+  /* Sweetie's three upload chips share one row. At 375px each one is about 110px wide, and 25px of icon
+     plus a 17px badge plus two 10px gaps left 42px for the name — so "Dexcom" ran under its own + badge
+     and "Timeline" ran off the chip. The D/M/W icon is the first letter of the name it is sitting next to,
+     so it is the part to drop: the name and the state badge are what a patient reads. */
+  .sweetie-upload-card {
+    grid-template-columns: 1fr 17px;
+    gap: 7px;
+    padding: 6px 8px;
+  }
+
+  .sweetie-upload-icon {
+    display: none;
+  }
+
+  .sweetie-upload-card strong {
+    overflow: hidden;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
