@@ -14,11 +14,11 @@ ticket touched.
 ## The two bodies
 
 ```json
-{"ok":true,"status":"ok","checks":{"db":{"status":"ok","latencyMs":1,"detail":"reachable"},"storage":{"status":"ok","latencyMs":1,"detail":"local"},"model":{"status":"skipped","latencyMs":0,"detail":"not_configured"}}}
+{"ok":true,"status":"ok","checks":{"db":{"status":"ok","latencyMs":3,"detail":"reachable"},"storage":{"status":"ok","latencyMs":4,"detail":"local"},"model":{"status":"skipped","latencyMs":0,"detail":"not_configured"}}}
 ```
 
 ```json
-{"ok":false,"status":"down","checks":{"db":{"status":"ok","latencyMs":15,"detail":"reachable"},"storage":{"status":"ok","latencyMs":1,"detail":"local"},"model":{"status":"down","latencyMs":0,"detail":"circuit_open"}}}
+{"ok":false,"status":"down","checks":{"db":{"status":"ok","latencyMs":4,"detail":"reachable"},"storage":{"status":"ok","latencyMs":3,"detail":"local"},"model":{"status":"down","latencyMs":1,"detail":"circuit_open"}}}
 ```
 
 `circuit_open` rather than `unreachable` because `lib/llm.ts` had already given up on that gateway by the time

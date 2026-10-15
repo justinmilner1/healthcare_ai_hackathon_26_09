@@ -104,6 +104,38 @@ export async function checkHealth(probes: Partial<Probes> = {}, now: () => numbe
   return { ok: status === "ok", status, checks };
 }
 
+// ---- What the route calls ---------------------------------------------------------------------------------
+
+/** One second. Long enough that a burst is one round of probes, short enough that a load balancer polling
+ *  every few seconds and the deploy gate retrying every three never see a stale answer. */
+const CACHE_MS = 1_000;
+
+let recent: { at: number; report: Promise<HealthReport> } | null = null;
+
+/**
+ * The report the endpoint serves. Same as `checkHealth`, except that calls inside one second share a single
+ * round of probes.
+ *
+ * The route needs no session — it says nothing about anyone, which is why it is public (lib/access.test.ts) —
+ * so anyone can call it as fast as they like. Without this, each of those calls would be a database query and
+ * an outbound request to Bedrock, which makes a health endpoint into a small amplifier pointed at the two
+ * dependencies it exists to protect. Sharing the in-flight promise rather than only the finished report is
+ * what makes a burst cost one round instead of one per millisecond of probe latency.
+ *
+ * `run` and `now` are the test's way in; the route passes neither.
+ */
+export async function currentHealth(run: () => Promise<HealthReport> = () => checkHealth(), now: () => number = Date.now): Promise<HealthReport> {
+  if (recent && now() - recent.at < CACHE_MS) return recent.report;
+  const report = run();
+  recent = { at: now(), report };
+  return report;
+}
+
+/** Tests only: forget the cached round. */
+export function resetHealthCache(): void {
+  recent = null;
+}
+
 /**
  * Is this JSON a health report? The deploy gate (scripts/health-check.ts) asks across a network with a load
  * balancer in it, so what comes back may be that balancer's own error page or a build too old to have the

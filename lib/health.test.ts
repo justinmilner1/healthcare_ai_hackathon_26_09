@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
-import { checkHealth, formatReport, isHealthReport, runCheck, statusOf, type Check, type CheckName, type HealthReport, type Probe } from "./health";
+import { checkHealth, currentHealth, formatReport, isHealthReport, resetHealthCache, runCheck, statusOf, type Check, type CheckName, type HealthReport, type Probe } from "./health";
 import { LLMUnavailable } from "./llm";
 import { setLogSink } from "./log";
 
@@ -164,5 +164,40 @@ test("isHealthReport accepts a real report and refuses everything else", async (
     { ok: true, status: "ok", checks: { db: { status: "fine", latencyMs: 1, detail: "x" }, storage: { status: "ok", latencyMs: 1, detail: "x" }, model: { status: "ok", latencyMs: 1, detail: "x" } } },
   ]) {
     assert.equal(isHealthReport(notOne), false, JSON.stringify(notOne) ?? "undefined");
+  }
+});
+
+// ---- currentHealth: what the public route actually serves -----------------------------------------------
+
+test("a burst on the public route is one round of probes, not one per request", async () => {
+  // The route needs no session, so anyone can call it as fast as they like. Without the shared round, each of
+  // those calls is a database query and an outbound request to the gateway — a small amplifier pointed at the
+  // two dependencies the endpoint exists to protect.
+  let rounds = 0;
+  const run = async () => {
+    rounds += 1;
+    return report({});
+  };
+  let clock = 10_000;
+  const now = () => clock;
+
+  resetHealthCache();
+  try {
+    // Two at once, before the first has finished: the in-flight promise is shared, not just the result.
+    const [a, b] = await Promise.all([currentHealth(run, now), currentHealth(run, now)]);
+    assert.equal(rounds, 1, "a concurrent burst probed more than once");
+    assert.equal(a, b);
+
+    // Still inside the window.
+    clock += 999;
+    await currentHealth(run, now);
+    assert.equal(rounds, 1);
+
+    // And past it: a health report a second old is not an answer about now.
+    clock += 1;
+    await currentHealth(run, now);
+    assert.equal(rounds, 2);
+  } finally {
+    resetHealthCache();
   }
 });

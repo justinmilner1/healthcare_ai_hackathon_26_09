@@ -19,13 +19,15 @@
 // Public, like both halves: it names no patient and no practice (lib/access.test.ts).
 
 import { NextResponse } from "next/server";
-import { checkHealth } from "@/lib/health";
+import { currentHealth } from "@/lib/health";
 import { withRoute } from "@/lib/log";
 
 async function getHandler() {
-  const report = await checkHealth();
-  // no-store: a cached health report is worse than none. The access line withRoute writes carries the status,
-  // and each failing check has already logged itself in lib/health.ts.
+  const report = await currentHealth();
+  // no-store so no proxy between here and the caller answers for this server. (currentHealth does share one
+  // round of probes between calls a second apart, which bounds what an unauthenticated burst can make this
+  // route do; lib/health.ts says why.) Each failing check has already logged itself there, and the access
+  // line withRoute writes carries the status.
   return NextResponse.json(report, { status: report.ok ? 200 : 503, headers: { "cache-control": "no-store" } });
 }
 
