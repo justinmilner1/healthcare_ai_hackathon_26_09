@@ -629,8 +629,16 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   // set is not a lighter version of it: lib/dexcom.ts throws on one, which reads as "not connected" in the UI
   // and hides the typo that caused it. What "complete" means now depends on DEXCOM_ENV, since each
   // environment has its own credentials and either may fall back to the unprefixed pair.
-  const dexcomNames = SPEC.filter((s) => s.group === "Dexcom").map((s) => s.name);
-  if (dexcomNames.some((name) => v(name))) {
+  // What counts as "being configured" is intent, not plumbing. The credentials and the two switches
+  // (DEXCOM_ENV, DEXCOM_BASE_URL) are an operator saying they mean to talk to Dexcom. The callback URL and
+  // the KMS key are not: both are things a deployment's infrastructure can provision before anyone has a
+  // Dexcom application, and the T29 stack does exactly that — it knows this deployment's callback and owns
+  // the key, and writes both whether or not the credentials ever arrive. Counting either as intent made the
+  // §3.7 gate fail every deployment that had not signed up with Dexcom yet, which is most of them.
+  const dexcomIntent = SPEC.filter((s) => s.group === "Dexcom")
+    .map((s) => s.name)
+    .filter((name) => name !== "DEXCOM_REDIRECT_URI" && name !== "DEXCOM_TOKEN_KMS_KEY_ID");
+  if (dexcomIntent.some((name) => v(name))) {
     // A DEXCOM_ENV that is neither has already been reported by the row's own check; there is no environment
     // to judge the rest of the group against, so the rules below stand down rather than guess at one.
     const requested = v("DEXCOM_ENV");

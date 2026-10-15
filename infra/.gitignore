@@ -1,0 +1,6 @@
+node_modules/
+# `cdk synth` output. Rebuilt by every synth; a committed template would go stale the first time the stack changes.
+cdk.out/
+*.d.ts
+*.js
+!lambda/**/*.js

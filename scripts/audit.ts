@@ -17,13 +17,17 @@ import { advisoriesOf, classify, failed, type AuditException, type AuditReport }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCEPTIONS_FILE = join(ROOT, "security", "audit-exceptions.json");
+// Which package tree to audit. The app is the default; `npm run audit:deps -- infra` audits the CDK app
+// (design §3.6), which is a second package.json and so a second tree npm audit never sees from here. One
+// exceptions file either way: §10.8's list is about this repository, not about one of its directories.
+const TREE = join(ROOT, process.argv[2] ?? ".");
 
 /** `npm audit --json` writes its report to stdout and exits non-zero when it found something, so a non-zero
  *  exit is not an error here. No parsable report is: that is the registry being out of reach. */
 function runAudit(): { report: AuditReport } | { unreachable: string } {
   let stdout = "";
   try {
-    stdout = execFileSync("npm", ["audit", "--json", "--audit-level=high"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    stdout = execFileSync("npm", ["audit", "--json", "--audit-level=high"], { cwd: TREE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   } catch (e) {
     const err = e as { stdout?: string; message?: string };
     stdout = err.stdout ?? "";
@@ -62,7 +66,7 @@ function main(): void {
   const advisories = advisoriesOf(result.report);
   const verdict = classify(advisories, readExceptions());
 
-  console.log(`dependency audit: ${advisories.length} advisory(ies) at high or above, ${verdict.allowed.length} with a documented exception`);
+  console.log(`dependency audit (${TREE === ROOT ? "app" : process.argv[2]}): ${advisories.length} advisory(ies) at high or above, ${verdict.allowed.length} with a documented exception`);
   for (const { advisory, exception } of verdict.allowed) {
     console.log(`  ALLOWED  ${advisory.package} ${advisory.severity} #${advisory.source}  until ${exception.expires} (${exception.owner})  ${advisory.title.slice(0, 80)}`);
   }
@@ -71,8 +75,13 @@ function main(): void {
     console.error(`           ${a.title}`);
     console.error(`           in ${a.paths.slice(0, 4).join(", ") || "(path not reported)"}`);
   }
-  for (const e of verdict.stale) {
-    console.warn(`  STALE    exception for ${e.package} #${e.advisory} matches nothing; remove it from security/audit-exceptions.json`);
+  // Only when auditing the app. The exceptions file covers the whole repository, so an entry that matches
+  // nothing in the CDK tree is almost certainly doing its job in the app tree, and calling it stale here
+  // would be an instruction to delete a live exception.
+  if (TREE === ROOT) {
+    for (const e of verdict.stale) {
+      console.warn(`  STALE    exception for ${e.package} #${e.advisory} matches nothing; remove it from security/audit-exceptions.json`);
+    }
   }
   for (const e of verdict.expired) {
     console.error(`  EXPIRED  exception for ${e.package} #${e.advisory} ran out on ${e.expires}; ${e.owner} must re-assess it (docs/SECURITY.md)`);

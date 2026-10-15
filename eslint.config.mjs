@@ -24,6 +24,10 @@ const eslintConfig = [
     ignores: [
       "node_modules/**",
       ".next/**",
+      // /infra is a separate package (design §3.6) with its own TypeScript config and its own libraries;
+      // `bash scripts/infra-check.sh` typechecks and tests it. Linting it from here would resolve
+      // aws-cdk-lib against the app's node_modules, where it is deliberately absent.
+      "infra/**",
       "out/**",
       "build/**",
       "next-env.d.ts",

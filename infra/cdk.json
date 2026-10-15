@@ -1,0 +1,32 @@
+{
+  "app": "npx tsx bin/infra.ts",
+  "watch": { "include": ["**"], "exclude": ["node_modules", "cdk.out", "test"] },
+  "output": "cdk.out",
+  "context": {
+    "//": "Per-stage deployment values. Everything here is public configuration; secrets live in SSM Parameter Store (design §10.6) and are never in this file. docs/DEPLOY.md explains each key.",
+    "sweetspot:staging": {
+      "account": "",
+      "region": "us-east-1",
+      "appUrl": "",
+      "emailIdentity": "staging.sweetspot.example",
+      "emailFrom": "Sweet Spot <no-reply@staging.sweetspot.example>",
+      "alarmEmail": "",
+      "repository": "https://github.com/justinmilner1/healthcare_ai_hackathon_26_09",
+      "branch": "main",
+      "dbAllowedCidrs": [],
+      "modelBaseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+      "modelId": "global.openai.gpt-5.6-terra"
+    },
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:validateSnapshotRemovalPolicy": true,
+    "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
+    "@aws-cdk/aws-sns-subscriptions:restrictSqsDescryption": true,
+    "@aws-cdk/aws-rds:lowercaseDbIdentifier": true,
+    "@aws-cdk/aws-rds:databaseInsightsDefault": true,
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/aws-kms:aliasNameRef": true,
+    "@aws-cdk/core:enablePartitionLiterals": true,
+    "@aws-cdk/core:target-partitions": ["aws"]
+  }
+}
