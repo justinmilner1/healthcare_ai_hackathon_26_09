@@ -104,6 +104,23 @@ export async function checkHealth(probes: Partial<Probes> = {}, now: () => numbe
   return { ok: status === "ok", status, checks };
 }
 
+/**
+ * Is this JSON a health report? The deploy gate (scripts/health-check.ts) asks across a network with a load
+ * balancer in it, so what comes back may be that balancer's own error page or a build too old to have the
+ * endpoint. Neither is a pass, and neither should be read as one for lack of a check.
+ */
+export function isHealthReport(value: unknown): value is HealthReport {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Partial<HealthReport>;
+  if (typeof v.ok !== "boolean" || (v.status !== "ok" && v.status !== "down")) return false;
+  if (typeof v.checks !== "object" || v.checks === null) return false;
+  return (["db", "storage", "model"] as CheckName[]).every((name) => {
+    const check = v.checks![name] as Partial<Check> | undefined;
+    return !!check && typeof check.latencyMs === "number" && typeof check.detail === "string"
+      && (check.status === "ok" || check.status === "down" || check.status === "skipped");
+  });
+}
+
 /** One line per check, for `npm run health:check` — the post-deploy gate (§13.3) and anyone with a terminal. */
 export function formatReport(report: HealthReport): string {
   const rows = (Object.entries(report.checks) as [CheckName, Check][]).map(

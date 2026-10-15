@@ -112,6 +112,25 @@ OPENAI_API_KEY="<BEDROCK_API_KEY>"          # Bedrock API key, not an OpenAI key
 
 Test a real send from the terminal: `npm run send:test -- --email you@example.com --phone +1415...`
 
+### Health and the deploy check
+
+`GET /api/health` is the dependency report (design §11.2): the database, the uploads backend and the model
+gateway, each with the milliseconds it took, and 503 as soon as one of them is down. A dependency that is not
+configured is `skipped` rather than down, so the scripted mode this repo runs in locally is a healthy state.
+The body carries one word per check — `reachable`, `local`, `unreachable`, `circuit_open`, `not_configured` —
+and never an error message: the route needs no session, and a Prisma connection error names the database host.
+
+```bash
+npm run health:check                               # against APP_URL; exits 1 if anything is down
+npm run health:check -- --url https://staging.example --attempts 10
+```
+
+That command is the gate between "the new version is running" and "traffic goes to it" (§13.3). A load
+balancer's target check uses `GET /api/health/live` instead, which touches nothing: §11.3 has the app serve
+through a model outage — Sweetie falls back to its scripted path, Sour defers — so draining the fleet over one
+would turn a degraded feature into an outage. The e2e suite waits on the same liveness path, because one of its
+servers has an unreachable gateway on purpose (playwright.config.ts).
+
 ### Calling GPT-5.5 on Bedrock
 
 ```ts
@@ -213,6 +232,8 @@ app/
     audit/route.ts              GET the practice's audit log, filtered; ?format=csv exports it (admin)
     deletion/route.ts           POST { patientId, confirm } delete a patient's data (§2.8, §10.5)
     jobs/run/route.ts           POST drain the queue; queues the nightly retention sweep (§3.4, §10.4)
+    health/route.ts             GET the dependency report: database, uploads, model gateway (§11.2)
+    health/live/route.ts        GET liveness alone, for the load balancer and the e2e wait (§11.2)
 components/
   VerifyGate.tsx                decides, on the server, whether a link shows its page, a code screen or consent
   VerifyScreen.tsx              that code screen
@@ -255,6 +276,7 @@ lib/
   practice.ts                   the first person in a practice: sign-up and the demo provider
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin
+  health.ts                     the three §11.2 probes, their latencies, and what makes a report 503
   db.ts                         Prisma singleton
   config.ts                     every environment variable, checked at startup (design §3.7)
 instrumentation.ts              runs that check before the server serves anything
@@ -262,6 +284,7 @@ prisma/schema.prisma            Practice, User (+Auth.js), Patient, Visit, Uploa
 scripts/seed.ts                 demo data into the DB;  gen_samples.py regenerates data/
 scripts/migrate-visits.ts       give any patient without a visit one (design §4.11)
 scripts/check-config.ts         npm run config:check: the startup check as a command
+scripts/health-check.ts         npm run health:check: the deploy gate against a running deployment (§11.2)
 data/                           synthetic 7-day exports (see data/README.md)
 data/uploads/                   where uploaded files land when no bucket is configured (gitignored)
 ```

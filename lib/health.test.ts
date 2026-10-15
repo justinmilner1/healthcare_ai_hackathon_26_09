@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
-import { checkHealth, formatReport, runCheck, statusOf, type Check, type CheckName, type HealthReport, type Probe } from "./health";
+import { checkHealth, formatReport, isHealthReport, runCheck, statusOf, type Check, type CheckName, type HealthReport, type Probe } from "./health";
 import { LLMUnavailable } from "./llm";
 import { setLogSink } from "./log";
 
@@ -138,4 +138,31 @@ test("formatReport puts every check on its own line for the deploy gate's log", 
   assert.match(rows[0], /db\s+ok\s+3ms\s+reachable/);
   assert.match(rows[1], /storage\s+down\s+1200ms\s+unreachable/);
   assert.match(rows[2], /model\s+skipped\s+0ms\s+not_configured/);
+});
+
+// ---- isHealthReport: what the deploy gate is allowed to call a pass -------------------------------------
+
+test("isHealthReport accepts a real report and refuses everything else", async () => {
+  assert.equal(isHealthReport(await report({})), true);
+  assert.equal(isHealthReport(await report({ db: failing(new Error("x")) })), true, "a down report is still a report");
+
+  for (const notOne of [
+    null,
+    undefined,
+    "ok",
+    42,
+    {},
+    { ok: true },
+    // A load balancer's error page, parsed: shaped like JSON, not like a report.
+    { message: "Service Unavailable" },
+    // The build before this ticket: the old endpoint's shape. Reading it as a pass would mean the gate
+    // silently stopped checking storage and the gateway.
+    { ok: true, db: "ok" },
+    // Half a report: two checks, no model.
+    { ok: true, status: "ok", checks: { db: { status: "ok", latencyMs: 1, detail: "reachable" }, storage: { status: "ok", latencyMs: 1, detail: "local" } } },
+    // A check with a status nobody writes.
+    { ok: true, status: "ok", checks: { db: { status: "fine", latencyMs: 1, detail: "x" }, storage: { status: "ok", latencyMs: 1, detail: "x" }, model: { status: "ok", latencyMs: 1, detail: "x" } } },
+  ]) {
+    assert.equal(isHealthReport(notOne), false, JSON.stringify(notOne) ?? "undefined");
+  }
 });
