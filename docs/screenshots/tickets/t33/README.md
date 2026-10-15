@@ -7,13 +7,14 @@ performs, and the screens unchanged — which is what a ticket about backups sho
 
 ## The screens, unchanged
 
-From the `bash scripts/agent-check.sh` run this pull request reports. The new step in that script runs after
+From the `bash scripts/agent-check.sh` run this pull request reports, after merging T30 and T32 in — so
+the dashboard shows T32's demo-practice rows, which are theirs and not this ticket's. The new step in that script runs after
 the Playwright suite, so these also show that it disturbs nothing before it.
 
 | File | What it shows |
 |---|---|
 | `desktop-landing.png` | the landing page, both agents |
-| `desktop-provider-dashboard.png` | the practice dashboard after sign-in, 15 visits |
+| `desktop-provider-dashboard.png` | the practice dashboard after sign-in, 18 visits |
 | `desktop-provider-sour.png` | the Sour brief for the seeded visit |
 | `desktop-sweetie-start.png` | Sweetie's first question on the patient link |
 | `mobile-patient-summary.png` | the patient summary at 375px |
@@ -25,7 +26,8 @@ Sweetie saying the upload button is "on the left" (T53).
 ## The backups, synthesized
 
 From `cdk.out/SweetSpot-staging.template.json` after `bash scripts/infra-check.sh` — 69 resources, one more
-than T29's 68, the new one being the event subscription.
+than before this ticket, the new one being the event subscription. Both stages carry it since T30 merged:
+`SweetSpot-production.template.json` is the same 69, with the production names.
 
 | Property | Value | Why |
 |---|---|---|
@@ -50,11 +52,11 @@ driven:
 == restore drill (rehearsal)
 restore drill: localhost:5432/sweetspot_e2e
 restore: ok
-  migrations  pass  11 applied, none missing
-  tables      pass  Practice 21, User 37, Patient 102, Visit 103
-  audit       pass  278 rows
+  migrations  pass  12 applied, none missing
+  tables      pass  Practice 21, User 37, Patient 106, Visit 107
+  audit       pass  270 rows
   freshness   pass  newest row 0 min before the restore target (limit 60)
-  rows        Practice=21 User=37 Patient=102 Visit=103 AuditLog=278 Summary=26 Upload=37
+  rows        Practice=21 User=37 Patient=106 Visit=107 AuditLog=270 Summary=26 Upload=37
 ```
 
 The four checks, and the ways each of them fails, are unit-tested in `lib/restore.test.ts` (11 tests).
