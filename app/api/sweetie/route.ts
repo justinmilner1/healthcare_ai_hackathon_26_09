@@ -14,16 +14,16 @@ import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
 import { enqueue, nudge } from "@/lib/jobs";
-import { llmStatus, LLMUnavailable } from "@/lib/llm";
+import { llmStatus } from "@/lib/llm";
 import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
 import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
-import { backstop, extract, fieldsFor, greeting, merge, nextTarget, parseIntake, redFlagReply, renderNotes, scanRedFlags, scripted, skipQuestions, speak } from "@/lib/sweetie";
+import { fieldsFor, greeting, parseIntake, renderNotes, skipQuestions } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
-import type { ChatMessage, IntakeFieldDef, IntakeState } from "@/lib/types";
+import { runTurn } from "@/lib/sweetieTurn";
+import type { TurnStore } from "@/lib/sweetieTurn";
+import type { ChatMessage, ChatRole, IntakeFieldDef, IntakeState } from "@/lib/types";
 import { providerName, visitByToken } from "@/lib/visit";
-
-const MAX_TURNS = 6;
 
 type UploadEvent = { type: "upload"; kind: string; count: number; days?: number };
 
@@ -85,23 +85,9 @@ async function postHandler(req: Request) {
   const context = { visitType: visit.visitType, reason: visit.reason, isSandbox: visit.isSandbox };
   // Demo metadata is not a patient's clinical reason for booking.
   const defs = fieldsFor(context.visitType, visit.isSandbox ? null : context.reason);
-  let state: IntakeState = parseIntake(visit.intake, defs);
+  const state: IntakeState = parseIntake(visit.intake, defs);
   const wasWrapped = state.wrapped;
-  let reply: string;
-  let exportHelp: "dexcom" | "timeline" | "whoop" | null = null;
-
-  if (message) {
-    await db.message.create({ data: { visitId: visit.id, role: "patient", content: message } });
-    state = { ...state, turns: state.turns + 1 };
-
-    // 1. Safety first, before any model call.
-    const flag = scanRedFlags(message);
-    if (flag) {
-      state = { ...state, flagged: flag, wrapped: true };
-      reply = redFlagReply(firstName, providerName(visit));
-      return finish(visit.id, state, defs, context, reply, wasWrapped);
-    }
-  }
+  const store = turnStore(visit.id, defs, context);
 
   if (skippingQuestions) {
     // Skipping is for a patient who has given us something. With nothing answered and nothing uploaded
@@ -112,75 +98,66 @@ async function postHandler(req: Request) {
       // No chat message: the greeting already asked the first question. The page shows a short inline hint.
       return NextResponse.json({ skipRefused: true, status: soFar?.status, intake: soFar?.intake, intakeFields: soFar?.intakeFields, agent: agentInfo() });
     }
-    return finish(visit.id, skipQuestions(state), defs, context,
-      "You've skipped the remaining questions. Anything you've already shared is saved for your care team. You can view your week now.", wasWrapped);
+    const skipped = skipQuestions(state);
+    const goodbye = "You've skipped the remaining questions. Anything you've already shared is saved for your care team. You can view your week now.";
+    await store.commit(goodbye, skipped);
+    return respond(visit.id, skipped, goodbye, wasWrapped);
   }
 
-  const history = await db.message.findMany({ where: { visitId: visit.id }, orderBy: { createdAt: "asc" } });
-  const transcript = history.map((m) => `${m.role === "sweetie" ? "Sweetie" : "Patient"}: ${m.content}`).join("\n");
+  // The turn itself — the order of the message write, the safety scan, the two model calls and the commit —
+  // is lib/sweetieTurn.ts, because design 6.2 is a claim about that order and a route cannot be tested for it.
+  const turn = await runTurn(
+    {
+      message,
+      event: event ? { kind: event.kind, count: event.count, days: event.days } : undefined,
+      state,
+      defs,
+      visit: context,
+      firstName,
+      providerName: providerName(visit),
+    },
+    store,
+  );
+  if (turn.fallbackAt === "extract") logScripted("sweetie_extract_unavailable", visit, { turns: turn.state.turns });
+  if (turn.fellBack) logScripted("sweetie_scripted", visit, { target: turn.target.kind });
 
-  // 2. What was Sweetie asking? Decided from the state before this message, so the extractor and the
-  //    backstop both know which field the answer belongs to.
-  const askedTarget = nextTarget(state, defs);
-  const askedId = askedTarget.kind === "field" ? askedTarget.def.id : null;
-
-  // 3. Extract what the latest message tells us (model), then the deterministic backstop.
-  let llm = true;
-  if (message) {
-    try {
-      const ex = await extract(state, defs, transcript, message, askedId);
-      state = merge(state, ex);
-      exportHelp = ex.asks_export_help;
-      // A decline while being offered the data upload counts even if the extractor missed it.
-      if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message) && !state.skipped.includes(askedTarget.which)) {
-        state = { ...state, skipped: [...state.skipped, askedTarget.which] };
-      }
-    } catch (e) {
-      if (!(e instanceof LLMUnavailable)) throw e;
-      llm = false;
-      logScripted("sweetie_extract_unavailable", visit, { turns: state.turns });
-      exportHelp = guessExportHelp(message);
-      if (askedTarget.kind === "upload" && /\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message)) state = { ...state, skipped: [...state.skipped, askedTarget.which] };
-    }
-    state = backstop(state, askedId, message);
-  }
-
-  // 4. Decide direction from state + what has actually been uploaded.
-  const bundle = await loadBundle(visit.id);
-  const status = bundle!.status;
-  let target = nextTarget(state, defs);
-  if (state.turns >= MAX_TURNS && target.kind !== "wrap") target = { kind: "wrap" };
-
-  // 5. Say it.
-  const uploadEvent = event ? { kind: event.kind, count: event.count, days: event.days } : undefined;
-  if (llm) {
-    try {
-      reply = await speak({ firstName, providerName: providerName(visit), visit: context, state, defs, status, target, transcript, exportHelp, uploadEvent });
-    } catch (e) {
-      if (!(e instanceof LLMUnavailable)) throw e;
-      logScripted("sweetie_scripted", visit, { target: target.kind });
-      reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
-    }
-  } else {
-    logScripted("sweetie_scripted", visit, { target: target.kind });
-    reply = scripted({ firstName, target, exportHelp, uploadEvent, isSandbox: visit.isSandbox });
-  }
-  if (target.kind === "wrap") state = { ...state, wrapped: true };
-
-  return finish(visit.id, state, defs, context, reply, wasWrapped);
+  return respond(visit.id, turn.state, turn.reply, wasWrapped);
 }
 
-async function finish(visitId: string, state: IntakeState, defs: IntakeFieldDef[], context: VisitContext, reply: string, wasWrapped = false) {
-  await db.message.create({ data: { visitId, role: "sweetie", content: reply } });
-  await db.visit.update({ where: { id: visitId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, context) } });
-  // The visit's own state, so the dashboard and the job runner do not have to read the intake JSON (§4.4).
-  // Only ever forwards: a patient adding a line after Sour has run must not walk the visit back to intake.
-  const reached = state.wrapped ? "intake_done" : "in_intake";
-  const from = state.wrapped ? ["invited", "verified", "in_intake"] : ["invited", "verified"];
-  await db.visit.updateMany({ where: { id: visitId, status: { in: from } }, data: { status: reached } });
+/** The database half of a turn (lib/sweetieTurn.ts). Everything here is this visit's rows and nothing else. */
+function turnStore(visitId: string, defs: IntakeFieldDef[], context: VisitContext): TurnStore {
+  return {
+    append: async (role: ChatRole, content: string) => {
+      await db.message.create({ data: { visitId, role, content } });
+    },
+    transcript: async () => {
+      const history = await db.message.findMany({ where: { visitId }, orderBy: { createdAt: "asc" } });
+      return history.map((m) => `${m.role === "sweetie" ? "Sweetie" : "Patient"}: ${m.content}`).join("\n");
+    },
+    status: async () => (await loadBundle(visitId))!.status,
+    // One transaction, which is the "consistent state" half of 6.2: Sweetie's reply, the intake it was
+    // written from, and the visit status it implies either all land or none do. Three statements used to go
+    // out one at a time, so a crash between them could leave a question on screen that the stored intake had
+    // never seen — the patient would answer it and the answer would be filed against the wrong field.
+    // The visit status only ever moves forwards: a patient adding a line after Sour has run must not walk the
+    // visit back to intake, which is why it is an updateMany with a `from` list rather than an update (4.4).
+    commit: async (reply: string, state: IntakeState) => {
+      const reached = state.wrapped ? "intake_done" : "in_intake";
+      const from = state.wrapped ? ["invited", "verified", "in_intake"] : ["invited", "verified"];
+      await db.$transaction([
+        db.message.create({ data: { visitId, role: "sweetie", content: reply } }),
+        db.visit.update({ where: { id: visitId }, data: { intake: JSON.stringify(state), notes: renderNotes(state, defs, context) } }),
+        db.visit.updateMany({ where: { id: visitId, status: { in: from } }, data: { status: reached } }),
+      ]);
+    },
+  };
+}
+
+/** What the page gets back once the turn is committed, plus the one side effect a wrap has (7.1). */
+async function respond(visitId: string, state: IntakeState, reply: string, wasWrapped: boolean) {
   const bundle = await loadBundle(visitId);
 
-  // Trigger: the turn that wraps the intake queues Sour (§7.1), so the doctor's link email is on its way
+  // Trigger: the turn that wraps the intake queues Sour (7.1), so the doctor's link email is on its way
   // while the patient is still reading Sweetie's goodbye. Once per wrap — and a queued row rather than work
   // done in `after()`, because the patient's last turn must not be the only chance Sour ever gets: a crash
   // between the reply and the summary used to lose it silently, and now it is a row with three attempts.
@@ -196,15 +173,6 @@ async function finish(visitId: string, state: IntakeState, defs: IntakeFieldDef[
   }
 
   return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
-}
-
-function guessExportHelp(text: string): "dexcom" | "timeline" | "whoop" | null {
-  const t = text.toLowerCase();
-  if (!/how|where|get|find|export|download/.test(t)) return null;
-  if (/dexcom|clarity|glucose|cgm/.test(t)) return "dexcom";
-  if (/timeline|maps|location/.test(t)) return "timeline";
-  if (/whoop|sleep/.test(t)) return "whoop";
-  return null;
 }
 
 export const GET = withRoute("GET /api/sweetie", getHandler);
