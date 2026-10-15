@@ -48,7 +48,8 @@ jobs:
             *) echo "::error::'$TAG' is not a release tag: production deploys v* tags only (design §13.3)"; exit 1 ;;
           esac
 
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG" \
+            || { echo "::error::no tag $TAG on origin: tag the commit and push the tag first"; exit 1; }
           SHA=$(git rev-list -n 1 "refs/tags/$TAG")
 
           # A release names a commit that is already on main. Tagging a branch nobody reviewed and having it

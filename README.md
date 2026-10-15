@@ -217,6 +217,12 @@ The first deploy needs a human: AWS credentials, a GitHub token for Amplify, a v
 security decision about who may reach the database. [docs/DEPLOY.md](docs/DEPLOY.md) is that walkthrough, the
 six secrets SSM needs, and what each alarm means.
 
+After that, deploying is a push: staging is every merge to `main` (§13.2), and production is a `v*` tag, which
+`.github/workflows/release.yml` turns into the only push the `release` branch ever gets (§13.3). The build
+migrates before it serves, so a failed migration is a failed deploy rather than an app on the wrong schema, and
+a rollback is that workflow run again with the previous tag. [docs/RUNBOOK.md](docs/RUNBOOK.md) is the
+procedure.
+
 ## Repo layout
 
 ```
