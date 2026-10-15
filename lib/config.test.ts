@@ -274,6 +274,30 @@ test("Dexcom is a whole configuration or none of one", () => {
   assert.equal(errors({ ...withDexcom(), DEXCOM_ENV: "staging", DEXCOM_CLIENT_SECRET: undefined }).length, 1);
 });
 
+test("the callback and the KMS key are plumbing, not a declaration that Dexcom is in use", () => {
+  // The T29 stack writes both for every deployment: it knows this deployment's callback URL and it owns the
+  // key, and neither waits on somebody signing up with Dexcom. Counting them as intent would fail the §3.7
+  // gate — and so the Amplify build — on every deployment that has no Dexcom application yet.
+  const provisioned = {
+    ...good(),
+    DEXCOM_REDIRECT_URI: "https://sweetspot.example.com/api/dexcom/callback",
+    DEXCOM_TOKEN_KMS_KEY_ID: "alias/sweetspot-staging-dexcom-tokens",
+  };
+  assert.deepEqual(errors(provisioned), []);
+  assert.deepEqual(warnings(provisioned), []);
+
+  // One credential on top of that plumbing is intent, and then the rest of the group is owed as before.
+  const started = errors({ ...provisioned, DEXCOM_CLIENT_ID: "client-not-real" });
+  assert.equal(started.length, 1);
+  assert.match(started[0].message, /half-configured/);
+  assert.match(started[0].message, /DEXCOM_CLIENT_SECRET/);
+  // ... and the two it already has are not asked for again.
+  assert.ok(!started[0].message.includes("DEXCOM_REDIRECT_URI"), started[0].message);
+
+  // Choosing an environment is intent even with no credentials yet: that is an operator saying which Dexcom.
+  assert.match(errors({ ...provisioned, DEXCOM_ENV: "production" })[0].message, /half-configured for DEXCOM_ENV=production/);
+});
+
 test("the production switch takes production's credentials, or the shared pair (design §9.2)", () => {
   // Credentials for the other environment are not credentials for this one.
   const wrongWay = errors({ ...withDexcom(), DEXCOM_ENV: "production", DEXCOM_CLIENT_ID: undefined, DEXCOM_SANDBOX_CLIENT_ID: "sandbox-client-not-real" });

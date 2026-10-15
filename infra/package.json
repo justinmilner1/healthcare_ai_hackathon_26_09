@@ -1,0 +1,22 @@
+{
+  "name": "sweetspot-infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AWS CDK app for Sweet Spot (design §3.6). Separate package so the Next.js app never ships the CDK libraries.",
+  "bin": { "infra": "bin/infra.ts" },
+  "scripts": {
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "aws-cdk": "2.1145.0",
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "^10.4.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5"
+  }
+}

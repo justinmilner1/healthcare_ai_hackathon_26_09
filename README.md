@@ -20,6 +20,7 @@ Data is kept for life, so the summary gets better with every visit. Patients can
 |---|---|---|
 | App | Next.js 15 (App Router, TypeScript) | Front end and API routes in one repo |
 | DB | Postgres 16 via Prisma | `docker compose up db` locally, RDS in production |
+| Infra | AWS CDK (TypeScript) in `/infra` | Amplify, RDS, S3, SES, SNS, the job schedule, SSM, alarms (§3.6) |
 | LLM | GPT-5.5 on Amazon Bedrock, OpenAI SDK, Responses API | What the workshop covers |
 | SMS | Twilio | Fallback: show the link on screen |
 | Glucose | Dexcom Clarity CSV upload, `pydexcom`-style Share polling optional | CSV is reliable in a demo |
@@ -199,6 +200,23 @@ the demo, the seed script and the check script all exercise the same code path a
 `STORAGE_BACKEND=s3|local` forces either. Keys are `visits/<visitId>/<kind>/<uuid>.<ext>`: ids the database
 already has, never the name of the file the patient picked, and never anything a browser is shown.
 
+### Deploying
+
+`/infra` is an AWS CDK app in TypeScript (design §3.6): one stack class, two environments. It brings up the
+Amplify Hosting app the Next.js build is served from, the RDS Postgres it reads, the private S3 bucket uploads
+land in, the SES identity and SNS topics notifications go through, the EventBridge schedule that drains the job
+queue every minute, the SSM parameters that carry configuration, and the CloudWatch alarms for the 5xx rate,
+job failures and a model gateway that has stopped answering.
+
+```bash
+npm run infra:check      # typecheck, the stack's unit tests and `cdk synth` — no AWS account needed
+npm run infra:synth      # just the template, into infra/cdk.out/
+```
+
+The first deploy needs a human: AWS credentials, a GitHub token for Amplify, a verified SES identity, and one
+security decision about who may reach the database. [docs/DEPLOY.md](docs/DEPLOY.md) is that walkthrough, the
+six secrets SSM needs, and what each alarm means.
+
 ## Repo layout
 
 ```
@@ -285,6 +303,12 @@ scripts/seed.ts                 demo data into the DB;  gen_samples.py regenerat
 scripts/migrate-visits.ts       give any patient without a visit one (design §4.11)
 scripts/check-config.ts         npm run config:check: the startup check as a command
 scripts/health-check.ts         npm run health:check: the deploy gate against a running deployment (§11.2)
+scripts/infra-check.sh          npm run infra:check: typecheck, test and `cdk synth` the stack below
+infra/bin/infra.ts              the CDK app: the staging stack today, production with T30 (§3.6, §13.2)
+infra/lib/sweetspot-stack.ts    Amplify, RDS, S3, SES, SNS, the minute schedule, SSM, the alarms
+infra/lib/stage.ts              everything that differs between staging and production
+infra/lambda/jobs-tick/         the 60 lines EventBridge Scheduler runs to call POST /api/jobs/run (§3.4)
+infra/test/stack.test.ts        asserts the stack is the one §10.1, §11.1 and §11.4 asked for
 data/                           synthetic 7-day exports (see data/README.md)
 data/uploads/                   where uploaded files land when no bucket is configured (gitignored)
 ```
