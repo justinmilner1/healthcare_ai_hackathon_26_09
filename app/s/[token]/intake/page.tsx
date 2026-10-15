@@ -597,10 +597,18 @@ export default function SweetieIntakePage({
                         {source.kind === "dexcom" && (
                           <p className={styles.connectionHint}>
                             {!dexcomStatus.configured ? "Dexcom connection is not configured yet. CSV upload is still available outside demo mode."
-                              : sandbox && dexcomStatus.connected && dexcomStatus.start && dexcomStatus.end
-                                ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)} · Synthetic readings`
-                                : sandbox ? "Authorize on Dexcom and return here. Only synthetic readings are imported."
-                                  : "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."}
+                              : !dexcomStatus.canConnect
+                                // Nothing for this visit to connect to (§9.2): on the sandbox a real patient
+                                // is offered the separate demonstration instead, and in production a demo
+                                // visit has nothing to be offered at all.
+                                ? dexcomStatus.env === "sandbox"
+                                  ? "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."
+                                  : "This demonstration visit cannot connect to a real Dexcom account."
+                                : dexcomStatus.connected && dexcomStatus.start && dexcomStatus.end
+                                  ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)}${sandbox ? " · Synthetic readings" : ""}`
+                                  : sandbox
+                                    ? "Authorize on Dexcom and return here. Only synthetic readings are imported."
+                                    : "Authorize on Dexcom and return here. Your last 7 days of readings are imported."}
                           </p>
                         )}
                         {confirmRemoval === source.kind && (

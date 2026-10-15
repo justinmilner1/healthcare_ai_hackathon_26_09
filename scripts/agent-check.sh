@@ -13,9 +13,9 @@ export E2E_PORT="${E2E_PORT:-3100}"
 # and production takes it from SSM (§10.6).
 export DEV_MAIL_DIR="${DEV_MAIL_DIR:-e2e/.mail}"
 export AUTH_SECRET="${AUTH_SECRET:-e2e-session-secret-not-for-deployment}"
-# One mailbox per server in playwright.config.ts (the main one, the degraded one, the jobs runner), so a link
-# from one never shows up in another's.
-rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded" "${DEV_MAIL_DIR}-runner"
+# One mailbox per server in playwright.config.ts (the main one, the degraded one, the jobs runner, the
+# Dexcom production one), so a link from one never shows up in another's.
+rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded" "${DEV_MAIL_DIR}-runner" "${DEV_MAIL_DIR}-dexcom"
 export APP_URL="http://localhost:${E2E_PORT}"
 export NEXT_TELEMETRY_DISABLED=1
 
