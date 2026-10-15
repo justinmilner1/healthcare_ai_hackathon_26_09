@@ -9,6 +9,7 @@
 // a bearer credential and §10.3 keeps link tokens out of the log.
 
 import { roleDescription, roleLabel, type Role } from "./access";
+import { demoBlockReason } from "./demo";
 import { emailProvider, sendEmail, type SendResult } from "./email";
 import { devMailDir, divertsMail, writeDevMail } from "./devMailbox";
 import { log } from "./log";
@@ -81,7 +82,22 @@ export function inviteEmailText(p: { practiceName: string; invitedBy: string; ro
   ].join("\n");
 }
 
-export async function sendTeamInvite(to: string, p: { practiceName: string; invitedBy: string; role: Role }): Promise<SendResult> {
+/**
+ * `demo` is §13.4: a practice marked synthetic may only write to a reserved address (lib/demo.ts), so an
+ * admin who seeds a demo practice and then invites a colleague's real work address does not email it. The
+ * row is still created — an invite *is* the User row (lib/team.ts) — so they sign in by asking for their own
+ * link; this is the nudge, not the credential.
+ *
+ * The sign-in link itself (sendSignInLink above) is not gated, because nobody sends it: it goes only to an
+ * address that has just asked for it, from the form, and gating it would lock a demo practice's own admin out
+ * of the practice they made.
+ */
+export async function sendTeamInvite(to: string, p: { practiceName: string; invitedBy: string; role: Role; demo?: boolean }): Promise<SendResult> {
+  const blocked = demoBlockReason(Boolean(p.demo), "email", to);
+  if (blocked) {
+    log.info("team_invite_sent", { channel: "email", sent: false, role: p.role, error: blocked, demo: true });
+    return { sent: false, error: blocked };
+  }
   const text = inviteEmailText({ ...p, url: signInUrlFor(to) });
   if (divertsMail(process.env, Boolean(emailProvider()))) {
     writeDevMail({ to, subject: INVITE_SUBJECT, text });

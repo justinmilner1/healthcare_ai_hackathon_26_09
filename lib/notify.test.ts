@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { codeTemplates, deletionTemplates, inviteTemplates, sendIntakeInvite, summaryTemplates } from "./notify";
+import {
+  codeTemplates,
+  deletionTemplates,
+  inviteTemplates,
+  sendDeletionConfirmation,
+  sendIntakeInvite,
+  sendSummaryEmails,
+  summaryTemplates,
+} from "./notify";
 import type { Summary } from "./types";
 
 process.env.APP_URL = "https://sweetspot.example/";
@@ -205,4 +213,83 @@ test("a channel staff never chose stays unsent for that reason, not for a suppre
     suppression: { smsOptOutAt: new Date() },
   });
   assert.match(result.sms.error!, /consented/);
+});
+
+// ---------------------------------------------------------------------------------------------
+// §13.4 A demo practice never messages a real address
+
+test("a demo practice's invite goes to a reserved address and not to a real one", async () => {
+  // Both channels are chosen and both have something on file. The email is reserved (`.local`, lib/demo.ts)
+  // so it is attempted and fails on configuration like any other; the phone is an assignable 555 number, so
+  // it is not attempted at all. That asymmetry is the rule: synthetic destinations only.
+  const result = await sendIntakeInvite({
+    name: "Sam Sample",
+    phone: "+14155551234",
+    email: "sam.sample@sweetspot.local",
+    token: "tok",
+    providerName: "Sweet Spot Endocrinology",
+    channels: ["sms", "email"],
+    demo: true,
+  });
+  assert.equal(result.sms.sent, false);
+  assert.equal(result.sms.provider, undefined, "no backend tried, so lib/jobHandlers.ts will not retry it");
+  assert.match(result.sms.error!, /demo practice/);
+  assert.equal(result.sms.error!.includes("4155551234"), false, "the reason is shown to staff (§8.3), so no number in it");
+  assert.match(result.email.error!, /not configured/, "a reserved address is attempted like any other");
+});
+
+test("a demo practice blocks a real address even on the channel staff chose", async () => {
+  const result = await sendIntakeInvite({
+    name: "Sam Sample",
+    phone: "+14155550100",
+    email: "someone@gmail.com",
+    token: "tok",
+    providerName: "Sweet Spot Endocrinology",
+    channels: ["sms", "email"],
+    demo: true,
+  });
+  assert.match(result.email.error!, /demo practice/);
+  assert.equal(result.email.provider, undefined);
+  // And the reserved number is fine: 555-0100 is the fictitious range.
+  assert.match(result.sms.error!, /not configured/);
+});
+
+test("demo mode changes nothing for a practice that is not one", async () => {
+  const result = await sendIntakeInvite({
+    name: "Sam Sample",
+    phone: "+14155551234",
+    email: "someone@gmail.com",
+    token: "tok",
+    providerName: "Northstar Endocrinology",
+    channels: ["sms", "email"],
+  });
+  for (const channel of [result.sms, result.email]) {
+    assert.match(channel.error!, /not configured/);
+    assert.equal(channel.error!.includes("demo"), false);
+  }
+});
+
+test("a demo practice's deletion confirmation and summary notice obey the same rule", async () => {
+  const deletion = await sendDeletionConfirmation({
+    patientId: "c0000000000000000000000de",
+    name: "Sam Sample",
+    phone: "+14155550100",
+    email: "someone@gmail.com",
+    providerName: "Sweet Spot Endocrinology",
+    demo: true,
+  });
+  assert.match(deletion.email.error!, /demo practice/);
+  assert.match(deletion.sms.error!, /not configured/, "the reserved number is attempted");
+
+  // The clinician's own address is gated too: a demo practice's clinician is a seeded row like its patients.
+  const notified = await sendSummaryEmails({
+    visit: { id: "c0000000000000000000000vi", token: "tok", apptAt: APPT },
+    patient: { id: "c0000000000000000000000pa", name: "Sam Sample", email: "sam.sample@sweetspot.local" },
+    provider: { id: "c0000000000000000000000pr", name: "Dr. Demo Endo", email: "doctor@realclinic.com", practice: "Sweet Spot Endocrinology" },
+    providerSummary: summary,
+    patientSummary: summary,
+    demo: true,
+  });
+  assert.match(notified.provider.error!, /demo practice/);
+  assert.match(notified.patient.error!, /not configured/, "the patient's reserved address is attempted");
 });

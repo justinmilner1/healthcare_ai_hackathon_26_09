@@ -3,6 +3,7 @@
 // Each channel fails soft; the caller decides whether to show the link on screen.
 
 import { appUrl } from "./config";
+import { demoBlockReason } from "./demo";
 import { sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { sendOrMailbox } from "./mailer";
@@ -31,6 +32,28 @@ export type EmailTemplate = { subject: string; text: string };
 function suppressed(facts: SuppressionFacts | null | undefined, channel: NotifyChannel): SendResult | null {
   const reason = suppressedReason(facts, channel);
   return reason ? { sent: false, error: reason } : null;
+}
+
+/**
+ * §13.4 Why this channel is not being used, demo practice first: a practice marked synthetic may only
+ * message the reserved addresses and numbers nobody can own (lib/demo.ts), and §8.1's suppression after it.
+ *
+ * Shaped exactly like `suppressed` above, and for the same reason: no `provider` on the result, so the send
+ * is recorded as `skipped` and never retried (lib/visitStore.ts statusOf, assertSendable in
+ * lib/jobHandlers.ts). A retry would be identical — the practice is still a demo one and the address is
+ * still somebody's — so three attempts would buy three identical refusals and a failed job.
+ *
+ * Demo before suppression because it is the stronger statement: a bounce says this address does not work,
+ * and this says we must not try it at all.
+ */
+function blockedBy(
+  p: { demo?: boolean; suppression?: SuppressionFacts | null },
+  channel: NotifyChannel,
+  to: string | null | undefined,
+): SendResult | null {
+  const demo = demoBlockReason(Boolean(p.demo), channel, to);
+  if (demo) return { sent: false, error: demo };
+  return suppressed(p.suppression, channel);
 }
 
 const firstName = (name: string) => name.split(" ")[0];
@@ -115,12 +138,16 @@ export async function sendVerificationCode(p: {
    *  message, which is worth a sentence because it is the one the patient is waiting for: a bounced address
    *  does not deliver a code either, and the honest answer is the other channel (lib/suppression.ts). */
   suppression?: SuppressionFacts | null;
+  /** §13.4 True when this visit's practice is marked synthetic, which closes every channel whose destination
+   *  is not itself synthetic. The code included: a demo practice that cannot deliver a code to a real phone
+   *  is the point, not an edge case — the alternative is texting six digits to somebody who did not ask. */
+  demo?: boolean;
 }): Promise<CodeResult> {
   const t = codeTemplates(p);
 
   const [sms, email] = await Promise.all([
-    suppressed(p.suppression, "sms") ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
-    suppressed(p.suppression, "email") ??
+    blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    blockedBy(p, "email", p.email) ??
       (p.email ? sendOrMailbox(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
   ]);
 
@@ -145,6 +172,8 @@ export async function sendIntakeInvite(p: {
    *  are different statements and both are honored: consent is the practice's record of permission, this is
    *  the provider's record of what happens when we try. */
   suppression?: SuppressionFacts | null;
+  /** §13.4 The practice is a demo one, so only a reserved address or number is written to (lib/demo.ts). */
+  demo?: boolean;
 }): Promise<InviteResult> {
   const t = inviteTemplates(p);
   const wanted = (channel: "sms" | "email") => !p.channels || p.channels.includes(channel);
@@ -153,10 +182,10 @@ export async function sendIntakeInvite(p: {
   const [sms, email] = await Promise.all([
     !wanted("sms")
       ? Promise.resolve(notChosen)
-      : suppressed(p.suppression, "sms") ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+      : blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
     !wanted("email")
       ? Promise.resolve(notChosen)
-      : suppressed(p.suppression, "email") ??
+      : blockedBy(p, "email", p.email) ??
         (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
   ]);
 
@@ -229,14 +258,20 @@ export async function sendSummaryEmails(p: {
   provider: { id: string; name: string; email: string | null; practice: string | null };
   providerSummary: Summary;
   patientSummary: Summary;
+  /** §13.4 A demo practice tells nobody at a real address that a synthetic summary is ready — the clinician
+   *  included. The clinician's address is the practice's own, but a demo practice's clinician is a seeded row
+   *  as synthetic as its patients, and a message to a colleague about a patient who does not exist is still a
+   *  message about a patient. */
+  demo?: boolean;
 }): Promise<SummaryNotifyResult> {
   const t = summaryTemplates(p);
 
   const [provider, patient] = await Promise.all([
-    p.provider.email
-      ? sendEmail(p.provider.email, t.provider.subject, t.provider.text)
-      : Promise.resolve({ sent: false, error: "provider has no email" }),
-    suppressed(p.patient, "email") ??
+    blockedBy({ demo: p.demo }, "email", p.provider.email) ??
+      (p.provider.email
+        ? sendEmail(p.provider.email, t.provider.subject, t.provider.text)
+        : Promise.resolve({ sent: false, error: "provider has no email" })),
+    blockedBy({ demo: p.demo, suppression: p.patient }, "email", p.patient.email) ??
       (p.patient.email
         ? sendEmail(p.patient.email, t.patient.subject, t.patient.text)
         : Promise.resolve({ sent: false, error: "patient has no email" })),
@@ -295,12 +330,15 @@ export async function sendDeletionConfirmation(p: {
   email?: string | null;
   providerName: string;
   suppression?: SuppressionFacts | null;
+  /** §13.4 As every other message: a demo practice confirms a deletion to a reserved address or to nobody.
+   *  The deletion itself has already happened, which is what makes a blocked confirmation harmless here. */
+  demo?: boolean;
 }): Promise<DeletionResult> {
   const t = deletionTemplates(p);
 
   const [sms, email] = await Promise.all([
-    suppressed(p.suppression, "sms") ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
-    suppressed(p.suppression, "email") ??
+    blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    blockedBy(p, "email", p.email) ??
       (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
   ]);
 

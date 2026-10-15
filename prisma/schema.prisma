@@ -13,10 +13,15 @@ datasource db {
 }
 
 // §4.1 One clinic. retentionDays drives the nightly retention sweep (§10.4).
+// `isDemo` marks a practice as synthetic (§13.4): its visits are left alone by the nightly sweep, its log
+// lines carry `demo: true` so §11.1's alarms can leave them out, and nothing it sends may reach an address
+// that is not itself synthetic (lib/demo.ts). Default false, because a practice somebody signed up for is
+// real until an operator says otherwise.
 model Practice {
   id            String     @id @default(cuid())
   name          String
   retentionDays Int        @default(365)
+  isDemo        Boolean    @default(false)
   createdAt     DateTime   @default(now())
   users         User[]
   patients      Patient[]

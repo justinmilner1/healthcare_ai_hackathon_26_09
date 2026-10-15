@@ -3,7 +3,19 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { HttpError } from "./httpError";
-import { ALLOWED_FIELDS, formatLine, log, runWithRequestContext, requestIdFrom, sanitize, scrub, setLogSink, withRoute } from "./log";
+import {
+  ALLOWED_FIELDS,
+  formatLine,
+  log,
+  markDemo,
+  runInChildContext,
+  runWithRequestContext,
+  requestIdFrom,
+  sanitize,
+  scrub,
+  setLogSink,
+  withRoute,
+} from "./log";
 
 const parse = (line: string) => JSON.parse(line) as Record<string, unknown>;
 
@@ -61,6 +73,33 @@ test("the allow-list holds no field that carries a name, contact detail, or free
     assert.equal(forbidden.test(field), false, `${field} must not be allow-listed`);
   }
   assert.equal(new Set(ALLOWED_FIELDS).size, ALLOWED_FIELDS.length, "allow-list has duplicates");
+});
+
+test("the demo label rides the context, and a child context does not leak it back (§13.4)", () => {
+  // §11.1's alarms read these lines as metrics and leave out the ones a demo practice caused, so the label
+  // has to reach lines the call site does not write — and must not reach a job that follows a demo one in
+  // the same drain (lib/jobs.ts gives each job a child context).
+  runWithRequestContext({ requestId: "11111111-2222-4333-8444-555555555555", route: "POST /api/jobs/run" }, () => {
+    runInChildContext(() => {
+      markDemo();
+      assert.equal(parse(formatLine("error", "job_failed")).demo, true);
+    });
+    assert.equal(parse(formatLine("error", "job_failed")).demo, undefined, "the next job starts unlabelled");
+    runInChildContext(() => {
+      assert.equal(parse(formatLine("error", "job_failed")).demo, undefined);
+    });
+  });
+});
+
+test("a child context keeps the request id, so one request's lines still correlate", () => {
+  const requestId = "11111111-2222-4333-8444-555555555555";
+  runWithRequestContext({ requestId, route: "POST /api/jobs/run" }, () => {
+    runInChildContext(() => {
+      const line = parse(formatLine("info", "job_done"));
+      assert.equal(line.requestId, requestId);
+      assert.equal(line.route, "POST /api/jobs/run");
+    });
+  });
 });
 
 test("scrub removes email- and number-shaped text and caps length", () => {

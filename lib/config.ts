@@ -222,6 +222,15 @@ export const SPEC: readonly VarSpec[] = [
     // On a deployment this is not a preference, it is an outage with a security hole in it — see the rule in
     // groupProblems, which needs APP_URL as well to tell a deployment from a production build on a laptop.
   },
+  {
+    name: "DEMO_SIGN_IN",
+    group: "Sign-in",
+    requirement: "optional",
+    summary: "Let GET /demo sign straight into the seeded demo practice instead of showing the sign-in form (design §13.4). Staging and local demos only.",
+    check: oneOf("1", "0", "true", "false", "on", "off"),
+    // Production earns a warning rather than a refusal (groupProblems below): staging is a production build,
+    // so NODE_ENV cannot tell the two apart, and refusing would refuse the stage the design asks for it on.
+  },
 
   {
     name: "OPENAI_BASE_URL",
@@ -526,6 +535,14 @@ export function read(env: Env, name: string): string | undefined {
 
 export const isProduction = (env: Env = process.env): boolean => (env.NODE_ENV ?? "development") === "production";
 
+/** Whether `/demo` may sign in rather than offer the form (§13.4, app/demo/route.ts). Off unless asked for:
+ *  anything that is not one of the affirmative spellings — including an unset or misspelled value — is off,
+ *  because the failure of reading this wrong is a door standing open. */
+export function demoSignInEnabled(env: Env = process.env): boolean {
+  const value = read(env, "DEMO_SIGN_IN")?.toLowerCase();
+  return value === "1" || value === "true" || value === "on";
+}
+
 /** Every problem with this environment, worst first. Pure: give it any object, get the same answer. */
 export function validateConfig(env: Env = process.env, opts: { production?: boolean } = {}): Problem[] {
   const production = opts.production ?? isProduction(env);
@@ -676,6 +693,20 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
       variable: "DEV_MAIL_DIR",
       message:
         "DEV_MAIL_DIR is set on a deployment serving a public APP_URL: every email, sign-in links included, would be written to a file on the server instead of sent (design §5.1, §10.6). Unset it, or point APP_URL at localhost if this is a local production build.",
+    });
+  }
+
+  // §13.4's shortcut is for staging, and staging is a production build with a public URL — so there is no
+  // variable here that says "this is not production" and this cannot be a refusal. It is said out loud
+  // instead, on every boot, because the one thing worse than the shortcut being on is nobody knowing it is.
+  // What it can open is still only the seeded demo practice: app/demo/route.ts checks `Practice.isDemo`.
+  if (production && demoSignInEnabled(env) && !isLocal(v("APP_URL"))) {
+    out.push({
+      level: "warning",
+      kind: "combination",
+      variable: "DEMO_SIGN_IN",
+      message:
+        "DEMO_SIGN_IN is on, so GET /demo signs in as the seeded demo provider with no link to click (design §13.4). That is meant for staging; unset it on production.",
     });
   }
 

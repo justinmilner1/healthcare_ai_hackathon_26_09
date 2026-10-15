@@ -10,6 +10,7 @@
 
 import { recordAudit } from "./auditStore";
 import type { AuditAction } from "./auditLog";
+import { noteDemo } from "./demo";
 import type { JobHandlers, JobPayload } from "./jobs";
 import { log } from "./log";
 import { purgePatient, sweepRetention } from "./retentionStore";
@@ -151,6 +152,8 @@ export const handlers: JobHandlers = {
       // §8.1 A bounce or a STOP closes the channel whatever staff chose, and is recorded on the patient
       // (lib/notifyStore.ts) rather than on the visit: it is a fact about the address, not the appointment.
       suppression: visit.patient,
+      // §13.4 A demo practice writes only to reserved addresses and numbers (lib/demo.ts).
+      demo: visit.patient.practice.isDemo,
     });
     // Two records of one send, for two different readers. §8.3's delivery rows are what staff see on the
     // dashboard — did this patient's invite reach them — and §10.2's audit row is what an admin reads months
@@ -185,6 +188,7 @@ export const handlers: JobHandlers = {
       providerName: providerName(visit),
       minutes: Math.round(CODE_TTL_MS / 60_000),
       suppression: visit.patient,
+      demo: visit.patient.practice.isDemo,
     });
     // §10.2 records every send, and this is one: a message to the patient's own phone or email. The digits
     // are not in it — `recordSends` writes the channel and the backend, never the body (§4.8).
@@ -217,6 +221,7 @@ export const handlers: JobHandlers = {
       provider: { id: visit.providerUserId ?? "", name: providerName(visit), email: visit.providerUser?.email ?? null, practice: visit.patient.practice.name },
       providerSummary,
       patientSummary,
+      demo: visit.patient.practice.isDemo,
     });
     // §8.3 Both of these are email, to two different people, which is why the delivery row is keyed by the
     // audience as well as the channel (T19's migration): the clinician being told and the patient being told
@@ -253,9 +258,12 @@ export const handlers: JobHandlers = {
         emailUndeliverableAt: true,
         emailUndeliverableReason: true,
         smsOptOutAt: true,
-        practice: { select: { name: true } },
+        practice: { select: { name: true, isDemo: true } },
       },
     });
+    // §13.4's label, for the lines this job writes. The visit-shaped jobs get it from lib/visit.ts; this one
+    // and the sweep below have no visit, so they mark the context themselves.
+    if (before) noteDemo(before.practice);
     const result = await purgePatient({ patientId, requestedBy: optionalUserId(payload) });
     if (!result.found || !before || !(before.phone || before.email)) return;
 
@@ -266,6 +274,7 @@ export const handlers: JobHandlers = {
       email: before.email,
       providerName: before.practice.name,
       suppression: before,
+      demo: before.practice.isDemo,
     });
     await recordPatientSends("deletion.sent", before, { sms: confirmation.sms, email: confirmation.email });
     // No assertSendable: the deletion has happened and three more attempts cannot undo it or re-run it, so a

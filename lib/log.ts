@@ -45,6 +45,8 @@ export const ALLOWED_FIELDS: readonly string[] = [
   "jobId",
   // Operational facts about what happened, not about whom.
   "check",      // which dependency a health probe looked at (§11.2). db | storage | model, and nothing else.
+  "demo",       // this line is a demo practice's (§13.4). True or absent; set by markDemo, read by the alarm
+                // filters in docs/LOGGING.md so synthetic work never pages anyone.
   "role",       // admin | clinician | staff (§5.2). One of three constants; never a name.
   "capability", // the capability a refused request asked for (lib/access.ts).
   "scope",      // which rate-limit key was spent, "ip" or "visit" (§5.4). Never the address itself.
@@ -87,16 +89,41 @@ const ALLOWED = new Set(ALLOWED_FIELDS);
 const MAX_TEXT = 300;
 const MAX_STACK = 1200;
 
-/** Per-request context, so every line inside a request carries the same requestId without being passed it. */
-type RequestContext = { requestId: string; route?: string };
+/** Per-request context, so every line inside a request carries the same requestId without being passed it.
+ *  `demo` is §13.4's label: set once by markDemo, carried by every line after it. */
+type RequestContext = { requestId: string; route?: string; demo?: boolean };
 const requestStore = new AsyncLocalStorage<RequestContext>();
 
 export function runWithRequestContext<T>(ctx: RequestContext, fn: () => T): T {
-  return requestStore.run(ctx, fn);
+  // A copy, not the caller's object: markDemo writes to whatever is in the store, and a caller that reuses
+  // one context object for two requests would otherwise find the first request's label on the second.
+  return requestStore.run({ ...ctx }, fn);
 }
 
 export function currentRequestContext(): RequestContext | undefined {
   return requestStore.getStore();
+}
+
+/**
+ * Run `fn` in a copy of the current context, so a `demo` mark inside it does not escape (lib/jobs.ts gives
+ * each job one of these). Outside a request there is no context to copy and one is minted, which is what
+ * makes a job drained by `npm run jobs:drain` still correlate its own lines together.
+ */
+export function runInChildContext<T>(fn: () => T): T {
+  const parent = requestStore.getStore();
+  return requestStore.run({ requestId: parent?.requestId ?? crypto.randomUUID(), route: parent?.route, demo: parent?.demo }, fn);
+}
+
+/**
+ * Mark everything logged from here to the end of this request or job as a demo practice's (§13.4).
+ *
+ * The flag goes on the context rather than on each call, because the lines that matter most are the ones the
+ * call site does not write: `request_failed` and `job_failed` are written by the wrapper and the runner, and
+ * those are what §11.1's 5xx and job-failure alarms count. lib/demo.ts noteDemo is the only caller.
+ */
+export function markDemo(): void {
+  const ctx = requestStore.getStore();
+  if (ctx) ctx.demo = true;
 }
 
 /** The one shape of caller-supplied id worth reusing: the UUID we would have minted ourselves. Anything else
@@ -173,7 +200,7 @@ export function formatLine(level: LogLevel, event: string, fields: Fields = {}, 
     time: now.toISOString(),
     level,
     event: scrub(event, 80),
-    ...sanitize({ requestId: ctx?.requestId, route: ctx?.route, ...fields }),
+    ...sanitize({ requestId: ctx?.requestId, route: ctx?.route, demo: ctx?.demo || undefined, ...fields }),
   });
 }
 
