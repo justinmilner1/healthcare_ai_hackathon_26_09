@@ -3,6 +3,7 @@
 // Glucose line, last 7 days, target band as a wash, spikes as labeled markers. Owner: Justin.
 // Single series: no legend; the card title names it. Spike table (SpikeTable) is the table-view twin.
 
+import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
@@ -15,6 +16,21 @@ const CRITICAL = "var(--viz-critical)";
 const SURFACE = "var(--viz-surface)";
 
 export default function GlucoseChart({ readings, spikes, height = 280 }: { readings: GlucoseReading[]; spikes: Spike[]; height?: number }) {
+  // How wide the chart actually got. On a 375px phone the card leaves the plot about 270px for seven days,
+  // and the fixed "5% of the span apart" rule below let four labels land inside 60px of each other —
+  // unreadable (T23, design §6.5). Measured rather than guessed from a breakpoint, because the same chart
+  // is drawn into a provider card and a print sheet at three different widths.
+  const wrap = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const element = wrap.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    setWidth(element.clientWidth);
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const data = readings.map((r) => ({ t: Date.parse(r.t), mgdl: r.mgdl }));
   if (data.length === 0) return <p className="text-sm text-[var(--viz-muted)]">No glucose data yet.</p>;
 
@@ -26,22 +42,34 @@ export default function GlucoseChart({ readings, spikes, height = 280 }: { readi
   d.setHours(0, 0, 0, 0);
   for (let t = d.getTime(); t <= last; t += 86400000) if (t >= first) ticks.push(t);
 
-  // Direct labels are selective: a spike within 5% of the span of an already-labeled spike keeps its
+  // Direct labels are selective: a spike whose label would collide with an already-labeled one keeps its
   // marker but drops its label (tooltip and SpikeTable still carry it). Long place names are trimmed.
+  //
+  // "Collide" is measured in pixels once the width is known: two centred labels clear each other when the
+  // gap between their markers covers half of each. Until the first measurement — the server render, and a
+  // browser with no ResizeObserver — it falls back to the 5%-of-the-span rule this had before, which is
+  // right on a desk and merely generous on a phone.
   const span = Math.max(1, last - first);
+  const plot = Math.max(0, width - PLOT_CHROME);
   const ordered = [...spikes].sort((a, b) => Date.parse(a.peak) - Date.parse(b.peak));
   const labelFor = new Map<Spike, string>();
   let lastLabeledAt = -Infinity;
+  let lastLabelChars = 0;
   for (const s of ordered) {
     const at = Date.parse(s.peak);
-    if ((at - lastLabeledAt) / span >= 0.05) {
-      labelFor.set(s, trim(s.visit?.place ?? String(s.to)));
+    const label = trim(s.visit?.place ?? String(s.to));
+    const apart = plot > 0
+      ? ((at - lastLabeledAt) / span) * plot >= (lastLabelChars + label.length) * HALF_CHAR + LABEL_GAP
+      : (at - lastLabeledAt) / span >= 0.05;
+    if (apart) {
+      labelFor.set(s, label);
       lastLabeledAt = at;
+      lastLabelChars = label.length;
     }
   }
 
   return (
-    <div style={{ height }}>
+    <div ref={wrap} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 20, right: 56, bottom: 4, left: -8 }}>
           <CartesianGrid stroke={GRID} strokeWidth={1} vertical={false} />
@@ -88,3 +116,9 @@ export default function GlucoseChart({ readings, spikes, height = 280 }: { readi
 }
 
 const trim = (name: string) => (name.length > 16 ? name.slice(0, 15).trimEnd() + "…" : name);
+
+/** The y-axis and the right margin the labels are kept clear of, from the LineChart margin above. */
+const PLOT_CHROME = 80;
+/** Half the advance width of one character at the 10px label size, and the clear space between two labels. */
+const HALF_CHAR = 2.7;
+const LABEL_GAP = 10;
