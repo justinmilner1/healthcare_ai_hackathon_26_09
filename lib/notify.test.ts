@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { codeTemplates, inviteTemplates, summaryTemplates } from "./notify";
+import { codeTemplates, deletionTemplates, inviteTemplates, sendIntakeInvite, summaryTemplates } from "./notify";
 import type { Summary } from "./types";
 
 process.env.APP_URL = "https://sweetspot.example/";
 process.env.TZ = "UTC";
+// No sender, on purpose: the tests below that call a send are about which channels are *attempted*, and a
+// machine with ambient AWS credentials in its environment (this repo's own cloud sandbox has them) would
+// otherwise have lib/sms.ts and lib/email.ts reach for SNS and SES and report the network's opinion instead.
+for (const name of ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "RESEND_API_KEY", "TWILIO_ACCOUNT_SID", "EMAIL_PROVIDER", "SMS_PROVIDER"]) {
+  delete process.env[name];
+}
 
 const APPT = new Date("2026-09-24T16:30:00Z");
 
@@ -143,4 +149,60 @@ test("the code message carries the digits, the practice and nothing else", () =>
   assert.match(t.email.text, /ask you for it/i);
   // An SMS segment is 160 characters; two is the practical limit before carriers start charging per part.
   assert.ok(t.sms.length <= 320, `the code SMS is ${t.sms.length} characters`);
+});
+
+// ---------------------------------------------------------------------------------------------
+// §8.2's fifth template, and §8.1's rule applied to all of them.
+
+test("the deletion confirmation says what was deleted, names the office, and carries no link", () => {
+  const t = deletionTemplates({ name: "Sam Sample", providerName: "Sweet Spot Endocrinology" });
+  for (const [label, text] of [["sms", t.sms], ["email", t.email.text]] as const) {
+    assert.match(text, /Sweet Spot Endocrinology/, `${label} should name the practice`);
+    assert.match(text, /Sam/, `${label} should greet them by first name`);
+    assert.equal(/https?:\/\//.test(text), false, `${label} must carry no link: there is nothing left to open`);
+    assertNoClinicalContent(`deletion ${label}`, text);
+  }
+  // The thing a patient most needs to know is that the record of the appointment itself is the practice's.
+  assert.match(t.email.text, /practice keeps its own record/);
+  assert.match(t.email.subject, /deleted/i);
+});
+
+test("the deletion confirmation uses the full name only as a first name", () => {
+  // The surname is contact detail the purge has just removed; the greeting should not put it back.
+  const t = deletionTemplates({ name: "Sam Sample", providerName: "Dr. Demo Endo" });
+  assert.equal(t.sms.includes("Sample"), false);
+});
+
+test("a closed channel is skipped, with a reason and no backend, so the job does not retry it", async () => {
+  // §8.1: the invite goes out on both channels staff chose, and the address bounced last week. The
+  // suppressed result must carry no `provider`, which is what lib/jobHandlers.ts reads as "a backend really
+  // tried" — a retry would send the same message to the same dead address and cost the practice its
+  // sending reputation. No backend is configured in this test, so the open channel refuses on its own terms.
+  const result = await sendIntakeInvite({
+    name: "Sam Sample",
+    phone: "+14155550100",
+    email: "sam@example.com",
+    token: "tok",
+    providerName: "Sweet Spot Endocrinology",
+    channels: ["sms", "email"],
+    suppression: { emailUndeliverableAt: new Date("2026-10-08T00:00:00Z"), emailUndeliverableReason: "bounce" },
+  });
+  assert.equal(result.email.sent, false);
+  assert.equal(result.email.provider, undefined);
+  assert.match(result.email.error!, /bounced/);
+  // The other channel is untouched by the suppression: it failed for its own reason, which is configuration.
+  assert.match(result.sms.error!, /not configured/);
+});
+
+test("a channel staff never chose stays unsent for that reason, not for a suppression one", async () => {
+  const result = await sendIntakeInvite({
+    name: "Sam Sample",
+    phone: "+14155550100",
+    email: "sam@example.com",
+    token: "tok",
+    providerName: "Sweet Spot Endocrinology",
+    channels: ["email"],
+    suppression: { smsOptOutAt: new Date() },
+  });
+  assert.match(result.sms.error!, /consented/);
 });
