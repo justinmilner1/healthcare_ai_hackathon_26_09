@@ -13,6 +13,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { CSRF_COOKIE, CSRF_COOKIE_MAX_AGE, CSRF_HEADER, CSRF_PARAM, SERVER_ACTION_HEADER, checkCsrf, isStateChanging, newCsrfToken } from "@/lib/csrf";
+import { dexcomFormActions } from "@/lib/dexcomEnv";
 import { clientIp, keyFingerprint, limit, tooManyHeaders, tooManyMessage } from "@/lib/ratelimit";
 import { contentSecurityPolicy, newNonce, STATIC_SECURITY_HEADERS } from "@/lib/security";
 
@@ -27,18 +28,19 @@ export const config = {
 
 const isDev = process.env.NODE_ENV !== "production";
 
-/** Where a form in this app may be redirected on to: Dexcom's authorization page, and nothing else. Read
- *  from the same variable lib/dexcom.ts validates, and empty when Dexcom is not configured. Next inlines a
- *  statically referenced env var into the middleware bundle, so this is fixed at build time — changing
- *  DEXCOM_BASE_URL means a rebuild, which is already true of the rest of the Dexcom configuration. */
-const FORM_ACTION_EXTRA = ((base) => {
-  if (!base) return [];
-  try {
-    return [new URL(base).origin];
-  } catch {
-    return [];
-  }
-})(process.env.DEXCOM_BASE_URL);
+/** Where a form in this app may be redirected on to: Dexcom's authorization page, and nothing else. The
+ *  host comes from the same switch lib/dexcom.ts reads (DEXCOM_ENV, design §9.2), so a deployment that
+ *  moves to production allows production's origin and not the sandbox's. Next inlines a statically
+ *  referenced env var into the middleware bundle, which is why the variables are read here and passed in
+ *  rather than read inside the helper: this is fixed at build time, so changing any of them means a rebuild
+ *  — already true of the rest of the Dexcom configuration. */
+const FORM_ACTION_EXTRA = dexcomFormActions({
+  DEXCOM_ENV: process.env.DEXCOM_ENV,
+  DEXCOM_BASE_URL: process.env.DEXCOM_BASE_URL,
+  DEXCOM_CLIENT_ID: process.env.DEXCOM_CLIENT_ID,
+  DEXCOM_SANDBOX_CLIENT_ID: process.env.DEXCOM_SANDBOX_CLIENT_ID,
+  DEXCOM_PRODUCTION_CLIENT_ID: process.env.DEXCOM_PRODUCTION_CLIENT_ID,
+});
 
 /** Whether this request arrived over TLS, which is what decides the cookie's Secure flag. Not NODE_ENV: a
  *  production build served over plain HTTP — `next start` locally, and the e2e suite — would then set Secure

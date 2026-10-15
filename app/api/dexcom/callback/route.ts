@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { dexcomConfig, DEXCOM_COOKIE, encryptTokens, exchangeCode, fetchSnapshot, hash, SANDBOX_FILENAME } from "@/lib/dexcom";
+import { dexcomConfig, DEXCOM_COOKIE, encryptTokens, exchangeCode, fetchSnapshot, hash, importFilename, visitMatchesEnv } from "@/lib/dexcom";
 import { withRoute } from "@/lib/log";
 import { newUploadKey, putObject } from "@/lib/storage";
 import { contentTypeFor } from "@/lib/uploads";
@@ -8,7 +8,7 @@ import { contentTypeFor } from "@/lib/uploads";
 async function getHandler(req: NextRequest) {
   let config;
   try { config = dexcomConfig(); } catch {
-    return NextResponse.json({ error: "Dexcom sandbox is not configured." }, { status: 503 });
+    return NextResponse.json({ error: "Dexcom is not configured." }, { status: 503 });
   }
   const state = req.nextUrl.searchParams.get("state");
   const browser = req.cookies.get(DEXCOM_COOKIE)?.value;
@@ -33,14 +33,17 @@ async function getHandler(req: NextRequest) {
   // Atomic consumption rejects concurrent callbacks and replayed authorization codes.
   const consumed = await db.dexcomOAuthState.deleteMany({ where: { stateHash: row.stateHash } });
   if (!consumed.count || row.expiresAt.getTime() < Date.now()) return back("expired");
-  if (!visit.isSandbox) return back("failed");
+  // The same rule the connect route applied, re-checked here because the environment may have changed
+  // between the two requests (§9.2).
+  if (!visitMatchesEnv(visit, config.env)) return back("failed");
   if (req.nextUrl.searchParams.has("error")) return back("cancelled");
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return back("failed");
 
   try {
     const tokens = await exchangeCode(code);
-    const encryptedTokens = encryptTokens(tokens);
+    // §4.10, §10.1: KMS where a key is configured, and bound to this patient either way (lib/dexcom.ts).
+    const encryptedTokens = await encryptTokens(tokens, visit.patientId);
     await db.dexcomConnection.upsert({
       where: { patientId: visit.patientId },
       create: { patientId: visit.patientId, encryptedTokens, expiresAt: new Date(Date.now() + tokens.expires_in * 1000) },
@@ -54,17 +57,17 @@ async function getHandler(req: NextRequest) {
     await putObject(s3Key, rawBytes, contentTypeFor("json"));
     await db.$transaction(async (tx) => {
       const fresh = await tx.visit.findUnique({ where: { id: visit.id } });
-      if (!fresh?.isSandbox) throw new Error("Not a sandbox visit.");
+      if (!fresh || !visitMatchesEnv(fresh, config.env)) throw new Error("Visit no longer matches the Dexcom environment.");
       await tx.upload.create({ data: {
         visitId: fresh.id,
         kind: "dexcom",
-        filename: SANDBOX_FILENAME,
+        filename: importFilename(config.env),
         s3Key,
         bytes: rawBytes.byteLength,
         parsedRows: snapshot.readings.length,
         data: { create: { parsed: JSON.stringify(snapshot.readings) } },
       } });
-      // Never serve an older narrative against newly imported sandbox readings.
+      // Never serve an older narrative against newly imported readings.
       await tx.summary.deleteMany({ where: { visitId: fresh.id } });
       await tx.dexcomConnection.update({ where: { patientId: visit.patientId }, data: { importedAt: new Date() } });
     });

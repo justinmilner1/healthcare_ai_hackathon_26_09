@@ -12,6 +12,11 @@ async function postHandler(req: Request) {
   try { config = dexcomConfig(); } catch {
     return NextResponse.json({ error: "Dexcom sandbox is not configured yet." }, { status: 503 });
   }
+  // A synthetic visit exists to hold the sandbox's invented readings (§13.4). On a deployment talking to
+  // production there is nothing to put in one, and the connect route would refuse it anyway (§9.2).
+  if (config.env !== "sandbox") {
+    return NextResponse.json({ error: "The Dexcom sandbox demo is not available on this deployment." }, { status: 403 });
+  }
   if (req.headers.get("origin") !== config.origin) {
     return NextResponse.json({ error: "Open intake on the configured Dexcom callback host to try the sandbox." }, { status: 403 });
   }
