@@ -430,6 +430,10 @@ export class SweetSpotStack extends cdk.Stack {
       // One parameter per line as NAME=value, which is what Next.js reads and what `npm run config:check`
       // judges. --with-decryption covers the SecureStrings a human put there (§10.6).
       `        - aws ssm get-parameters-by-path --path "${this.parameterPath}/" --recursive --with-decryption --query 'Parameters[].[Name,Value]' --output text | awk -F'\\t' '{ sub(/.*\\//, "", $1); printf "%s=%s\\n", $1, $2 }' > .env.production`,
+      // Next.js reads `.env.production`; the Prisma CLI and `scripts/check-config.ts` read `.env`. The two
+      // commands below are both, so one copy is cheaper than two queries — and without it the migration would
+      // run with no DATABASE_URL and the config gate would judge an empty environment and pass.
+      "        - cp .env.production .env",
       "        - npx prisma migrate deploy", // §13.2 staging migrates on deploy; §13.3 production gates it on a tag
       "        - npm run config:check -- --production",
       "    build:",
