@@ -9,6 +9,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
+import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
 import type {
   ChatMessage,
   IntakeFieldDef,
@@ -46,6 +47,8 @@ export default function SweetiePage({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
   const [sandboxPatient, setSandboxPatient] = useState<boolean | null>(null);
+  // Which Dexcom this deployment talks to (design §9.2): the demo below only exists for the sandbox.
+  const [dexcomEnv, setDexcomEnv] = useState<DexcomEnv | null>(null);
   const [dexcomStatusError, setDexcomStatusError] = useState(false);
   const [intake, setIntake] = useState<IntakeState | null>(null);
   const [fields, setFields] = useState<IntakeFieldDef[]>([]);
@@ -65,13 +68,17 @@ export default function SweetiePage({
   useEffect(() => {
     const controller = new AbortController();
     setSandboxPatient(null);
+    setDexcomEnv(null);
     setDexcomStatusError(false);
     fetch(`/api/dexcom/status?token=${encodeURIComponent(token)}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Status unavailable");
         const data = await response.json();
-        if (typeof data?.sandboxPatient !== "boolean") throw new Error("Invalid status");
-        if (!controller.signal.aborted) setSandboxPatient(data.sandboxPatient);
+        if (typeof data?.sandboxPatient !== "boolean" || !isDexcomEnv(data?.env)) throw new Error("Invalid status");
+        if (!controller.signal.aborted) {
+          setSandboxPatient(data.sandboxPatient);
+          setDexcomEnv(data.env);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setDexcomStatusError(true);
@@ -346,8 +353,10 @@ export default function SweetiePage({
           )}
         </header>
 
-        {sandboxPatient === false && <DexcomDemoLink token={token} disabled={busy || Boolean(uploading) || skipping} />}
-        {sandboxPatient === true && (
+        {/* A synthetic demonstration is something to offer while this deployment is still on the sandbox.
+            Once it talks to production, the real Connect Dexcom button on the intake page is the only one. */}
+        {dexcomEnv === "sandbox" && sandboxPatient === false && <DexcomDemoLink token={token} disabled={busy || Boolean(uploading) || skipping} />}
+        {dexcomEnv === "sandbox" && sandboxPatient === true && (
           <p className="mb-4 text-sm">
             <a href={`/s/${token}/intake`} className="underline">Connect Dexcom sandbox</a>
             {" "}— only the dedicated demo patient is permitted.

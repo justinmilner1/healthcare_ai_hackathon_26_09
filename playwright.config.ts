@@ -27,6 +27,12 @@ const DEGRADED_PORT = PORT + 1;
 // prove the CSRF middleware stands down for the runner — EventBridge sends a bearer token and no cookie, and
 // a 403 in front of that route means the queue never drains in production.
 const RUNNER_PORT = PORT + 2;
+// A fourth server, the only one talking to Dexcom's production environment (T24, design §9.2). The switch
+// is the whole fixture: real-looking credentials that are never used for a request, and a registered
+// callback on a host that is not this one, because production refuses an http://localhost callback (§10.1).
+// e2e/dexcom.spec.ts is the only spec that uses it — nothing else in the suite configures Dexcom at all, so
+// without it the production half of the switch has no screen anybody can look at.
+const DEXCOM_PORT = PORT + 3;
 // Long enough to satisfy the §3.7 config gate, which refuses a secret under 16 characters because this one
 // guards a public route (T31). Named like AUTH_SECRET below for the same reason: neither is a secret here.
 const RUNNER_SECRET = "e2e-jobs-secret-not-for-deployment";
@@ -99,6 +105,27 @@ export default defineConfig({
       },
     },
     {
+      command: `npx next start -p ${DEXCOM_PORT}`,
+      url: `http://localhost:${DEXCOM_PORT}/api/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000, // no build of its own either
+      env: {
+        ...process.env,
+        PORT: String(DEXCOM_PORT),
+        APP_URL: `http://localhost:${DEXCOM_PORT}`,
+        OPENAI_API_KEY: "",
+        AUTH_SECRET,
+        DEV_MAIL_DIR: `${MAIL_DIR}-dexcom`, // its own mailbox, like the other two
+        DEXCOM_ENV: "production",
+        DEXCOM_CLIENT_ID: "e2e-dexcom-client-not-real",
+        DEXCOM_CLIENT_SECRET: "e2e-dexcom-secret-not-real",
+        // Registered with Dexcom rather than served by this run: the suite looks at the button, it does not
+        // press it. A press would be refused anyway, by the connect route's origin check and by the
+        // form-action in the build these servers share, which was built with no Dexcom configured.
+        DEXCOM_REDIRECT_URI: "https://sweetspot.example.test/api/dexcom/callback",
+      },
+    },
+    {
       command: `npx next start -p ${RUNNER_PORT}`,
       url: `http://localhost:${RUNNER_PORT}/api/health`,
       reuseExistingServer: !process.env.CI,
@@ -116,4 +143,4 @@ export default defineConfig({
   ],
 });
 
-export { E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET };
+export { DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET };

@@ -249,20 +249,70 @@ test("uploads: a bucket is expected in production, and asking for S3 without one
   assert.match(errors({ ...good(), UPLOADS_REGION: "us east 1" })[0].message, /AWS region/);
 });
 
-test("Dexcom is all four variables or none", () => {
+/** A deployment with Dexcom fully configured for the sandbox, which is where T24 leaves every environment
+ *  until Dexcom approves the application (design §9.2). */
+const withDexcom = (): Record<string, string | undefined> => ({
+  ...good(),
+  DEXCOM_CLIENT_ID: "client-not-real",
+  DEXCOM_CLIENT_SECRET: "secret-not-real",
+  DEXCOM_REDIRECT_URI: "https://sweetspot.example.com/api/dexcom/callback",
+  DEXCOM_TOKEN_KMS_KEY_ID: "alias/sweetspot-dexcom-tokens",
+});
+
+test("Dexcom is a whole configuration or none of one", () => {
   assert.deepEqual(errors(good()), []); // none set: fine, uploads work without it
   const partial = errors({ ...good(), DEXCOM_CLIENT_ID: "client-not-real" });
   assert.equal(partial.length, 1);
-  assert.match(partial[0].message, /half-configured/);
-  const whole = {
-    ...good(),
-    DEXCOM_CLIENT_ID: "client-not-real",
-    DEXCOM_CLIENT_SECRET: "secret-not-real",
-    DEXCOM_REDIRECT_URI: "https://sweetspot.example.com/api/dexcom/callback",
-    DEXCOM_BASE_URL: "https://sandbox-api.dexcom.com",
+  assert.match(partial[0].message, /half-configured for DEXCOM_ENV=sandbox/);
+  assert.match(partial[0].message, /DEXCOM_CLIENT_SECRET/);
+  assert.match(partial[0].message, /DEXCOM_REDIRECT_URI/);
+
+  assert.deepEqual(errors(withDexcom()), []);
+  assert.match(errors({ ...withDexcom(), DEXCOM_REDIRECT_URI: "https://sweetspot.example.com/callback" })[0].message, /api\/dexcom\/callback/);
+  assert.match(errors({ ...withDexcom(), DEXCOM_ENV: "staging" })[0].message, /must be one of sandbox, production/);
+  // With no environment to judge the group against, the bad value is the only thing reported.
+  assert.equal(errors({ ...withDexcom(), DEXCOM_ENV: "staging", DEXCOM_CLIENT_SECRET: undefined }).length, 1);
+});
+
+test("the production switch takes production's credentials, or the shared pair (design §9.2)", () => {
+  // Credentials for the other environment are not credentials for this one.
+  const wrongWay = errors({ ...withDexcom(), DEXCOM_ENV: "production", DEXCOM_CLIENT_ID: undefined, DEXCOM_SANDBOX_CLIENT_ID: "sandbox-client-not-real" });
+  assert.equal(wrongWay.length, 1);
+  assert.match(wrongWay[0].message, /half-configured for DEXCOM_ENV=production/);
+  assert.match(wrongWay[0].message, /DEXCOM_PRODUCTION_CLIENT_ID or DEXCOM_CLIENT_ID/);
+  // Both applications' credentials in one environment is the point of the prefixed names: either switch works.
+  const both = {
+    ...withDexcom(),
+    DEXCOM_SANDBOX_CLIENT_ID: "sandbox-client-not-real",
+    DEXCOM_SANDBOX_CLIENT_SECRET: "sandbox-secret-not-real",
+    DEXCOM_PRODUCTION_CLIENT_ID: "production-client-not-real",
+    DEXCOM_PRODUCTION_CLIENT_SECRET: "production-secret-not-real",
   };
-  assert.deepEqual(errors(whole), []);
-  assert.match(errors({ ...whole, DEXCOM_REDIRECT_URI: "https://sweetspot.example.com/callback" })[0].message, /api\/dexcom\/callback/);
+  assert.deepEqual(errors(both), []);
+  assert.deepEqual(errors({ ...both, DEXCOM_ENV: "production" }), []);
+});
+
+test("DEXCOM_BASE_URL is checked against the switch rather than ignored", () => {
+  // T24 moved the host to DEXCOM_ENV. A deployment that still pins the old variable believes it is in the
+  // environment it named, so a disagreement is refused instead of silently resolved either way.
+  const pinned = errors({ ...withDexcom(), DEXCOM_BASE_URL: "https://api.dexcom.com" });
+  assert.deepEqual(pinned.map((p) => p.variable), ["DEXCOM_BASE_URL"]);
+  assert.match(pinned[0].message, /production host while DEXCOM_ENV is sandbox/);
+  assert.deepEqual(errors({ ...withDexcom(), DEXCOM_BASE_URL: "https://sandbox-api.dexcom.com" }), [], "agreeing with the switch is fine");
+  assert.match(errors({ ...withDexcom(), DEXCOM_BASE_URL: "https://dexcom.example.com" })[0].message, /not a Dexcom host/);
+});
+
+test("a deployment storing Dexcom tokens needs the KMS key (design §4.10, §10.1)", () => {
+  const noKey = { ...withDexcom(), DEXCOM_TOKEN_KMS_KEY_ID: undefined };
+  assert.deepEqual(errors(noKey).map((p) => p.variable), ["DEXCOM_TOKEN_KMS_KEY_ID"]);
+  assert.match(errors(noKey)[0].message, /refresh token/);
+  // The same carve-out as DEV_MAIL_DIR: a production build nobody else can reach is not a deployment, and
+  // the e2e suite and `npm run build && npm start` are exactly that.
+  assert.deepEqual(errors({ ...noKey, APP_URL: "http://localhost:3000" }), []);
+  assert.deepEqual(errors({ ...noKey, NODE_ENV: "development", APP_URL: "http://localhost:3000" }), []);
+  // No Dexcom, no tokens to encrypt.
+  assert.deepEqual(errors({ ...good(), DEXCOM_TOKEN_KMS_KEY_ID: undefined }), []);
+  assert.match(errors({ ...withDexcom(), DEXCOM_TOKEN_KMS_KEY_ID: "alias/one alias/two" })[0].message, /single KMS key/);
 });
 
 test("a production deployment with no way to reach a patient is a warning", () => {

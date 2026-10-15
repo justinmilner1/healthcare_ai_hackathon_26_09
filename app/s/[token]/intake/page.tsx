@@ -8,8 +8,15 @@ import type { IntakeStatus, UploadKind } from "@/lib/types";
 import { asSentence } from "@/lib/uploads";
 import styles from "./intake.module.css";
 import { apiFetch, CSRF_PARAM, ensureCsrfToken } from "@/lib/csrf";
+import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
 
 type DexcomStatus = {
+  /** Which Dexcom this deployment talks to (design §9.2). The sandbox answers with synthetic readings, so
+   *  everything the page says about a connection depends on which one it is. */
+  env: DexcomEnv;
+  /** Whether this visit is the kind that may connect at all: a synthetic visit to the sandbox, a real one
+   *  to production. The server decides (lib/dexcom.ts visitMatchesEnv); the page only asks. */
+  canConnect: boolean;
   sandboxPatient: boolean;
   configured: boolean;
   connected: boolean;
@@ -18,13 +25,24 @@ type DexcomStatus = {
   end: string | null;
 };
 
-const DEXCOM_MESSAGES: Record<string, string> = {
-  connected: "Dexcom sandbox connected. Imported synthetic readings are shown below.",
-  cancelled: "Dexcom sandbox connection was cancelled. You can try again when ready.",
-  expired: "The Dexcom sandbox connection request expired. Please start a new connection.",
-  failed: "We could not connect or import Dexcom sandbox data. Please try again.",
-  no_data: "Dexcom sandbox returned no glucose readings to import. You can reconnect and try again.",
+const DEXCOM_MESSAGES: Record<DexcomEnv, Record<string, string>> = {
+  sandbox: {
+    connected: "Dexcom sandbox connected. Imported synthetic readings are shown below.",
+    cancelled: "Dexcom sandbox connection was cancelled. You can try again when ready.",
+    expired: "The Dexcom sandbox connection request expired. Please start a new connection.",
+    failed: "We could not connect or import Dexcom sandbox data. Please try again.",
+    no_data: "Dexcom sandbox returned no glucose readings to import. You can reconnect and try again.",
+  },
+  production: {
+    connected: "Dexcom connected. Your imported readings are shown below.",
+    cancelled: "The Dexcom connection was cancelled. You can try again when ready.",
+    expired: "The Dexcom connection request expired. Please start a new connection.",
+    failed: "We could not connect to Dexcom or import your readings. Please try again.",
+    no_data: "Dexcom returned no glucose readings to import. You can reconnect and try again.",
+  },
 };
+
+const DEXCOM_OUTCOMES = Object.keys(DEXCOM_MESSAGES.sandbox);
 
 function formatImportDate(value: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return "Date unavailable";
@@ -95,7 +113,9 @@ export default function SweetieIntakePage({
   const [connectionNotice, setConnectionNotice] = useState("");
   const [dexcomStatus, setDexcomStatus] = useState<DexcomStatus | null>(null);
   const [dexcomError, setDexcomError] = useState("");
-  const [dexcomMessage, setDexcomMessage] = useState("");
+  // The outcome of a connection attempt, not the sentence for it: which sentence depends on which Dexcom
+  // this deployment talks to, and that only arrives with the status below.
+  const [dexcomOutcome, setDexcomOutcome] = useState("");
   // The sandbox Dexcom button is a plain form POST, so there is no fetch to hang a header off: the token
   // rides in the query string instead (see CSRF_PARAM in lib/csrf.ts). It can only be read once the page
   // is hydrated, which is also when the button first becomes clickable.
@@ -112,9 +132,9 @@ export default function SweetieIntakePage({
     const query = new URLSearchParams(window.location.search);
     if (query.get("demo") === "1") setStep(1);
     const outcome = query.get("dexcom");
-    setDexcomMessage("");
-    if (outcome && Object.prototype.hasOwnProperty.call(DEXCOM_MESSAGES, outcome)) {
-      setDexcomMessage(DEXCOM_MESSAGES[outcome]);
+    setDexcomOutcome("");
+    if (outcome && DEXCOM_OUTCOMES.includes(outcome)) {
+      setDexcomOutcome(outcome);
       setStep(1);
     }
 
@@ -126,6 +146,8 @@ export default function SweetieIntakePage({
         if (!response.ok) throw new Error("Status unavailable");
         const data = await response.json();
         if (
+          !isDexcomEnv(data?.env) ||
+          typeof data?.canConnect !== "boolean" ||
           typeof data?.sandboxPatient !== "boolean" ||
           typeof data?.configured !== "boolean" ||
           typeof data?.connected !== "boolean" ||
@@ -273,6 +295,9 @@ export default function SweetieIntakePage({
     }
   }
 
+  // Held back until the status says which Dexcom this is: "Dexcom sandbox connected" in front of a real
+  // patient would be a lie about where their readings came from, and the wait is one fetch.
+  const dexcomMessage = dexcomStatus && dexcomOutcome ? DEXCOM_MESSAGES[dexcomStatus.env][dexcomOutcome] : "";
   const connectedCount = dexcomStatus?.sandboxPatient
     ? Number(dexcomStatus.connected)
     : Object.values(connections).filter(
@@ -520,14 +545,22 @@ export default function SweetieIntakePage({
                           </span>
                         </span>
                         <div className={styles.sourceActions}>
-                          {source.kind === "dexcom" && (sandbox ? (
+                          {/* The OAuth button where this visit may connect (§9.2): a synthetic visit to the
+                              sandbox, a real one to production. Where it may not, and the sandbox is what
+                              this deployment talks to, a real patient is offered the separate demo visit
+                              instead — which is nothing to offer once production is live. */}
+                          {source.kind === "dexcom" && (dexcomStatus.canConnect ? (
                             <form action={`/api/dexcom/connect?${CSRF_PARAM}=${encodeURIComponent(csrfToken)}`} method="POST">
                               <input type="hidden" name="token" value={token} />
                               <button type="submit" className={styles.accountConnect} disabled={!dexcomStatus.configured || isFinishing || !csrfToken}>
-                                {dexcomStatus.connected ? "Reconnect Dexcom · Demo" : "Connect Dexcom · Demo"}
+                                {dexcomStatus.env === "production"
+                                  ? dexcomStatus.connected ? "Reconnect Dexcom" : "Connect Dexcom"
+                                  : dexcomStatus.connected ? "Reconnect Dexcom · Demo" : "Connect Dexcom · Demo"}
                               </button>
                             </form>
-                          ) : <DexcomDemoLink token={token} compact buttonClassName={styles.accountConnect} disabled={!dexcomStatus.configured || isUploading || isFinishing} />)}
+                          ) : dexcomStatus.env === "sandbox" && !sandbox ? (
+                            <DexcomDemoLink token={token} compact buttonClassName={styles.accountConnect} disabled={!dexcomStatus.configured || isUploading || isFinishing} />
+                          ) : null)}
                           {sandbox ? (
                             <button type="button" className={styles.sourceAction} disabled title="Use your regular patient intake for real uploads">{source.kind === "timeline" ? "Upload JSON" : "Upload CSV"}</button>
                           ) : <>
@@ -564,10 +597,18 @@ export default function SweetieIntakePage({
                         {source.kind === "dexcom" && (
                           <p className={styles.connectionHint}>
                             {!dexcomStatus.configured ? "Dexcom connection is not configured yet. CSV upload is still available outside demo mode."
-                              : sandbox && dexcomStatus.connected && dexcomStatus.start && dexcomStatus.end
-                                ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)} · Synthetic readings`
-                                : sandbox ? "Authorize on Dexcom and return here. Only synthetic readings are imported."
-                                  : "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."}
+                              : !dexcomStatus.canConnect
+                                // Nothing for this visit to connect to (§9.2): on the sandbox a real patient
+                                // is offered the separate demonstration instead, and in production a demo
+                                // visit has nothing to be offered at all.
+                                ? dexcomStatus.env === "sandbox"
+                                  ? "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."
+                                  : "This demonstration visit cannot connect to a real Dexcom account."
+                                : dexcomStatus.connected && dexcomStatus.start && dexcomStatus.end
+                                  ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)}${sandbox ? " · Synthetic readings" : ""}`
+                                  : sandbox
+                                    ? "Authorize on Dexcom and return here. Only synthetic readings are imported."
+                                    : "Authorize on Dexcom and return here. Your last 7 days of readings are imported."}
                           </p>
                         )}
                         {confirmRemoval === source.kind && (

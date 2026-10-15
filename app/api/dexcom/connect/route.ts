@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { authorizationUrl, dexcomConfig, DEXCOM_COOKIE, hash } from "@/lib/dexcom";
+import { authorizationUrl, dexcomConfig, DEXCOM_COOKIE, hash, visitMatchesEnv } from "@/lib/dexcom";
 import { requireVerifiedPatient } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
 import { visitByToken } from "@/lib/visit";
@@ -9,7 +9,7 @@ import { visitByToken } from "@/lib/visit";
 async function postHandler(req: Request) {
   let config;
   try { config = dexcomConfig(); } catch {
-    return NextResponse.json({ error: "Dexcom sandbox is not configured." }, { status: 503 });
+    return NextResponse.json({ error: "Dexcom is not configured." }, { status: 503 });
   }
   // Require a form submitted from the exact configured app origin, not another site.
   if (req.headers.get("origin") !== config.origin) {
@@ -20,9 +20,15 @@ async function postHandler(req: Request) {
   if (typeof token !== "string") return NextResponse.json({ error: "Patient token required." }, { status: 400 });
   const visit = await visitByToken(token);
   if (!visit) return NextResponse.json({ error: "Invalid patient link." }, { status: 404 });
-  if (!visit.isSandbox) return NextResponse.json({ error: "Use a dedicated sandbox patient; real patient data cannot be replaced." }, { status: 403 });
-  // Sandbox visits need no code (there is nobody to send one to), but the check belongs here anyway: the day
-  // this route accepts a real visit, it must not accept one on the strength of a forwarded link (§5.3).
+  // §9.2 The synthetic readings of the sandbox may only land on a synthetic visit, and a real account's
+  // readings only on a real one. Which way round that falls is the only thing DEXCOM_ENV changes here.
+  if (!visitMatchesEnv(visit, config.env)) {
+    return NextResponse.json({ error: config.env === "sandbox"
+      ? "Use a dedicated sandbox patient; real patient data cannot be replaced."
+      : "This is a synthetic demo visit, so it cannot be connected to a real Dexcom account." }, { status: 403 });
+  }
+  // A sandbox visit needs no code (there is nobody to send one to); a real one, which is what this route
+  // accepts in production, must not be accepted on the strength of a forwarded link (§5.3).
   await requireVerifiedPatient(req, visit);
 
   const state = randomBytes(32).toString("base64url");
