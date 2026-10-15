@@ -1278,6 +1278,34 @@
   .footer span:last-child {
     display: none;
   }
+
+  /* 44px of thumb (T23, design §6.5). Skip connections, Back, the per-source chips and the Dexcom demo
+     button are all short words whose box is the height of one line of 10-11px type — 17px for Back — which
+     is a target a thumb misses. The minimum is given as height and width so a chip with two letters in it
+     is no smaller than one with a sentence. */
+  .primaryButton,
+  .textButton,
+  .backButton,
+  .accountConnect,
+  .sourceAction,
+  .removeButton {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .textButton,
+  .backButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+  }
+
+  /* The extra height has to come out of the margin, or the back button pushes the whole step down the card.
+     -16px kept its 17px box tucked under the panel edge; 44px needs 27px more taken off the bottom. */
+  .backButton {
+    margin: -16px 0 -10px -10px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1290,5 +1318,29 @@
   .primaryButton,
   .sourceCard {
     transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   T23 (design §6.5): the narrowest phone still in common use. 375px is the width the section names and
+   the width e2e/mobile.spec.ts measures; the 580px block above is the phone layout in general.
+   --------------------------------------------------------------------------------------------- */
+@media (max-width: 430px) {
+  /* The welcome step's headline is the long one of the three — "Less paperwork." against "Your week," and
+     "Sweetie's" — and at 375px it ran under Sweetie's portrait, white type on the white disc. Steps 1 and 2
+     already cap their title (.artTitleTight) and clear her; this gives step 0 the same cap, at a size its
+     longest word fits inside. The cap lands on .artTitle, so all three steps keep one measure. */
+  .artTitle,
+  .artTitleTight {
+    max-width: 150px;
+    font-size: 27px;
+  }
+
+  /* And the portrait gives the headline the room: pushed off the right edge and a little smaller, so its
+     disc starts where the longest line ends instead of on top of it. */
+  .characterFrame,
+  .characterWorking {
+    right: -34px;
+    width: 200px;
   }
 }

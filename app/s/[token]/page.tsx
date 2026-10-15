@@ -471,7 +471,11 @@ export default function SweetiePage({
               <Progress status={status} intake={intake} fields={fields} />
             )}
 
-            <div className="sweetie-messages" aria-live="polite">
+            {/* The transcript scrolls, and a scrolling region a keyboard cannot reach is a serious axe
+                finding (§6.4, §12.5): on a phone it is the taller half of the screen and the only way to
+                read back what was said. tabIndex makes it a tab stop, which is what gives arrow keys and
+                Page Up something to act on; the label is what a screen reader announces on arriving. */}
+            <div className="sweetie-messages" aria-live="polite" tabIndex={0} role="log" aria-label="Your conversation with Sweetie">
               {messages.map((message, index) => (
                 <div
                   key={`${message.createdAt ?? "message"}-${index}`}
@@ -716,7 +720,9 @@ function Progress({
             aria-current={current ? "step" : undefined}
           >
             <b>{step.done ? "✓" : index + 1}</b>
-            {step.label}
+            {/* In its own element so the phone layout can take it out of the flow without taking it away
+                from a screen reader (globals.css, T23). */}
+            <span className="sweetie-field-label">{step.label}</span>
           </li>
         );
       })}
