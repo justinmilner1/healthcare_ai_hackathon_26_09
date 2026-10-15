@@ -48,8 +48,9 @@ Runs every three hours. Reviews every open pull request labeled `review`, oldest
 ## Running and viewing the app
 
 `scripts/agent-check.sh` installs dependencies, prepares a throwaway database, seeds demo data, runs typecheck, lint,
-unit tests with a coverage table (design §12.1), and the Playwright suite, and writes screenshots to
-`e2e/screenshots/`. Both agents read those PNGs to
+unit tests with a coverage table (design §12.1), the `/infra` check (T29: `cdk synth` and the stack's own unit
+tests, with no AWS account and no Docker — `scripts/infra-check.sh`), and the Playwright suite, and writes
+screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
 
 The suite runs two app servers (T20). Port 3100 is the usual one, with no model key, and port 3101 is the same

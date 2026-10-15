@@ -102,7 +102,7 @@ test("the job queue is drained once a minute by the schedule, not by the app (§
     Target: Match.objectLike({ RetryPolicy: { MaximumRetryAttempts: 0 } }),
   });
   // The app is told so too, or it would drain inline after every request as it does locally.
-  template.hasResourceProperties("AWS::Amplify::App", {
+  template.hasResourceProperties("AWS::Amplify::Branch", {
     EnvironmentVariables: Match.arrayWith([{ Name: "JOBS_RUNNER", Value: "scheduled" }]),
   });
   template.hasResourceProperties("AWS::Lambda::Function", Match.objectLike({ FunctionName: "sweetspot-staging-jobs-tick", Handler: "index.handler" }));
@@ -143,6 +143,13 @@ test("configuration comes from one SSM path, and the app may read it (§3.7, §1
   template.hasResourceProperties("AWS::IAM::Policy", {
     PolicyDocument: { Statement: Match.arrayWith([Match.objectLike({ Action: Match.arrayWith(["ssm:GetParametersByPath"]) })]) },
   });
+});
+
+test("the app itself holds no environment, so the secrets a human puts there survive a deploy (§10.6)", () => {
+  const app = staging().findResources("AWS::Amplify::App");
+  for (const resource of Object.values(app)) {
+    assert.equal(resource.Properties.EnvironmentVariables, undefined, "CloudFormation must not own the app's variables");
+  }
 });
 
 test("a stage with a domain of its own uses it for every link (§3.7)", () => {

@@ -352,10 +352,7 @@ export class SweetSpotStack extends cdk.Stack {
       enableBranchAutoDeletion: false,
       buildSpec: this.buildSpec(),
     });
-    // `appUrl()` reads the app's generated domain for a stage with no domain of its own, so the environment
-    // can only be built once the app exists. L1 properties are writable, which is what makes that order legal.
     this.amplifyApp = app;
-    app.environmentVariables = this.appEnvironment();
 
     const branch = new amplify.CfnBranch(this, "Branch", {
       appId: app.attrAppId,
@@ -363,13 +360,7 @@ export class SweetSpotStack extends cdk.Stack {
       stage: this.config.stage === "production" ? "PRODUCTION" : "BETA",
       enableAutoBuild: true, // §13.2: every merge to this branch deploys
       framework: "Next.js - SSR",
-      // APP_URL belongs here rather than with the app's other variables: for a stage with no domain of its own
-      // it is built from the app's generated domain, and CloudFormation refuses a resource that reads one of
-      // its own attributes. Amplify merges a branch's variables over the app's, so the effect is the same.
-      environmentVariables: [
-        { name: "NODE_ENV", value: "production" },
-        { name: "APP_URL", value: this.appUrl() },
-      ],
+      environmentVariables: this.branchEnvironment(),
     });
 
     // §11.1: the app's JSON log lines land in Amplify's own log group for the app. The group is declared here
@@ -417,12 +408,23 @@ export class SweetSpotStack extends cdk.Stack {
   }
 
   /**
-   * The non-secret half of §3.7, set on the Amplify app so the SSR compute has it without a lookup. The secret
-   * half is in SSM as SecureStrings and has to be entered in the Amplify console once (docs/DEPLOY.md): the
-   * build spec above reads SSM, but Amplify's compute environment is set from the app configuration.
+   * The non-secret half of §3.7, on the *branch* rather than on the app — which is the whole trick for the
+   * secret half.
+   *
+   * Amplify's SSR compute takes its environment from the app's variables with the branch's merged over them,
+   * and the secrets (`DATABASE_URL`, `AUTH_SECRET`, `JOBS_SECRET`, `OPENAI_API_KEY`, the Dexcom pair) cannot
+   * come from here: §10.6 keeps them in SSM, and CloudFormation would carry them in a template. So a human
+   * puts those six on the *app*, once, from the SSM values (docs/DEPLOY.md) — and because nothing in this
+   * stack manages the app's variables, no later `cdk deploy` reverts them. Everything CloudFormation does own
+   * is on the branch, where a console edit is drift rather than someone's credentials being deleted.
+   *
+   * APP_URL has a second reason to be here: for a stage with no domain of its own it is built from the app's
+   * own generated domain, and CloudFormation refuses a resource that reads one of its own attributes.
    */
-  private appEnvironment(): amplify.CfnApp.EnvironmentVariableProperty[] {
+  private branchEnvironment(): amplify.CfnBranch.EnvironmentVariableProperty[] {
     const vars: Record<string, string | undefined> = {
+      NODE_ENV: "production",
+      APP_URL: this.appUrl(),
       CONFIG_PARAMETER_PATH: this.parameterPath,
       UPLOADS_BUCKET: this.uploads.bucketName,
       UPLOADS_REGION: this.region,
@@ -435,7 +437,6 @@ export class SweetSpotStack extends cdk.Stack {
       JOBS_RUNNER: "scheduled", // the schedule below is what drains the queue (§3.4)
       OPENAI_BASE_URL: this.config.modelBaseUrl,
       BEDROCK_OPENAI_MODEL_ID: this.config.modelId,
-      NODE_ENV: "production",
     };
     return Object.entries(vars)
       .filter((entry): entry is [string, string] => entry[1] !== undefined)
