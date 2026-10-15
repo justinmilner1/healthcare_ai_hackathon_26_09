@@ -5,7 +5,9 @@
   --foreground: #271f25;
   --ss-ink: #271f25;
   --ss-ink-soft: #4f454c;
-  --ss-muted: #857a81;
+  /* 4.9:1 on white. The muted grey this replaces was 4.1:1 — under the 4.5:1 WCAG AA asks of body text,
+     and axe fails it as serious wherever it is used small (design §6.4, T22). */
+  --ss-muted: #786e74;
   --ss-line: #ebe4e7;
   --ss-surface: #ffffff;
   --sweetie: #f75d7c;
@@ -33,7 +35,9 @@
   --viz-surface: #fffdfd;
   --viz-ink: #271f25;
   --viz-ink-2: #5f555c;
-  --viz-muted: #91878d;
+  /* Axis ticks and chart captions are text, so 4.5:1: #91878d was 3.4:1. axe cannot see inside an SVG,
+     which is why this one is held to the figure rather than to the rule (design §6.4, T22). */
+  --viz-muted: #796f75;
   --viz-grid: #ebe4e7;
   --viz-axis: #d2c8cd;
   --viz-series: #e94f72;
@@ -3660,7 +3664,9 @@ textarea.ss-input {
   padding: 5px 8px;
   border: 1px solid #eee4e8;
   border-radius: 99px;
-  color: #9b8d94;
+  /* 5.6:1 on the white pill behind it. The muted #9b8d94 this used to be read as 3.2:1, which axe fails as a
+     serious contrast violation at 11px (design §6.4, T22). */
+  color: #73646c;
   background: white;
   font-size: 11px;
   font-weight: 650;
@@ -3672,7 +3678,8 @@ textarea.ss-input {
   height: 17px;
   place-items: center;
   border-radius: 50%;
-  color: #8e8087;
+  /* 5.4:1 on its own grey disc; #8e8087 was 3.2:1 (§6.4). */
+  color: #6b5c64;
   background: #f2ecef;
   font-size: 9px;
 }
@@ -4247,7 +4254,7 @@ button.sweetie-agent-badge {
 .patient-mini-stat small {
   margin-top: 2px;
   overflow: hidden;
-  color: #a09399;
+  color: #7b6d73; /* 4.9:1; #a09399 was 2.9:1 at 11px (§6.4) */
   font-size: 7px;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -26,6 +26,12 @@ import {
 } from "@/lib/voice";
 
 type AgentInfo = { connected: boolean; model: string; degraded?: boolean };
+
+/** Whether the patient has asked their system for less movement (design §6.4). */
+const reducedMotion = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
 export default function SweetiePage({
@@ -95,7 +101,10 @@ export default function SweetiePage({
   }, [token]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
+    // A smooth scroll is motion the `prefers-reduced-motion` block in globals.css cannot reach: the browser
+    // takes the behaviour from this argument, not from the stylesheet. So the page asks the media query
+    // itself and jumps instead of gliding when the patient has asked for less movement (design §6.4).
+    bottom.current?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth" });
   }, [messages, interim, busy]);
 
   const applyReply = useCallback(
@@ -640,7 +649,9 @@ function UploadButton({
       <span className="sweetie-upload-icon">{short}</span>
       <span>
         <strong>{label}</strong>
-        <small>{loading ? "Adding file…" : done ? "Connected" : detail}</small>
+        {/* The card's second line is the whole of its state — "Glucose CSV", then "Adding file…", then
+            "Connected" — and nothing moves focus as it changes, so it announces itself (design §6.4). */}
+        <small aria-live="polite">{loading ? "Adding file…" : done ? "Connected" : detail}</small>
       </span>
       <b>{loading ? "…" : done ? "✓" : "+"}</b>
       <input
