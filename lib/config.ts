@@ -24,6 +24,7 @@
 // Nothing here ever logs or prints a value. Problems name the variable and say what is wrong with it; the
 // secret itself stays in the environment where it belongs (§10.6).
 
+import { DEXCOM_BASE_URL, DEXCOM_ENVS, dexcomCredentialNames, dexcomEnv, isDexcomEnv } from "./dexcomEnv";
 import { log } from "./log";
 
 export type Requirement = "required" | "recommended" | "optional";
@@ -432,16 +433,47 @@ export const SPEC: readonly VarSpec[] = [
   },
 
   {
+    name: "DEXCOM_ENV",
+    group: "Dexcom",
+    requirement: "optional",
+    summary: "Which Dexcom to talk to: sandbox (the default) or production, once Dexcom approves the app (design §9.2).",
+    check: oneOf(...DEXCOM_ENVS),
+  },
+  {
     name: "DEXCOM_CLIENT_ID",
     group: "Dexcom",
     requirement: "optional",
-    summary: "Dexcom application client id. The whole group is optional; uploads work without it.",
+    summary: "Dexcom application client id, for whichever environment has no id of its own below. The whole group is optional; uploads work without it.",
   },
   {
     name: "DEXCOM_CLIENT_SECRET",
     group: "Dexcom",
     requirement: "optional",
-    summary: "Dexcom application client secret.",
+    summary: "Dexcom application client secret, for whichever environment has no secret of its own below.",
+  },
+  {
+    name: "DEXCOM_SANDBOX_CLIENT_ID",
+    group: "Dexcom",
+    requirement: "optional",
+    summary: "Client id used when DEXCOM_ENV=sandbox, for a deployment holding both applications' credentials.",
+  },
+  {
+    name: "DEXCOM_SANDBOX_CLIENT_SECRET",
+    group: "Dexcom",
+    requirement: "optional",
+    summary: "Client secret used when DEXCOM_ENV=sandbox.",
+  },
+  {
+    name: "DEXCOM_PRODUCTION_CLIENT_ID",
+    group: "Dexcom",
+    requirement: "optional",
+    summary: "Client id used when DEXCOM_ENV=production. Dexcom issues a separate application for it.",
+  },
+  {
+    name: "DEXCOM_PRODUCTION_CLIENT_SECRET",
+    group: "Dexcom",
+    requirement: "optional",
+    summary: "Client secret used when DEXCOM_ENV=production.",
   },
   {
     name: "DEXCOM_REDIRECT_URI",
@@ -451,10 +483,20 @@ export const SPEC: readonly VarSpec[] = [
     check: dexcomCallback,
   },
   {
+    name: "DEXCOM_TOKEN_KMS_KEY_ID",
+    group: "Dexcom",
+    requirement: "optional",
+    summary: "KMS key (id, alias or ARN) the stored Dexcom refresh tokens are encrypted with (design §4.10, §10.1).",
+    // An ARN names its own region, which is why there is no DEXCOM_TOKEN_KMS_REGION; anything else uses the
+    // default region. Not validated beyond being one token: KMS accepts a uuid, `alias/name`, and two ARN
+    // shapes, and a typo in a key id surfaces at the first connection rather than silently.
+    check: (value) => (/\s/.test(value) ? "must be a single KMS key id, alias or ARN, with no spaces" : undefined),
+  },
+  {
     name: "DEXCOM_BASE_URL",
     group: "Dexcom",
     requirement: "optional",
-    summary: "https://sandbox-api.dexcom.com until the production application is approved (design §9.2).",
+    summary: "No longer how the host is chosen — DEXCOM_ENV is. Kept so a deployment that pins it is checked against the switch rather than ignored (design §9.2).",
     check: absoluteUrl,
   },
 ];
@@ -566,18 +608,60 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   // a refusal, because the sending still works and it is suppression, not delivery, that is missing.
   companions("SES_CONFIGURATION_SET", ["SNS_TOPIC_ARNS"], "POST /api/notifications/sns ignores a topic that is not listed, so bounces would not suppress anything", "warning");
 
-  // Dexcom is all-or-nothing: lib/dexcom.ts throws on a partial set, which reads as "not connected" in the UI
-  // and hides the typo that caused it.
-  const dexcom = SPEC.filter((s) => s.group === "Dexcom").map((s) => s.name);
-  const dexcomSet = dexcom.filter((name) => v(name));
-  if (dexcomSet.length > 0 && dexcomSet.length < dexcom.length) {
-    const missing = dexcom.filter((name) => !v(name));
-    out.push({
-      level: fatal,
-      kind: "combination",
-      variable: missing[0],
-      message: `Dexcom is half-configured: ${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} not set. Set all of ${dexcom.join(", ")}, or none of them.`,
-    });
+  // Dexcom (design §9.2). The group is optional as a whole — uploads work without any of it — but a partial
+  // set is not a lighter version of it: lib/dexcom.ts throws on one, which reads as "not connected" in the UI
+  // and hides the typo that caused it. What "complete" means now depends on DEXCOM_ENV, since each
+  // environment has its own credentials and either may fall back to the unprefixed pair.
+  const dexcomNames = SPEC.filter((s) => s.group === "Dexcom").map((s) => s.name);
+  if (dexcomNames.some((name) => v(name))) {
+    // A DEXCOM_ENV that is neither has already been reported by the row's own check; there is no environment
+    // to judge the rest of the group against, so the rules below stand down rather than guess at one.
+    const requested = v("DEXCOM_ENV");
+    const selected = !requested || isDexcomEnv(requested) ? dexcomEnv(requested) : null;
+    if (selected) {
+      const credential = (suffix: "CLIENT_ID" | "CLIENT_SECRET") => {
+        const names = dexcomCredentialNames(selected, suffix);
+        return names.some((name) => v(name)) ? null : names.join(" or ");
+      };
+      const missing = [credential("CLIENT_ID"), credential("CLIENT_SECRET"), v("DEXCOM_REDIRECT_URI") ? null : "DEXCOM_REDIRECT_URI"]
+        .filter((name): name is string => name !== null);
+      if (missing.length > 0) {
+        out.push({
+          level: fatal,
+          kind: "combination",
+          variable: missing[0].split(" or ")[0],
+          message: `Dexcom is half-configured for DEXCOM_ENV=${selected}: ${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} not set. Set all of them, or none of the DEXCOM_* variables.`,
+        });
+      }
+
+      // DEXCOM_BASE_URL is no longer the switch, so a value that contradicts it is an operator who believes
+      // they are in the other environment. lib/dexcom.ts refuses to build a client from the pair.
+      const pinned = v("DEXCOM_BASE_URL")?.replace(/\/+$/, "");
+      if (pinned && pinned !== DEXCOM_BASE_URL[selected]) {
+        out.push({
+          level: fatal,
+          kind: "combination",
+          variable: "DEXCOM_BASE_URL",
+          message: `DEXCOM_BASE_URL is ${pinned === DEXCOM_BASE_URL.production ? "Dexcom's production host" : pinned === DEXCOM_BASE_URL.sandbox ? "Dexcom's sandbox host" : "not a Dexcom host"} while DEXCOM_ENV is ${selected}, whose host is ${DEXCOM_BASE_URL[selected]}. Unset DEXCOM_BASE_URL, or set DEXCOM_ENV to the environment you meant (design §9.2).`,
+        });
+      }
+
+      // §4.10 and §10.1 ask for a KMS-backed key, and this is the line between a deployment and a production
+      // build on somebody's laptop — the same test the DEV_MAIL_DIR rule above uses, for the same reason: the
+      // e2e suite and `npm run build && npm start` are production builds that nobody else can reach. Without
+      // a key, lib/dexcom.ts derives one from the client secret, which is fine for a demo and is not
+      // encryption a deployment holding a patient's refresh token should be relying on.
+      // Only once the rest of the group is whole: a half-configured Dexcom stores no tokens at all, so the
+      // missing credentials are the problem to report and the key is a problem it does not have yet.
+      if (missing.length === 0 && production && !isLocal(v("APP_URL")) && !v("DEXCOM_TOKEN_KMS_KEY_ID")) {
+        out.push({
+          level: "error",
+          kind: "combination",
+          variable: "DEXCOM_TOKEN_KMS_KEY_ID",
+          message: "DEXCOM_TOKEN_KMS_KEY_ID is required on a deployment with Dexcom configured: a stored refresh token is a standing key to a patient's glucose history and must be encrypted with a KMS-backed key (design §4.10, §10.1).",
+        });
+      }
+    }
   }
 
   // Diverting mail is how local development and the e2e suite work, and both run production builds, so
