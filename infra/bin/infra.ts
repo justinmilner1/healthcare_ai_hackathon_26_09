@@ -5,8 +5,12 @@
 // CI run (§12.4). It needs no AWS credentials: a stage whose `cdk.json` context has no account is synthesized
 // env-agnostic, and nothing in the stack does a context lookup.
 //
-// Two stacks, one class (§13.2, §13.3). Staging is here; production is T30 and lands as a second instance of
-// the same `SweetSpotStack` with `sweetspot:production` context.
+// Two stacks, one class (§13.2, §13.3): `SweetSpot-staging` and `SweetSpot-production`, each configured by its
+// own `sweetspot:<stage>` context object in cdk.json. Everything that differs between them is in lib/stage.ts,
+// so the difference between a staging deployment and a production one is readable in one file.
+//
+// `cdk deploy` with no stack named refuses to pick for you now that there are two; deploy one at a time, and
+// run `cdk diff SweetSpot-production` first (docs/RUNBOOK.md).
 
 import * as cdk from "aws-cdk-lib";
 import { SweetSpotStack } from "../lib/sweetspot-stack";
@@ -23,6 +27,16 @@ new SweetSpotStack(app, "SweetSpot-staging", {
   env: {
     account: staging.account ?? process.env.CDK_DEFAULT_ACCOUNT,
     region: staging.region ?? process.env.CDK_DEFAULT_REGION,
+  },
+});
+
+const production = stageConfig(app, "production");
+new SweetSpotStack(app, "SweetSpot-production", {
+  config: production,
+  description: "Sweet Spot production: Amplify, RDS, S3, SES, SNS, the job schedule and the alarms (design §3.6, §13.3)",
+  env: {
+    account: production.account ?? process.env.CDK_DEFAULT_ACCOUNT,
+    region: production.region ?? process.env.CDK_DEFAULT_REGION,
   },
 });
 

@@ -17,6 +17,20 @@
       "modelBaseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
       "modelId": "global.openai.gpt-5.6-terra"
     },
+    "sweetspot:production": {
+      "//": "§13.3. `branch` is written only by .github/workflows/release.yml, and only at a `v*` tag; see docs/RUNBOOK.md.",
+      "account": "",
+      "region": "us-east-1",
+      "appUrl": "",
+      "emailIdentity": "sweetspot.example",
+      "emailFrom": "Sweet Spot <no-reply@sweetspot.example>",
+      "alarmEmail": "",
+      "repository": "https://github.com/justinmilner1/healthcare_ai_hackathon_26_09",
+      "branch": "release",
+      "dbAllowedCidrs": [],
+      "modelBaseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+      "modelId": "global.openai.gpt-5.6-terra"
+    },
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/core:validateSnapshotRemovalPolicy": true,

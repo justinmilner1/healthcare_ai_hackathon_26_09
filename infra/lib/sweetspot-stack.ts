@@ -1,4 +1,4 @@
-// The Sweet Spot stack (design §3.6). One class, two instances: staging (T29) and production. Owner: ops.
+// The Sweet Spot stack (design §3.6). One class, two instances: staging (T29) and production (T30). Owner: ops.
 //
 // Everything the app needs that is not the app: the Amplify Hosting app it is served from, the RDS Postgres it
 // reads (§3.2), the private S3 bucket uploads land in (§3.3), the SES identity and SNS topics notifications go
@@ -223,8 +223,9 @@ export class SweetSpotStack extends cdk.Stack {
    *
    * Amplify publishes no stable egress range, so `dbAllowedCidrs` is how a deployment opens the door — an
    * operator's office range for migrations and psql, or `0.0.0.0/0` for a staging deployment that accepts a
-   * password-and-TLS-only perimeter. docs/DEPLOY.md spells out that trade; production (T30) is where a
-   * VPC-attached compute, or a bastion, earns its cost.
+   * password-and-TLS-only perimeter. docs/DEPLOY.md spells out that trade, and it is a per-stage decision:
+   * production names the ranges its operators and its Amplify build actually come from rather than inheriting
+   * whatever staging settled for.
    */
   private database(): rds.DatabaseInstance {
     // Two AZs because an RDS subnet group has to span two. One kind of subnet, public, because that is where
@@ -307,8 +308,10 @@ export class SweetSpotStack extends cdk.Stack {
   // Hosting
 
   /**
-   * §3.1 and §13.2: the app is Next.js SSR on Amplify Hosting, built from this repository, and every merge to
-   * the stage's branch deploys.
+   * §3.1: the app is Next.js SSR on Amplify Hosting, built from this repository, and a push to the stage's
+   * branch deploys. What pushes that branch is what separates the two stages: staging's branch is `main`, so
+   * every merge deploys (§13.2); production's is `release`, which only `.github/workflows/release.yml` writes
+   * and only ever at a `v*` tag, so every production deploy is a tagged release (§13.3).
    *
    * Connecting the repository needs a GitHub token with `repo` scope, which is a human step: it arrives as the
    * `GitHubAccessToken` template parameter (NoEcho) at deploy time rather than living in SSM, because Amplify
@@ -398,7 +401,9 @@ export class SweetSpotStack extends cdk.Stack {
       appId: app.attrAppId,
       branchName: this.config.branch,
       stage: this.config.stage === "production" ? "PRODUCTION" : "BETA",
-      enableAutoBuild: true, // §13.2: every merge to this branch deploys
+      // §13.2 for staging (every merge to main), §13.3 for production (the release workflow moving `release`
+      // onto a tag). Both are a push to the branch; only the set of things allowed to push differs.
+      enableAutoBuild: true,
       framework: "Next.js - SSR",
       environmentVariables: this.branchEnvironment(),
     });
@@ -418,14 +423,32 @@ export class SweetSpotStack extends cdk.Stack {
     return branch;
   }
 
-  /** `.env.production` from SSM, migrations, the §3.7 gate, then the build. */
+  /**
+   * `.env.production` from SSM, migrations, the §3.7 gate, then the build.
+   *
+   * Everything before `build:` is pre-deploy: Amplify runs `preBuild`, then `build`, and only publishes if
+   * both succeeded, so a failure anywhere in here leaves the version that is already serving in place. That
+   * is what §13.3 means by migrations as a pre-deploy step — `prisma migrate deploy` runs against the stage's
+   * database before the new version can take a request, and a migration that fails is a failed deploy rather
+   * than an application that boots against a schema it does not understand.
+   *
+   * A production build starts with one more check: it must be a build of the stage's branch. The release
+   * workflow is the only thing that writes that branch and it only accepts a `v*` tag, so this stops a build
+   * started by hand in the console against some other ref from migrating the production database.
+   */
   private buildSpec(): string {
+    const releaseGuard = this.config.deployFromTag
+      ? [
+          `        - test "$AWS_BRANCH" = "${this.config.branch}" || { echo "${this.config.stage} deploys the ${this.config.branch} branch only (design §13.3); got $AWS_BRANCH"; exit 1; }`,
+        ]
+      : [];
     return [
       "version: 1",
       "frontend:",
       "  phases:",
       "    preBuild:",
       "      commands:",
+      ...releaseGuard,
       "        - npm ci",
       // One parameter per line as NAME=value, which is what Next.js reads and what `npm run config:check`
       // judges. --with-decryption covers the SecureStrings a human put there (§10.6).
@@ -434,7 +457,14 @@ export class SweetSpotStack extends cdk.Stack {
       // commands below are both, so one copy is cheaper than two queries — and without it the migration would
       // run with no DATABASE_URL and the config gate would judge an empty environment and pass.
       "        - cp .env.production .env",
-      "        - npx prisma migrate deploy", // §13.2 staging migrates on deploy; §13.3 production gates it on a tag
+      // Said out loud in the build log before anything is applied, so the deploy that goes wrong can be read
+      // afterwards: which migrations this release brought, and which were already there. `migrate status`
+      // exits non-zero when anything is pending, which is the normal case here and not a failure.
+      "        - npx prisma migrate status || true",
+      // §13.2 staging migrates on every merge; §13.3 production migrates once per release tag, here, before
+      // the build that would serve it. Rolling a release back does not roll a migration back — which is why
+      // docs/RUNBOOK.md requires every migration to be readable by the release before it.
+      "        - npx prisma migrate deploy",
       "        - npm run config:check -- --production",
       "    build:",
       "      commands:",
