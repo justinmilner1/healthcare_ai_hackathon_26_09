@@ -21,6 +21,7 @@
 //   3. **Amplify Hosting's SSR compute cannot join a VPC.** That is a platform limit, not a choice, and it
 //      decides the database's posture: see `database()`.
 
+import * as path from "node:path";
 import * as cdk from "aws-cdk-lib";
 import * as amplify from "aws-cdk-lib/aws-amplify";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
@@ -54,6 +55,20 @@ export const SECURE_PARAMETERS = [
   "DEXCOM_CLIENT_SECRET",
 ] as const;
 
+/** `logRetentionDays` as the enum CloudWatch wants. Only the values the two stages use are mapped. */
+function retentionOf(days: number): logs.RetentionDays {
+  const known: Record<number, logs.RetentionDays> = {
+    30: logs.RetentionDays.ONE_MONTH,
+    60: logs.RetentionDays.TWO_MONTHS,
+    90: logs.RetentionDays.THREE_MONTHS,
+    180: logs.RetentionDays.SIX_MONTHS,
+    365: logs.RetentionDays.ONE_YEAR,
+  };
+  const retention = known[days];
+  if (!retention) throw new Error(`logRetentionDays must be one of ${Object.keys(known).join(", ")}, not ${days}`);
+  return retention;
+}
+
 export class SweetSpotStack extends cdk.Stack {
   readonly config: StageConfig;
   readonly prefix: string;
@@ -64,9 +79,10 @@ export class SweetSpotStack extends cdk.Stack {
   readonly alarmTopic: sns.Topic;
   readonly mailEventTopic: sns.Topic;
   readonly configurationSet?: ses.ConfigurationSet;
-  readonly app: amplify.CfnApp;
-  private amplifyApp?: amplify.CfnApp;
-  readonly appLogs: logs.LogGroup;
+  // Assigned by `hosting()` rather than in the constructor, because `appUrl()` reads the app's generated
+  // domain while the branch and the parameters are still being built.
+  app!: amplify.CfnApp;
+  appLogs!: logs.LogGroup;
   readonly jobsTick: lambda.Function;
   readonly dexcomTokenKey: kms.Key;
 
@@ -85,9 +101,7 @@ export class SweetSpotStack extends cdk.Stack {
     this.mailEventTopic = this.topic("MailEvents", "mail-events", "SES bounces and complaints, and inbound SMS (design §8.1)");
     this.configurationSet = this.sesIdentity();
     this.db = this.database();
-    const { app, branch, logGroup } = this.hosting();
-    this.app = app;
-    this.appLogs = logGroup;
+    const branch = this.hosting();
     this.configParameters();
     this.jobsTick = this.jobRunnerSchedule();
     this.alarms();
@@ -297,7 +311,7 @@ export class SweetSpotStack extends cdk.Stack {
    * `.env.production`, runs the migrations, and runs `npm run config:check -- --production` so a deployment
    * missing something required fails the build instead of serving.
    */
-  private hosting(): { app: amplify.CfnApp; branch: amplify.CfnBranch; logGroup: logs.LogGroup; role: iam.Role } {
+  private hosting(): amplify.CfnBranch {
     const accessToken = new cdk.CfnParameter(this, "GitHubAccessToken", {
       type: "String",
       noEcho: true,
@@ -329,10 +343,29 @@ export class SweetSpotStack extends cdk.Stack {
     );
     this.uploads.grantReadWrite(role); // §3.3
     this.dexcomTokenKey.grantEncryptDecrypt(role); // §4.10
-    this.mailEventTopic.grantPublish(role);
-    role.addToPolicy(new iam.PolicyStatement({ actions: ["ses:SendEmail", "ses:SendRawEmail"], resources: ["*"] }));
+    // §8: send as this stage's identity, through this stage's configuration set, and nothing else. A stage
+    // with no identity yet gets no sending permission at all, which is the same answer the app gives.
+    if (this.config.emailIdentity && this.configurationSet) {
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ["ses:SendEmail", "ses:SendRawEmail"],
+          resources: [
+            cdk.Arn.format({ service: "ses", resource: "identity", resourceName: this.config.emailIdentity }, this),
+            cdk.Arn.format({ service: "ses", resource: "configuration-set", resourceName: this.configurationSet.configurationSetName }, this),
+          ],
+        }),
+      );
+    }
+    // SMS (§8). Publishing to a phone number has no topic to name, so the resource is the account's own
+    // endpoints and the condition is what keeps this from being "publish to anything".
     role.addToPolicy(new iam.PolicyStatement({ actions: ["sns:Publish"], resources: ["*"], conditions: { StringEquals: { "sns:Protocol": "sms" } } }));
-    role.addToPolicy(new iam.PolicyStatement({ actions: ["logs:CreateLogStream", "logs:PutLogEvents", "logs:CreateLogGroup", "logs:DescribeLogGroups"], resources: ["*"] }));
+    // §11.1: the JSON log lines, into this app's own group and no other.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogGroups", "logs:DescribeLogStreams"],
+        resources: [cdk.Arn.format({ service: "logs", resource: "log-group", resourceName: "/aws/amplify/*", arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }, this)],
+      }),
+    );
 
     // Amplify refuses a repository without a token to clone it with, so the pair is all-or-nothing: with no
     // token the app is created unconnected and a human connects it in the console, which is the same click
@@ -352,7 +385,7 @@ export class SweetSpotStack extends cdk.Stack {
       enableBranchAutoDeletion: false,
       buildSpec: this.buildSpec(),
     });
-    this.amplifyApp = app;
+    this.app = app;
 
     const branch = new amplify.CfnBranch(this, "Branch", {
       appId: app.attrAppId,
@@ -369,13 +402,13 @@ export class SweetSpotStack extends cdk.Stack {
     // create it on the first request, after the deploy. Amplify writes into an existing group happily; if a
     // previous deploy of this app already created it, import it rather than letting CloudFormation collide
     // (docs/DEPLOY.md).
-    const logGroup = new logs.LogGroup(this, "AppLogs", {
+    this.appLogs = new logs.LogGroup(this, "AppLogs", {
       logGroupName: `/aws/amplify/${app.attrAppId}`,
-      retention: this.config.logRetentionDays === 90 ? logs.RetentionDays.THREE_MONTHS : logs.RetentionDays.ONE_MONTH,
+      retention: retentionOf(this.config.logRetentionDays),
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    return { app, branch, logGroup, role };
+    return branch;
   }
 
   /** `.env.production` from SSM, migrations, the §3.7 gate, then the build. */
@@ -450,8 +483,8 @@ export class SweetSpotStack extends cdk.Stack {
    */
   private appUrl(): string {
     if (this.config.appUrl) return this.config.appUrl;
-    if (!this.amplifyApp) throw new Error("appUrl() needs the Amplify app: call it after hosting()");
-    return `https://${this.config.branch}.${this.amplifyApp.attrDefaultDomain}`;
+    if (!this.app) throw new Error("appUrl() needs the Amplify app: call it after hosting()");
+    return `https://${this.config.branch}.${this.app.attrDefaultDomain}`;
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -513,7 +546,8 @@ export class SweetSpotStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
       handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/jobs-tick"),
+      // Resolved from this file, not from the shell's directory, so a synth from anywhere finds it.
+      code: lambda.Code.fromAsset(path.join(__dirname, "..", "lambda", "jobs-tick")),
       timeout: cdk.Duration.seconds(60), // one drain pass; the queue's own retries handle the rest
       memorySize: 256,
       logGroup,
