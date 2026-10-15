@@ -51,6 +51,11 @@ echo "== lint";      npm run lint
 # routines' logs with no second run of the suite (design §12.1). `npm test` stays the bare runner.
 echo "== unit";      npm run test:coverage
 
+# The CDK app (design §3.6). Separate package, separate install; `cdk synth` with no credentials is the check
+# that the stack is well formed, and the stack's own unit tests assert the properties §10.1, §11.1 and §11.4
+# ask for. Before the slow part of the run, so a broken stack fails in forty seconds rather than three minutes.
+bash scripts/infra-check.sh
+
 echo "== browsers"
 # Some sandboxes block the Playwright CDN but ship a Chromium. Try the normal install; if it fails, point Playwright
 # at any pre-installed Chromium (PLAYWRIGHT_BROWSERS_PATH, usually /opt/pw-browsers) via PW_CHROMIUM_PATH.
