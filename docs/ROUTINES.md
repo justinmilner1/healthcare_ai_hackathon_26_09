@@ -56,6 +56,16 @@ The suite runs two app servers (T20). Port 3100 is the usual one, with no model 
 build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
 the real degraded path (design §6.3). Playwright starts them one after another, so only the first one builds.
 
+### The journey spec (T26)
+
+`e2e/journey.spec.ts` is design §12.2 in one test: an admin sets a practice up, staff book a visit in the
+wizard, the patient verifies with the emailed code, consents, shares two exports and answers both intake
+questions, and a clinician then opens the visit, waits for the `sour.run` job, signs the summary off and
+prints it. Every other spec takes one screen and tries it hard; this one is the handover between the two
+flows, so what the patient typed is asserted on the clinician's brief and on the printed sheet. It writes
+the fifteen numbered `*-journey-NN-*.png` screenshots, in the order a practice lives them, which is the
+fastest way for either routine to see the whole product in one place.
+
 ### Signing in from a test (T05)
 
 The provider pages are behind Auth.js magic links (design §5.1), so a test that needs the dashboard has to sign
