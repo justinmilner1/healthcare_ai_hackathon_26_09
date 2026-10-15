@@ -120,7 +120,11 @@ export async function expectTapTargets(page: Page, screen: string): Promise<void
         const own = (element.textContent ?? "").trim().length;
         if (parent && around > own) continue;
       }
-      if (box.width >= min && box.height >= min) continue;
+      // Half a pixel of slack, and the same rounding in the verdict as in the message. A 44px box on a
+      // 2.625x phone screen is 115.5 device pixels, which Chromium snaps to 115 or 116 depending on where
+      // the element happens to sit — so an exactly-44px control measures 43.81 about half the time, and
+      // without the slack this fails while printing "44".
+      if (box.width + 0.5 >= min && box.height + 0.5 >= min) continue;
       const label = (element.getAttribute("aria-label") || element.textContent || element.getAttribute("name") || element.tagName).trim().slice(0, 40);
       tooSmall.push({ label: `${element.tagName.toLowerCase()} "${label}"`, width: Math.round(box.width), height: Math.round(box.height) });
     }
