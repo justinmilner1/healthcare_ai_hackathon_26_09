@@ -47,7 +47,17 @@ import { deletePrefix } from "./storage";
  *  lib/migrateVisits.ts and lib/jobs.ts use). */
 export type RetentionClient = Pick<
   PrismaClient,
-  "practice" | "patient" | "visit" | "upload" | "message" | "summary" | "patientSession" | "visitDelivery" | "dexcomConnection" | "dexcomOAuthState"
+  | "practice"
+  | "patient"
+  | "visit"
+  | "upload"
+  | "message"
+  | "summary"
+  | "followUp"
+  | "patientSession"
+  | "visitDelivery"
+  | "dexcomConnection"
+  | "dexcomOAuthState"
 >;
 
 /** What a purge may be handed instead of the real thing, so a unit test needs neither a bucket nor the
@@ -86,6 +96,7 @@ const resolve = (deps: RetentionDeps): Resolved => ({
  *
  * The counts are the patient's own data. Sessions, deliveries and OAuth states are plumbing and are not
  * counted; they are deleted because leaving them would leave a way back into a visit with nothing in it.
+ * Follow-ups (§7.5) are not counted either, for the reason given where they are deleted.
  */
 async function purgeVisitData({ client, removePrefix }: Resolved, visitId: string): Promise<PurgeCounts> {
   // Objects first: by prefix, so the bytes go even when no row points at them any more (property 2).
@@ -94,6 +105,10 @@ async function purgeVisitData({ client, removePrefix }: Resolved, visitId: strin
   const uploads = await client.upload.deleteMany({ where: { visitId } });
   const turns = await client.message.deleteMany({ where: { visitId } });
   const summaries = await client.summary.deleteMany({ where: { visitId } });
+  // §7.5's follow-up log. Not counted, because the counts are an inventory of what the *patient* gave us and
+  // these rows are a clinician's questions about it; they go with the summary they were asked about, and a
+  // sweep that left them would leave the patient's week described in somebody's question (lib/followUps.ts).
+  await client.followUp.deleteMany({ where: { visitId } });
   await client.patientSession.deleteMany({ where: { visitId } });
   await client.visitDelivery.deleteMany({ where: { visitId } });
   await client.dexcomOAuthState.deleteMany({ where: { visitId } });

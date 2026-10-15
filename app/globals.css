@@ -3153,6 +3153,15 @@ textarea.ss-input {
   border-left: 2px solid var(--sour-green);
 }
 
+/* T18 / design 7.5: a question whose answer never arrived. The row stays on the log, so the panel says so
+   rather than showing an empty reply. */
+.sour-answer-unanswered {
+  margin: 0;
+  color: #8a6336;
+  font-size: 13px;
+  font-style: italic;
+}
+
 .sour-chat-status {
   margin: 11px 0 0;
   color: #7d7a6c;

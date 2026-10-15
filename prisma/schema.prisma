@@ -154,6 +154,7 @@ model Visit {
   uploads           Upload[]
   messages          Message[]
   summaries         Summary[]
+  followUps         FollowUp[]
   dexcomOAuthStates DexcomOAuthState[]
 
   @@index([patientId])
@@ -253,6 +254,26 @@ model Summary {
 
   @@index([visitId, audience])
   @@index([visitId, inputHash])
+}
+
+// §7.5 One follow-up question a clinician asked Sour about this visit, and the answer they were given.
+// "Logged with the clinician id and the answer, visible on the page, never emailed": the log is this table,
+// the page reads it back through GET /api/sour (lib/followUps.ts), and no notification template takes it
+// (lib/notify.ts). `askedBy` is the clinician's user id with no foreign key, like `Visit.reviewedBy` and
+// `AuditLog.actorId`: the record outlives the account and the name is joined at read time.
+// `answer` is null until the model answers — the question is written before the call (§6.2's rule for
+// Sweetie), so an outage leaves the question on the record rather than losing what was asked.
+model FollowUp {
+  id         String    @id @default(cuid())
+  visitId    String
+  visit      Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  askedBy    String?
+  question   String
+  answer     String?
+  answeredAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([visitId, createdAt])
 }
 
 // §4.8 Who did what. `detail` is JSON and carries no PHI (§10.3).
