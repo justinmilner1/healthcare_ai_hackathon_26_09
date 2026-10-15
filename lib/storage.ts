@@ -13,7 +13,8 @@
 // about them and nothing about anyone else. The filename the patient chose stays in `Upload.filename`.
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { log } from "./log";
 import type { UploadKind } from "./types";
@@ -90,6 +91,31 @@ export async function putObject(key: string, body: Uint8Array, contentType: stri
     );
   }
   log.info("object_stored", { provider: backend, bytes: body.byteLength });
+}
+
+/**
+ * Is the backend there and writable? For §11.2's health endpoint, which has to answer in milliseconds and
+ * must not leave anything behind, so neither half stores an object:
+ *
+ *   local  the uploads root is created if it is missing and checked for write permission. A read-only or
+ *          absent volume is the failure this catches — the mode an upload would discover mid-intake instead.
+ *   s3     HeadBucket. One request, no body, and it fails the two ways that matter apart: the bucket is gone
+ *          (404) or these credentials may not see it (403).
+ *
+ * Returns the backend it checked, so the report says which one was reachable. Throws when it is not.
+ */
+export async function checkStorage(): Promise<StorageBackend> {
+  const backend = storageBackend();
+  if (backend === "local") {
+    const root = localRoot();
+    await mkdir(root, { recursive: true });
+    await access(root, constants.W_OK);
+  } else {
+    const { HeadBucketCommand } = await import("@aws-sdk/client-s3");
+    const client = await s3Client();
+    await client.send(new HeadBucketCommand({ Bucket: bucket() }));
+  }
+  return backend;
 }
 
 /** Read the bytes back as text. Nothing in a request needs this yet; deletion drills and support do. */

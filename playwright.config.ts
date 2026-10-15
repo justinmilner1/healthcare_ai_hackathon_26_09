@@ -40,6 +40,10 @@ const RUNNER_SECRET = "e2e-jobs-secret-not-for-deployment";
 // is a secret in a throwaway test database; production supplies AUTH_SECRET from SSM (§10.6).
 const MAIL_DIR = process.env.DEV_MAIL_DIR ?? "e2e/.mail";
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "e2e-session-secret-not-for-deployment";
+// Every server below is waited for on /api/health/live, not /api/health: the dependency report answers 503
+// when a configured dependency is down (T28, design §11.2), and the degraded server's gateway is down on
+// purpose. Playwright treats anything from 404 up as "not ready yet", so that server would never start.
+// Liveness is also the question being asked here — "is this build answering?" — not "is Bedrock up?".
 // scripts/agent-check.sh sets PW_CHROMIUM_PATH when the Playwright CDN is blocked but a Chromium is pre-installed.
 const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {};
 
@@ -68,7 +72,7 @@ export default defineConfig({
   webServer: [
     {
       command: `npm run build && npx next start -p ${PORT}`,
-      url: `http://localhost:${PORT}/api/health`,
+      url: `http://localhost:${PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 300_000, // the build is most of this; it takes about a minute here
       // DEV_MAIL_DIR: with no email provider configured, lib/mailer.ts writes the sign-in links here instead
@@ -88,7 +92,7 @@ export default defineConfig({
     },
     {
       command: `npx next start -p ${DEGRADED_PORT}`,
-      url: `http://localhost:${DEGRADED_PORT}/api/health`,
+      url: `http://localhost:${DEGRADED_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own: the first server already made one
       env: {
@@ -106,7 +110,7 @@ export default defineConfig({
     },
     {
       command: `npx next start -p ${DEXCOM_PORT}`,
-      url: `http://localhost:${DEXCOM_PORT}/api/health`,
+      url: `http://localhost:${DEXCOM_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own either
       env: {
@@ -127,7 +131,7 @@ export default defineConfig({
     },
     {
       command: `npx next start -p ${RUNNER_PORT}`,
-      url: `http://localhost:${RUNNER_PORT}/api/health`,
+      url: `http://localhost:${RUNNER_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own either
       env: {

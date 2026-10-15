@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import test, { afterEach, beforeEach } from "node:test";
-import { ask, gatewayState, LLMUnavailable, llmStatus, resetCircuit } from "./llm";
+import { ask, gatewayState, LLMUnavailable, llmStatus, probeGateway, resetCircuit } from "./llm";
 import { setLogSink } from "./log";
 
 // A fake gateway: a real HTTP server on a loopback port, so these tests exercise the OpenAI SDK, the per-request
@@ -173,4 +173,49 @@ test("prose instead of JSON costs one more call, and that is not an outage", asy
   assert.deepEqual(parsed.patterns, ["b"]);
   assert.equal(gateway.requests.length, 2);
   assert.equal(gatewayState(), "closed");
+});
+
+// ---- probeGateway: the §11.2 reachability check, not a model call --------------------------------------
+
+test("the health probe asks the gateway nothing: one bare GET, no key, no tokens", async () => {
+  await probeGateway();
+  assert.equal(gateway.requests.length, 1);
+  assert.match(gateway.requests[0], /^GET \/openai\/v1/);
+  // Nothing was asked of the model, so nothing about the circuit changed.
+  assert.equal(gatewayState(), "closed");
+});
+
+test("any answer at all counts as reachable: Bedrock replies 403 to this and that is still up", async () => {
+  gateway.script([], { status: 403, body: { error: { message: "no" } } });
+  await probeGateway();
+  assert.equal(gateway.requests.length, 1);
+});
+
+test("nothing listening is unavailable, and says so without the SDK's help", async () => {
+  await gateway.stop(); // the port is now closed: ECONNREFUSED
+  await assert.rejects(() => probeGateway(), LLMUnavailable);
+});
+
+test("a gateway that never answers is bounded by the probe's own timeout", async () => {
+  gateway.script([{ status: 200, hang: true }]);
+  const started = Date.now();
+  await assert.rejects(() => probeGateway(200), LLMUnavailable);
+  assert.ok(Date.now() - started < 2_000, "the probe waited for the model timeout instead of its own");
+});
+
+test("no API key is a skipped probe, not a request", async () => {
+  delete process.env.OPENAI_API_KEY;
+  await assert.rejects(() => probeGateway(), LLMUnavailable);
+  assert.equal(gateway.requests.length, 0);
+});
+
+test("a successful probe does not close a circuit that real calls opened", async () => {
+  // Health has to keep saying "degraded" until an actual call succeeds. The port answering again is not that:
+  // a gateway that 500s on every Responses call answers this probe perfectly.
+  gateway.script([{ status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }]);
+  await assert.rejects(() => ask("be brief", "hi"), LLMUnavailable);
+  await assert.rejects(() => ask("be brief", "hi"), LLMUnavailable);
+  assert.equal(gatewayState(), "open");
+  await probeGateway();
+  assert.equal(gatewayState(), "open", "a probe must not be able to close the circuit");
 });

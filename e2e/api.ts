@@ -13,7 +13,10 @@ const CSRF_HEADER = "x-csrf-token";
 export async function csrfToken(request: APIRequestContext): Promise<string> {
   const existing = await tokenFromJar(request);
   if (existing) return existing;
-  const primer = await request.get("/api/health");
+  // The liveness path rather than the dependency report: this is only here to be handed a cookie, and on the
+  // degraded server (playwright.config.ts) /api/health answers 503 by design, which is not a failure to post
+  // through. e2e/health.spec.ts is where the report itself is checked.
+  const primer = await request.get("/api/health/live");
   expect(primer.status(), "the health endpoint should answer before the suite posts anything").toBeLessThan(500);
   const token = await tokenFromJar(request);
   expect(token, `middleware should have set the ${CSRF_COOKIE} cookie`).toBeTruthy();

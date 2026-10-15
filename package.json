@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "config:check": "tsx scripts/check-config.ts",
+    "health:check": "tsx scripts/health-check.ts",
     "db:up": "bash scripts/dev-db.sh",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",

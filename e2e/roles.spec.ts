@@ -171,9 +171,9 @@ test("a practice cannot be left without an admin", async ({ page }) => {
 });
 
 test("the provider routes refuse a caller with no session", async ({ request }) => {
-  // No session cookie, but a valid CSRF token: postJson primes one off /api/health (e2e/api.ts). That is the
-  // point — without it middleware answers 403 before the route is reached, and a 403 is also what a wrong
-  // role gets, so the refusal being asserted here would be the §10.8 one rather than the §5.2 one.
+  // No session cookie, but a valid CSRF token: postJson primes one off /api/health/live (e2e/api.ts). That
+  // is the point — without it middleware answers 403 before the route is reached, and a 403 is also what a
+  // wrong role gets, so the refusal being asserted here would be the §10.8 one rather than the §5.2 one.
   // /api/book used to fall back to the seeded demo provider, so it was a 200: anyone on the internet could
   // create patients in someone else's practice.
   expect((await postJson(request, "/api/book", { name: "Nobody At All", channel: "none" })).status()).toBe(401);

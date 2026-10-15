@@ -44,6 +44,7 @@ export const ALLOWED_FIELDS: readonly string[] = [
   "messageId",
   "jobId",
   // Operational facts about what happened, not about whom.
+  "check",      // which dependency a health probe looked at (§11.2). db | storage | model, and nothing else.
   "role",       // admin | clinician | staff (§5.2). One of three constants; never a name.
   "capability", // the capability a refused request asked for (lib/access.ts).
   "scope",      // which rate-limit key was spent, "ip" or "visit" (§5.4). Never the address itself.
