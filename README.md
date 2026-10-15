@@ -61,6 +61,12 @@ Reset the DB with `npm run db:reset && npm run seed`.
 Server logs are one JSON line per event with a request id, and drop any field outside an allow-list, so no name,
 phone number, email address or message text reaches them. See [docs/LOGGING.md](docs/LOGGING.md).
 
+Every message the app sends — the invite, the verification code, the two summary-ready notices and the
+deletion confirmation — is a template in `lib/notify.ts` carrying a link and nothing clinical, sent as a job.
+What each one did is on the visit and in the dashboard's Messages column, and a bounce, a spam report or a
+patient texting STOP closes that channel for good. [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) has the
+templates, the delivery statuses and the SES domain, DKIM and origination-number setup.
+
 Security headers, CSRF protection, the rate limits on the public routes and the dependency audit are in
 [docs/SECURITY.md](docs/SECURITY.md). Three things to know before writing code: client calls that change
 something go through `apiFetch` from `lib/csrf.ts`, not `fetch`, or middleware refuses them with a 403;

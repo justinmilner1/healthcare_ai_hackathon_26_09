@@ -95,6 +95,16 @@ model Patient {
   createdAt  DateTime  @default(now())
   deletedAt  DateTime?
 
+  // §8.1 Why we stop messaging this person on a channel, as the provider told us rather than as we guessed.
+  // `emailUndeliverableAt` is set by an SES bounce or complaint notification (lib/notifyStore.ts) and
+  // `emailUndeliverableReason` says which: an address that hard-bounced is wrong, and one that complained
+  // asked us to stop — SES counts both against the sending domain, so both stop the sends.
+  // `smsOptOutAt` is the patient texting STOP, which AWS honors in its own opt-out list; recording it here is
+  // what stops us queueing a message that would be dropped, and what staff can see on the dashboard.
+  emailUndeliverableAt     DateTime?
+  emailUndeliverableReason String? // bounce | complaint
+  smsOptOutAt              DateTime?
+
   visits           Visit[]
   dexcomConnection DexcomConnection?
 
@@ -162,25 +172,41 @@ model Visit {
   @@index([retentionSweptAt])
 }
 
-// §8.3 What one channel did with one message to this visit: "Delivery results are recorded on the visit
-// (channel, provider message id, status) and shown to staff." One row per channel, replaced by each send and
-// carrying the `kind` of the message it last reported on, because staff want "did the last thing we sent
-// reach them" and lib/log.ts already has every attempt.
-// `error` is operational text (SES's refusal, "no phone on file"), never an address or a message body (§10.3).
+// §8.3 What one message to this visit did: "Delivery results are recorded on the visit (channel, provider
+// message id, status) and shown to staff." One row per message kind, channel and audience, replaced by each
+// send, because staff want "did the last thing we sent reach them" and lib/log.ts already has every attempt.
+//
+// `kind` and `audience` are in the key as well as the channel (T19). The invite and the summary notice are
+// two different questions on the dashboard — "did they get their link" and "was the clinician told the
+// summary is ready" — and the summary goes to two people over the same channel, so keying on the channel
+// alone made the second email overwrite the first.
+//
+// `status` carries what the provider later said as well as what the send did: a `sent` row becomes
+// `bounced` or `complained` when SES's notification topic reports on that `providerMessageId`
+// (lib/notifyStore.ts), which is the whole reason the id is stored.
+// `error` is operational text (SES's refusal, "no phone on file", a bounce subtype), never an address or a
+// message body (§10.3).
 model VisitDelivery {
   id                String   @id @default(cuid())
   visitId           String
   visit             Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   channel           String // sms | email
-  kind              String // notify.invite | notify.summary — the job that sent it
-  status            String // sent | failed | skipped
+  // The job that sent it. The verification code is not one of them: it is a message with a life of ten
+  // minutes, recorded in the audit log (§10.2) rather than on a dashboard that would still be showing it
+  // long after it stopped meaning anything.
+  kind              String // notify.invite | notify.summary
+  audience          String   @default("patient") // patient | provider — who the message went to (§8.2)
+  status            String // sent | failed | skipped | bounced | complained
   providerName      String? // ses | sns | resend | twilio
   providerMessageId String?
   error             String?
   at                DateTime @default(now())
 
-  @@unique([visitId, channel])
+  @@unique([visitId, kind, channel, audience])
   @@index([visitId])
+  // How a bounce or complaint notification finds the row it is about: SES hands back a message id at send
+  // time and quotes it minutes later (§8.3).
+  @@index([providerMessageId])
 }
 
 // §4.5 A verified patient browser session. Only the hash of the six-digit code is stored.

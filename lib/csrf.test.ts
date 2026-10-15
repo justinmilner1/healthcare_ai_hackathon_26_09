@@ -130,7 +130,9 @@ test("the auth exemption does not let a cross-site page sign anyone in", () => {
 test("both exempt lists stay short, and every entry is named", () => {
   // The lists are holes by construction. A new entry should be a decision someone made, not a diff nobody
   // read: this test fails until the person adding one also comes here.
-  assert.deepEqual([...CSRF_EXEMPT_PATHS], ["/api/jobs/run"]);
+  // `/api/notifications/sns` (T19): SNS posts §8.1's bounces, complaints and STOPs with no cookie and no
+  // header we choose, and the route's authority is the signature it checks itself (lib/snsSignature.ts).
+  assert.deepEqual([...CSRF_EXEMPT_PATHS], ["/api/jobs/run", "/api/notifications/sns"]);
   assert.deepEqual([...CSRF_EXEMPT_PREFIXES], ["/api/auth/"]);
 });
 

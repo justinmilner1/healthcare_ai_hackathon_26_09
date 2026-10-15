@@ -74,6 +74,54 @@ async function main() {
     },
   });
 
+  // §8.1, §8.3 A second visit, so the dashboard's Messages column shows what a reported delivery looks like
+  // and not only the "queued" a fresh row wears. Everything here is what SES's notification topic would have
+  // written (lib/notifyStore.ts): the invite's text arrived, its email came back as a permanent bounce, and
+  // the address is marked undeliverable so nothing else is sent to it. Synthetic, like Sam Sample: the
+  // address is a .local domain nobody can own and the number is in the 555 reserved range.
+  const bouncedToken = randomBytes(16).toString("base64url");
+  const bounced = await db.visit.create({
+    data: {
+      providerUser: { connect: { id: provider.id } },
+      optIn: true,
+      contactChannel: "both",
+      consentChannel: "portal",
+      consentRecordedBy: provider.id,
+      consentRecordedAt: new Date(Date.now() - 3 * 86400000),
+      token: bouncedToken,
+      scheduledAt: new Date(Date.now() + 5 * 86400000),
+      visitType: "new_patient",
+      reason: "newly diagnosed, wants to talk through the meter",
+      patient: {
+        create: {
+          practiceId: provider.practiceId,
+          name: "Dana Demo",
+          phone: "+14155550177",
+          email: "dana.demo@sweetspot.local",
+          emailUndeliverableAt: new Date(Date.now() - 2 * 86400000),
+          emailUndeliverableReason: "bounce",
+        },
+      },
+    },
+  });
+  await db.visitDelivery.createMany({
+    data: [
+      { visitId: bounced.id, kind: "notify.invite", channel: "sms", audience: "patient", status: "sent", providerName: "sns", providerMessageId: "demo-sns-message-id", at: new Date(Date.now() - 3 * 86400000) },
+      {
+        visitId: bounced.id,
+        kind: "notify.invite",
+        channel: "email",
+        audience: "patient",
+        status: "bounced",
+        providerName: "ses",
+        providerMessageId: "demo-ses-message-id",
+        // SES's own words for it, which is what the tooltip shows staff (§8.3).
+        error: "Permanent/General",
+        at: new Date(Date.now() - 2 * 86400000),
+      },
+    ],
+  });
+
   const base = appUrl();
   console.log(`\nSweetie (patient chat):  ${base}/s/${token}`);
   console.log(`Sour (provider view):    ${base}/provider/${provider.id}`);
@@ -84,6 +132,7 @@ async function main() {
   // The patient links are behind a one-time code now (§2.3): opening one sends the code to the phone or
   // email on file, and with no SMS or email backend configured it lands in the same local mailbox.
   console.log(`Opening a patient link sends a six-digit code to the patient's email; \`npm run mail\` prints that too.`);
+  console.log(`\nDana Demo's row shows §8.1 and §8.3: the text arrived, the email bounced, so email is off for her.`);
 }
 
 main().finally(() => db.$disconnect());

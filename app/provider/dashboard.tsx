@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
 import { confirmsDeletion } from "@/lib/retention";
+import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
 import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
 import {
   channelLabel,
@@ -42,8 +43,11 @@ type Row = {
   consentChannel: string | null;
   consentRecordedAt: string | null;
   consentRecordedBy: string | null;
-  /** §8.3 What each channel did with the invite. Empty until a `notify.invite` job has run. */
-  deliveries: { channel: string; kind: string; status: string; error: string | null; at: string }[];
+  /** §8.3 What each message to this visit did, per kind, channel and audience. Empty until a notify job
+   *  has run. `bounced` and `complained` arrive later, from SES's topic (lib/notifyStore.ts). */
+  deliveries: { channel: string; kind: string; audience: string; status: string; providerMessageId: string | null; error: string | null; at: string }[];
+  /** §8.1 The channels a provider has told us are closed, and why (lib/suppression.ts). */
+  suppression: SuppressionFacts;
   token: string;
   phone: string | null;
   email: string | null;
@@ -424,7 +428,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                     <th>Patient</th>
                     <th>Visit</th>
                     <th>Stage</th>
-                    <th>Invite</th>
+                    <th>Messages</th>
                     <th>Connected data</th>
                     <th>Sweetie</th>
                     <th>
@@ -472,7 +476,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                         <Stage visit={visit} />
                       </td>
                       <td>
-                        <Invite visit={visit} />
+                        <Messages visit={visit} />
                       </td>
                       <td>
                         <div className="provider-data-pills">
@@ -822,13 +826,39 @@ function Stage({ visit }: { visit: Row }) {
   );
 }
 
-/** §8.3 What happened to the invite, per channel, with the consent behind it underneath (§2.2). A channel
- *  staff chose and no job has reported on yet reads "queued": the send is a job, so that is the honest word
- *  for the gap between adding the patient and SES answering. */
-function Invite({ visit }: { visit: Row }) {
+/** The glyph for a delivery status (§8.3). `bounced` and `complained` are not send outcomes — they arrive
+ *  minutes later from SES's topic — so they get their own mark rather than being flattened into a failure:
+ *  "we sent it and it came back" is a different thing for staff to act on than "it never went". */
+const DELIVERY_MARK: Record<string, string> = { sent: "✓", failed: "✕", bounced: "↩", complained: "⚑", skipped: "–" };
+
+/** The tooltip on a pill: the provider's own reason, and its message id, which is what a support request to
+ *  AWS quotes. Neither is an address or a body (§10.3), so both are safe on the screen. */
+const deliveryTitle = (d: Row["deliveries"][number] | undefined): string | undefined =>
+  d ? [d.error, d.providerMessageId].filter(Boolean).join(" · ") || undefined : undefined;
+
+function DeliveryPill({ label, delivery }: { label: string; delivery: Row["deliveries"][number] | undefined }) {
+  const status = delivery?.status ?? "queued";
+  return (
+    <span className={`provider-data-pill provider-delivery-${status}`} title={deliveryTitle(delivery)}>
+      {label} {DELIVERY_MARK[status] ?? "…"}
+    </span>
+  );
+}
+
+/**
+ * §8.3 "Delivery results are recorded on the visit and shown to staff": what happened to each message this
+ * visit has sent, with the consent behind it (§2.2) and any closed channel (§8.1) underneath.
+ *
+ * A channel staff chose and no job has reported on yet reads "queued": the send is a job, so that is the
+ * honest word for the gap between adding the patient and SES answering. The summary line appears only once a
+ * `notify.summary` job has reported, because before then there is no summary to have been told about.
+ */
+function Messages({ visit }: { visit: Row }) {
   const wanted = visit.channel === "none" ? [] : channelsOf(visit.channel);
-  const reported = new Map(visit.deliveries.filter((d) => d.kind === "notify.invite").map((d) => [d.channel, d]));
+  const invites = new Map(visit.deliveries.filter((d) => d.kind === "notify.invite").map((d) => [d.channel, d]));
+  const summaries = new Map(visit.deliveries.filter((d) => d.kind === "notify.summary").map((d) => [d.audience, d]));
   const consent = visit.consentChannel ? `${consentLabel(visit.consentChannel)}${visit.consentRecordedAt ? `, ${new Date(visit.consentRecordedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}` : null;
+  const closed = suppressions(visit.suppression);
 
   return (
     <div className="provider-invite">
@@ -836,21 +866,28 @@ function Invite({ visit }: { visit: Row }) {
         <span className="provider-data-pill">Not messaged</span>
       ) : (
         <div className="provider-data-pills">
-          {wanted.map((channel) => {
-            const delivery = reported.get(channel);
-            const status = delivery?.status ?? "queued";
-            return (
-              <span
-                key={channel}
-                className={`provider-data-pill provider-delivery-${status}`}
-                title={delivery?.error ?? undefined}
-              >
-                {channel === "sms" ? "Text" : "Email"} {status === "sent" ? "✓" : status === "failed" ? "✕" : "…"}
-              </span>
-            );
-          })}
+          {wanted.map((channel) => (
+            <DeliveryPill key={channel} label={channel === "sms" ? "Text" : "Email"} delivery={invites.get(channel)} />
+          ))}
         </div>
       )}
+      {summaries.size > 0 && (
+        <div className="provider-data-pills provider-delivery-summary">
+          {(["provider", "patient"] as const)
+            .filter((audience) => summaries.has(audience))
+            .map((audience) => (
+              <DeliveryPill key={audience} label={audience === "provider" ? "Summary→you" : "Summary→pt"} delivery={summaries.get(audience)} />
+            ))}
+        </div>
+      )}
+      {closed.map((s) => (
+        // Why the pill above says what it says. Without this line a skipped invite looks like a bug in the
+        // app rather than the provider telling us the address is dead or the patient asking us to stop.
+        <small key={s.channel} className="provider-suppressed">
+          {suppressionLabel(s)}
+          {s.at ? ` · ${s.at.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+        </small>
+      ))}
       <small className="provider-cell-sub">{consent ? `Consent: ${consent}` : "No consent recorded"}</small>
     </div>
   );

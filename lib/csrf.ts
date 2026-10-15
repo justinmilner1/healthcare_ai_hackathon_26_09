@@ -41,10 +41,17 @@ export const SERVER_ACTION_HEADER = "next-action";
  * a CSRF token therefore protects nothing and breaks the queue: middleware would answer 403 before the
  * handler ran, so no invite, no summary email, no retention sweep would ever be sent.
  *
+ * `/api/notifications/sns` is §8.1's bounce, complaint and STOP endpoint (T19). SNS posts it with no cookie,
+ * no header we choose and no shared secret — it will send none of those — and the route's whole authority is
+ * the RSA signature over the message body, checked against a certificate from an `sns.<region>.amazonaws.com`
+ * URL, plus a topic ARN the operator configured (lib/snsSignature.ts). A cross-site page cannot forge that
+ * signature, and the route grants nothing to a caller without it, so a CSRF token would protect nothing and
+ * would make every bounce notification a 403 — which is §8.1's suppression silently never happening.
+ *
  * The bar for adding a path here: the route must grant nothing on the strength of a cookie. If a route reads
  * a session, it is not exempt, whatever else it also checks.
  */
-export const CSRF_EXEMPT_PATHS: readonly string[] = ["/api/jobs/run"];
+export const CSRF_EXEMPT_PATHS: readonly string[] = ["/api/jobs/run", "/api/notifications/sns"];
 
 /**
  * The one subtree exempt by prefix, because every route under it belongs to a library that runs this exact

@@ -121,6 +121,7 @@ const NOT_PROVIDER_ROUTES: Record<string, string> = {
   "api/auth/[...nextauth]": "Auth.js itself: this is where a session comes from (§5.1)",
   "api/health": "liveness for the load balancer; says nothing about anyone (§11.2)",
   "api/jobs/run": "the scheduler, on a shared secret in the Authorization header (§3.4)",
+  "api/notifications/sns": "SNS, on its own RSA signature over the message plus a configured topic ARN (§8.1, lib/snsSignature.ts)",
   "api/verify": "the patient, on the invite token alone: this is the route that turns it into a session (§2.3, §5.3)",
   "api/consent": "the patient, on the invite token in the body plus the session it names; their own answer to the consent screen (§2.4)",
   "api/sweetie": "the patient, on the invite token in the body plus the session it names (§5.3)",

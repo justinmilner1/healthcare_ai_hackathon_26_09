@@ -7,6 +7,7 @@ import { sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { sendOrMailbox } from "./mailer";
 import { intakeLink, sendSms } from "./sms";
+import { suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
 
 export type InviteResult = {
@@ -17,6 +18,20 @@ export type InviteResult = {
 
 /** Subject and body of one message. Templates are pure so they can be read in a test (design §8.2). */
 export type EmailTemplate = { subject: string; text: string };
+
+/**
+ * §8.1 A channel the provider told us is closed — a bounced or complained-about address, a number that
+ * texted STOP — as the `SendResult` of the send that was therefore not made.
+ *
+ * No `provider` on the result, deliberately: `provider` is what the rest of the app reads as "a backend
+ * really tried" (assertSendable in lib/jobHandlers.ts, statusOf in lib/visitStore.ts), so a suppressed
+ * channel is recorded as `skipped` and never retried. Retrying is the one thing that must not happen: the
+ * next attempt is identical and SES counts it against the practice's sending domain.
+ */
+function suppressed(facts: SuppressionFacts | null | undefined, channel: NotifyChannel): SendResult | null {
+  const reason = suppressedReason(facts, channel);
+  return reason ? { sent: false, error: reason } : null;
+}
 
 const firstName = (name: string) => name.split(" ")[0];
 const onDate = (at?: Date | null) => (at ? ` on ${at.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : "");
@@ -96,12 +111,17 @@ export async function sendVerificationCode(p: {
   email?: string | null;
   providerName: string;
   minutes: number;
+  /** §8.1 What a provider has told us about these two channels. The code is suppressed like every other
+   *  message, which is worth a sentence because it is the one the patient is waiting for: a bounced address
+   *  does not deliver a code either, and the honest answer is the other channel (lib/suppression.ts). */
+  suppression?: SuppressionFacts | null;
 }): Promise<CodeResult> {
   const t = codeTemplates(p);
 
   const [sms, email] = await Promise.all([
-    p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" }),
-    p.email ? sendOrMailbox(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" }),
+    suppressed(p.suppression, "sms") ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    suppressed(p.suppression, "email") ??
+      (p.email ? sendOrMailbox(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
   ]);
 
   // The code itself is never a field: logSend records the channel and whether it left, nothing more.
@@ -121,14 +141,23 @@ export async function sendIntakeInvite(p: {
   /** The channels staff chose for this visit (design §2.2). Anything not in here is not sent, however much
    *  contact detail the patient has on file: a patient who consented to a text only gets a text. */
   channels?: ("sms" | "email")[];
+  /** §8.1 A bounce, a spam report or a STOP on one of those channels closes it, whatever staff chose. The two
+   *  are different statements and both are honored: consent is the practice's record of permission, this is
+   *  the provider's record of what happens when we try. */
+  suppression?: SuppressionFacts | null;
 }): Promise<InviteResult> {
   const t = inviteTemplates(p);
   const wanted = (channel: "sms" | "email") => !p.channels || p.channels.includes(channel);
   const notChosen = { sent: false, error: "not a channel this patient consented to" };
 
   const [sms, email] = await Promise.all([
-    !wanted("sms") ? Promise.resolve(notChosen) : p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" }),
-    !wanted("email") ? Promise.resolve(notChosen) : p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" }),
+    !wanted("sms")
+      ? Promise.resolve(notChosen)
+      : suppressed(p.suppression, "sms") ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    !wanted("email")
+      ? Promise.resolve(notChosen)
+      : suppressed(p.suppression, "email") ??
+        (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
   ]);
 
   logSend("invite_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });
@@ -193,7 +222,10 @@ export function summaryTemplates(p: {
 
 export async function sendSummaryEmails(p: {
   visit: { id: string; token: string; apptAt: Date | null };
-  patient: { id: string; name: string; email: string | null };
+  /** §8.1's suppression rides on the patient, because it is the patient's address a provider reports on. The
+   *  clinician's address is a colleague's work mailbox and has no such record: a bounce there is the
+   *  practice's own mail to fix, and it is not grounds for silently never telling them a summary is ready. */
+  patient: { id: string; name: string; email: string | null } & SuppressionFacts;
   provider: { id: string; name: string; email: string | null; practice: string | null };
   providerSummary: Summary;
   patientSummary: Summary;
@@ -204,10 +236,76 @@ export async function sendSummaryEmails(p: {
     p.provider.email
       ? sendEmail(p.provider.email, t.provider.subject, t.provider.text)
       : Promise.resolve({ sent: false, error: "provider has no email" }),
-    p.patient.email
-      ? sendEmail(p.patient.email, t.patient.subject, t.patient.text)
-      : Promise.resolve({ sent: false, error: "patient has no email" }),
+    suppressed(p.patient, "email") ??
+      (p.patient.email
+        ? sendEmail(p.patient.email, t.patient.subject, t.patient.text)
+        : Promise.resolve({ sent: false, error: "patient has no email" })),
   ]);
   logSend("summary_notified", { visitId: p.visit.id, patientId: p.patient.id }, { provider, patient });
   return { provider, patient };
+}
+
+// ---------------------------------------------------------------------------------------------
+// §8.2's fifth template: the deletion confirmation.
+//
+// Sent by the `patient.delete` job (lib/jobHandlers.ts) once §10.5's purge has actually run, so the message
+// says what happened rather than what was asked for. That ordering is why the contact details are passed in
+// rather than read here: the purge removes the patient's name, phone number and email, which is exactly the
+// promise being confirmed, so the only copy of them left is the one the purge handed back.
+//
+// It carries no link, because there is nothing left to open, and no clinical content — there is none left
+// either. It goes on both channels the practice had, and like every other message it honors §8.1: a patient
+// who texted STOP does not get a text, even this one.
+
+export type DeletionResult = { sms: SendResult; email: SendResult };
+
+/** The deletion templates. What was deleted, who to ask about it, and nothing else (§8.2). */
+export function deletionTemplates(p: { name: string; providerName: string }): { sms: string; email: EmailTemplate } {
+  const first = firstName(p.name);
+  return {
+    sms: `${p.providerName}'s office: the health data you asked us to delete has been deleted, ${first}. Nothing is left in Sweet Spot. Your appointment record stays with the practice.`,
+    email: {
+      subject: `Your data has been deleted`,
+      text: [
+        `Hi ${first},`,
+        ``,
+        `The data you asked ${p.providerName}'s office to delete has been deleted from Sweet Spot: the readings`,
+        `and files you shared, your answers, the chat, and the summaries made from them. Your name, phone number`,
+        `and email address have been removed with them, so this is the last message we will send you.`,
+        ``,
+        `The practice keeps its own record that your appointment happened, and a record that this deletion was`,
+        `carried out. Your medical record is your practice's and is not affected.`,
+        ``,
+        `If you did not ask for this, call the office — they can tell you who made the request and when.`,
+        ``,
+        `${p.providerName}'s office`,
+      ].join("\n"),
+    },
+  };
+}
+
+/**
+ * Send one deletion confirmation. Both channels, each failing soft: a message nobody can answer is not worth
+ * a retry of the deletion job, and the deletion itself has already happened by the time this runs.
+ */
+export async function sendDeletionConfirmation(p: {
+  patientId: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  providerName: string;
+  suppression?: SuppressionFacts | null;
+}): Promise<DeletionResult> {
+  const t = deletionTemplates(p);
+
+  const [sms, email] = await Promise.all([
+    suppressed(p.suppression, "sms") ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    suppressed(p.suppression, "email") ??
+      (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
+  ]);
+
+  // No visitId: the visits are gone, which is the point. The patient id still resolves — §4.3 keeps the
+  // scrubbed row so the audit record of the deletion has something to point at.
+  logSend("deletion_notified", { patientId: p.patientId }, { sms, email });
+  return { sms, email };
 }
