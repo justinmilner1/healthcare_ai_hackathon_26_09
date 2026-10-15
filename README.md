@@ -310,7 +310,7 @@ scripts/migrate-visits.ts       give any patient without a visit one (design §4
 scripts/check-config.ts         npm run config:check: the startup check as a command
 scripts/health-check.ts         npm run health:check: the deploy gate against a running deployment (§11.2)
 scripts/infra-check.sh          npm run infra:check: typecheck, test and `cdk synth` the stack below
-infra/bin/infra.ts              the CDK app: the staging stack today, production with T30 (§3.6, §13.2)
+infra/bin/infra.ts              the CDK app: both stacks, staging and production (§3.6, §13.2, §13.3)
 infra/lib/sweetspot-stack.ts    Amplify, RDS, S3, SES, SNS, the minute schedule, SSM, the alarms
 infra/lib/stage.ts              everything that differs between staging and production
 infra/lambda/jobs-tick/         the 60 lines EventBridge Scheduler runs to call POST /api/jobs/run (§3.4)
