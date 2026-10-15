@@ -50,6 +50,24 @@ npm run mail            # prints the newest sign-in link; nothing is configured,
 Set `RESEND_API_KEY` or AWS credentials in `.env` and the same link is emailed instead. `AUTH_SECRET` signs the
 session cookie; local development falls back to a fixed development value, and a deployment must set it.
 
+Set `DEMO_SIGN_IN=1` and **Open the demo** skips the mailbox: `/demo` mints the same one-use Auth.js link it
+would have emailed and follows it, so you land on the dashboard. That is what §13.4 asks for on staging,
+where there is no inbox to read. It opens nothing else — the route checks that the practice behind the seeded
+address is marked `isDemo` before it hands anything out — and the §3.7 config check says so on every boot of
+a deployment that has it on.
+
+### Demo practices (design §13.4)
+
+`npm run seed` marks its practice synthetic (`Practice.isDemo`), and three things follow from the flag:
+
+- the nightly retention sweep leaves its visits alone, so a demo's week of readings is still there next month;
+- its log lines carry `demo: true`, and §11.1's alarm filters leave those out (`docs/LOGGING.md`);
+- it only messages reserved test addresses and `555-01xx` numbers — anything else is not sent, and says why
+  in the dashboard's Messages column (`lib/demo.ts`, `docs/NOTIFICATIONS.md`).
+
+A practice is marked when it is seeded, not from a form: the settings screen shows the flag and cannot set it,
+because an admin turning it on would be turning their own practice's retention sweep off.
+
 No Docker daemon? `npm run db:up` starts a Postgres that is already installed on the host instead and prints the
 `DATABASE_URL` to put in `.env`. Either way the database is Postgres; SQLite is gone (design §3.2).
 
@@ -292,6 +310,7 @@ lib/
   uploads.ts                    the gates before a parser: 20 MB cap, type sniffing (§9.1)
   visit.ts                      resolve a visit from its id or invite token
   practice.ts                   the first person in a practice: sign-up and the demo provider
+  demo.ts                       demo practices: the sweep, the alarm label, the address rule (§13.4)
   migrateVisits.ts              the one-time backfill behind npm run migrate:visits
   sms.ts                        Twilio, falls back to showing the link        Justin
   health.ts                     the three §11.2 probes, their latencies, and what makes a report 503

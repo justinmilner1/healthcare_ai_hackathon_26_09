@@ -147,6 +147,10 @@ export default function PracticeSettings({ meId }: { meId: string }) {
           <div>
             <p className="ss-eyebrow">PRACTICE SETTINGS</p>
             <h1 className="ss-title">{team.practice.name}</h1>
+            {/* §13.4's flag, said once where an admin cannot miss it: three of the rules on this screen read
+                differently for a demo practice, and the card below says which. Read-only — a practice is
+                marked synthetic when it is seeded, not from a form. */}
+            {team.practice.isDemo && <p className="ss-pill ss-pill-warning settings-demo-pill">DEMO PRACTICE — SYNTHETIC DATA</p>}
             <p className="ss-lede">
               What this practice is called, how long its data is kept, and who works in it. Admins only.
             </p>
@@ -186,6 +190,14 @@ export default function PracticeSettings({ meId }: { meId: string }) {
             <p className="settings-hint">
               Days. Between {MIN_RETENTION_DAYS} and {MAX_RETENTION_DAYS}.
             </p>
+            {team.practice.isDemo && (
+              <p className="settings-hint settings-demo-note">
+                This practice is a demo. Its data is synthetic, so the nightly sweep leaves it alone however
+                long ago a visit was, its errors are kept out of the on-call alarms, and nothing it sends can
+                reach a real phone or inbox — messages to anything but a reserved test address are not sent,
+                and say so in the Messages column.
+              </p>
+            )}
             <div className="settings-actions">
               <button className="ss-button ss-button-primary" disabled={busy === "practice"}>
                 {busy === "practice" ? "Saving…" : "Save practice"}

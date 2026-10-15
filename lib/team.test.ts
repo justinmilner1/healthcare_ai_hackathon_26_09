@@ -164,3 +164,37 @@ test("an invite that could not be sent says so, so the admin can tell the person
     process.env = env;
   }
 });
+
+test("a demo practice's invite to a real address is not sent, even to the local mailbox (§13.4)", async () => {
+  // §13.4: nothing a demo practice sends may reach an address that is not reserved. The mailbox is not an
+  // exception — a diverted message still has the address in its file, and a deployment where the mailbox is
+  // on is a deployment where somebody is reading it.
+  const dir = mkdtempSync(join(tmpdir(), "devmail-demo-invite-"));
+  const lines: string[] = [];
+  const env = { ...process.env };
+  try {
+    delete process.env.EMAIL_PROVIDER;
+    delete process.env.RESEND_API_KEY;
+    delete process.env.AWS_ACCESS_KEY_ID;
+    process.env.DEV_MAIL_DIR = dir;
+    setLogSink((_level, line) => lines.push(line));
+
+    const blocked = await sendTeamInvite("nurse@practice.com", { practiceName: "Sweet Spot Endocrinology", invitedBy: "Dr Demo Endo", role: "clinician", demo: true });
+    assert.equal(blocked.sent, false);
+    assert.match(blocked.error!, /demo practice/);
+    assert.deepEqual(readDevMail(dir), [], "nothing was written for anyone to read");
+
+    const line = lines.join("\n");
+    assert.match(line, /"demo":true/, "§11.1's alarms leave a demo practice's lines out");
+    assert.equal(line.includes("nurse@practice.com"), false);
+
+    // A reserved address in the same practice is invited as usual: the rule is about the destination.
+    const sent = await sendTeamInvite("nurse@practice.test", { practiceName: "Sweet Spot Endocrinology", invitedBy: "Dr Demo Endo", role: "clinician", demo: true });
+    assert.equal(sent.sent, true);
+    assert.equal(readDevMail(dir).length, 1);
+  } finally {
+    setLogSink();
+    process.env = env;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

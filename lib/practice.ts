@@ -8,8 +8,13 @@ import { log } from "./log";
 import { cleanPersonName, cleanPracticeName, normalizeEmail } from "./team";
 
 export const DEMO_PROVIDER_EMAIL = "demo@sweetspot.local";
+export const DEMO_PRACTICE_NAME = "Sweet Spot Endocrinology";
 
-const DEMO = { name: "Dr. Demo Endo", email: DEMO_PROVIDER_EMAIL, practice: "Sweet Spot Endocrinology" };
+// §13.4: the seeded practice is a demo practice, and says so in its own row. Everything that follows from the
+// flag is in lib/demo.ts — the nightly sweep leaves its visits alone, its log lines are labelled so §11.1's
+// alarms skip them, and nothing it sends reaches an address that is not reserved. The address here is one of
+// those: `.local` is not a delegated TLD, so `demo@sweetspot.local` is nobody's.
+const DEMO = { name: "Dr. Demo Endo", email: DEMO_PROVIDER_EMAIL, practice: DEMO_PRACTICE_NAME, isDemo: true };
 
 /** The practice name for an address that signs in without having filled in the sign-up form (lib/authAdapter.ts).
  *  The email domain reads better on the dashboard than the address does; an admin renames it in settings. */
@@ -26,22 +31,30 @@ export function practiceNameFor(email: string): string {
  * Not for anything a request can reach: it renames the practice of whatever address is handed to it, and
  * nothing here checks that the caller is in that practice. `signUpPractice` below is the public path.
  */
-export async function upsertProvider(p: { name: string; email: string; practice?: string | null }) {
+export async function upsertProvider(p: { name: string; email: string; practice?: string | null; isDemo?: boolean }) {
   const email = p.email.trim().toLowerCase();
   const practiceName = p.practice?.trim() || p.name;
   const existing = await db.user.findUnique({ where: { email } });
   if (existing) {
-    if (p.practice?.trim()) await db.practice.update({ where: { id: existing.practiceId }, data: { name: practiceName } });
+    // `isDemo` is written on every re-run, not only when the practice is renamed: re-seeding a database that
+    // was seeded before T32 is how a practice created without the flag gets it (§13.4), and a practice this
+    // function is told is not a demo one must not keep the flag from a previous seed either.
+    if (p.practice?.trim() || p.isDemo !== undefined) {
+      await db.practice.update({
+        where: { id: existing.practiceId },
+        data: { ...(p.practice?.trim() ? { name: practiceName } : {}), ...(p.isDemo === undefined ? {} : { isDemo: p.isDemo }) },
+      });
+    }
     return db.user.update({ where: { id: existing.id }, data: { name: p.name }, include: { practice: true } });
   }
   // The first person in a practice runs it (§5.2); everyone after is invited with a role (lib/team.ts).
   return db.user.create({
-    data: { name: p.name, email, role: "admin", practice: { create: { name: practiceName } } },
+    data: { name: p.name, email, role: "admin", practice: { create: { name: practiceName, isDemo: p.isDemo ?? false } } },
     include: { practice: true },
   });
 }
 
-/** The provider `npm run seed`, `/demo` and an unattributed booking all land on. */
+/** The provider `npm run seed` and `/demo` land on, admin of the demo practice (§13.4). */
 export const ensureDemoProvider = () => upsertProvider(DEMO);
 
 /**

@@ -1730,6 +1730,19 @@ textarea.ss-input {
   margin: 0;
 }
 
+/* T32 (design §13.4): a practice marked synthetic. The pill sits under the name, and the note is inside the
+   card whose two settings it changes the meaning of — amber rather than red, because nothing is wrong: a
+   demo practice behaving differently is the feature. */
+
+.settings-demo-pill {
+  margin: 0 0 10px;
+}
+
+.settings-demo-note {
+  padding-left: 11px;
+  border-left: 2px solid #f0d08a;
+}
+
 .settings-grid {
   display: grid;
   gap: 18px;

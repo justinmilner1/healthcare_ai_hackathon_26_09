@@ -33,6 +33,10 @@ const RUNNER_PORT = PORT + 2;
 // e2e/dexcom.spec.ts is the only spec that uses it — nothing else in the suite configures Dexcom at all, so
 // without it the production half of the switch has no screen anybody can look at.
 const DEXCOM_PORT = PORT + 3;
+// A fifth server, the only one with DEMO_SIGN_IN set (T32, design §13.4). The main server keeps the default —
+// `/demo` offers the sign-in form with the address filled in, which e2e/signin.spec.ts asserts — so the
+// shortcut needs a server of its own to be seen at all. e2e/demo.spec.ts is the only spec that uses it.
+const DEMO_PORT = PORT + 4;
 // Long enough to satisfy the §3.7 config gate, which refuses a secret under 16 characters because this one
 // guards a public route (T31). Named like AUTH_SECRET below for the same reason: neither is a secret here.
 const RUNNER_SECRET = "e2e-jobs-secret-not-for-deployment";
@@ -130,6 +134,21 @@ export default defineConfig({
       },
     },
     {
+      command: `npx next start -p ${DEMO_PORT}`,
+      url: `http://localhost:${DEMO_PORT}/api/health/live`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000, // no build of its own either
+      env: {
+        ...process.env,
+        PORT: String(DEMO_PORT),
+        APP_URL: `http://localhost:${DEMO_PORT}`,
+        OPENAI_API_KEY: "",
+        AUTH_SECRET, // the same secret: the link /demo mints is signed against it, like an emailed one
+        DEV_MAIL_DIR: `${MAIL_DIR}-demo`, // its own mailbox, like the others
+        DEMO_SIGN_IN: "1",
+      },
+    },
+    {
       command: `npx next start -p ${RUNNER_PORT}`,
       url: `http://localhost:${RUNNER_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
@@ -147,4 +166,4 @@ export default defineConfig({
   ],
 });
 
-export { DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET };
+export { DEMO_PORT, DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET };

@@ -9,7 +9,7 @@
 import { isRole, type Role } from "./access";
 import { db } from "./db";
 import { HttpError } from "./httpError";
-import { log } from "./log";
+import { log, markDemoPractice } from "./log";
 import { sendTeamInvite } from "./mailer";
 import {
   cleanPersonName,
@@ -44,7 +44,7 @@ export async function practiceTeam(practiceId: string): Promise<PracticeTeam> {
   // The session named this practice, so it existed a moment ago; gone means the row was deleted under us.
   if (!practice) throw new HttpError(404, "practice not found", "practice_not_found", { practiceId });
   return {
-    practice: { id: practice.id, name: practice.name, retentionDays: practice.retentionDays },
+    practice: { id: practice.id, name: practice.name, retentionDays: practice.retentionDays, isDemo: practice.isDemo },
     users: practice.users.map(member),
   };
 }
@@ -104,6 +104,7 @@ export async function inviteMember(opts: {
 
   const practice = await db.practice.findUnique({ where: { id: opts.practiceId } });
   if (!practice) throw new HttpError(404, "practice not found", "practice_not_found", { practiceId: opts.practiceId });
+  markDemoPractice(practice); // §13.4's label for everything this request logs from here on
 
   const created = await db.user.create({
     data: { practiceId: opts.practiceId, email, name: cleanPersonName(opts.name), role },
@@ -116,6 +117,8 @@ export async function inviteMember(opts: {
     practiceName: practice.name,
     invitedBy: opts.invitedBy.name ?? opts.invitedBy.email,
     role,
+    // §13.4 A demo practice's invite goes to a reserved address or nowhere; the User row is made either way.
+    demo: practice.isDemo,
   });
 
   return { member: member(created), sent: result.sent, error: result.error };

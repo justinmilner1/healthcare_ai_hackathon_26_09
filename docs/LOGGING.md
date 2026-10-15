@@ -67,6 +67,11 @@ database ids (`patientId`, `visitId`, `uploadId`, `jobId`, …), operational fac
 anything; a guard's other fields (`userId`, `practiceId`) are opaque ids, and an address passed to one is
 dropped by name like anywhere else.
 
+`demo` is §13.4's label: `true` on a line this request or job could attribute to a practice marked `isDemo`,
+and absent everywhere else. It is a boolean about a practice, not about a person, and it exists so the alarm
+filters can leave synthetic work out — see **How CloudWatch receives these logs** below for the filters and
+for where the flag is set.
+
 `scope`, `limit` and `retryAfter` are there for the `rate_limited` line a refused public route writes
 (§5.4, `lib/ratelimit.ts`): which key was spent — `ip` or `visit`, a two-word vocabulary — the ceiling, and
 the seconds until the window resets. The **address is not a field and must not become one.** An IP identifies
@@ -142,6 +147,31 @@ Nothing in the app ships logs. Writing to stdout and stderr is the whole integra
   `{ $.event = "request" && $.status >= 500 }`, job failures from `{ $.event = "job_failed" }`, model timeout
   rate from `{ $.event = "model_timeout" }`. Those filters and their SNS topic belong to the infrastructure
   tickets; this document is the contract they rely on.
+- **Demo practices are excluded from the alarms** (§13.4), and this is where that exclusion lives. There is
+  nothing in CloudWatch an application can exempt itself from, so the app *labels* instead: every line it can
+  attribute to a practice marked `isDemo` carries `demo: true`. Each of §11.1's three alarm filters adds
+  `$.demo NOT EXISTS` — so job failures become `{ $.event = "job_failed" && $.demo NOT EXISTS }`, and the 5xx
+  and model-failure filters likewise. The filters themselves are in `infra/lib/sweetspot-stack.ts` (`alarms()`)
+  and `infra/test/stack.test.ts` asserts them. A synthetic visit whose summary run fails then wakes nobody,
+  while the same failure in a real practice still does.
+
+  The one alarm that still counts a demo practice's lines is `llm_circuit_opened`: the model circuit is one
+  per process rather than one per practice, so whichever request tripped it, every patient on the deployment
+  is now reading scripted replies (§6.3, §11.3). Excluding it would hide a real outage behind a synthetic
+  visit.
+
+  The label rides the request rather than the call site (`markDemo` in `lib/log.ts`, reached through
+  `markDemoPractice` wherever a practice row is in hand), which is what gets it onto the lines no demo-aware
+  code writes: `request_failed` comes from
+  `withRoute` and `job_failed` from the job runner, and neither has a practice in hand. One call at the point
+  a practice *is* in hand covers everything after it — `lib/visit.ts`, which every patient route and every
+  visit-shaped job resolves a visit through, the two job handlers that have no visit, and `lib/teamStore.ts`.
+  Each job is drained inside its own child context (`runInChildContext`), so one demo visit's label stops at
+  the end of its own job instead of marking everything else in that drain.
+
+  What is *not* labelled is a line from a request that never touched a practice — an unauthenticated 500 on a
+  public page, say. Those are counted, which is the right way round: the point of the exclusion is that
+  synthetic data does not page anyone, not that a deployment stops reporting what is broken.
 - **Local development.** The same lines go to the terminal. `npm run dev | npx pino-pretty` is a convenient
   reader, but nothing in the app depends on it.
 

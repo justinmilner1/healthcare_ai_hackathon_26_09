@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { AUTH_DEV_SECRET, ConfigError, SPEC, assertConfig, isProduction, read, validateConfig, appUrl } from "./config";
+import { AUTH_DEV_SECRET, ConfigError, SPEC, assertConfig, demoSignInEnabled, isProduction, read, validateConfig, appUrl } from "./config";
 import { setLogSink } from "./log";
 
 /** A production environment with nothing wrong with it. Tests break one thing at a time from here. */
@@ -484,6 +484,41 @@ const sourceFiles = (dir: string): string[] => {
   }
   return out;
 };
+
+// ---- §13.4's demo sign-in ---------------------------------------------------------------------------------
+
+test("DEMO_SIGN_IN is off unless it is one of the affirmative spellings", () => {
+  for (const value of ["1", "true", "TRUE", "on", " on "]) {
+    assert.equal(demoSignInEnabled({ DEMO_SIGN_IN: value }), true, JSON.stringify(value));
+  }
+  // Anything else is off, including the spellings a human might expect to work: the thing being decided is
+  // whether a route hands out a session without a link, so the default has to be the closed door.
+  for (const value of [undefined, "", " ", "0", "false", "off", "yes", "demo", "no"]) {
+    assert.equal(demoSignInEnabled({ DEMO_SIGN_IN: value }), false, JSON.stringify(value));
+  }
+});
+
+test("a value that is not a DEMO_SIGN_IN spelling at all is a problem, not a silent off", () => {
+  const problems = validateConfig({ ...good(), DEMO_SIGN_IN: "yes" });
+  assert.ok(problems.some((p) => p.variable === "DEMO_SIGN_IN" && p.kind === "invalid"));
+});
+
+test("DEMO_SIGN_IN on a production deployment is a warning, never a refusal", () => {
+  // Staging is a production build on a public URL, which is exactly where §13.4 asks for the shortcut — so
+  // this cannot refuse. It says so on every boot instead.
+  const env = { ...good(), DEMO_SIGN_IN: "1" };
+  assert.deepEqual(errors(env), []);
+  const warning = warnings(env).find((p) => p.variable === "DEMO_SIGN_IN");
+  assert.ok(warning, "a deployment with the shortcut on says so");
+  assert.match(warning!.message, /staging/);
+
+  // Off, and a local production build with it on, are both silent: the second is `npm run build && npm start`.
+  assert.equal(warnings(good()).some((p) => p.variable === "DEMO_SIGN_IN"), false);
+  assert.equal(
+    warnings({ ...good(), DEMO_SIGN_IN: "1", APP_URL: "http://localhost:3000" }).some((p) => p.variable === "DEMO_SIGN_IN"),
+    false,
+  );
+});
 
 test("every environment variable read in lib/ and app/ has a row in SPEC", () => {
   // This is the test that keeps the list honest as the app grows: a new `process.env.WHATEVER` in application
