@@ -217,6 +217,11 @@ The first deploy needs a human: AWS credentials, a GitHub token for Amplify, a v
 security decision about who may reach the database. [docs/DEPLOY.md](docs/DEPLOY.md) is that walkthrough, the
 six secrets SSM needs, and what each alarm means.
 
+The database keeps seven days of point-in-time backups (§11.4). Restoring one is a drill rather than a
+setting: [docs/BACKUPS.md](docs/BACKUPS.md) has the commands, the expected output of each, and what the
+three failure modes look like. Its verification step is a script — `npm run restore:drill` — and
+`scripts/agent-check.sh` rehearses it on every run so it cannot rot between quarterly drills.
+
 ## Repo layout
 
 ```
