@@ -1,0 +1,108 @@
+name: release
+# Design §13.3: production deploys from tagged releases, and a rollback is a redeploy of the previous tag.
+#
+# Amplify Hosting deploys a *branch*, so this workflow is the join between the two: it is the only thing that
+# writes the `release` branch the production app watches (infra/cdk.json, `sweetspot:production.branch`), and
+# it only ever points that branch at the commit of a `v*` tag. So every production deploy is a release tag,
+# and rolling back is this same workflow run again with the previous tag — the branch moves back, Amplify
+# rebuilds it, and the migrations that already ran stay run. docs/RUNBOOK.md is the procedure for a human.
+#
+# The branch moves backwards on a rollback, so this push is forced. It is the one forced push in the repo and
+# it is safe because nothing else writes `release`: no work is ever committed there, only released from main.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to deploy. For a rollback, the previous tag (for example v1.4.2)."
+        required: true
+        type: string
+
+# One release at a time, and never cancelled halfway: the branch push is the deploy.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # to move the release branch
+  checks: read # to see whether ci passed on the commit being released
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # the ancestry check below needs main's history, not a shallow clone
+
+      - name: Resolve the tag and check it is releasable
+        id: resolve
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::'$TAG' is not a release tag: production deploys v* tags only (design §13.3)"; exit 1 ;;
+          esac
+
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG" \
+            || { echo "::error::no tag $TAG on origin: tag the commit and push the tag first"; exit 1; }
+          SHA=$(git rev-list -n 1 "refs/tags/$TAG")
+
+          # A release names a commit that is already on main. Tagging a branch nobody reviewed and having it
+          # serve patients is the failure this prevents.
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$TAG ($SHA) is not on main: a release is a tag on a merged commit"
+            exit 1
+          fi
+
+          # ci (.github/workflows/ci.yml) is the same check a pull request had to pass. A commit where it ran
+          # and failed is not releasable. A commit where it never ran at all is a warning rather than a
+          # refusal, because a push to main does not always produce a run (T47) and a release must not be
+          # impossible because of that; the runbook says to look.
+          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name == "check") | .conclusion // "pending"] | join(" ")')
+          echo "ci check runs on $SHA: ${CONCLUSIONS:-none}"
+          if [ -z "$CONCLUSIONS" ]; then
+            echo "::warning::ci never ran on $SHA; releasing anyway, check the commit by hand"
+          elif ! printf '%s' "$CONCLUSIONS" | grep -qw success; then
+            echo "::error::ci did not pass on $SHA (ci: $CONCLUSIONS)"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "previous=$(git describe --tags --abbrev=0 --match 'v*' "$SHA^" 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+
+      - name: Point the release branch at the tag
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          BEFORE=$(git rev-parse --verify --quiet origin/release || echo none)
+          echo "release: $BEFORE -> $SHA"
+          # Forced: a rollback moves the branch backwards. See the comment at the top of this file.
+          git push --force origin "$SHA:refs/heads/release"
+          echo "previous_release=$BEFORE" >> "$GITHUB_ENV"
+
+      - name: Say what was released
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          PREVIOUS_TAG: ${{ steps.resolve.outputs.previous }}
+        run: |
+          {
+            echo "## Released \`$TAG\`"
+            echo
+            echo "- commit \`$SHA\`"
+            echo "- release branch was \`${previous_release:-none}\`"
+            echo "- previous tag: \`$PREVIOUS_TAG\` — roll back by running this workflow again with it"
+            echo
+            echo "Amplify is building \`release\` now: \`npm ci\`, this stage's SSM parameters into"
+            echo ".env.production, \`prisma migrate deploy\`, the §3.7 config gate, then \`npm run build\`."
+            echo "A failure in any of those leaves the version that is serving in place (docs/RUNBOOK.md)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -235,6 +235,12 @@ The first deploy needs a human: AWS credentials, a GitHub token for Amplify, a v
 security decision about who may reach the database. [docs/DEPLOY.md](docs/DEPLOY.md) is that walkthrough, the
 six secrets SSM needs, and what each alarm means.
 
+After that, deploying is a push: staging is every merge to `main` (§13.2), and production is a `v*` tag, which
+`.github/workflows/release.yml` turns into the only push the `release` branch ever gets (§13.3). The build
+migrates before it serves, so a failed migration is a failed deploy rather than an app on the wrong schema, and
+a rollback is that workflow run again with the previous tag. [docs/RUNBOOK.md](docs/RUNBOOK.md) is the
+procedure.
+
 ## Repo layout
 
 ```
@@ -323,7 +329,7 @@ scripts/migrate-visits.ts       give any patient without a visit one (design §4
 scripts/check-config.ts         npm run config:check: the startup check as a command
 scripts/health-check.ts         npm run health:check: the deploy gate against a running deployment (§11.2)
 scripts/infra-check.sh          npm run infra:check: typecheck, test and `cdk synth` the stack below
-infra/bin/infra.ts              the CDK app: the staging stack today, production with T30 (§3.6, §13.2)
+infra/bin/infra.ts              the CDK app: both stacks, staging and production (§3.6, §13.2, §13.3)
 infra/lib/sweetspot-stack.ts    Amplify, RDS, S3, SES, SNS, the minute schedule, SSM, the alarms
 infra/lib/stage.ts              everything that differs between staging and production
 infra/lambda/jobs-tick/         the 60 lines EventBridge Scheduler runs to call POST /api/jobs/run (§3.4)
