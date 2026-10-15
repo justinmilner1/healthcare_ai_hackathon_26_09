@@ -18,7 +18,7 @@ Owner: ops. The day-to-day operations — rollback, rotating a secret, restoring
 | SES identity + configuration set | sending, and the bounce and complaint feed | §8, §8.1 |
 | Two SNS topics: `-alarms`, `-mail-events` | where alarms and delivery events go | §8.1, §11.1 |
 | EventBridge Scheduler rule, every minute, and a 60-line Lambda | calls `POST /api/jobs/run` with the shared secret | §3.4 |
-| 12 SSM `String` parameters under `/sweetspot/<stage>/` | the non-secret half of the configuration | §3.7, §10.6 |
+| 13 SSM `String` parameters under `/sweetspot/<stage>/` | the non-secret half of the configuration, this deployment's Dexcom callback among it | §3.7, §9.2, §10.6 |
 | 4 log metric filters and 6 CloudWatch alarms | 5xx rate, job failures, model failures, model degraded, the tick, database storage | §11.1 |
 
 Three things in there are deliberate and surprising, so they are worth reading before the first deploy.
@@ -110,16 +110,22 @@ put OPENAI_API_KEY "<Bedrock API key>"           # §3.5; without it the app run
 ```
 
 `DEXCOM_CLIENT_ID` and `DEXCOM_CLIENT_SECRET` are the same shape and can wait: with neither set, uploads work
-and the Dexcom connect button says it is not configured (§9.2, `docs/DEXCOM.md`).
+and the Dexcom connect button says it is not configured (§9.2, `docs/DEXCOM.md`). When the Dexcom application
+does exist, those two are the whole step — the stack already writes this deployment's `DEXCOM_REDIRECT_URI`
+(`<APP_URL>/api/dexcom/callback`, which is what Dexcom must have registered) and `DEXCOM_TOKEN_KMS_KEY_ID`
+(§4.10), and neither of those counts as "Dexcom is configured" until a credential joins them. Talking to
+Dexcom's *production* environment rather than its sandbox is one more parameter, `DEXCOM_ENV=production`, and
+is a decision with its own approval process: `docs/DEXCOM.md`.
 
 Check the set with `npm run config:check` against those values locally, or let the Amplify build do it — the
 build spec runs `npm run config:check -- --production` and fails the deploy if something required is missing
 (§3.7).
 
-### 2. Give the app the same six values
+### 2. Give the app the same secrets
 
-The SSR compute reads its environment from the Amplify app, and the build reads SSM. Set the six on the app
-once — Amplify console → the app → *Hosting* → *Environment variables*, at app level, not branch level — or:
+The SSR compute reads its environment from the Amplify app, and the build reads SSM. Set the secrets on the
+app once — Amplify console → the app → *Hosting* → *Environment variables*, at app level, not branch level —
+or:
 
 ```bash
 APP_ID=$(aws cloudformation describe-stacks --stack-name SweetSpot-staging \
@@ -128,9 +134,11 @@ aws amplify update-app --app-id "$APP_ID" --environment-variables \
   DATABASE_URL="...",AUTH_SECRET="...",JOBS_SECRET="...",OPENAI_API_KEY="..."
 ```
 
-`update-app` replaces the app's whole variable list, which is safe precisely because the stack keeps nothing
-there — but it does mean listing all six in one call. Never put them at branch level: that list *is* managed
-by CloudFormation and the next `cdk deploy` would overwrite it.
+The four above are what step 1 put in SSM. `update-app` replaces the app's whole variable list, so a later
+addition — `DEXCOM_CLIENT_ID` and `DEXCOM_CLIENT_SECRET`, when Dexcom is in use — means repeating every value
+in one call, not appending. That list is safe to replace precisely because the stack keeps nothing there;
+everything CloudFormation computes is at *branch* level, and putting a secret there would have the next
+`cdk deploy` overwrite it.
 
 ### 3. Open the database
 
@@ -141,7 +149,9 @@ inside that range:
 psql "$(aws ssm get-parameter --name /sweetspot/staging/DATABASE_URL --with-decryption --query Parameter.Value --output text)" -c 'select version()'
 ```
 
-Migrations do not need this: the Amplify build runs `npx prisma migrate deploy` from the build container.
+The Amplify build needs it too, and for the same reason: `npx prisma migrate deploy` runs from the build
+container, which reaches the database over the same internet path the SSR compute does. A list that does not
+cover the build fails the deploy at the migration step rather than at the first request.
 
 ### 4. Verify the SES identity and the alarm subscription
 

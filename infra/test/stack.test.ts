@@ -152,6 +152,32 @@ test("configuration comes from one SSM path, and the app may read it (§3.7, §1
   });
 });
 
+test("the Dexcom plumbing is written by the stack, the credentials are not (§9.2, §4.10)", () => {
+  const template = staging({ appUrl: "https://staging.sweetspot.health" });
+  // The callback is this deployment's own URL. An operator who later puts the two credentials in SSM has a
+  // whole Dexcom configuration without hand-typing anything — and `npm run config:check -- --production`,
+  // which the Amplify build runs, passes before they do (lib/config.ts counts neither of these as intent).
+  for (const type of ["AWS::Amplify::Branch", "AWS::SSM::Parameter"]) {
+    const carries = JSON.stringify(template.findResources(type));
+    assert.ok(carries.includes("https://staging.sweetspot.health/api/dexcom/callback"), `${type} has no DEXCOM_REDIRECT_URI`);
+    assert.ok(carries.includes("DEXCOM_TOKEN_KMS_KEY_ID"), `${type} has no DEXCOM_TOKEN_KMS_KEY_ID`);
+  }
+  const body = JSON.stringify(template.toJSON());
+  for (const name of ["DEXCOM_CLIENT_ID", "DEXCOM_CLIENT_SECRET", "DEXCOM_ENV"]) {
+    assert.ok(!body.includes(`"${name}"`), `${name} is the operator's to set, not the stack's`);
+  }
+});
+
+test("only this deployment's own origin may use a presigned PUT (§3.3)", () => {
+  staging({ appUrl: "https://staging.sweetspot.health" }).hasResourceProperties("AWS::S3::Bucket", {
+    CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ["https://staging.sweetspot.health"] })] },
+  });
+  // With no domain of its own, the origin is the app's generated URL — a reference, never a wildcard.
+  const generated = JSON.stringify(staging().findResources("AWS::S3::Bucket"));
+  assert.ok(!generated.includes("*.amplifyapp.com"), "every Amplify site is not this deployment's origin");
+  assert.ok(generated.includes("DefaultDomain"), "the CORS origin should resolve to this app's own domain");
+});
+
 test("the app itself holds no environment, so the secrets a human puts there survive a deploy (§10.6)", () => {
   const app = staging().findResources("AWS::Amplify::App");
   for (const resource of Object.values(app)) {

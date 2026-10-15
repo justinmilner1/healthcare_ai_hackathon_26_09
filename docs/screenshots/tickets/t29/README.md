@@ -19,8 +19,8 @@ sits before the Playwright suite, so these also prove the step does not disturb 
 
 ## The stack, synthesized
 
-`bash scripts/infra-check.sh` → install, the §10.8 dependency audit of the CDK tree, typecheck, 12 unit tests,
-`cdk synth`. 67 resources in one template, with no AWS account and no Docker daemon:
+`bash scripts/infra-check.sh` → install, the §10.8 dependency audit of the CDK tree, typecheck, 14 unit tests,
+`cdk synth`. 68 resources in one template, with no AWS account and no Docker daemon:
 
 | Resource | Count |
 |---|---|
@@ -30,7 +30,7 @@ sits before the Playwright suite, so these also prove the step does not disturb 
 | `AWS::SES::EmailIdentity`, `ConfigurationSet`, `ConfigurationSetEventDestination` | 1, 1, 1 |
 | `AWS::SNS::Topic`, `TopicPolicy` | 2, 2 |
 | `AWS::Scheduler::Schedule`, `AWS::Lambda::Function` | 1, 2 |
-| `AWS::SSM::Parameter` | 12 |
+| `AWS::SSM::Parameter` | 13 |
 | `AWS::Logs::MetricFilter`, `AWS::CloudWatch::Alarm` | 4, 6 |
 | `AWS::KMS::Key`, `Alias` | 1, 1 |
 | `AWS::IAM::Role`, `Policy` | 4, 4 |

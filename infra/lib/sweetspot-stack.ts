@@ -102,6 +102,14 @@ export class SweetSpotStack extends cdk.Stack {
     this.configurationSet = this.sesIdentity();
     this.db = this.database();
     const branch = this.hosting();
+    // After hosting(), because the only origin allowed to use a presigned PUT is this deployment's own and
+    // for a stage with no domain of its own that URL is the app's generated one (§3.3).
+    this.uploads.addCorsRule({
+      allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
+      allowedOrigins: [this.appUrl()],
+      allowedHeaders: ["*"],
+      maxAge: 300,
+    });
     this.configParameters();
     this.jobsTick = this.jobRunnerSchedule();
     this.alarms();
@@ -150,14 +158,6 @@ export class SweetSpotStack extends cdk.Stack {
         { id: "abort-incomplete-uploads", abortIncompleteMultipartUploadAfter: cdk.Duration.days(7) },
         { id: "expire-old-versions", noncurrentVersionExpiration: cdk.Duration.days(30) },
       ],
-    });
-    bucket.addCorsRule({
-      allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
-      // The presigned PUT is signed for one object for a few minutes; the origin that may use it is this
-      // deployment's own. A stage with no domain yet gets the Amplify default domain pattern.
-      allowedOrigins: [this.config.appUrl ?? `https://*.amplifyapp.com`],
-      allowedHeaders: ["*"],
-      maxAge: 300,
     });
     return bucket;
   }
@@ -472,7 +472,13 @@ export class SweetSpotStack extends cdk.Stack {
       UPLOADS_BUCKET: this.uploads.bucketName,
       UPLOADS_REGION: this.region,
       STORAGE_BACKEND: "s3", // never silently fall back to the filesystem on a deployment (§3.3)
+      // §9.2: both halves of the Dexcom plumbing, written for every stage whether or not anyone has a Dexcom
+      // application yet. The callback is this deployment's own URL and the key is this stack's, so neither is
+      // a thing to hand-type later; the two credentials are, and they are SecureStrings (SECURE_PARAMETERS).
+      // Neither counts as "Dexcom is configured" in lib/config.ts, which is what lets the §3.7 gate pass on a
+      // deployment that has not signed up with Dexcom.
       DEXCOM_TOKEN_KMS_KEY_ID: this.dexcomTokenKey.keyArn,
+      DEXCOM_REDIRECT_URI: `${this.appUrl()}/api/dexcom/callback`,
       EMAIL_PROVIDER: this.config.emailIdentity ? "ses" : undefined,
       EMAIL_FROM: this.config.emailFrom,
       SES_CONFIGURATION_SET: this.configurationSet?.configurationSetName,
@@ -513,6 +519,7 @@ export class SweetSpotStack extends cdk.Stack {
       UPLOADS_REGION: this.region,
       STORAGE_BACKEND: "s3",
       DEXCOM_TOKEN_KMS_KEY_ID: this.dexcomTokenKey.keyArn,
+      DEXCOM_REDIRECT_URI: `${this.appUrl()}/api/dexcom/callback`,
       SNS_TOPIC_ARNS: this.mailEventTopic.topicArn,
       JOBS_RUNNER: "scheduled",
     };
