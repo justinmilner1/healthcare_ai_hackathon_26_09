@@ -2,7 +2,9 @@
   --ink: #271d25;
   --muted: #756a72;
   --pink: #f75d7c;
-  --pink-dark: #e84468;
+  /* Small bold labels are set in this one (.eyebrow, .connectionCount span), so it has to clear 4.5:1 on
+     white: the old #e84468 was 3.8:1, which axe fails as serious (design §6.4, T22). Same hue, darker. */
+  --pink-dark: #db1b45;
   min-height: 100svh;
   overflow: hidden;
   color: var(--ink);
@@ -550,7 +552,7 @@
   align-items: center;
   gap: 5px;
   border: 0;
-  color: #8d8289;
+  color: var(--muted);
   background: transparent;
   font: inherit;
   font-size: 11px;
@@ -693,7 +695,7 @@
 
 .sourceMeta {
   margin-top: 5px;
-  color: #a0969c;
+  color: var(--muted);
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.045em;
@@ -728,7 +730,7 @@
   margin: 0;
   padding-top: 10px;
   border-top: 1px solid #f0e9ed;
-  color: #8c7b84;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -855,7 +857,7 @@
 }
 
 .connectionCount {
-  color: #8e848a;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 570;
 }
@@ -878,7 +880,7 @@
 .textButton {
   padding: 7px 2px;
   border: 0;
-  color: #847a80;
+  color: var(--muted);
   background: transparent;
   font: inherit;
   font-size: 11px;

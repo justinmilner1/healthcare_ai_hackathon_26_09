@@ -61,6 +61,10 @@ export default function GlucoseChart({ readings, spikes, height = 280 }: { readi
           <Tooltip
             cursor={{ stroke: AXIS, strokeWidth: 1 }}
             contentStyle={{ borderRadius: 6, border: `1px solid ${GRID}`, background: SURFACE, fontSize: 12, color: INK2 }}
+            // Recharts paints the tooltip's name and value in the series colour, which is tuned for a 2px line
+            // (3:1 is all WCAG asks of a graphic) and reads as 3.6:1 at 12px. Tooltip text is text (§6.4).
+            itemStyle={{ color: INK2 }}
+            labelStyle={{ color: INK2 }}
             labelFormatter={(v) => new Date(Number(v)).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}
             formatter={(v) => [`${v} mg/dL`, "Glucose"]}
           />

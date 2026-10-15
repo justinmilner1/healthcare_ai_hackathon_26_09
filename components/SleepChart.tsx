@@ -34,6 +34,10 @@ export default function SleepChart({ nights, height = 200 }: { nights: SleepNigh
             <Tooltip
               cursor={{ fill: GRID, fillOpacity: 0.5 }}
               contentStyle={{ borderRadius: 6, border: `1px solid ${GRID}`, background: SURFACE, fontSize: 12, color: INK2 }}
+              // Recharts paints the tooltip's name and value in the series colour, which is tuned for a 2px line
+              // (3:1 is all WCAG asks of a graphic) and reads as 3.6:1 at 12px. Tooltip text is text (§6.4).
+              itemStyle={{ color: INK2 }}
+              labelStyle={{ color: INK2 }}
               formatter={(v, _n, item) => {
                 const rec = (item?.payload as SleepNight | undefined)?.recovery;
                 return [`${v} h${typeof rec === "number" ? ` · recovery ${rec}%` : ""}`, "Asleep"];
