@@ -54,6 +54,14 @@ export const AUDIT_ACTIONS = {
   "invite.sent": "Invite sent",
   "code.sent": "Verification code sent",
   "summary.sent": "Summary notice sent",
+  "deletion.sent": "Deletion confirmation sent",
+  // §8.1 A channel closing or reopening, from what SES or SNS told us (lib/notifyStore.ts): the bounce, the
+  // spam report, the patient texting STOP, the patient texting START. Not one of §10.2's four categories and
+  // recorded anyway, because "why did this patient stop getting their invites" is a question an admin is
+  // asked and should not have to answer out of a log search. The row says which channel and the provider's
+  // own word for it, never the address or the number (§4.8).
+  "contact.suppressed": "Contact channel closed",
+  "contact.resumed": "Contact channel reopened",
   "summary.reviewed": "Summary marked reviewed",
   "summary.question": "Follow-up question asked",
   "upload.deleted": "Upload deleted",

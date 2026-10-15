@@ -128,23 +128,36 @@ export async function importVisits(me: ProviderUser, providerUserId: string, row
 // ---------------------------------------------------------------------------------------------
 // §8.3 Delivery results, per channel, recorded on the visit and shown to staff.
 
-export type DeliveryStatus = "sent" | "failed" | "skipped";
+/** `bounced` and `complained` are not send outcomes: they arrive minutes later from SES's notification topic
+ *  and overwrite a `sent` row for the same provider message id (§8.1, lib/notifyStore.ts). */
+export type DeliveryStatus = "sent" | "failed" | "skipped" | "bounced" | "complained";
 
 /** What one channel did with one message. `providerMessageId` is SES's or SNS's own id (§8.3), the handle a
  *  bounce notification arrives under; it is null for a send that never left. */
 export type DeliveryResult = { sent: boolean; provider?: string; messageId?: string; error?: string };
 
+/** One message this send reported on: which channel it went out over, and — for §8.2's summary notice, which
+ *  is two emails to two different people — which of them it was for. */
+export type DeliveryWrite = { channel: string; audience?: "patient" | "provider"; result: DeliveryResult };
+
 const statusOf = (r: DeliveryResult): DeliveryStatus => (r.sent ? "sent" : r.provider ? "failed" : "skipped");
 
 /**
- * Record what each channel did, keyed by visit and channel so the newest result replaces the last one: staff
- * looking at the dashboard want "did the invite reach them", not a log of every attempt (the log has that).
+ * Record what each message did, keyed by visit, message kind, channel and audience so the newest result
+ * replaces the last one for *that* message: staff looking at the dashboard want "did the invite reach them"
+ * and "was the clinician told", not a log of every attempt (the log has that).
+ *
+ * The kind and the audience joined the key in T19. Before that one row per channel held whichever message
+ * was sent last, so the summary notice silently overwrote the invite's result and the summary's two emails
+ * overwrote each other.
  *
  * Never throws. A send that worked must not be reported as a failure because the bookkeeping row did not
  * save, and the invite job's retry would then send the message a second time.
  */
-export async function recordDeliveries(visitId: string, kind: string, channels: Record<string, DeliveryResult>): Promise<void> {
-  for (const [channel, result] of Object.entries(channels)) {
+export async function recordDeliveries(visitId: string, kind: string, messages: readonly DeliveryWrite[]): Promise<void> {
+  for (const message of messages) {
+    const { channel, result } = message;
+    const audience = message.audience ?? "patient";
     const status = statusOf(result);
     try {
       const data = {
@@ -157,24 +170,40 @@ export async function recordDeliveries(visitId: string, kind: string, channels: 
         error: result.error ?? null,
         at: new Date(),
       };
-      await db.visitDelivery.upsert({ where: { visitId_channel: { visitId, channel } }, create: { visitId, channel, ...data }, update: data });
+      await db.visitDelivery.upsert({
+        where: { visitId_kind_channel_audience: { visitId, kind, channel, audience } },
+        create: { visitId, channel, audience, ...data },
+        update: data,
+      });
     } catch (e) {
-      log.warn("delivery_not_recorded", { visitId, channel, status, error: e });
+      log.warn("delivery_not_recorded", { visitId, channel, audience, kind, error: e });
     }
   }
 }
 
-/** The per-channel delivery state the dashboard prints, for a list of visits in one query (§8.3). */
-export type DeliveryRow = { channel: string; kind: string; status: string; providerMessageId: string | null; error: string | null; at: string };
+/** The per-message delivery state the dashboard prints, for a list of visits in one query (§8.3). */
+export type DeliveryRow = {
+  channel: string;
+  kind: string;
+  audience: string;
+  status: string;
+  providerMessageId: string | null;
+  error: string | null;
+  at: string;
+};
 
 export async function deliveriesByVisit(visitIds: string[]): Promise<Record<string, DeliveryRow[]>> {
   if (!visitIds.length) return {};
-  const rows = await db.visitDelivery.findMany({ where: { visitId: { in: visitIds } }, orderBy: { channel: "asc" } });
+  const rows = await db.visitDelivery.findMany({
+    where: { visitId: { in: visitIds } },
+    orderBy: [{ kind: "asc" }, { channel: "asc" }, { audience: "asc" }],
+  });
   const byVisit: Record<string, DeliveryRow[]> = {};
   for (const r of rows) {
     (byVisit[r.visitId] ??= []).push({
       channel: r.channel,
       kind: r.kind,
+      audience: r.audience,
       status: r.status,
       providerMessageId: r.providerMessageId,
       error: r.error,

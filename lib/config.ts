@@ -410,6 +410,28 @@ export const SPEC: readonly VarSpec[] = [
   },
 
   {
+    name: "SNS_TOPIC_ARNS",
+    group: "Notifications",
+    requirement: "optional",
+    summary: "SNS topics POST /api/notifications/sns accepts: SES bounces and complaints, and inbound texts (design §8.1).",
+    // Unset is not a half-configuration — it is "we are not subscribed to anything yet", and the route says
+    // so with a 503 rather than trusting whatever arrives. A value that is set and is not an ARN is a typo
+    // worth refusing over, because the symptom otherwise is bounces being dropped in silence.
+    check: (value) => {
+      const arns = value.split(/[\s,]+/).filter(Boolean);
+      const bad = arns.find((arn) => !/^arn:aws[a-z-]*:sns:[a-z0-9-]+:\d{12}:[\w.-]+$/.test(arn));
+      return bad ? "must be SNS topic ARNs, comma separated, like arn:aws:sns:us-east-1:123456789012:sweetspot-ses-events" : undefined;
+    },
+  },
+  {
+    name: "SES_CONFIGURATION_SET",
+    group: "Notifications",
+    requirement: "optional",
+    summary: "SES configuration set that publishes bounce, complaint and delivery events to the topic above.",
+    check: (value) => (/^[\w.-]{1,64}$/.test(value) ? undefined : "must be an SES configuration set name"),
+  },
+
+  {
     name: "DEXCOM_CLIENT_ID",
     group: "Dexcom",
     requirement: "optional",
@@ -539,6 +561,10 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   // Asking for S3 with no bucket is not a degraded path: lib/storage.ts has nowhere to put the file, so every
   // upload fails at the moment a patient tries one.
   if (v("STORAGE_BACKEND") === "s3") companions("STORAGE_BACKEND", ["UPLOADS_BUCKET"], "lib/storage.ts has no bucket to write to");
+  // §8.1 A configuration set publishes the events; the topic ARN is what makes this app act on them. Set one
+  // without the other and bounces are published to a topic nothing here will believe — a warning rather than
+  // a refusal, because the sending still works and it is suppression, not delivery, that is missing.
+  companions("SES_CONFIGURATION_SET", ["SNS_TOPIC_ARNS"], "POST /api/notifications/sns ignores a topic that is not listed, so bounces would not suppress anything", "warning");
 
   // Dexcom is all-or-nothing: lib/dexcom.ts throws on a partial set, which reads as "not connected" in the UI
   // and hides the typo that caused it.
