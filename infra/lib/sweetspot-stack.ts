@@ -55,6 +55,29 @@ export const SECURE_PARAMETERS = [
   "DEXCOM_CLIENT_SECRET",
 ] as const;
 
+/**
+ * When RDS takes the daily automated backup, in UTC (§11.4).
+ *
+ * Pinned rather than left to AWS, for two reasons that both belong to the drill in docs/BACKUPS.md. A window
+ * nobody chose is a window nobody can write down, and an operator restoring at 02:10 needs to know whether
+ * the snapshot they are about to reach for is from ten minutes ago or from twenty-three hours ago. And a
+ * backup that AWS happens to schedule over the maintenance window is the one that gets interrupted.
+ *
+ * 07:00 UTC is the middle of the night across the US practices this is for: 03:00 in New York, midnight in
+ * California. Maintenance is an hour behind it on a Sunday, far enough that neither touches the other —
+ * RDS requires at least thirty minutes between them.
+ */
+export const BACKUP_WINDOW_UTC = "07:00-07:30";
+export const MAINTENANCE_WINDOW_UTC = "sun:08:00-sun:09:00";
+
+/**
+ * The RDS events worth waking somebody for. `backup` is the one §11.4 is about: a failed automated backup is
+ * silent otherwise — there is no CloudWatch metric that goes red, the instance stays healthy, and the first
+ * anybody hears of it is a restore that cannot reach the day it needs. The rest are the events that mean the
+ * database this deployment runs on is not the database it had.
+ */
+export const DB_EVENT_CATEGORIES = ["availability", "backup", "deletion", "failover", "failure", "low storage"];
+
 /** `logRetentionDays` as the enum CloudWatch wants. Only the values the two stages use are mapped. */
 function retentionOf(days: number): logs.RetentionDays {
   const known: Record<number, logs.RetentionDays> = {
@@ -271,7 +294,7 @@ export class SweetSpotStack extends cdk.Stack {
       },
     });
 
-    return new rds.DatabaseInstance(this, "Database", {
+    const instance = new rds.DatabaseInstance(this, "Database", {
       instanceIdentifier: `${this.prefix}-db`,
       engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_10 }),
       instanceType: ec2.InstanceType.of(
@@ -292,8 +315,16 @@ export class SweetSpotStack extends cdk.Stack {
       maxAllocatedStorage: 100, // storage autoscaling, so a full disk is a bill and not an outage
       storageEncrypted: true, // §10.1 at rest
       multiAz: this.config.multiAz,
-      backupRetention: cdk.Duration.days(this.config.backupRetentionDays), // §11.4
+      // §11.4. Seven days of automated backups is also seven days of point-in-time recovery: RDS keeps the
+      // transaction logs alongside the daily snapshot, so a restore can name any second in the window and
+      // not only the moment a snapshot was taken. That is what makes the drill in docs/BACKUPS.md a restore
+      // to a *time* rather than to last night.
+      backupRetention: cdk.Duration.days(this.config.backupRetentionDays),
+      preferredBackupWindow: BACKUP_WINDOW_UTC,
+      preferredMaintenanceWindow: MAINTENANCE_WINDOW_UTC,
       copyTagsToSnapshot: true,
+      // A deleted instance takes its automated backups with it unless told otherwise, which would make
+      // `cdk destroy` on staging destroy the thing the drill practises on.
       deleteAutomatedBackups: false,
       autoMinorVersionUpgrade: true,
       cloudwatchLogsExports: ["postgresql"],
@@ -301,6 +332,20 @@ export class SweetSpotStack extends cdk.Stack {
       deletionProtection: this.config.retainData,
       removalPolicy: this.config.retainData ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.SNAPSHOT,
     });
+
+    // A backup nobody is told about failing is a backup nobody has. RDS publishes its own events rather than
+    // metrics for this, so the only way to hear about it is a subscription on the instance, pointed at the
+    // same topic §11.1's alarms use — one place ops watches, not two.
+    new rds.CfnEventSubscription(this, "DbEvents", {
+      subscriptionName: `${this.prefix}-db-events`,
+      snsTopicArn: this.alarmTopic.topicArn,
+      sourceType: "db-instance",
+      sourceIds: [instance.instanceIdentifier],
+      eventCategories: DB_EVENT_CATEGORIES,
+      enabled: true,
+    });
+
+    return instance;
   }
 
   // -----------------------------------------------------------------------------------------------
