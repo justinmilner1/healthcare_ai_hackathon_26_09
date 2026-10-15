@@ -16,6 +16,15 @@ test("a log line is JSON with a time, a level, and an event", () => {
   assert.match(String(line.time), /^\d{4}-\d{2}-\d{2}T/);
 });
 
+// The clock this file formats against, wherever a test searches a whole line for a needle.
+//
+// `formatLine` signs every line with `now.toISOString()` and takes `now` as its fourth argument. Left to the
+// real clock, the stamp is part of the text those searches run over, and a needle as short as a three-digit
+// number eventually collides with it: a millisecond field of exactly `555` put `555` in the line and failed
+// the leak check below for a phone number that had in fact been dropped. One run in a thousand, and the whole
+// check script with it. Pinning the clock leaves nothing in the line but what the test put there.
+const CLOCK = new Date("2026-01-02T03:04:05.678Z");
+
 test("fields outside the allow-list are dropped and only their names are reported", () => {
   const line = parse(
     formatLine("info", "invite_sent", {
@@ -26,7 +35,7 @@ test("fields outside the allow-list are dropped and only their names are reporte
       notes: "woke at 3am sweating",
       token: "s3cr3t-link-token",
       reason: "mornings running high",
-    }),
+    }, CLOCK),
   );
   assert.equal(line.patientId, "p_1");
   assert.deepEqual(line.droppedFields, ["email", "name", "notes", "phone", "reason", "token"]);
@@ -34,6 +43,16 @@ test("fields outside the allow-list are dropped and only their names are reporte
   for (const leak of ["Jane", "555", "jane@example.com", "sweating", "s3cr3t", "running high"]) {
     assert.equal(text.includes(leak), false, `leaked ${leak}`);
   }
+});
+
+test("the leak check above would still catch a value that really did reach the line", () => {
+  // The guard on the guard. Pinning the clock removes the one thing that made that search fail by accident, so
+  // this proves the search itself still works: `patientId` is allow-listed, a name put in it is kept, and the
+  // same whole-line search finds it. Without this, a leak check that had quietly stopped matching would read
+  // exactly like a leak check that passes.
+  const line = parse(formatLine("info", "invite_sent", { patientId: "Jane Doe" }, CLOCK));
+  assert.equal(line.patientId, "Jane Doe");
+  assert.equal(JSON.stringify(line).includes("Jane"), true, "the leak check cannot find a value that is there");
 });
 
 test("the allow-list holds no field that carries a name, contact detail, or free text", () => {
