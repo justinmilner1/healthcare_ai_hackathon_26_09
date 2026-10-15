@@ -190,6 +190,7 @@ app/
   provider/settings/page.tsx    admin only; settings.tsx is practice, retention, users Justin
   provider/audit/page.tsx       admin only; audit.tsx is the §10.2 audit trail + CSV export
   provider/[id]/page.tsx        session guard; sour.tsx is the Sour summary view Justin
+  provider/visit/[id]/print/page.tsx  the §7.4 one-pager: the summary alone, made for paper
   api/
     auth/[...nextauth]/route.ts Auth.js endpoints (sign in, callback, session, sign out)
     book/route.ts               POST create patient + send invite (scheduling hook) Justin
