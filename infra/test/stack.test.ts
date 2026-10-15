@@ -80,7 +80,14 @@ test("database: Postgres 16, TLS required by the server, encrypted, seven days o
     BackupRetentionPeriod: 7,
     DBName: "sweetspot",
   });
-  template.hasResourceProperties("AWS::RDS::DBParameterGroup", { Parameters: Match.objectLike({ "rds.force_ssl": "1" }) });
+  template.hasResourceProperties("AWS::RDS::DBParameterGroup", {
+    Parameters: Match.objectLike({
+      "rds.force_ssl": "1",
+      // §10.3: a slow-query line may not carry the values the query was given, which are patient data.
+      log_parameter_max_length: "0",
+      log_parameter_max_length_on_error: "0",
+    }),
+  });
   // Nothing may reach 5432 until a deployment names a CIDR; see the comment on `database()`.
   template.hasResourceProperties("AWS::EC2::SecurityGroup", { SecurityGroupIngress: Match.absent() });
   template.hasResourceProperties("AWS::EC2::SecurityGroup", Match.objectLike({ GroupDescription: Match.stringLikeRegexp("dbAllowedCidrs") }));

@@ -227,15 +227,13 @@ export class SweetSpotStack extends cdk.Stack {
    * VPC-attached compute, or a bastion, earns its cost.
    */
   private database(): rds.DatabaseInstance {
-    // Two AZs because RDS requires a subnet group spanning two, and no NAT gateway because nothing in the VPC
-    // needs outbound internet: the isolated subnets exist for the database alone.
+    // Two AZs because an RDS subnet group has to span two. One kind of subnet, public, because that is where
+    // the database has to sit for Amplify to reach it at all; a private subnet it could not be reached in
+    // would be two unused subnets and a bill. No NAT gateway either: nothing in this VPC makes a call out.
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
       natGateways: 0,
-      subnetConfiguration: [
-        { name: "public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
-        { name: "isolated", subnetType: ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
-      ],
+      subnetConfiguration: [{ name: "public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 }],
     });
 
     const securityGroup = new ec2.SecurityGroup(this, "DbSecurityGroup", {
@@ -261,7 +259,16 @@ export class SweetSpotStack extends cdk.Stack {
     const parameterGroup = new rds.ParameterGroup(this, "DbParameters", {
       engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_10 }),
       description: "force_ssl so the server, not the client, is what requires TLS (design §10.1)",
-      parameters: { "rds.force_ssl": "1", log_min_duration_statement: "2000" },
+      parameters: {
+        "rds.force_ssl": "1",
+        // Slow queries are worth seeing; the values they were given are not. Postgres includes bind
+        // parameters in a duration line unless told their maximum length is zero, and those parameters are
+        // patient names, phone numbers and message text — §10.3 keeps all of it out of the logs, and a
+        // database log exported to CloudWatch is a log.
+        log_min_duration_statement: "2000",
+        log_parameter_max_length: "0",
+        log_parameter_max_length_on_error: "0",
+      },
     });
 
     return new rds.DatabaseInstance(this, "Database", {
@@ -458,7 +465,6 @@ export class SweetSpotStack extends cdk.Stack {
     const vars: Record<string, string | undefined> = {
       NODE_ENV: "production",
       APP_URL: this.appUrl(),
-      CONFIG_PARAMETER_PATH: this.parameterPath,
       UPLOADS_BUCKET: this.uploads.bucketName,
       UPLOADS_REGION: this.region,
       STORAGE_BACKEND: "s3", // never silently fall back to the filesystem on a deployment (§3.3)
