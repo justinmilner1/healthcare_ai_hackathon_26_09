@@ -49,6 +49,8 @@ export const MODEL = () => process.env.BEDROCK_OPENAI_MODEL_ID ?? "openai.gpt-5.
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_COOLDOWN_MS = 60_000;
+// The reachability probe below answers a load balancer, so it waits far less than a model call does.
+const PROBE_TIMEOUT_MS = 2_000;
 
 /** Read at call time, not at import time, so a test (or a restart-free config change) can set them. */
 function setting(name: string, fallback: number): number {
@@ -76,6 +78,27 @@ export function gatewayState(now = Date.now()): GatewayState {
 export function llmStatus(): { configured: boolean; model: string; state: GatewayState; degraded: boolean } {
   const state = gatewayState();
   return { configured: Boolean(process.env.OPENAI_API_KEY), model: MODEL(), state, degraded: state !== "closed" };
+}
+
+/**
+ * Is the gateway reachable at all? The §11.2 health check, not a model call: one unauthenticated GET at the
+ * base URL, so it costs no tokens, no quota, and sends no key anywhere. *Any* HTTP answer counts as reachable
+ * — Bedrock replies 403 or 404 to this, which still proves the name resolved, the TLS handshake finished and
+ * something is listening. Only a transport failure or the timeout does not.
+ *
+ * Throws LLMUnavailable when there is nothing to reach, so a caller can treat it like a failed `ask`. It does
+ * not touch the circuit: a probe nobody waited on must not be able to open it, and a probe that answers must
+ * not close it while real calls are still failing.
+ */
+export async function probeGateway(timeout = PROBE_TIMEOUT_MS): Promise<void> {
+  if (!process.env.OPENAI_API_KEY) throw new LLMUnavailable("OPENAI_API_KEY is not set; see .env.example");
+  const base = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+  try {
+    await fetch(base, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeout) });
+  } catch (e) {
+    const reason = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    throw new LLMUnavailable(`model gateway unreachable (${reason})`);
+  }
 }
 
 /** Forget the failures. Called on a successful call; exported for tests and for an operator-facing reset. */

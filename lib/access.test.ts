@@ -119,7 +119,8 @@ test("the labels and descriptions are safe to put on a screen, including for an 
 /** Routes that answer without a provider session, and what they check instead of a role. */
 const NOT_PROVIDER_ROUTES: Record<string, string> = {
   "api/auth/[...nextauth]": "Auth.js itself: this is where a session comes from (§5.1)",
-  "api/health": "liveness for the load balancer; says nothing about anyone (§11.2)",
+  "api/health": "the dependency report for the deploy gate; says nothing about anyone (§11.2)",
+  "api/health/live": "liveness for the load balancer; touches nothing and says nothing about anyone (§11.2)",
   "api/jobs/run": "the scheduler, on a shared secret in the Authorization header (§3.4)",
   "api/notifications/sns": "SNS, on its own RSA signature over the message plus a configured topic ARN (§8.1, lib/snsSignature.ts)",
   "api/verify": "the patient, on the invite token alone: this is the route that turns it into a session (§2.3, §5.3)",

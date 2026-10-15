@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { chmod, mkdir, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import { setLogSink } from "./log";
-import { deleteObjects, deletePrefix, getObjectText, localRoot, newUploadKey, putObject, storageBackend } from "./storage";
+import { checkStorage, deleteObjects, deletePrefix, getObjectText, localRoot, newUploadKey, putObject, storageBackend } from "./storage";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const ENV = ["STORAGE_BACKEND", "UPLOADS_BUCKET", "UPLOADS_DIR", "UPLOADS_REGION", "UPLOADS_KMS_KEY_ID"];
@@ -151,4 +151,47 @@ test("the S3 backend says which variable is missing instead of calling AWS", asy
   env({ STORAGE_BACKEND: "s3" });
   await assert.rejects(() => putObject(newUploadKey("v1", "dexcom", "csv"), utf8("x"), "text/csv"), /UPLOADS_BUCKET must be set/);
   await assert.rejects(() => deletePrefix("visits/v1/"), /UPLOADS_BUCKET must be set/);
+});
+
+// ---- checkStorage: the §11.2 health probe --------------------------------------------------------------
+
+test("the health probe creates the local uploads root if it is not there yet, and names the backend", async () => {
+  // First boot of a fresh container: nothing has been uploaded, so the directory does not exist. That is a
+  // healthy deployment, not a down one.
+  const dir = scratch();
+  const root = join(dir, "not-yet");
+  env({ STORAGE_BACKEND: "local", UPLOADS_DIR: root });
+  assert.equal(await checkStorage(), "local");
+  assert.deepEqual(await readdir(root), [], "the probe should have created the root it checked");
+});
+
+test("the health probe fails on a local root that cannot be a directory", async () => {
+  // A volume that is not mounted where the configuration says it is. An upload would otherwise discover this
+  // halfway through an intake; the health check finds it at boot.
+  const dir = scratch();
+  await writeFile(join(dir, "a-file"), "not a directory");
+  env({ STORAGE_BACKEND: "local", UPLOADS_DIR: join(dir, "a-file", "uploads") });
+  await assert.rejects(() => checkStorage(), /ENOTDIR|EEXIST/);
+});
+
+test("the health probe fails on a read-only local root", {
+  // Running as root, which is how the sandbox and CI run, `access(dir, W_OK)` succeeds whatever the mode says,
+  // so the mode cannot be the thing under test there. The case above covers the same failure for every uid.
+  skip: typeof process.getuid === "function" && process.getuid() === 0 ? "root ignores the write bit" : false,
+}, async () => {
+  const dir = scratch();
+  const root = join(dir, "read-only");
+  await mkdir(root);
+  await chmod(root, 0o500);
+  env({ STORAGE_BACKEND: "local", UPLOADS_DIR: root });
+  try {
+    await assert.rejects(() => checkStorage(), /EACCES|EPERM/);
+  } finally {
+    await chmod(root, 0o700); // so the temp directory can be cleaned up
+  }
+});
+
+test("the health probe on S3 says which variable is missing instead of calling AWS", async () => {
+  env({ STORAGE_BACKEND: "s3" });
+  await assert.rejects(() => checkStorage(), /UPLOADS_BUCKET must be set/);
 });
