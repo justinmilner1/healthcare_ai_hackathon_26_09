@@ -104,6 +104,17 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expect(page.locator(".sweetie-field-done, .sweetie-field-current")).not.toHaveCount(0, LOADED);
   await expectMobileReady(page, "Sweetie mid-conversation", ".sweetie-field-progress");
   await shot(page, "375-sweetie-answered");
+
+  // The widest the bar ever gets: a red flag adds a fourth pill whose label is a phrase, on top of the
+  // three steps fieldsFor() always produces (lib/sweetie.ts). The stepper wraps rather than scrolls now,
+  // so "fits" is about staying a bar: two rows of pills at most, not a stack down the screen.
+  await reply.fill("I had chest pain yesterday evening and it scared me.");
+  await reply.press("Enter");
+  await expect(page.locator(".sweetie-field-flagged")).toBeVisible(LOADED);
+  await expectMobileReady(page, "Sweetie with a flagged answer", ".sweetie-field-progress");
+  const bar = await page.locator(".sweetie-field-progress").evaluate((element) => element.getBoundingClientRect().height);
+  expect(bar, "the stepper has become a stack rather than a bar (design §6.5)").toBeLessThanOrEqual(80);
+  await shot(page, "375-sweetie-flagged");
 });
 
 test("the connect-your-data screen fits a 375px phone on every step", async ({ page }) => {

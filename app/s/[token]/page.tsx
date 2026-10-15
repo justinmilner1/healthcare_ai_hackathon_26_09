@@ -720,7 +720,9 @@ function Progress({
             aria-current={current ? "step" : undefined}
           >
             <b>{step.done ? "✓" : index + 1}</b>
-            {step.label}
+            {/* In its own element so the phone layout can take it out of the flow without taking it away
+                from a screen reader (globals.css, T23). */}
+            <span className="sweetie-field-label">{step.label}</span>
           </li>
         );
       })}
