@@ -22,15 +22,14 @@ import { NextResponse } from "next/server";
 import { mintSignInUrl } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { demoSignInEnabled } from "@/lib/config";
-import { noteDemo } from "@/lib/demo";
-import { log, withRoute } from "@/lib/log";
+import { log, markDemoPractice, withRoute } from "@/lib/log";
 import { DEMO_PROVIDER_EMAIL } from "@/lib/practice";
 
 async function getHandler(req: Request) {
   const provider = await db.user.findUnique({ where: { email: DEMO_PROVIDER_EMAIL }, include: { practice: true } });
   // Nothing seeded here yet: §2.1's sign-up is the honest answer, not an error page.
   if (!provider) return NextResponse.redirect(new URL("/provider/signup", req.url));
-  noteDemo(provider.practice);
+  markDemoPractice(provider.practice);
 
   const prefilled = new URL(`/provider/signin?email=${encodeURIComponent(DEMO_PROVIDER_EMAIL)}`, req.url);
   if (!demoSignInEnabled()) return NextResponse.redirect(prefilled);

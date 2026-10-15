@@ -7,8 +7,8 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEMO_BLOCKED, demoBlockReason, isDemoPractice, isSyntheticEmail, isSyntheticPhone, noteDemo } from "./demo";
-import { formatLine, runWithRequestContext } from "./log";
+import { DEMO_BLOCKED, DEMO_BLOCKED_LABEL, demoBlockReason, isDemoBlocked, isDemoPractice, isSyntheticEmail, isSyntheticPhone } from "./demo";
+import { formatLine, markDemoPractice, runWithRequestContext } from "./log";
 
 const REQUEST = { requestId: "11111111-2222-4333-8444-555555555555", route: "GET /x" };
 
@@ -93,6 +93,13 @@ describe("demo practices (§13.4)", () => {
       assert.equal(demoBlockReason(true, "sms", "+14155550100"), null);
     });
 
+    it("has a reason the dashboard can recognise without matching on words", () => {
+      assert.equal(isDemoBlocked(DEMO_BLOCKED), true);
+      assert.equal(isDemoBlocked("sns: The security token included in the request is invalid."), false);
+      assert.equal(isDemoBlocked(null), false);
+      assert.equal(DEMO_BLOCKED_LABEL.length < 60, true, "it goes under a pill in a table cell");
+    });
+
     it("blocks everything else, with a reason that names no address", () => {
       const reason = demoBlockReason(true, "email", "patient@gmail.com");
       assert.equal(reason, DEMO_BLOCKED);
@@ -110,11 +117,11 @@ describe("demo practices (§13.4)", () => {
     });
   });
 
-  describe("noteDemo", () => {
+  describe("markDemoPractice", () => {
     it("labels every later line in the request, so the alarms can leave them out (§11.1)", () => {
       runWithRequestContext(REQUEST, () => {
         assert.equal(JSON.parse(formatLine("error", "job_failed")).demo, undefined);
-        assert.equal(noteDemo({ isDemo: true }), true);
+        assert.equal(markDemoPractice({ isDemo: true }), true);
         const line = JSON.parse(formatLine("error", "job_failed"));
         assert.equal(line.demo, true);
         assert.equal(line.requestId, REQUEST.requestId, "and the line is otherwise untouched");
@@ -125,14 +132,14 @@ describe("demo practices (§13.4)", () => {
       // The same context object as the test above, on purpose: runWithRequestContext copies it, so that
       // test's label cannot reach this one.
       runWithRequestContext(REQUEST, () => {
-        assert.equal(noteDemo({ isDemo: false }), false);
-        assert.equal(noteDemo(null), false);
+        assert.equal(markDemoPractice({ isDemo: false }), false);
+        assert.equal(markDemoPractice(null), false);
         assert.equal(JSON.parse(formatLine("info", "request")).demo, undefined);
       });
     });
 
     it("does not throw outside a request, where there is no context to label", () => {
-      assert.equal(noteDemo({ isDemo: true }), true);
+      assert.equal(markDemoPractice({ isDemo: true }), true);
       assert.equal(JSON.parse(formatLine("info", "request")).demo, undefined);
     });
   });

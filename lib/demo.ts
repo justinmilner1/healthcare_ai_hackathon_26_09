@@ -9,8 +9,8 @@
 //                      (§10.5) still works — that is somebody pressing a button, not a clock.
 //   alarms             §11.1's alarms read the JSON log lines as metrics. There is nothing in CloudWatch an
 //                      application can exclude itself from, so the exclusion is a *label*: every line that
-//                      can be attributed to a demo practice carries `demo: true` (noteDemo below, via
-//                      lib/log.ts markDemo), and the alarm's metric filter leaves those lines out —
+//                      can be attributed to a demo practice carries `demo: true` (markDemoPractice in
+//                      lib/log.ts), and the alarm's metric filter leaves those lines out —
 //                      docs/LOGGING.md has the filter. A demo visit whose Sour run fails wakes nobody.
 //   real addresses     Everything the product sends goes out through lib/notify.ts and lib/mailer.ts. From a
 //                      demo practice those take the gate below, and a destination that is not provably
@@ -24,29 +24,16 @@
 // means a demo that shows "skipped: a demo practice does not message real addresses" on the dashboard, which
 // is a sentence a salesperson can explain.
 //
-// Pure, and importable from anywhere: the rules are worth asserting without a Postgres (lib/demo.test.ts),
-// and the only thing in here that is not a predicate is noteDemo, which calls into lib/log.ts.
-
-import { markDemo } from "./log";
+// No imports, for the same reason lib/retention.ts and lib/suppression.ts have none: the dashboard is a
+// client component and reads DEMO_BLOCKED below to say why a message did not go, so anything this module
+// pulled in would land in the browser bundle — and lib/log.ts, which the labelling half needs, is built on
+// node:async_hooks. So the label lives in lib/log.ts (`markDemoPractice`) and the rules live here, where
+// lib/demo.test.ts can state them without a Postgres or a browser.
 
 /** What `Practice.isDemo` looks like to a caller that has only loaded the one column. */
 export type DemoFacts = { isDemo: boolean } | null | undefined;
 
 export const isDemoPractice = (practice: DemoFacts): boolean => Boolean(practice?.isDemo);
-
-/**
- * Label every log line from here on in this request or job with `demo: true`, if this practice is a demo one.
- *
- * Called from the places that have a practice in hand anyway — lib/visit.ts, which every patient route and
- * every visit-shaped job goes through, and the job handlers for the two jobs that have no visit. One call
- * covers a whole request, including the `request_failed` and `job_failed` lines §11.1's alarms read, because
- * the flag rides the request context rather than the call site (lib/log.ts).
- */
-export function noteDemo(practice: DemoFacts): boolean {
-  if (!isDemoPractice(practice)) return false;
-  markDemo();
-  return true;
-}
 
 // ---------------------------------------------------------------------------------------------
 // §13.4 "never emailed real addresses"
@@ -96,8 +83,16 @@ export function isSyntheticPhone(number: string | null | undefined): boolean {
 }
 
 /** Why a demo practice did not send on this channel. One sentence, no address in it: it is written to a
- *  `VisitDelivery.error` staff read on the dashboard (§8.3) and to the log (§10.3). */
+ *  `VisitDelivery.error` staff read on the dashboard (§8.3) and to the log (§10.3). The dashboard compares
+ *  against this constant rather than matching on words, which is why it is exported. */
 export const DEMO_BLOCKED = "not sent: a demo practice only messages reserved test addresses (design §13.4)";
+
+/** What the dashboard prints under the pill when that is the reason (app/provider/dashboard.tsx). Shorter,
+ *  and in the practice's own terms: staff looking at a demo row want to know the app is working. */
+export const DEMO_BLOCKED_LABEL = "Demo practice: only test addresses are messaged";
+
+/** Was this delivery the one above? Compared on the constant, so the wording can change in one place. */
+export const isDemoBlocked = (error: string | null | undefined): boolean => error === DEMO_BLOCKED;
 
 /**
  * The gate every send goes through from a demo practice: the reason it must not go out, or null when the

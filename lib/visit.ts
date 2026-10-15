@@ -3,7 +3,7 @@
 // is not a way in, because a patient has many visits and only the visit knows which week is being discussed.
 
 import { db } from "./db";
-import { noteDemo } from "./demo";
+import { markDemoPractice } from "./log";
 
 /** The care team name shown to a patient when the provider row has no name yet (Auth.js, §5.1). */
 export const CARE_TEAM = "your care team";
@@ -30,7 +30,7 @@ export async function findVisit(idOrToken: string) {
  * are written long after this call by code that has no practice in hand.
  */
 function noted<T extends { patient: { practice: { isDemo: boolean } } } | null>(visit: T): T {
-  if (visit) noteDemo(visit.patient.practice);
+  if (visit) markDemoPractice(visit.patient.practice);
   return visit;
 }
 

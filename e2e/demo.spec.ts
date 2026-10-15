@@ -15,8 +15,23 @@ import { DEMO_EMAIL, MAIL_DIR, signInAsDemo } from "./auth";
 // on, and the main server deliberately leaves it off so e2e/signin.spec.ts can see the default — the sign-in
 // form with the address filled in.
 
+/** A full-page shot, for a screen that fits on one. */
 const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
+};
+
+/**
+ * The viewport, scrolled to whatever the test is about.
+ *
+ * The dashboard is the screen T57 is about: a `fullPage` shot of it is 20,000 pixels tall on the phone
+ * profile and shows a reviewer nothing, and the table card is no better — a seeded database has a hundred
+ * rows in it. So the shot is one screenful, with the row this test booked scrolled into it.
+ */
+const shotOf = async (page: Page, name: string, selector?: string) => {
+  // Centred rather than scrollIntoViewIfNeeded, which stops as soon as the row is barely on screen and
+  // leaves it half cut off at the bottom edge of the shot.
+  if (selector) await page.locator(selector).first().evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png` });
 };
 
 const LOADED = { timeout: 30_000 };
@@ -39,34 +54,49 @@ test("the seeded practice says it is a demo, on the screen that explains what th
 test("a demo practice does not message a number that could be somebody's", async ({ page }) => {
   await signInAsDemo(page);
 
-  // 555-0100 is in the NANP's fictitious range and 555-1234 is not, so in a demo practice the first is
-  // messaged and the second is refused before any backend is reached. Both patients are in the seeded
-  // practice, which `npm run seed` marks `isDemo`.
-  const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const reservedName = `Demo Reserved ${stamp}`;
-  const realName = `Demo Real ${stamp}`;
+  // 555-0100 through 555-0199 is the NANP's fictitious range and 555-1234 is not, so in a demo practice the
+  // first is messaged and the second is refused before any backend is reached. Both visits are booked into
+  // the seeded practice, which `npm run seed` marks `isDemo`. Area code 650 is this spec's own: every other
+  // spec books in 415, and a shared number would be a shared patient row (lib/visitStore.ts matches a
+  // patient on their contact details, which is what makes a second visit for the same person work).
+  // Both twelve characters long, and neither a substring of the other: `hasText` below matches on substrings,
+  // so a shorter number would find the row of a longer one that merely starts with it.
+  const twoDigits = () => String(Math.floor(Math.random() * 100)).padStart(2, "0");
+  const reservedPhone = `+165055501${twoDigits()}`;
+  const realPhone = `+16505552${twoDigits()}${Math.floor(Math.random() * 10)}`;
   const book = (name: string, phone: string) =>
     postJson(page.request, "/api/book", { name, phone, channel: "sms", consentMethod: "phone" });
-  expect((await book(reservedName, "+14155550142")).ok(), "the reserved number books").toBeTruthy();
-  expect((await book(realName, "+14155551234")).ok(), "and so does the one that could be somebody's").toBeTruthy();
+  expect((await book("Demo Reserved Number", reservedPhone)).ok(), "the reserved number books").toBeTruthy();
+  expect((await book("Demo Real Number", realPhone)).ok(), "and so does the one that could be somebody's").toBeTruthy();
 
   await page.goto("/provider");
-  const row = (name: string) => page.locator(".provider-table tbody tr", { hasText: name });
+  // By number rather than by name: the number is what the rule is about, it is on the screen in the same
+  // cell, and a patient booked twice keeps the name their first booking gave them.
+  const rowFor = (phone: string) => page.locator(".provider-table tbody tr", { hasText: phone }).first();
+  const realRow = () => rowFor(realPhone);
+  const invitePill = (phone: string) => rowFor(phone).locator(".provider-invite .provider-data-pill").first();
 
   // The reason is in the pill's tooltip, where §8.3 puts every other "why did this not send" — and it names
-  // no number, because that cell is read by staff and the same text is written to the log (§10.3).
-  const refused = row(realName).locator(".provider-invite .provider-data-pill").first();
-  await expect(refused, "the invite is skipped, not failed: nothing to retry").toHaveClass(/provider-delivery-skipped/, LOADED);
+  // no number, because that cell is read by staff and the same text goes to the log (§10.3).
+  const refused = invitePill(realPhone);
+  await expect(refused, "skipped, not failed: there is nothing to retry").toHaveClass(/provider-delivery-skipped/, LOADED);
   await expect(refused).toHaveAttribute("title", /demo practice/i);
+  // And in words under the pill, because a dash on its own reads as a bug in the app (§8.3's own argument
+  // for the suppression line beside it).
+  await expect(realRow()).toContainText(/Demo practice: only test addresses are messaged/i);
   const title = await refused.getAttribute("title");
-  expect(title?.includes("1234"), "the reason carries no number (§10.3)").toBeFalsy();
+  expect(title?.includes(realPhone.slice(-4)), "the reason carries no number (§10.3)").toBeFalsy();
 
-  // The reserved number is attempted like any other: it gets as far as "no SMS backend configured" here,
-  // which is a failure of this environment and not of the rule.
-  const attempted = row(reservedName).locator(".provider-invite .provider-data-pill").first();
-  await expect(attempted).toHaveAttribute("title", /not configured/i, LOADED);
+  // The reserved number is attempted like any other. What it then runs into is this environment's business —
+  // no SMS backend here, ambient AWS credentials in the agents' sandbox — so what is asserted is only that
+  // the demo rule was not what stopped it.
+  const attempted = invitePill(reservedPhone);
+  await expect(attempted).toBeVisible(LOADED);
+  await expect(rowFor(reservedPhone)).not.toContainText(/Demo practice:/i);
+  const attemptedTitle = await attempted.getAttribute("title");
+  expect(attemptedTitle ?? "", `the reserved number is not refused by §13.4 (title: ${attemptedTitle})`).not.toMatch(/demo practice/i);
 
-  await shot(page, "provider-dashboard-demo-messages");
+  await shotOf(page, "provider-dashboard-demo-messages", `.provider-table tbody tr:has-text("${realPhone}")`);
 });
 
 test.describe("DEMO_SIGN_IN=1", () => {
@@ -85,7 +115,7 @@ test.describe("DEMO_SIGN_IN=1", () => {
     expect(provider.email).toBe(DEMO_EMAIL);
     expect(provider.role).toBe("admin");
     await expect(page.locator(".provider-table")).toBeVisible(LOADED);
-    await shot(page, "demo-signed-in");
+    await shotOf(page, "demo-signed-in");
 
     // Nothing was emailed: this server has its own mailbox and the shortcut is the whole point.
     const { readdirSync } = await import("node:fs");

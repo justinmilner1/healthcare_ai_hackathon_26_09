@@ -119,11 +119,20 @@ export function runInChildContext<T>(fn: () => T): T {
  *
  * The flag goes on the context rather than on each call, because the lines that matter most are the ones the
  * call site does not write: `request_failed` and `job_failed` are written by the wrapper and the runner, and
- * those are what §11.1's 5xx and job-failure alarms count. lib/demo.ts noteDemo is the only caller.
+ * those are what §11.1's 5xx and job-failure alarms count. markDemoPractice below is the only caller.
  */
 export function markDemo(): void {
   const ctx = requestStore.getStore();
   if (ctx) ctx.demo = true;
+}
+
+/** markDemo for callers holding a practice row, which is all of them: lib/visit.ts, the two job handlers
+ *  with no visit to resolve, lib/teamStore.ts and app/demo/route.ts. Here rather than in lib/demo.ts because
+ *  that module has to stay importable from the browser, and this one is built on node:async_hooks. */
+export function markDemoPractice(practice: { isDemo: boolean } | null | undefined): boolean {
+  if (!practice?.isDemo) return false;
+  markDemo();
+  return true;
 }
 
 /** The one shape of caller-supplied id worth reusing: the UUID we would have minted ourselves. Anything else

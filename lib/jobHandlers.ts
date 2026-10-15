@@ -10,9 +10,8 @@
 
 import { recordAudit } from "./auditStore";
 import type { AuditAction } from "./auditLog";
-import { noteDemo } from "./demo";
 import type { JobHandlers, JobPayload } from "./jobs";
-import { log } from "./log";
+import { log, markDemoPractice } from "./log";
 import { purgePatient, sweepRetention } from "./retentionStore";
 import {
   sendDeletionConfirmation,
@@ -263,7 +262,7 @@ export const handlers: JobHandlers = {
     });
     // §13.4's label, for the lines this job writes. The visit-shaped jobs get it from lib/visit.ts; this one
     // and the sweep below have no visit, so they mark the context themselves.
-    if (before) noteDemo(before.practice);
+    if (before) markDemoPractice(before.practice);
     const result = await purgePatient({ patientId, requestedBy: optionalUserId(payload) });
     if (!result.found || !before || !(before.phone || before.email)) return;
 

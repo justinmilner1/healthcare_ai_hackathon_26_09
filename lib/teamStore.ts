@@ -8,9 +8,8 @@
 
 import { isRole, type Role } from "./access";
 import { db } from "./db";
-import { noteDemo } from "./demo";
 import { HttpError } from "./httpError";
-import { log } from "./log";
+import { log, markDemoPractice } from "./log";
 import { sendTeamInvite } from "./mailer";
 import {
   cleanPersonName,
@@ -105,7 +104,7 @@ export async function inviteMember(opts: {
 
   const practice = await db.practice.findUnique({ where: { id: opts.practiceId } });
   if (!practice) throw new HttpError(404, "practice not found", "practice_not_found", { practiceId: opts.practiceId });
-  noteDemo(practice); // §13.4's label for everything this request logs from here on
+  markDemoPractice(practice); // §13.4's label for everything this request logs from here on
 
   const created = await db.user.create({
     data: { practiceId: opts.practiceId, email, name: cleanPersonName(opts.name), role },

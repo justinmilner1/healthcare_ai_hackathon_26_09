@@ -298,7 +298,7 @@ export async function drainJobs(opts: DrainOptions = {}): Promise<DrainReport> {
     if (jobs.length === 0) break;
     report.claimed += jobs.length;
     // Each job in its own log context, so §13.4's `demo` label — set by a handler the moment it reads a demo
-    // practice (lib/demo.ts noteDemo) — covers this job's own `job_failed` line and stops at this job.
+    // practice (markDemoPractice) — covers this job's own `job_failed` line and stops at this job.
     // Without the copy, one demo visit's summary would label every later job in the same drain.
     for (const job of jobs) await runInChildContext(() => runOne(job));
   }

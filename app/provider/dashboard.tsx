@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
+import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { confirmsDeletion } from "@/lib/retention";
 import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
 import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
@@ -859,6 +860,11 @@ function Messages({ visit }: { visit: Row }) {
   const summaries = new Map(visit.deliveries.filter((d) => d.kind === "notify.summary").map((d) => [d.audience, d]));
   const consent = visit.consentChannel ? `${consentLabel(visit.consentChannel)}${visit.consentRecordedAt ? `, ${new Date(visit.consentRecordedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}` : null;
   const closed = suppressions(visit.suppression);
+  // §13.4 A demo practice skipped a message because the number or address is not a reserved one. Said on the
+  // screen for the same reason the suppression line below is: without it, a dash in a demo looks like a bug
+  // in the app rather than the one rule the demo is there to show off. One line however many channels it
+  // was, because the answer is about the practice and not about this patient.
+  const demoBlocked = visit.deliveries.some((d) => isDemoBlocked(d.error));
 
   return (
     <div className="provider-invite">
@@ -880,6 +886,7 @@ function Messages({ visit }: { visit: Row }) {
             ))}
         </div>
       )}
+      {demoBlocked && <small className="provider-suppressed">{DEMO_BLOCKED_LABEL}</small>}
       {closed.map((s) => (
         // Why the pill above says what it says. Without this line a skipped invite looks like a bug in the
         // app rather than the provider telling us the address is dead or the patient asking us to stop.
