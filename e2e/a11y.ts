@@ -45,6 +45,16 @@ export async function expectNoSeriousA11yViolations(
   name: string,
   options: { disableRules?: string[]; include?: string } = {},
 ): Promise<void> {
+  // Let the page settle first. axe reads the colours the page is painting *now*, so a scan that lands
+  // mid-transition measures an interpolated colour: an entry fade on the intake step turns `--muted`
+  // (#756a72, 5.6:1 on white) into #82787f (4.24:1) and the colour-contrast rule fails on a colour the
+  // stylesheet never names. It shows up as a test that passes on a fast machine and fails on a slow one.
+  // Bounded, because a deliberate looping animation (a spinner, a pulse) never finishes.
+  await page.evaluate(async () => {
+    const finished = document.getAnimations().map((animation) => animation.finished.catch(() => undefined));
+    await Promise.race([Promise.all(finished), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+  });
+
   let builder = new AxeBuilder({ page }).withTags([...WCAG21AA]);
   if (options.include) builder = builder.include(options.include);
   if (options.disableRules?.length) builder = builder.disableRules(options.disableRules);
