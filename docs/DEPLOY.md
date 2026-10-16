@@ -203,18 +203,15 @@ first, which is the only honest way to see what a stack edit will do.
 
 ## The alarms
 
-All six publish to the `-alarms` topic. The first four read the app's own JSON log lines (§10.3, §11.1) through
-metric filters, which is only possible because those lines carry no names, no phone numbers and no message
-text — a log line is `{"time","level","event","requestId","route","status",…}` and nothing else.
+The stack creates six, named `sweetspot-<stage>-` plus `http-5xx`, `job-failed`, `model-failures`,
+`model-degraded`, `jobs-tick-errors` and `db-storage`, and all of them publish to the `-alarms` topic along
+with the RDS instance's own events (§11.1, §11.4). The first four read the app's own JSON log lines (§10.3)
+through metric filters, which is only possible because those lines carry no names, no phone numbers and no
+message text — a log line is `{"time","level","event","requestId","route","status",…}` and nothing else.
 
-| Alarm | Fires when | Means |
-|---|---|---|
-| `http-5xx` | ≥ 5 lines with `status >= 500` in 5 minutes | the app is failing requests |
-| `job-failed` | any `job_failed` in 15 minutes | a job used up its three attempts: an invite, a summary or a deletion did not happen |
-| `model-failures` | ≥ 10 `llm_call_failed` in 15 minutes | the model gateway is timing out or erroring (§3.5) |
-| `model-degraded` | any `llm_circuit_opened` in 15 minutes | the circuit is open: everyone is reading scripted replies (§6.3, §11.3) |
-| `jobs-tick-errors` | ≥ 5 Lambda errors in 15 minutes | nothing is draining the queue — a wrong `JOBS_SECRET`, or the app is down |
-| `db-storage` | less than 2 GiB free | storage autoscaling has not kept up |
+**What each one means, and what to do when it fires, is `docs/RUNBOOK.md` §"What each alarm means"** (§13.5).
+The one thing to get right at deploy time is the subscriber: with `alarmEmail` empty the topic has none, and
+an alarm that reaches nobody is the same as no alarm.
 
 ## Checking the stack without an AWS account
 
@@ -242,5 +239,4 @@ Two warnings are expected there and are not failures:
 - **One Amplify app per stage, one branch per app.** The production app watches `release` and nothing else;
   pull request previews are a staging concern. A build started by hand in the console against another branch
   fails production's first build command on purpose, rather than migrating the production database.
-- **Not in this stack yet.** The demo practice flag (T32), the compliance checklist (T34) and the rest of the
-  runbook (T35) are their own tickets.
+- **Not in this stack yet.** The demo practice flag (T32) is its own ticket.
