@@ -1,10 +1,74 @@
 name: ci
+# Design §12.4: typecheck, lint, unit tests, e2e against Postgres in a service container and a dependency
+# audit on every pull request, and "merges to main require green checks" — which is a claim about the state of
+# main, not only about a branch before it merges. Two branches that each passed on their own can still break
+# each other once combined (T46), so main gets a run of its own after every merge. Four triggers carry that:
+#
+#   - `pull_request`: the pre-merge check. auto-merge waits for it.
+#   - `push` to main: a human (or anything not using the repository's own token) landing a commit.
+#   - `workflow_dispatch`: what auto-merge calls right after it squash-merges. A push made with the
+#     repository's GITHUB_TOKEN starts no workflow run — GitHub's recursion guard — so an auto-merged commit
+#     would otherwise land on main silently, which is how main sat red for three merges (T47). An explicit
+#     dispatch through the API is not subject to that guard.
+#   - `schedule`: the backstop, hourly, in case a dispatch never happened. The `sweep` job first asks whether
+#     main's tip already has a ci run of its own and skips the rest of the hour when it does, so this costs a
+#     few seconds unless something actually went unchecked.
+#
+# `main-state` is what makes a red main visible without a human or a reviewer run finding it by hand: it opens
+# one `main-red` issue when the check fails on main, and closes it when main comes back green.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "37 * * * *"
+
+# One run per commit. A new push to a pull request cancels that branch's older run; runs on main queue instead
+# of cancelling, so no merge loses its verdict.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
+  # Scheduled runs only: a commit that already has a ci run does not need another one. Any ci run for this
+  # exact sha counts, whatever started it and whether or not it has finished — a verdict is on its way.
+  sweep:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      unchecked: ${{ steps.ask.outputs.unchecked }}
+    steps:
+      - id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          others=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=$BRANCH&per_page=100" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$SHA\") | select(.id != $RUN_ID)] | length")
+          echo "ci runs on ${SHA:0:7} other than this one: $others"
+          if [ "$others" -gt 0 ]; then
+            echo "unchecked=false" >> "$GITHUB_OUTPUT"
+            echo "$BRANCH is already checked at ${SHA:0:7}; nothing to do" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "unchecked=true" >> "$GITHUB_OUTPUT"
+            echo "no ci run on $BRANCH at ${SHA:0:7}; running the check" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   check:
+    needs: [sweep]
+    # `sweep` is skipped on every trigger but the schedule, hence always(): skipped means "not a sweep, run".
+    if: ${{ always() && (github.event_name != 'schedule' || needs.sweep.outputs.unchecked == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Postgres, matching docker-compose.yml and production RDS (design §3.2, §12.4). scripts/agent-check.sh takes
@@ -37,3 +101,79 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: screenshots, path: e2e/screenshots, if-no-files-found: ignore }
+
+  # The state of main, written down where a routine or a human will see it without running anything: one open
+  # issue while main is red, closed again by the first green run. Pull request runs are not about main, and a
+  # skipped `check` (an hour with nothing new) says nothing either way, so neither reaches this job.
+  main-state:
+    needs: [check]
+    if: ${{ always() && github.ref == 'refs/heads/main' && contains(fromJSON('["success", "failure"]'), needs.check.result) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const label = "main-red";
+            const red = process.env.CHECK_RESULT === "failure";
+            const sha = context.sha.slice(0, 7);
+            const run = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const commit = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/commit/${context.sha}`;
+
+            // First failure in a fresh clone of this repo would have nowhere to hang the issue otherwise.
+            await github.rest.issues
+              .createLabel({ owner, repo, name: label, color: "b60205", description: "ci is failing on main (opened by .github/workflows/ci.yml)" })
+              .catch(() => {});
+
+            const open = (await github.rest.issues.listForRepo({ owner, repo, state: "open", labels: label, per_page: 100 }))
+              .data.filter((i) => !i.pull_request);
+
+            if (red) {
+              const body = [
+                `\`ci\` failed on \`main\` at \`${sha}\`.`,
+                "",
+                `- run: ${run}`,
+                `- commit: ${commit}`,
+                "",
+                "Design §12.4: merges to main require green checks. Reproduce with `bash scripts/agent-check.sh`",
+                "on `main`, then fix it forward or revert the merge that broke it. Two branches that each passed",
+                "on their own can still break each other, so the cause is often the combination rather than one",
+                "pull request (T46, T47).",
+                "",
+                "This issue closes itself on the first green `ci` run on `main`.",
+              ].join("\n");
+              if (!open.length) {
+                const issue = await github.rest.issues.create({
+                  owner, repo,
+                  title: `main is red: ci failed on ${sha}`,
+                  body,
+                  labels: [label, "bug", "area:quality"],
+                });
+                core.warning(`main is red at ${sha}: opened #${issue.data.number}`);
+                return;
+              }
+              // Already tracking it. One comment per commit, so an hour of re-runs is not an hour of noise.
+              const number = open[0].number;
+              const said = (await github.rest.issues.listComments({ owner, repo, issue_number: number, per_page: 100 })).data;
+              if ([open[0].body, ...said.map((c) => c.body)].some((b) => (b || "").includes(sha))) {
+                core.warning(`main is still red at ${sha}: #${number} already says so`);
+                return;
+              }
+              await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+              core.warning(`main is still red at ${sha}: commented on #${number}`);
+              return;
+            }
+
+            for (const issue of open) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `\`ci\` is green on \`main\` at \`${sha}\` (${run}). Closing.`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed", state_reason: "completed" });
+              core.info(`#${issue.number}: closed, main is green at ${sha}`);
+            }
