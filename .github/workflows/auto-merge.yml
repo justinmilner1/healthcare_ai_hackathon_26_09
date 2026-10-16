@@ -76,7 +76,7 @@ jobs:
             const tip = (await github.rest.repos.getBranch({ owner, repo, branch: "main" })).data.commit.sha;
             try {
               await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "ci.yml", ref: "main" });
-              core.info(`merged ${merged.map((n) => `#${n}`).join(", ")}; dispatched ci on main at ${tip}`);
+              core.info(`merged ${merged.map((n) => `#${n}`).join(", ")}; dispatched ci on main, which was ${tip} when the dispatch was asked for`);
             } catch (e) {
               core.warning(`ci dispatch on main (${tip}) failed: ${e.message}. ci.yml's hourly schedule will pick it up.`);
             }

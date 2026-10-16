@@ -18,6 +18,9 @@ test("ci runs on main after a merge, and not only before one", () => {
   assert.match(ci, /^\s{2}schedule:$/m, "ci.yml needs the scheduled backstop for a dispatch that never happened");
   assert.match(ci, /^\s{4}- cron: /m);
   assert.match(ci, /^\s{2}push:\n\s{4}branches: \[main\]$/m, "a human push to main is still checked");
+  // Fail open. An errored lookup in `sweep` leaves the output empty, and the job that exists to catch a
+  // check that did not happen must not answer that by not happening.
+  assert.match(ci, /needs\.sweep\.outputs\.unchecked != 'false'/, "the scheduled check runs unless sweep positively said main is covered");
 });
 
 test("auto-merge asks for the run that checks the merge result", () => {

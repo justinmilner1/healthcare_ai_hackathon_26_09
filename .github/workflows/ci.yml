@@ -68,7 +68,10 @@ jobs:
   check:
     needs: [sweep]
     # `sweep` is skipped on every trigger but the schedule, hence always(): skipped means "not a sweep, run".
-    if: ${{ always() && (github.event_name != 'schedule' || needs.sweep.outputs.unchecked == 'true') }}
+    # And `!= 'false'` rather than `== 'true'`, so the sweep fails open: if its lookup errors the output is
+    # empty, and the one job whose purpose is to notice a check that did not happen must not answer that by
+    # quietly not happening either. The cost of being wrong that way is one suite; the other way it is silence.
+    if: ${{ always() && (github.event_name != 'schedule' || needs.sweep.outputs.unchecked != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Postgres, matching docker-compose.yml and production RDS (design §3.2, §12.4). scripts/agent-check.sh takes
