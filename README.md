@@ -93,6 +93,12 @@ a dependency advisory at high or above either gets fixed or gets a dated, owned 
 `security/audit-exceptions.json`; and a public route gets its limits from `lib/ratelimit.ts` — by IP before
 the body is read, by visit once the token has named one.
 
+What all of that adds up to under HIPAA — which business associate agreements are needed and whether they are
+signed, the access, audit, integrity, transmission and contingency controls with the ticket that implements
+each one, the risk assessment, and the list of things only a human can sign or name — is
+[docs/COMPLIANCE.md](docs/COMPLIANCE.md) (design §10.7). It is also the honest list of what is still missing:
+no agreement is signed and no official is named, so no deployment may yet be pointed at a real patient.
+
 A patient link opens a code screen first: opening it sends a six-digit code to the phone or email on the
 visit, and the chat, the uploads and the summary are all behind it (design §2.3, §5.3). With no SMS or email
 backend configured the code goes to the same local mailbox as the sign-in links, so `npm run mail` prints it.
