@@ -203,6 +203,14 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
     await expect(page.locator("body")).toContainText(answer.slice(0, 20));
     await expect(sweetieSaid).toHaveCount(said + 1, LOADED);
   }
+  // Both answers are in, so the intake has wrapped and the transcript ends with the completion card. The
+  // transcript is its own scrolling region and glides to the newest message rather than jumping (§6.4), so
+  // the reply landing is not the same moment as the end of the transcript being on screen — asserting the
+  // card is really in the viewport waits for that glide to finish, and the shot is of the finished check-in
+  // rather than of the greeting it started from. The old sleep covered this by accident.
+  const doneCard = page.locator(".sweetie-done-card");
+  await expect(doneCard).toContainText(/check-in is complete/i, LOADED);
+  await expect(doneCard).toBeInViewport();
   await shot(page, "sweetie-done");
 
   // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
