@@ -241,6 +241,12 @@ migrates before it serves, so a failed migration is a failed deploy rather than 
 a rollback is that workflow run again with the previous tag. [docs/RUNBOOK.md](docs/RUNBOOK.md) is the
 procedure.
 
+The database keeps seven days of point-in-time backups (§11.4), which is the way back when a rollback is not
+one. Restoring is a drill rather than a setting: [docs/BACKUPS.md](docs/BACKUPS.md) has the commands, the
+expected output of each, and what the failure modes look like. Its verification step is a script —
+`npm run restore:drill` — and `scripts/agent-check.sh` rehearses it on every run so it cannot rot between
+quarterly drills.
+
 ## Repo layout
 
 ```

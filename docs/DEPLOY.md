@@ -7,15 +7,16 @@ written for staging, because staging is the one that gets set up first; every st
 with `production` in place of `staging`, and the differences between the two stages are a table at the top of
 `docs/RUNBOOK.md`.
 
-Owner: ops. The day-to-day operations — releasing, rolling back, rotating a secret, restoring a backup, what
-each alarm means — are `docs/RUNBOOK.md`. This page is the first deploy and the shape of the thing.
+Owner: ops. The day-to-day operations — releasing, rolling back, rotating a secret, what each alarm means —
+are `docs/RUNBOOK.md`, and restoring a backup is `docs/BACKUPS.md` (§11.4). This page is the first deploy and
+the shape of the thing.
 
 ## What the stack contains
 
 | Resource | Why | Design |
 |---|---|---|
 | Amplify Hosting app, `WEB_COMPUTE` platform, one branch | Next.js SSR, auto-building on every push to the stage's branch | §3.1, §13.2, §13.3 |
-| RDS Postgres 16, encrypted, 7-day backups | the database; `force_ssl` on the server | §3.2, §10.1, §11.4 |
+| RDS Postgres 16, encrypted, 7-day point-in-time backups | the database; `force_ssl` on the server; restoring one is `docs/BACKUPS.md` | §3.2, §10.1, §11.4 |
 | S3 bucket, private, versioned, TLS-only | uploaded exports; never in the database | §3.3, §10.1 |
 | KMS key `alias/sweetspot-<stage>-dexcom-tokens` | encrypts stored Dexcom refresh tokens | §4.10, §10.1 |
 | SES identity + configuration set | sending, and the bounce and complaint feed | §8, §8.1 |
@@ -23,6 +24,7 @@ each alarm means — are `docs/RUNBOOK.md`. This page is the first deploy and th
 | EventBridge Scheduler rule, every minute, and a 60-line Lambda | calls `POST /api/jobs/run` with the shared secret | §3.4 |
 | 13 SSM `String` parameters under `/sweetspot/<stage>/` | the non-secret half of the configuration, this deployment's Dexcom callback among it | §3.7, §9.2, §10.6 |
 | 4 log metric filters and 6 CloudWatch alarms | 5xx rate, job failures, model failures, model degraded, the tick, database storage | §11.1 |
+| An RDS event subscription on the instance | a failed backup publishes an event and no metric, so this is the only way to hear about one | §11.1, §11.4 |
 
 Three things in there are deliberate and surprising, so they are worth reading before the first deploy.
 
@@ -240,5 +242,5 @@ Two warnings are expected there and are not failures:
 - **One Amplify app per stage, one branch per app.** The production app watches `release` and nothing else;
   pull request previews are a staging concern. A build started by hand in the console against another branch
   fails production's first build command on purpose, rather than migrating the production database.
-- **Not in this stack yet.** The demo practice flag (T32), the backup restore drill (T33), the compliance
-  checklist (T34) and the rest of the runbook (T35) are their own tickets.
+- **Not in this stack yet.** The demo practice flag (T32), the compliance checklist (T34) and the rest of the
+  runbook (T35) are their own tickets.
