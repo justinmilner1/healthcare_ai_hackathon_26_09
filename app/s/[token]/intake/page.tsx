@@ -89,6 +89,10 @@ const SOURCES: {
   },
 ];
 
+function sourceName(kind: DataKind) {
+  return SOURCES.find((source) => source.kind === kind)?.name ?? kind;
+}
+
 const EMPTY_CONNECTIONS: Record<DataKind, Connection> = {
   dexcom: { state: "idle" },
   whoop: { state: "idle" },
@@ -111,6 +115,10 @@ export default function SweetieIntakePage({
   const [removing, setRemoving] = useState<DataKind | null>(null);
   const [confirmRemoval, setConfirmRemoval] = useState<DataKind | null>(null);
   const [connectionNotice, setConnectionNotice] = useState("");
+  // What the last upload attempt did, as a sentence, for the live region under the cards (§6.4). The pill
+  // and the card's reason are visual only: a pill that re-renders from "Connecting" to "Try again" says
+  // nothing to a screen reader on its own.
+  const [uploadAnnouncement, setUploadAnnouncement] = useState("");
   const [dexcomStatus, setDexcomStatus] = useState<DexcomStatus | null>(null);
   const [dexcomError, setDexcomError] = useState("");
   // The outcome of a connection attempt, not the sentence for it: which sentence depends on which Dexcom
@@ -208,7 +216,9 @@ export default function SweetieIntakePage({
   async function upload(kind: DataKind, file: File) {
     if (!dexcomStatus || dexcomStatus.sandboxPatient || isUploading || isFinishing) return;
     const previous = connections[kind];
+    const name = sourceName(kind);
     setConnectionNotice("");
+    setUploadAnnouncement("");
     setConfirmRemoval(null);
     setConnections((current) => ({
       ...current,
@@ -241,17 +251,24 @@ export default function SweetieIntakePage({
           detail: `${result.count ?? 0} ${label} securely added`,
         },
       }));
+      setUploadAnnouncement(`${name} connected. ${result.count ?? 0} ${label} securely added.`);
     } catch (error) {
+      const reason =
+        error instanceof Error ? error.message : "That file could not be connected.";
+      // A refused file never costs the patient what they already shared, so say which it was.
+      const keptPrevious = previous.state === "connected";
       setConnections((current) => ({
         ...current,
         [kind]: {
-          state: previous.state === "connected" ? "connected" : "error",
-          detail:
-            error instanceof Error
-              ? error.message
-              : "That file could not be connected.",
+          state: keptPrevious ? "connected" : "error",
+          detail: reason,
         },
       }));
+      setUploadAnnouncement(
+        keptPrevious
+          ? `${name} upload failed. ${reason} Your ${name} data from before is still connected.`
+          : `${name} could not be connected. ${reason} You can try again.`,
+      );
     }
   }
 
@@ -269,7 +286,7 @@ export default function SweetieIntakePage({
       if (!response.ok) throw new Error("We couldn't remove that data. Please try again.");
       setConnections((current) => ({ ...current, [kind]: { state: "idle" } }));
       setConfirmRemoval(null);
-      setConnectionNotice(`${SOURCES.find((source) => source.kind === kind)?.name} data removed. You can upload it again anytime.`);
+      setConnectionNotice(`${sourceName(kind)} data removed. You can upload it again anytime.`);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "We couldn't remove that data. Please try again.");
     } finally {
@@ -529,7 +546,9 @@ export default function SweetieIntakePage({
                         <span className={styles.sourceCopy}>
                           <span className={styles.sourceHeading}>
                             <strong>{source.name}</strong>
-                            {!unavailable && <SourceStatus connection={connection} />}
+                            {!unavailable && (
+                              <SourceStatus connection={connection} name={source.name} />
+                            )}
                           </span>
                           <span className={styles.sourceDescription}>
                             {source.description}
@@ -628,6 +647,12 @@ export default function SweetieIntakePage({
                     );
                   })}
                 </div>
+
+                {/* §6.4: the one place an upload's outcome is announced. Always mounted, so a screen
+                    reader is already watching it when the sentence arrives. */}
+                <p role="status" className="sr-only">
+                  {uploadAnnouncement}
+                </p>
 
                 {connectionNotice && <p role="status" className={styles.lede}>{connectionNotice}</p>}
 
@@ -769,7 +794,7 @@ function Benefit({
   );
 }
 
-function SourceStatus({ connection }: { connection: Connection }) {
+function SourceStatus({ connection, name }: { connection: Connection; name: string }) {
   if (connection.state === "idle") return null;
   return (
     <span
@@ -779,12 +804,19 @@ function SourceStatus({ connection }: { connection: Connection }) {
     >
       {connection.state === "uploading" && <span className={styles.spinner} />}
       {connection.state === "connected" && <CheckIcon />}
-      {connection.state === "error" && "!"}
-      {connection.state === "uploading"
-        ? "Connecting"
-        : connection.state === "connected"
-          ? "Connected"
-          : "Try again"}
+      {/* A marker element like its siblings, not a character in the text: the pill is uppercased, so a
+          bare "!" read as a typo inside the word (T49). */}
+      {connection.state === "error" && <AlertIcon />}
+      {connection.state === "uploading" ? (
+        "Connecting"
+      ) : connection.state === "connected" ? (
+        "Connected"
+      ) : (
+        <>
+          <span aria-hidden="true">Try again</span>
+          <span className="sr-only">{name} could not be connected. Try again.</span>
+        </>
+      )}
     </span>
   );
 }
@@ -817,6 +849,16 @@ function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m5 12.5 4.2 4.2L19 7" />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 4.6 2.9 19.6h18.2Z" />
+      <path d="M12 10.1v3.5" />
+      <path d="M12 16.6h.01" />
     </svg>
   );
 }
