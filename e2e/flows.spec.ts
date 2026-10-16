@@ -67,12 +67,13 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   expect((await postJson(page.request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
   // /api/provider has the row; §12.2 asks whether the practice can see it. The workspace signed in above was
-  // loaded before the booking and fills in from one client fetch, so it has to be opened again. The row is
-  // found by the address this booking was given rather than by the name: the desktop and mobile projects run
-  // this spec against one database, so by the second project two visits are called "E2E Patient" and only the
-  // address is this one's. Waiting for `Sam Sample` instead — the seeded patient, which is what this used to
-  // assert — passes on a dashboard that drops the visit just created.
-  await page.goto(`/provider/${demo.id}`);
+  // loaded before the booking and fills in from one client fetch, so it has to be opened again — `/provider`,
+  // which is the table; `/provider/<id>` below is Sour's one-pager and shows no patient list at all. The row
+  // is found by the address this booking was given rather than by the name: the desktop and mobile projects
+  // run this spec against one database, so by the second project two visits are called "E2E Patient" and only
+  // the address is this one's. Waiting for `Sam Sample` instead — the seeded patient, which is what this used
+  // to assert — passes on a dashboard that drops the visit just created.
+  await page.goto("/provider");
   const bookedRow = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(bookedRow).toContainText("E2E Patient", LOADED);
   // The visit's own details, not just a name that happens to be in the table: the type and the reason the
@@ -144,8 +145,8 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   expect(queued.jobId).toBeTruthy();
 
   // expect.poll rather than a loop around setTimeout: the same bounded wait on the same condition — this
-  // job, reported done — but it is the assertion that fails, with the last value it saw, instead of a loop
-  // falling out silently and the expect below guessing at why.
+  // job, reported done — but it is the assertion that fails, naming the last status it saw, instead of a loop
+  // running out of tries silently and a separate expect afterwards left to guess at why.
   let after = before;
   await expect
     .poll(async () => {
