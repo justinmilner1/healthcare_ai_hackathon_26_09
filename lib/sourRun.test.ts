@@ -1,31 +1,44 @@
-// Unit tests for Sour's "unchanged inputs return the existing summary" rule (T15, design §7.1), against a
-// real fixture database.
+// Unit tests for one Sour run (T15 and T42, design §6.3, §7.1, §7.2, §8.2).
 //
-// The hash itself is lib/sourInput.test.ts. This is the lookup around it: which saved pair counts as the
-// answer to a fresh run, and — just as important — which ones must not, because handing a clinician a
-// summary that does not describe this week is worse than spending two model calls.
+// Two halves, one fixture schema.
+//
+// `existingSummaryFor` is the "unchanged inputs return the existing summary" rule (§7.1). The hash itself is
+// lib/sourInput.test.ts; this is the lookup around it: which saved pair counts as the answer to a fresh run,
+// and — just as important — which ones must not, because handing a clinician a summary that does not describe
+// this week is worse than spending two model calls.
+//
+// `runSour` is the run. It is the one function in the product that writes a clinician's brief, so what it does
+// when the model is not there matters as much as what it does when it is: §6.3's degraded run must save the
+// numbers, say which of the two outages it was, and leave nothing behind that a later run would reuse or that
+// would email anybody about a placeholder.
 //
 // Postgres only (§3.2), so the fixture is a throwaway schema in whatever server DATABASE_URL points at,
-// migrated with `prisma migrate deploy` and dropped at the end, exactly like lib/jobs.test.ts. Without
-// DATABASE_URL the suite skips, so `npm test` still works with no database up.
+// migrated with `prisma migrate deploy` and dropped at the end (lib/fixtures.ts). `runSour` reads the `db`
+// singleton rather than taking a client, so the schema is adopted as DATABASE_URL and the modules are pulled
+// in afterwards with `await import`; nothing here may import them statically. Without DATABASE_URL both
+// halves skip, so `npm test` still works with no database up.
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { PrismaClient } from "@prisma/client";
-import { sourInputHash, sourInputsFor } from "./sourInput";
-import { existingSummaryFor, uploadRefs } from "./sourRun";
-import type { Summary } from "./types";
+import { fixtureSchema, SKIP_WITHOUT_DB, type FixtureSchema } from "./fixtures";
+import { setLogSink } from "./log";
+import type { GlucoseReading, Summary } from "./types";
 
-const SERVER_URL = process.env.DATABASE_URL;
-const schema = `sourruntest_${randomBytes(4).toString("hex")}`;
+let fx: FixtureSchema | undefined;
+let sourInput: typeof import("./sourInput");
+let sourRun: typeof import("./sourRun");
 
-const fixtureUrl = (base: string) => {
-  const url = new URL(base);
-  url.searchParams.set("schema", schema);
-  return url.toString();
-};
+before(async () => {
+  if (SKIP_WITHOUT_DB === false) fx = await fixtureSchema("sourruntest", { useAsDefault: true });
+  sourInput = await import("./sourInput");
+  sourRun = await import("./sourRun");
+});
+
+after(async () => {
+  setLogSink();
+  await fx?.drop();
+});
 
 const summary = (patterns: string[]): Summary => ({
   timeInRange: 0.72,
@@ -36,23 +49,17 @@ const summary = (patterns: string[]): Summary => ({
   patientNotes: "Meals: pasta most nights",
 });
 
-describe("existingSummaryFor", { skip: SERVER_URL ? false : "DATABASE_URL is not set" }, () => {
-  let admin: PrismaClient;
-  let db: PrismaClient;
+describe("existingSummaryFor", { skip: SKIP_WITHOUT_DB }, () => {
+  let db: FixtureSchema["db"];
   let visitId: string;
   let otherVisitId: string;
+  const existingSummaryFor: typeof import("./sourRun").existingSummaryFor = (...args) => sourRun.existingSummaryFor(...args);
+  const uploadRefs: typeof import("./sourRun").uploadRefs = (...args) => sourRun.uploadRefs(...args);
+  const sourInputHash: typeof import("./sourInput").sourInputHash = (...args) => sourInput.sourInputHash(...args);
+  const sourInputsFor: typeof import("./sourInput").sourInputsFor = (...args) => sourInput.sourInputsFor(...args);
 
   before(async () => {
-    admin = new PrismaClient({ datasourceUrl: SERVER_URL });
-    await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
-    const url = fixtureUrl(SERVER_URL!);
-    try {
-      execFileSync("npx", ["prisma", "migrate", "deploy"], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe" });
-    } catch (e) {
-      const out = e as { stdout?: Buffer; stderr?: Buffer };
-      throw new Error(`prisma migrate deploy failed for the fixture schema:\n${out.stdout ?? ""}${out.stderr ?? ""}`);
-    }
-    db = new PrismaClient({ datasourceUrl: url });
+    db = fx!.db;
     const practice = await db.practice.create({ data: { name: "Fixture Endocrinology" } });
     const patient = await db.patient.create({ data: { practiceId: practice.id, name: "Fixture Patient" } });
     const visit = await db.visit.create({ data: { patientId: patient.id, token: randomBytes(16).toString("base64url"), visitType: "follow_up", reason: "mornings running high", notes: "Meals: pasta most nights", intake: JSON.stringify({ turns: 2, wrapped: true }) } });
@@ -62,9 +69,11 @@ describe("existingSummaryFor", { skip: SERVER_URL ? false : "DATABASE_URL is not
   });
 
   after(async () => {
-    await db?.$disconnect();
-    await admin?.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-    await admin?.$disconnect();
+    await db.summary.deleteMany({});
+    await db.upload.deleteMany({});
+    await db.visit.deleteMany({});
+    await db.patient.deleteMany({});
+    await db.practice.deleteMany({});
   });
 
   beforeEach(async () => {
@@ -158,6 +167,270 @@ describe("existingSummaryFor", { skip: SERVER_URL ? false : "DATABASE_URL is not
       const afterUpload = sourInputHash(sourInputsFor(visit, await uploadRefs(visitId, db), "model"));
       assert.notEqual(afterUpload, before, "a WHOOP export is new input");
       assert.equal(await existingSummaryFor(visitId, afterUpload, db), null);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The run itself
+
+/** Readings with a real spike in them, so the brief has numbers and `detectSpikes` has something to find. */
+function readings(count = 288): GlucoseReading[] {
+  const t0 = Date.parse("2026-10-05T00:00:00.000Z");
+  return Array.from({ length: count }, (_, i) => ({
+    t: new Date(t0 + i * 5 * 60_000).toISOString(),
+    mgdl: Math.round(120 + 80 * Math.sin((i / 36) * Math.PI)),
+  }));
+}
+
+describe("runSour", { skip: SKIP_WITHOUT_DB }, () => {
+  let db: FixtureSchema["db"];
+  const ids = { practice: "", patient: "", visit: "" };
+  const savedKey = { key: process.env.OPENAI_API_KEY };
+
+  before(async () => {
+    db = fx!.db;
+    setLogSink(() => {});
+    const practice = await db.practice.create({ data: { name: "Run Endocrinology" } });
+    const patient = await db.patient.create({ data: { practiceId: practice.id, name: "Run Patient" } });
+    Object.assign(ids, { practice: practice.id, patient: patient.id });
+  });
+
+  after(() => {
+    if (savedKey.key === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = savedKey.key;
+  });
+
+  beforeEach(async () => {
+    await db.job.deleteMany({});
+    await db.visit.deleteMany({});
+    const visit = await db.visit.create({
+      data: {
+        patientId: ids.patient,
+        token: randomBytes(16).toString("base64url"),
+        visitType: "follow_up",
+        reason: "mornings running high",
+        notes: "Meals: pasta most nights",
+        intake: JSON.stringify({ turns: 3, wrapped: true }),
+        status: "intake_done",
+      },
+    });
+    ids.visit = visit.id;
+    const upload = await db.upload.create({ data: { visitId: visit.id, kind: "dexcom", filename: "clarity.csv", parsedRows: 288 } });
+    await db.uploadData.create({ data: { uploadId: upload.id, parsed: JSON.stringify(readings()) } });
+    // The run is never a real model call here; `narrate` is injected and OPENAI_API_KEY only decides which of
+    // §6.3's two outages a failure is reported as.
+    process.env.OPENAI_API_KEY = "test-key-not-used";
+  });
+
+  /** A narrator that writes whatever it is told to, and records that it was asked. */
+  const narrator = (provider: unknown, patient: unknown = provider) => {
+    const calls: string[] = [];
+    const narrate = async (c: { brief: string }) => {
+      calls.push(c.brief);
+      return { provider, patient } as { provider: { patterns: string[]; questions: string[] }; patient: { patterns: string[]; questions: string[] } };
+    };
+    return { calls, narrate };
+  };
+
+  const narrative = { patterns: ["3 of 4 overnight highs followed dinners out after 8pm"], questions: ["What changed in August?"] };
+
+  const rows = () => db.summary.findMany({ where: { visitId: ids.visit }, orderBy: { audience: "asc" } });
+
+  it("saves a pair, hands them back, and queues the two links (§7.1, §8.2)", async () => {
+    const { calls, narrate } = narrator(narrative);
+    const result = await sourRun.runSour(ids.visit, { narrate });
+
+    assert.equal(calls.length, 1, "one narrator call writes both audiences");
+    assert.match(calls[0], /OVERALL \(.*readings\): TIR /, "the narrator is handed the rendered brief, not raw rows");
+    assert.equal(result.reused, false);
+    assert.deepEqual(result.provider.patterns, narrative.patterns);
+    assert.ok(result.provider.avgGlucose > 0, "the numbers are code-generated and come back filled in");
+
+    const saved = await rows();
+    assert.deepEqual(saved.map((r) => r.audience), ["patient", "provider"]);
+    assert.ok(saved.every((r) => r.inputHash), "a narrative worth reusing is saved with its fingerprint");
+
+    assert.ok("queued" in result.notified, `expected a queued job, got ${JSON.stringify(result.notified)}`);
+    const job = await db.job.findFirstOrThrow({ where: { kind: "notify.summary" } });
+    assert.equal(job.idempotencyKey, `notify.summary:${ids.visit}`, "a second run must not send a second email");
+    assert.deepEqual(JSON.parse(job.payload), { visitId: ids.visit }, "no clinical text is ever queued (§10.3)");
+  });
+
+  it("gives the clinician the safety flags and the patient none", async () => {
+    const { narrate } = narrator(narrative);
+    const result = await sourRun.runSour(ids.visit, { narrate });
+    // The flags are lib/sour.ts's, deterministic and never the model's; the patient's copy carries none.
+    assert.ok(Array.isArray(result.provider.flags));
+    assert.deepEqual(result.patient.flags, []);
+  });
+
+  it("keeps at most three patterns and three questions, trimmed, and drops what is not a string", async () => {
+    const { narrate } = narrator({
+      patterns: ["  first  ", "second", "", "   ", 42, null, "third", "fourth"],
+      questions: ["only one", { q: "no" }],
+    });
+    const result = await sourRun.runSour(ids.visit, { narrate });
+    assert.deepEqual(result.provider.patterns, ["first", "second", "third"]);
+    assert.deepEqual(result.provider.questions, ["only one"]);
+  });
+
+  it("survives a narrator that returns nothing shaped like a narrative", async () => {
+    // A model that answered with prose instead of the JSON the prompt asked for: lib/llm.ts has already had
+    // its one retry by now, so the brief ships with its numbers and no narrative rather than failing the job.
+    const { narrate } = narrator({ patterns: "not an array", questions: undefined });
+    const result = await sourRun.runSour(ids.visit, { narrate });
+    assert.deepEqual(result.provider.patterns, []);
+    assert.deepEqual(result.provider.questions, []);
+    assert.ok(result.provider.avgGlucose > 0, "the numbers are still there");
+    assert.ok("queued" in result.notified, "the model answered, so the links go out");
+  });
+
+  it("moves the visit to summary_ready, and only ever forwards (§4.4)", async () => {
+    const { narrate } = narrator(narrative);
+    await sourRun.runSour(ids.visit, { narrate });
+    assert.equal((await db.visit.findUniqueOrThrow({ where: { id: ids.visit } })).status, "summary_ready");
+
+    // Re-running Sour on a visit a clinician has signed off must not pull it back out of `reviewed` (§7.3).
+    await db.visit.update({ where: { id: ids.visit }, data: { status: "reviewed" } });
+    await db.summary.deleteMany({ where: { visitId: ids.visit } });
+    await sourRun.runSour(ids.visit, { narrate });
+    assert.equal((await db.visit.findUniqueOrThrow({ where: { id: ids.visit } })).status, "reviewed");
+  });
+
+  it("returns the saved pair for unchanged inputs: no second rows, no second email (§7.1)", async () => {
+    const { calls, narrate } = narrator(narrative);
+    await sourRun.runSour(ids.visit, { narrate });
+    await db.job.deleteMany({});
+
+    const again = await sourRun.runSour(ids.visit, { narrate });
+    assert.equal(again.reused, true);
+    assert.equal(calls.length, 1, "the second run cost no model call");
+    assert.equal((await rows()).length, 2, "and wrote no second pair");
+    assert.ok("skipped" in again.notified && /unchanged/i.test(again.notified.skipped), JSON.stringify(again.notified));
+    assert.equal(await db.job.count({ where: { kind: "notify.summary" } }), 0, "the clinician was already told");
+    assert.deepEqual(again.provider.patterns, narrative.patterns);
+  });
+
+  it("really regenerates once a new upload has changed the inputs", async () => {
+    const { calls, narrate } = narrator(narrative);
+    await sourRun.runSour(ids.visit, { narrate });
+    await db.upload.create({ data: { visitId: ids.visit, kind: "whoop", filename: "cycles.csv", parsedRows: 7 } });
+    const again = await sourRun.runSour(ids.visit, { narrate });
+    assert.equal(again.reused, false);
+    assert.equal(calls.length, 2);
+    assert.equal((await rows()).length, 4, "the new pair is saved beside the old one; the page reads the newest");
+  });
+
+  describe("when the model is not there (§6.3)", () => {
+    /** A narrator that fails the way lib/llm.ts fails: LLMUnavailable covers no key and a dead gateway alike. */
+    const unavailable = async () => {
+      const { LLMUnavailable } = await import("./llm");
+      return async () => {
+        throw new LLMUnavailable("model gateway unavailable (timeout)");
+      };
+    };
+
+    it("saves the numbers with a retryable note, and no fingerprint, when a configured gateway is down", async () => {
+      const result = await sourRun.runSour(ids.visit, { narrate: await unavailable() });
+      assert.equal(result.provider.questions.length, 0);
+      assert.equal(result.provider.patterns.length, 1);
+      assert.match(result.provider.patterns[0], /unavailable/i, "it says which of the two outages this is");
+      assert.ok(result.provider.avgGlucose > 0, "the numbers above the note are complete");
+
+      // Null fingerprint, so the next run really runs rather than handing the clinician "retry in a minute"
+      // forever (§7.1).
+      assert.deepEqual((await rows()).map((r) => r.inputHash), [null, null]);
+      const again = await sourRun.runSour(ids.visit, { narrate: narrator(narrative).narrate });
+      assert.equal(again.reused, false);
+      assert.deepEqual(again.provider.patterns, narrative.patterns);
+    });
+
+    it("says the other thing, and does save a fingerprint, when no model is configured at all", async () => {
+      delete process.env.OPENAI_API_KEY;
+      const result = await sourRun.runSour(ids.visit, { narrate: await unavailable() });
+      assert.match(result.provider.patterns[0], /not configured/i);
+      // Deterministic and the whole of what this deployment can produce, so it is worth reusing — and its
+      // fingerprint says `unconfigured`, so setting a key invalidates it.
+      const saved = await rows();
+      assert.ok(saved.every((r) => r.inputHash), "the scripted placeholder is reusable");
+      assert.equal((await sourRun.runSour(ids.visit, { narrate: await unavailable() })).reused, true);
+
+      process.env.OPENAI_API_KEY = "test-key-not-used";
+      assert.equal((await sourRun.runSour(ids.visit, { narrate: narrator(narrative).narrate })).reused, false, "configuring a key invalidates it");
+    });
+
+    it("never emails anybody about a placeholder", async () => {
+      const result = await sourRun.runSour(ids.visit, { narrate: await unavailable() });
+      assert.ok("skipped" in result.notified, JSON.stringify(result.notified));
+      assert.equal(await db.job.count({ where: { kind: "notify.summary" } }), 0);
+    });
+
+    it("gives the patient the same note and still no flags", async () => {
+      const result = await sourRun.runSour(ids.visit, { narrate: await unavailable() });
+      assert.deepEqual(result.patient.patterns, result.provider.patterns);
+      assert.deepEqual(result.patient.flags, []);
+    });
+
+    it("lets any other failure through, rather than saving a brief that is not one", async () => {
+      // A bug, a Prisma error, an out-of-memory: the job must fail and be retried, not quietly write a
+      // placeholder over the clinician's brief. Only LLMUnavailable is an outage (§3.5).
+      const boom = async () => {
+        throw new TypeError("cannot read properties of undefined");
+      };
+      await assert.rejects(sourRun.runSour(ids.visit, { narrate: boom }), /cannot read properties/);
+      assert.deepEqual(await rows(), [], "nothing was saved");
+      assert.equal((await db.visit.findUniqueOrThrow({ where: { id: ids.visit } })).status, "intake_done");
+    });
+  });
+
+  it("sends nothing for sandbox data, which is nobody's appointment (§13.4)", async () => {
+    await db.visit.update({ where: { id: ids.visit }, data: { isSandbox: true } });
+    const result = await sourRun.runSour(ids.visit, { narrate: narrator(narrative).narrate });
+    assert.ok("skipped" in result.notified && /sandbox/i.test(result.notified.skipped), JSON.stringify(result.notified));
+    assert.equal(await db.job.count({ where: { kind: "notify.summary" } }), 0);
+    assert.equal((await rows()).length, 2, "the summary is still generated and saved; only the email is off");
+  });
+
+  it("marks a sandbox brief as synthetic in the text the model is handed", async () => {
+    await db.visit.update({ where: { id: ids.visit }, data: { isSandbox: true } });
+    const { calls, narrate } = narrator(narrative);
+    await sourRun.runSour(ids.visit, { narrate });
+    assert.match(calls[0], /SYNTHETIC DEXCOM SANDBOX DATA/);
+  });
+
+  it("runs from the invite token as well as the visit id (§4.4)", async () => {
+    const visit = await db.visit.findUniqueOrThrow({ where: { id: ids.visit } });
+    const result = await sourRun.runSour(visit.token, { narrate: narrator(narrative).narrate });
+    assert.equal(result.reused, false);
+    assert.equal((await rows()).length, 2);
+  });
+
+  it("throws for a visit that is not there, so the job says so rather than doing nothing", async () => {
+    await assert.rejects(sourRun.runSour("cl000000000000000000000000", { narrate: narrator(narrative).narrate }), /visit not found/);
+    await assert.rejects(sourRun.runSour("", { narrate: narrator(narrative).narrate }), /visit not found/);
+  });
+
+  describe("loadSourContext", () => {
+    it("computes the brief from full-resolution readings, not the downsampled chart series", async () => {
+      const upload = await db.upload.create({ data: { visitId: ids.visit, kind: "dexcom", filename: "week.csv", parsedRows: 2016 } });
+      await db.uploadData.create({ data: { uploadId: upload.id, parsed: JSON.stringify(readings(2016)) } });
+      const ctx = (await sourRun.loadSourContext(ids.visit))!;
+      assert.equal(ctx.glucose.length, 2016);
+      assert.equal(ctx.bundle.glucose.length, 504, "the bundle's series is for the chart");
+      assert.equal(ctx.notes, "Meals: pasta most nights");
+      assert.ok(ctx.inputHash.length > 0);
+    });
+
+    it("is null for a visit that is not there", async () => {
+      assert.equal(await sourRun.loadSourContext("cl000000000000000000000000"), null);
+    });
+
+    it("is reused by runSour rather than being paid for twice", async () => {
+      const ctx = (await sourRun.loadSourContext(ids.visit))!;
+      const { calls, narrate } = narrator(narrative);
+      await sourRun.runSour(ids.visit, { ctx, narrate });
+      assert.equal(calls[0], ctx.brief, "the caller's brief is the one the model is handed");
     });
   });
 });
