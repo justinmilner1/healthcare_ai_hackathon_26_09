@@ -2,9 +2,9 @@
 
 What to do, step by step, when a deployment needs something done to it. Design §13.5 lists the procedures this
 page owes: deploy, rollback, rotate a secret, restore a backup, handle a bounce, handle a deletion request, and
-what each alarm means. **Deploy, rollback and migrations are here (T30).** The rest arrive with their own
-tickets — the restore drill is T33, and T35 fills the page in — and each is marked below so nobody reads a gap
-as "nothing to do".
+what each alarm means. **Deploy, rollback and migrations are here (T30); restoring a backup is its own page,
+`docs/BACKUPS.md` (T33).** The rest arrive with their own tickets — T35 fills the page in — and each is marked
+below so nobody reads a gap as "nothing to do".
 
 Setting a deployment up for the first time is `docs/DEPLOY.md`. This page assumes it exists already.
 
@@ -19,6 +19,7 @@ Setting a deployment up for the first time is `docs/DEPLOY.md`. This page assume
 | Database | single-AZ, `db.t4g.micro`, rebuildable | multi-AZ, `db.t4g.medium`, deletion protection on |
 | Logs kept | 30 days | 90 days |
 | Backups | 7 days of automated RDS backups | 7 days of automated RDS backups (§11.4) |
+| Backup window | 07:00-07:30 UTC, maintenance `sun:08:00-sun:09:00` | the same; restoring is `docs/BACKUPS.md` |
 
 Both are the same stack class with the same build, so what is true of a staging deploy is true of a production
 one. Everything that differs is in `infra/lib/stage.ts`.
@@ -79,8 +80,8 @@ of the previous tag does not undo them. That is the reason for the rule below.
   Staging migrates on every merge to `main`; production migrates once per release tag.
 - **Every migration must be readable by the release before it.** Add a column, backfill it, start writing it,
   and only drop the old one a release later. A migration that renames or drops something the previous release
-  still reads makes the rollback above useless — the only way back is a restore (T33), which loses whatever was
-  written since.
+  still reads makes the rollback above useless — the only way back is a restore (`docs/BACKUPS.md`), which
+  loses whatever was written since.
 - `npx prisma migrate status` runs ahead of the deploy, so the build log says which migrations this release
   brought and which were already applied. Read it when a deploy goes wrong.
 - A failed migration is a failed build: nothing new is published, and the previous version keeps serving
@@ -120,7 +121,6 @@ Both are outside anything a stack or a workflow can do:
 | Procedure | §13.5 | Ticket |
 |---|---|---|
 | Rotate a secret | yes | T35 |
-| Restore a backup | yes | T33 (the drill), T35 (the page) |
 | Handle a bounce or a complaint | yes | T35. `docs/NOTIFICATIONS.md` has the mechanism today |
 | Handle a deletion request | yes | T35. §10.5 is a staff action in the app |
 | What each alarm means | yes | the table in `docs/DEPLOY.md` today; T35 moves it here with the response |

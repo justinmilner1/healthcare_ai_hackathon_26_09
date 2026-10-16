@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The one command both routines (and CI) run. Installs, audits the dependency tree, prepares a throwaway DB,
-# seeds, then typecheck, lint, unit tests with a coverage table, and the Playwright suite with screenshots in
-# e2e/screenshots/. Exit code is the verdict.
+# seeds, then typecheck, lint, unit tests with a coverage table, the Playwright suite with screenshots in
+# e2e/screenshots/, and the §11.4 restore drill's verification step against what the suite leaves behind.
+# Exit code is the verdict.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -78,5 +79,13 @@ fi
 echo "== e2e"
 mkdir -p e2e/screenshots
 npm run e2e
+
+# The verification step of the §11.4 restore drill (docs/BACKUPS.md), rehearsed against the database the
+# suite has just finished driving — a practice, patients, visits and an audit trail, which is the shape the
+# drill asks about. Steps 1, 2 and 4 of the drill need an AWS account; this one is a script and a database,
+# so it runs here and cannot quietly rot between quarterly drills. After the suite, not before: a seeded but
+# undriven database has no audit rows, and §10.2's trail is one of the things the drill checks for.
+echo "== restore drill (rehearsal)"
+npm run restore:drill -- --restored-to "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 echo "== done. screenshots:"; ls -1 e2e/screenshots

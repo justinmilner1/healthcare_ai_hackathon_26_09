@@ -49,7 +49,9 @@ Runs every three hours. Reviews every open pull request labeled `review`, oldest
 
 `scripts/agent-check.sh` installs dependencies, prepares a throwaway database, seeds demo data, runs typecheck, lint,
 unit tests with a coverage table (design §12.1), the `/infra` check (T29: `cdk synth` and the stack's own unit
-tests, with no AWS account and no Docker — `scripts/infra-check.sh`), and the Playwright suite, and writes
+tests, with no AWS account and no Docker — `scripts/infra-check.sh`), the Playwright suite, and last the
+verification step of the §11.4 restore drill (T33: `npm run restore:drill` against the database the suite has
+just driven — `docs/BACKUPS.md` explains what it is rehearsing), and writes
 screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
 

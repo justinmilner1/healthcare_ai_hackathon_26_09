@@ -13,7 +13,7 @@ import * as path from "node:path";
 import test from "node:test";
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { SECURE_PARAMETERS, SweetSpotStack } from "../lib/sweetspot-stack";
+import { BACKUP_WINDOW_UTC, DB_EVENT_CATEGORIES, MAINTENANCE_WINDOW_UTC, SECURE_PARAMETERS, SweetSpotStack } from "../lib/sweetspot-stack";
 import { stageConfig } from "../lib/stage";
 
 /** A staging stack with the repository's own cdk.json context, which is what `cdk synth` builds. */
@@ -119,6 +119,44 @@ test("database: Postgres 16, TLS required by the server, encrypted, seven days o
   // Nothing may reach 5432 until a deployment names a CIDR; see the comment on `database()`.
   template.hasResourceProperties("AWS::EC2::SecurityGroup", { SecurityGroupIngress: Match.absent() });
   template.hasResourceProperties("AWS::EC2::SecurityGroup", Match.objectLike({ GroupDescription: Match.stringLikeRegexp("dbAllowedCidrs") }));
+});
+
+test("backups: seven days, a window of our choosing, and kept when the instance goes (§11.4)", () => {
+  const template = staging();
+  template.hasResourceProperties("AWS::RDS::DBInstance", {
+    BackupRetentionPeriod: 7,
+    // Seven days of retention is seven days of point-in-time recovery, which is what docs/BACKUPS.md
+    // restores to. The window is pinned so the drill can say which snapshot it is reaching for, and
+    // maintenance is half an hour clear of it, which is RDS's own minimum.
+    PreferredBackupWindow: BACKUP_WINDOW_UTC,
+    PreferredMaintenanceWindow: MAINTENANCE_WINDOW_UTC,
+    CopyTagsToSnapshot: true,
+    // Without this a `cdk destroy` on staging takes the backups with it — including the ones the drill runs against.
+    DeleteAutomatedBackups: false,
+  });
+  // Staging keeps a final snapshot on the way out; production is not deletable at all.
+  template.hasResource("AWS::RDS::DBInstance", { DeletionPolicy: "Snapshot" });
+});
+
+test("a failed backup reaches the same topic as every alarm (§11.1, §11.4)", () => {
+  const template = staging();
+  template.hasResourceProperties("AWS::RDS::EventSubscription", {
+    SourceType: "db-instance",
+    Enabled: true,
+    // A Ref to the instance, not a typed-out name: the subscription cannot drift onto a database that is
+    // not this stack's.
+    SourceIds: [{ Ref: Match.stringLikeRegexp("^Database") }],
+    EventCategories: Match.arrayWith(["backup"]),
+  });
+  template.hasResourceProperties("AWS::RDS::DBInstance", { DBInstanceIdentifier: "sweetspot-staging-db" });
+  assert.ok(DB_EVENT_CATEGORIES.includes("backup"), "the category §11.4 exists for");
+  const subscription = Object.values(template.findResources("AWS::RDS::EventSubscription"))[0];
+  const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
+  assert.deepEqual(
+    subscription.Properties.SnsTopicArn,
+    alarms[0].Properties.AlarmActions[0],
+    "db events and alarms must land in one place, or one of them is watched and the other is not",
+  );
 });
 
 test("a named CIDR is the only thing that opens the database", () => {
@@ -227,13 +265,18 @@ test("a stage with a domain of its own uses it for every link (§3.7)", () => {
 test("production differs from staging only where the design says it does (§13.3)", () => {
   const template = production();
   // The data is the difference that matters: two availability zones, deletion protection, and a stack that
-  // keeps the database when it goes away.
+  // keeps the database when it goes away. The backups are deliberately *not* a difference: §11.4 asks for
+  // seven days in both stages, and staging is where the drill is rehearsed, so a shorter window there would
+  // rehearse something production does not have.
   template.hasResourceProperties("AWS::RDS::DBInstance", {
     MultiAZ: true,
     DeletionProtection: true,
     BackupRetentionPeriod: 7, // §11.4, the same seven days as staging
+    PreferredBackupWindow: BACKUP_WINDOW_UTC,
+    DeleteAutomatedBackups: false,
     DBInstanceClass: "db.t4g.medium",
   });
+  template.hasResourceProperties("AWS::RDS::EventSubscription", { SubscriptionName: "sweetspot-production-db-events", EventCategories: Match.arrayWith(["backup"]) });
   template.hasResource("AWS::RDS::DBInstance", { DeletionPolicy: "Retain" });
   template.hasResourceProperties("AWS::Amplify::Branch", { BranchName: "release", Stage: "PRODUCTION" });
   // §11.1: ninety days of the app's own log lines rather than staging's thirty.
