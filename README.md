@@ -4,15 +4,59 @@
 
 > Patients forget, CGMs don't. We turn a week of glucose, sleep and location data into the 5 minutes your endo actually needs.
 
-Healthcare AI Hackathon, 26 Sep 2026. Built in 3 hours on Next.js and GPT-5.5 via Amazon Bedrock.
+It began as a three-hour build at the Healthcare AI Hackathon on 26 Sep 2026. What is in this repository now
+is that demo being taken to something a small endocrinology practice can pilot: AWS end to end, Postgres,
+provider accounts, verified patient links, an audit trail, retention and deletion, background jobs, a runbook
+and a test suite. [`docs/PRODUCTION_DESIGN.md`](docs/PRODUCTION_DESIGN.md) is the agreed design every change
+cites; it also says what is deliberately out of scope (§14). Not HIPAA certification, no EHR integration, no
+scale beyond a few practices.
+
+### The documents
+
+| Document | What it covers |
+|---|---|
+| [PRODUCTION_DESIGN.md](docs/PRODUCTION_DESIGN.md) | The design, in numbered sections. Every change cites the ones it fulfills |
+| [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) | How Sweetie and Sour are built: code decides, models write |
+| [AGENTS.md](AGENTS.md) | The working rules for anyone, human or agent, writing code here |
+| [JOBS.md](docs/JOBS.md) · [NOTIFICATIONS.md](docs/NOTIFICATIONS.md) | The job queue, and every message the app sends |
+| [SECURITY.md](docs/SECURITY.md) · [LOGGING.md](docs/LOGGING.md) · [AUDIT.md](docs/AUDIT.md) · [COMPLIANCE.md](docs/COMPLIANCE.md) | Headers, CSRF, rate limits, the PHI-free logs, the audit trail, and the HIPAA checklist |
+| [DEPLOY.md](docs/DEPLOY.md) · [RUNBOOK.md](docs/RUNBOOK.md) · [BACKUPS.md](docs/BACKUPS.md) | The first deploy, the day-to-day procedures, and the restore drill |
+| [DEXCOM.md](docs/DEXCOM.md) | The Dexcom connection, sandbox and production |
+| [ROUTINES.md](docs/ROUTINES.md) | The two scheduled agents that advance the ticket stack, and how to work with them |
 
 ## Flow
 
-1. **Booking.** A new diabetes patient books an endo appointment in the practice's scheduling system. That creates the patient here: the provider page's Add patient form (`POST /api/book`), or a day's visits at once from the scheduler's CSV (`POST /api/visits/import`, previewed row by row before anything is created). Staff record which channel the patient agreed to be contacted on and how that consent was taken, and the link goes out by text or email on that channel. Patients never come to the site on their own.
-2. **Before the visit (Sweetie 🍬).** The patient opens the link and chats with Sweetie, the patient-facing agent. Sweetie asks them to connect Dexcom, WHOOP and Google Maps location, then asks a few quick questions about meals and symptoms.
-3. **During the visit (Sour 🍋).** The doctor opens Sour, the provider-facing agent. Sour gives a one-page summary: glucose trends, spikes linked to places, sleep, and key questions to ask the patient.
+The customer flow is design §2, and the code follows it in that order:
 
-Data is kept for life, so the summary gets better with every visit. Patients can see their own summary on the site.
+1. **Practice onboarding (§2.1).** An admin signs up with their email, names the practice, and invites
+   clinicians and staff. Three roles: admin, clinician, staff (§5.2). No passwords anywhere — providers sign
+   in with an emailed magic link (§5.1).
+2. **Visit creation (§2.2).** Staff add a visit: the patient (new, or existing by phone or email), the date
+   and time, the visit type, what the patient called about, the contact channel, and a recorded consent to be
+   contacted. One at a time on the dashboard (`POST /api/book`) or a day at once from the scheduler's CSV
+   (`POST /api/visits/import`, previewed row by row before anything is created). This is the seam a
+   scheduling integration plugs into later.
+3. **Invite (§2.3).** The patient gets a text or email naming the practice and nothing clinical, with a link
+   to `/s/<token>`. Opening it sends a six-digit code to the same phone or email; a forwarded link alone
+   reveals nothing.
+4. **Consent (§2.4).** On the first open only: what the check-in collects, that it is optional, that a
+   clinician reads it, and how to have it deleted. One tap continues; declining ends the session.
+5. **Before the visit — Sweetie 🍬 (§2.5).** The patient answers two questions, by voice or by typing, and
+   shares what they have: Dexcom (connected or a Clarity CSV), a Google Maps Timeline export, a WHOOP CSV.
+   All of it optional. A deterministic safety scan runs before every model call, and a red flag stops the
+   interview and points the patient at a person.
+6. **During the visit — Sour 🍋 (§2.6).** When intake wraps, a `sour.run` job builds the brief and emails
+   the clinician a link. Signed in, they get the one-pager — time in range, spikes linked to places, sleep,
+   questions to ask — can ask Sour follow-ups, print it, and mark it reviewed, which records who and when.
+7. **The patient's own view (§2.7).** The same verified link shows the patient a plain-language version of
+   their week.
+8. **Afterwards (§2.8).** Data is kept for as long as the practice's retention setting says (365 days by
+   default) and a nightly sweep removes what is past it. A patient can ask the practice to delete their data,
+   which goes end to end — messages, uploads, summaries, intake, the stored files — and leaves an audit record
+   of the deletion.
+
+Patients never come to the site on their own: every patient page is behind a visit's token and a verified
+code.
 
 ## Stack
 
@@ -21,22 +65,22 @@ Data is kept for life, so the summary gets better with every visit. Patients can
 | App | Next.js 15 (App Router, TypeScript) | Front end and API routes in one repo |
 | DB | Postgres 16 via Prisma | `docker compose up db` locally, RDS in production |
 | Infra | AWS CDK (TypeScript) in `/infra` | Amplify, RDS, S3, SES, SNS, the job schedule, SSM, alarms (§3.6) |
-| LLM | GPT-5.5 on Amazon Bedrock, OpenAI SDK, Responses API | What the workshop covers |
-| SMS | Twilio | Fallback: show the link on screen |
-| Glucose | Dexcom Clarity CSV upload, `pydexcom`-style Share polling optional | CSV is reliable in a demo |
-| Location | Google Maps Timeline JSON upload | Only export that works in 2026 |
-| Sleep | WHOOP CSV export | Optional |
+| LLM | GPT-5.5 on Amazon Bedrock, OpenAI SDK, Responses API | One gateway, `lib/llm.ts`; the model id is configuration (§3.5) |
+| Email / SMS | SES and SNS, with Twilio and Resend as local alternatives | One vendor and one set of BAAs (§8.1, §8.4) |
+| Glucose | Dexcom OAuth, or a Clarity CSV upload | The connection is the product; the CSV always works (§9.2) |
+| Location | Google Maps Timeline JSON upload | The only export that works in 2026 (§9.3) |
+| Sleep | WHOOP CSV upload | Optional (§9.3) |
 
 ## Quick start
 
 ```bash
-git clone https://github.com/robbertstruyven/healthcare_ai_hackathon_26_09
+git clone https://github.com/justinmilner1/healthcare_ai_hackathon_26_09
 cd healthcare_ai_hackathon_26_09
 npm install
 cp .env.example .env    # fill in the values below (works without an API key; agents fall back to scripted replies)
 docker compose up -d db # Postgres 16 on localhost:5432, credentials as in .env.example
 npx prisma migrate dev
-npm run seed            # demo provider + patient with the sample files loaded; prints the three URLs
+npm run seed            # demo practice, patient and visit with the sample exports loaded; prints the URLs
 npm run dev             # http://localhost:3000
 ```
 
@@ -182,6 +226,8 @@ GPT-5.5 and 5.4 answered from both us-east-1 and us-east-2 on 26 Sep. Short-term
 
 ### Codex on Bedrock
 
+The review bot on pull requests, and any agent working in this repo, talks to the same gateway the app does:
+
 ```bash
 export AWS_BEARER_TOKEN_BEDROCK=<your-bedrock-api-key>
 ```
@@ -195,17 +241,25 @@ model_provider = "amazon-bedrock"
 region = "us-east-2"
 ```
 
-## Getting the demo data
+## Where a patient's exports come from
 
-**Dexcom:** Clarity web → Export → CSV, last 14 days. Or Dexcom app → Share on, then poll with `pydexcom`.
+Sweetie asks for these, and this is what the office tells a patient who cannot find them. All of it is
+optional, and the check-in finishes without any of it (design §2.5).
 
-**Location (Samsung A55):** Settings → Location → Location services → Timeline → Export Timeline data. Copy `Timeline.json` to the laptop. Only visits from the last 7 days get used.
+**Dexcom:** connecting the account is one tap in the chat and needs no files
+([docs/DEXCOM.md](docs/DEXCOM.md), §9.2). Otherwise: Clarity web → Export → CSV, last 14 days.
 
-**Location (iPhone):** Google Maps → profile picture → Settings → Personal content → Export Timeline data → Save to Files.
+**Location (Android):** Settings → Location → Location services → Timeline → Export Timeline data, then
+share `Timeline.json` with the check-in. Only visits from the last 7 days of the export get used.
+
+**Location (iPhone):** Google Maps → profile picture → Settings → Personal content → Export Timeline data
+→ Save to Files.
 
 **WHOOP:** app → More → Data export, or the CSV from the web dashboard.
 
-If Timeline was off, write `data/visits.csv` by hand (`start,end,place,lat,lng`) from card transactions and photos. Takes 20 minutes and gives cleaner meal events.
+A Timeline export carries no place names, only Google's place ids, so the brief says "an unnamed place" unless
+a `data/visits.csv` (`start,end,place,lat,lng`) names them. `data/` holds the synthetic 7-day set the fixtures
+and the demo use; a real export never gets committed.
 
 ## Where uploaded files go
 
@@ -258,148 +312,193 @@ quarterly drills.
 ```
 app/
   page.tsx                      landing with links to every screen
+  demo/route.ts                 GET: sign straight into the seeded demo practice, when DEMO_SIGN_IN is on (§13.4)
   s/[token]/layout.tsx          the code and consent screens in front of both pages below (§5.3, §2.4)
-  s/[token]/page.tsx            Sweetie voice-first chat + uploads (presigned link) Justin
-  s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat  Nisarga
+  s/[token]/page.tsx            Sweetie voice-first chat + the optional data panel
+  s/[token]/intake/page.tsx     onboarding: connect data, then continue to chat
   patient/[id]/layout.tsx       the same gate in front of the summary
-  patient/[id]/page.tsx         patient summary view (opened by the invite token) Justin
-  provider/page.tsx             session guard; dashboard.tsx is the practice dashboard Justin
-  provider/signin/page.tsx      ask for a magic link; check-email/ and signout/ finish it Justin
-  provider/signup/page.tsx      create a practice, then the same emailed link  Justin
-  provider/settings/page.tsx    admin only; settings.tsx is practice, retention, users Justin
+  patient/[id]/page.tsx         patient summary view (§2.7)
+  provider/page.tsx             session guard; dashboard.tsx is the practice dashboard
+  provider/signin/page.tsx      ask for a magic link; check-email/ and signout/ finish it (§5.1)
+  provider/signup/page.tsx      create a practice, then the same emailed link (§2.1)
+  provider/settings/page.tsx    admin only; settings.tsx is practice, retention, users
   provider/audit/page.tsx       admin only; audit.tsx is the §10.2 audit trail + CSV export
-  provider/[id]/page.tsx        session guard; sour.tsx is the Sour summary view Justin
+  provider/[id]/page.tsx        session guard; sour.tsx is the Sour summary view (§2.6)
   provider/visit/[id]/print/page.tsx  the §7.4 one-pager: the summary alone, made for paper
   api/
     auth/[...nextauth]/route.ts Auth.js endpoints (sign in, callback, session, sign out)
-    book/route.ts               POST create patient + send invite (scheduling hook) Justin
+    provider/route.ts           POST sign up, GET the signed-in provider + the practice's visits
+    book/route.ts               POST create the patient and the visit, then invite (§2.2)
+    visits/import/route.ts      POST a day of visits from the scheduler's CSV, previewed first (§2.2)
+    invite/route.ts             POST (re)send a visit's link, regenerating the token (§5.5)
     verify/route.ts             POST ask for a six-digit code, POST check it (§2.3, §5.3)
     consent/route.ts            POST the patient's answer to the consent screen (§2.4)
-    sweetie/route.ts            GET transcript+status, POST message or upload event  Justin
-    upload/route.ts             POST multipart: token, kind, file             Nisarga / Robbert
-    sour/route.ts               POST { visitId } generate summaries; or with question James
+    sweetie/route.ts            GET transcript+status, POST message or upload event (§6.1)
+    upload/route.ts             POST multipart: token, kind, file (§9.1)
+    dexcom/connect|callback/route.ts  the §9.2 OAuth round trip; status/ and demo/ finish it
+    sour/route.ts               POST { visitId } queue a run; or a clinician's follow-up question (§7.5)
+    review/route.ts             POST mark a visit's summary reviewed (§7.3)
     patient/[id]/route.ts       GET PatientBundle for one visit (visit id or token)
-    provider/route.ts           POST sign up, GET the signed-in provider + the practice's visits
     practice/route.ts           GET/PATCH the practice: name, retention, users (admin)
     practice/users/route.ts     POST invite a colleague with a role (admin)
     practice/users/[id]/route.ts PATCH one colleague's role (admin)
     audit/route.ts              GET the practice's audit log, filtered; ?format=csv exports it (admin)
     deletion/route.ts           POST { patientId, confirm } delete a patient's data (§2.8, §10.5)
     jobs/run/route.ts           POST drain the queue; queues the nightly retention sweep (§3.4, §10.4)
+    notifications/sns/route.ts  POST SES and SNS delivery results: bounces, complaints, STOP (§8.1, §8.3)
     health/route.ts             GET the dependency report: database, uploads, model gateway (§11.2)
     health/live/route.ts        GET liveness alone, for the load balancer and the e2e wait (§11.2)
 components/
   VerifyGate.tsx                decides, on the server, whether a link shows its page, a code screen or consent
   VerifyScreen.tsx              that code screen
   ConsentScreen.tsx             the consent screen behind it, shown on first open only (§2.4)
-  GlucoseChart.tsx              glucose line, target band, labeled spike pins  Justin
-  SleepChart.tsx                hours asleep per night, with table twin        Justin
-  SpikeTable.tsx                spikes linked to places (table twin of chart)  Justin
-  RangeBar.tsx                  below / in / above range meter                 Justin
-  StatTile.tsx, Disclaimer.tsx  small shared pieces                            Justin
+  GlucoseChart.tsx              glucose line, target band, labeled spike pins
+  SleepChart.tsx                hours asleep per night, with table twin
+  SpikeTable.tsx                spikes linked to places (table twin of chart)
+  RangeBar.tsx                  below / in / above range meter
+  SourJobState.tsx              queued, running or failed, with the retry (§7.2)
+  DexcomDemoLink.tsx            the sandbox connect link in the data panel (§9.2)
+  StatTile.tsx, Disclaimer.tsx, PersonaBrand.tsx  small shared pieces
 lib/
   types.ts                      the shared shapes; change with care
   llm.ts                        ask(system, user, {json}) -> Bedrock Responses API; timeout, retry, circuit
   visits.ts                     visit types and labels (client-safe; no model)
-  prompts.ts                    Sour prompts                                  James
-  sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak Justin
+  sweetie.ts                    Sweetie: visit templates, red-flag scan, extract, speak
+  sweetieTurn.ts                the order of one turn, which is design §6.2
+  prompts.ts                    Sour prompts
+  sour.ts                       the deterministic brief: the numbers and the safety flags
+  sourInput.ts                  the input hash behind §7.1's idempotency
+  sourRun.ts                    one run: both summaries, saved, then the "it's ready" jobs
+  sourState.ts                  what the provider page says about a summary's job (§7.2)
+  review.ts                     marking a summary reviewed: who and when (§7.3)
+  followUps.ts                  a clinician's questions to Sour and the answers (§7.5)
+  jobs.ts                       the queue: enqueue, claim, backoff, idempotency (§3.4)
+  jobHandlers.ts                what each kind does: sour.run, the notifications, the sweeps
   auth.ts                       Auth.js: magic links, database sessions (§5.1)
+  authAdapter.ts                Prisma adapter + the 7-day absolute session cap
   patientSession.ts             the patient side: one-time codes, the 24-hour session cookie (§5.3)
   consent.ts                    the consent screen's four statements, the first-open rule, the write (§2.4)
-  authAdapter.ts                Prisma adapter + the 7-day absolute session cap
   access.ts                     roles and capabilities: the whole of §5.2, pure
+  guard.ts                      the 401 / 403 / 404 every provider route starts with
+  httpError.ts                  a guard's refusal, answered and logged by withRoute
+  csrf.ts                       apiFetch and the token middleware checks (§10.8)
+  security.ts                   the response headers (§10.8)
+  ratelimit.ts                  the limits on the public routes, by IP and by visit (§5.4)
+  log.ts                        structured JSON logs with a PHI allow-list, and withRoute (§10.3, §11.1)
   auditLog.ts                   audit vocabulary, the PHI gate on detail, CSV, filters (client-safe)
   auditStore.ts                 the database half: write a row, read the trail back (§4.8, §10.2)
   retention.ts                  how long data is kept, and the typed confirmation (client-safe; §2.8, §10.4)
   retentionStore.ts             the database half: the nightly sweep and the patient purge (§10.4, §10.5)
-  guard.ts                      the 401 / 403 / 404 every provider route starts with
-  httpError.ts                  a guard's refusal, answered and logged by withRoute
   team.ts                       practice/team shapes and validators (client-safe)
   teamStore.ts                  the database half: invite, role change, settings
-  mailer.ts                     where a sign-in link goes: SES, or devMailbox.ts
-  devMailbox.ts                 the local .mail/ drop behind `npm run mail`
-  voice.ts                      browser speech synthesis + recognition for Sweetie Justin
-  glucose.ts                    parse Clarity CSV, spikes, time in range      Nisarga
-  location.ts                   parse Timeline.json, visits.csv, labelling    Robbert
-  match.ts                      link spikes to visits                         Robbert
-  sleep.ts                      parse WHOOP CSV                               (open)
+  practice.ts                   the first person in a practice: sign-up and the demo provider
+  visitIntake.ts                what the Add-visit form and the CSV import agree on (§2.2)
+  visitStore.ts                 creating visits, one or a day at a time, and what each invite did (§2.2, §8.3)
+  visit.ts                      resolve a visit from its id or invite token
   bundle.ts                     load a visit's data + status from the DB
+  notify.ts                     the five message templates: a link and nothing clinical (§8.2)
+  notifyStore.ts                what a provider told us about a send (§8.1, §8.3)
+  snsEvents.ts, snsSignature.ts SES and SNS delivery results, and proving they came from SNS
+  suppression.ts                when we stop messaging a channel, and why: bounce, complaint, STOP (§8.1)
+  mailer.ts                     where a sign-in link goes: SES, or devMailbox.ts
+  email.ts                      the SES and Resend backends behind it
+  devMailbox.ts                 the local .mail/ drop behind `npm run mail`
+  sms.ts                        SNS, with Twilio behind the same interface (§8.4)
+  voice.ts                      browser speech synthesis + recognition for Sweetie
+  glucose.ts                    parse Clarity CSV, spikes, time in range
+  location.ts                   parse Timeline.json, visits.csv, labelling
+  match.ts                      link spikes to visits
+  sleep.ts                      parse WHOOP CSV
+  dexcom.ts                     the Dexcom v3 client; dexcomEnv.ts is the sandbox/production switch (§9.2)
   storage.ts                    raw uploaded files: S3, or the filesystem in dev and CI (§3.3)
   uploads.ts                    the gates before a parser: 20 MB cap, type sniffing (§9.1)
-  visit.ts                      resolve a visit from its id or invite token
-  practice.ts                   the first person in a practice: sign-up and the demo provider
   demo.ts                       demo practices: the sweep, the alarm label, the address rule (§13.4)
-  migrateVisits.ts              the one-time backfill behind npm run migrate:visits
-  sms.ts                        Twilio, falls back to showing the link        Justin
   health.ts                     the three §11.2 probes, their latencies, and what makes a report 503
+  restore.ts                    what makes a restored database a usable one (§11.4)
+  audit.ts                      the dependency-audit rules behind npm run audit:deps (§10.8)
+  migrateVisits.ts              the one-time backfill behind npm run migrate:visits
+  fixtures.ts                   test support: the one way lib/*.test.ts reads data/fixtures/
+  config.ts                     every environment variable, checked at startup (§3.7)
   db.ts                         Prisma singleton
-  config.ts                     every environment variable, checked at startup (design §3.7)
-instrumentation.ts              runs that check before the server serves anything
-prisma/schema.prisma            Practice, User (+Auth.js), Patient, Visit, Upload, Message, Summary, AuditLog, Job
-scripts/seed.ts                 demo data into the DB;  gen_samples.py regenerates data/
-scripts/migrate-visits.ts       give any patient without a visit one (design §4.11)
+lib/*.test.ts                   a unit test file per module, against data/fixtures/ (§12.1)
+instrumentation.ts              runs the config check before the server serves anything
+middleware.ts                   the security headers and the CSRF refusal (§10.8)
+prisma/schema.prisma            Practice, User (+Auth.js), Patient, Visit, PatientSession, Upload, Message,
+                                Summary, FollowUp, VisitDelivery, AuditLog, Job, DexcomConnection
+scripts/seed.ts                 demo practice, patient and visit into the DB; gen_samples.py regenerates data/
+scripts/dev-db.sh               bring up a Postgres: Docker, or a host cluster where there is no daemon
+scripts/agent-check.sh          npm run agent:check: the whole gate, in order
 scripts/check-config.ts         npm run config:check: the startup check as a command
 scripts/health-check.ts         npm run health:check: the deploy gate against a running deployment (§11.2)
+scripts/jobs-drain.ts           npm run jobs:drain: drain or list the queue by hand (§3.4)
+scripts/mail.ts                 npm run mail: the newest sign-in link or code out of the local mailbox
+scripts/migrate-visits.ts       give any patient without a visit one (§4.11)
+scripts/restore-drill.ts        npm run restore:drill: the §11.4 drill's verification step
+scripts/audit.ts                npm run audit:deps: npm audit minus security/audit-exceptions.json
+scripts/send-test.ts            npm run send:test: one real SMS or email, to check credentials
 scripts/infra-check.sh          npm run infra:check: typecheck, test and `cdk synth` the stack below
 infra/bin/infra.ts              the CDK app: both stacks, staging and production (§3.6, §13.2, §13.3)
 infra/lib/sweetspot-stack.ts    Amplify, RDS, S3, SES, SNS, the minute schedule, SSM, the alarms
 infra/lib/stage.ts              everything that differs between staging and production
 infra/lambda/jobs-tick/         the 60 lines EventBridge Scheduler runs to call POST /api/jobs/run (§3.4)
 infra/test/stack.test.ts        asserts the stack is the one §10.1, §11.1 and §11.4 asked for
+e2e/                            the Playwright suite: a spec per screen, journey.spec.ts for both flows (§12.2)
+e2e/screenshots/                what the last run saw; the committed ones are docs/screenshots/ (§12.3)
 data/                           synthetic 7-day exports (see data/README.md)
+data/fixtures/                  what the unit tests parse (§9.4)
 data/uploads/                   where uploaded files land when no bucket is configured (gitignored)
+security/audit-exceptions.json  dated, owned exceptions to the dependency audit (§10.8)
+.github/workflows/              ci.yml on every pull request, auto-merge, release.yml on a v* tag (§12.4, §13.3)
 ```
 
-Everything runs end to end today with scripted agent replies. Each owner replaces the stub in their file; the API contracts in `lib/types.ts` and the route comments are the interface between us.
+Everything runs end to end with scripted agent replies when no model key is configured — which is how the
+e2e suite, the demo and the offline path all run (§6.3, §11.3). `lib/types.ts` and the comments on each route
+are the contract between the pages and the API.
 
-## Product tasks
+## A tour in five minutes
 
-**Front end**
-- [x] Provider sign up and dashboard: Justin
-- [ ] Patient chat with Sweetie and data upload: Nisarga
-- [ ] Provider view results (Sour): Justin
-- [ ] Patient view results: Justin
+With `npm run seed` done and `npm run dev` running:
 
-**Back end**
-- [x] Sweetie (info-gathering agent): Justin
-- [ ] Sour (summary agent), provider and patient versions: James
-- [ ] Data upload and storage: Dexcom Nisarga, location Robbert, WHOOP (open)
-- [ ] Texting / emailing: Justin
+1. Open `/provider`, sign in as `demo@sweetspot.local` and read the link out of `npm run mail`. The dashboard
+   lists the practice's visits.
+2. **Add patient** books a visit: the patient, the date, the visit type, what they called about, and the
+   channel they agreed to be contacted on. The invite goes out as a `notify.invite` job; with nothing
+   configured to send it, the dashboard shows the link.
+3. Open that link. A six-digit code is sent to the same place (`npm run mail` again), then the consent screen,
+   then Sweetie. Share the sample Dexcom CSV and `Timeline.json` from `data/`, answer the two questions.
+4. Back on the dashboard the visit moves to `summary_ready` once the `sour.run` job has drained
+   (`npm run jobs:drain -- --list` shows the queue). Open the visit: time in range, the spikes with the places
+   they followed, the sleep nights, and — with a model key configured — three patterns and three questions to
+   ask. Without one the numbers are the same and the two written parts say the gateway is not configured.
+5. Ask Sour a follow-up, hit **Print** for the one-pager, and **Mark reviewed** to sign it off. The patient's
+   own version of the same week is behind their link.
 
-## 3h plan
+## Working on this
 
-| Time | Who | What |
-|---|---|---|
-| 0:00 to 0:30 | all | Scaffold Next.js, Prisma schema, Bedrock call works, sample data in `data/` |
-| 0:30 to 1:15 | back end | Parsers, spike detection, spike-to-visit matching |
-| 0:30 to 1:15 | front end | Booking, Sweetie chat page, upload form |
-| 1:15 to 2:00 | back end | Sweetie and Sour prompts, summary JSON |
-| 1:15 to 2:00 | front end | Provider and patient summary pages, glucose chart with place pins |
-| 2:00 to 2:40 | all | Twilio, ngrok, end-to-end run on Nisarga's data |
-| 2:40 to 3:00 | all | Demo script, screenshots as fallback |
+Work arrives as `T<nn>` issues, one ticket to a branch and a pull request, with the design sections it
+fulfills named in the body. Two scheduled agents — a builder and a reviewer — move that stack along, and
+[docs/ROUTINES.md](docs/ROUTINES.md) is how they do it and how to work alongside them.
+[AGENTS.md](AGENTS.md) is the rules for the code itself: the shapes that may not drift, the one model
+gateway, the logger, `apiFetch`, and the one command that has to pass before anything goes up:
 
-**Cut if behind:** Twilio (show the link), WHOOP, patient view, provider sign up (hardcode one provider).
-
-## Demo script
-
-1. On the provider page, add the booked patient and send the invite; the phone buzzes.
-2. Open the link, Sweetie says hi, upload Dexcom CSV and Timeline.json, answer two questions.
-3. Switch to the provider screen. Sour shows: time in range, 3 spikes pinned to places ("Chipotle 12:10 → 210 mg/dL at 13:05"), one sleep pattern, 3 questions for the visit.
-4. Ask Sour "why was Tuesday bad?"
+```bash
+npm run agent:check
+```
 
 ## Team
+
+Built at the Healthcare AI Hackathon on 26 Sep 2026 by:
 
 - [Robbert Struyven](https://github.com/robbertstruyven)
 - [Justin Milner](https://github.com/justinmilner1)
 - [Nisarga P](https://github.com/nisargap)
 - [James](https://github.com/AgenticJamesBond)
 
-## Resources
+## Reference
 
-- [Event on Luma](https://luma.com/e9z9vuxz?tk=f60eTG)
-- [Workshop: OpenAI models and Codex on Amazon Bedrock](https://catalog.us-east-1.prod.workshops.aws/workshops/8af92173-8b5b-489f-93bf-8176a4c2020f/en-US)
-- AWS access codes: `86a4-134c05-9c`, `af34-1cbd39-0f` (join at catalog.us-east-1.prod.workshops.aws/join)
 - [AWS blog: GPT-5.5 on Bedrock](https://aws.amazon.com/blogs/aws/get-started-with-openai-gpt-5-5-gpt-5-4-models-and-codex-on-amazon-bedrock/)
 - [Codex with Amazon Bedrock](https://developers.openai.com/codex/amazon-bedrock)
 
-Demo only. Not medical advice, not HIPAA compliant, uses one consenting teammate's data.
+Not medical advice, and nothing here interprets glucose for the patient (§14). The data in `data/` is
+synthetic. No business associate agreement is signed and no security official is named
+([docs/COMPLIANCE.md](docs/COMPLIANCE.md)), so no deployment of this may yet be pointed at a real patient.

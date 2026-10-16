@@ -11,23 +11,39 @@ The model does not control the application or calculate clinical metrics. TypeSc
 
 ```mermaid
 flowchart LR
-    A[Practice creates patient] --> B[Secure token link]
-    B --> C[Sweetie intake]
+    A[Staff create a visit] --> B[Invite: /s/token]
+    B --> B2[Six-digit code, then consent]
+    B2 --> C[Sweetie intake]
     C --> D[(Postgres / Prisma)]
-    E[Dexcom CSV] --> F[Deterministic parsers]
+    E[Dexcom connection or CSV] --> F[Deterministic parsers]
     G[Timeline JSON] --> F
     H[WHOOP CSV] --> F
     F --> D
-    C --> I{Intake complete?}
-    I -->|Yes| J[Deterministic glucose analysis]
-    D --> J
+    C --> I{Intake wrapped?}
+    I -->|Yes| Q[[Job: sour.run]]
+    D --> Q
+    Q --> J[Deterministic glucose analysis]
     J --> K[Sour clinician narrative]
     K --> L[Patient-friendly rewrite]
     K --> D
     L --> D
+    Q --> R[[Job: notify.summary]]
     D --> M[Provider and patient pages]
-    D --> N[Email summary links]
+    R --> N[Summary links by email and SMS]
 ```
+
+Everything in that diagram after the first box belongs to one **visit**, not to the patient (design §4.4):
+the token, the verified session, the transcript, the uploads, the intake state, both summaries, the
+follow-ups and the sign-off. A `Patient` keeps the person — their name, their contact details, their Dexcom
+connection — and persists across visits, so next quarter's appointment is a new visit with the same patient
+and a fresh brief. Sweetie's structured state is `Visit.intake` (a JSON `IntakeState`) and the text Sour reads
+is `Visit.notes`, both written in the same transaction as her reply.
+
+The two double-walled boxes are rows in `Job`, not awaited calls (§3.4). Neither the patient nor the
+clinician waits on Sour's two model calls or on an SES round trip, and a crash or a redeploy mid-request
+costs an attempt rather than the work: the row says what to do, when it may run, how often it has been tried
+and why it last failed. `docs/JOBS.md` is the queue — every kind, who enqueues it, the backoff, and who
+drains it in each environment.
 
 ## One model gateway
 
@@ -50,7 +66,7 @@ const response = await client.responses.create({
 });
 ```
 
-For JSON tasks, `ask<T>(..., { json: true })` asks for one JSON object, parses it, and retries once if parsing fails. If no API key is configured, it throws `LLMUnavailable`, allowing the demo to use deterministic fallback text.
+For JSON tasks, `ask<T>(..., { json: true })` asks for one JSON object, parses it, and retries once if parsing fails. If no API key is configured, it throws `LLMUnavailable`, which is the same signal an outage gives, so the scripted paths below answer instead (§6.3, §11.3). That is how the product runs offline, and how the e2e suite and the demo run.
 
 ### Timeout, retry, and the circuit (design §3.5, §6.3, §11.3)
 
@@ -104,46 +120,53 @@ type IntakeState = {
 
 ### What happens after a patient message
 
-`POST /api/sweetie` processes each message in a controlled sequence:
+One turn runs in a controlled sequence:
 
-1. Save the patient's message.
+1. Save the patient's message, on its own, before anything that can fail.
 2. Run a deterministic red-flag scan before sending anything to the model.
 3. Ask the model to extract facts into the current intake fields.
 4. Merge those facts without lowering existing confidence.
 5. Apply a deterministic backstop when the model misses a substantive answer.
 6. Select the next incomplete field or finish the intake.
 7. Ask the model to acknowledge the answer and ask one short next question.
-8. Save the structured intake and provider-readable notes.
+8. Commit the reply, the structured intake and the provider-readable notes together.
 
-The core orchestration looks like this (simplified from the route):
+That order *is* design §6.2 — "every patient message is stored before any model call; the transcript survives
+a crash" — and an order is the one thing reading a route cannot prove. So it lives in `lib/sweetieTurn.ts`
+behind two injectable ports, a `TurnStore` that talks to Postgres and a `TurnModel` that talks to the
+gateway, and `app/api/sweetie/route.ts` is left as transport: token, verified session, rate limit, and the
+database half of the turn. `lib/sweetieTurn.test.ts` drives it with a store that records the order it was
+called in and a model that can be told to throw, so steps 1 and 8 are asserted rather than read.
 
 ```ts
-const flag = scanRedFlags(message);
+// lib/sweetieTurn.ts, simplified
+await store.append("patient", message);          // 1. durable before any model call
+
+const flag = scanRedFlags(message);              // 2. deterministic, so an outage cannot swallow it
 if (flag) {
   state = { ...state, flagged: flag, wrapped: true };
-  const reply = redFlagReply(firstName, patient.provider.name);
-  return finish(patient.id, state, fieldDefinitions, visit, reply);
+  const reply = redFlagReply(firstName, providerName);
+  await store.commit(reply, state);
+  return { state, reply, flagged: flag, target: { kind: "wrap" } };
 }
 
-const extraction = await extract(
-  state,
-  fieldDefinitions,
-  transcript,
-  message,
-  lastAskedFieldId,
-);
+const transcript = await store.transcript();
+const askedId = fieldTarget(nextTarget(state, defs));
 
-state = merge(state, extraction);
-state = backstop(state, lastAskedFieldId, message);
+state = merge(state, await model.extract(state, defs, transcript, message, askedId));
+state = backstop(state, askedId, message);       // 5. behind the model, not instead of it
 
-const target = nextTarget(state, fieldDefinitions);
-const reply = await speak({
-  state,
-  target,
-  transcript,
-  status: patientDataStatus,
-});
+const target = nextTarget(state, defs);          // 6. from the state and the uploads
+const reply = await model.speak({ state, defs, target, transcript, status: await store.status() });
+
+await store.commit(reply, state);                // 8. one write: a question and the state it came from
 ```
+
+An `LLMUnavailable` from either model call falls back to `scripted()` — the same targets in fixed words — and
+changes the wording and nothing else, including what gets stored. Anything else is a bug and is allowed to
+escape: the patient's message is already stored, nothing else has been written, and a half-finished turn is
+never committed as if it had worked. After six turns Sweetie wraps up however little has been filled in
+(`MAX_TURNS`), and the wrapping turn is what enqueues `sour.run`.
 
 ### Deterministic safety comes first
 
@@ -185,7 +208,8 @@ The application validates field IDs, trims values, records declined uploads, and
 Uploads go to `POST /api/upload`, where code parses and stores the file. After a successful upload, the page sends Sweetie a separate event so she can acknowledge it naturally:
 
 ```ts
-await fetch("/api/sweetie", {
+// apiFetch, not fetch: middleware refuses an unsafe method with no CSRF token (design §10.8)
+await apiFetch("/api/sweetie", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -208,7 +232,16 @@ Browser speech recognition converts speech to text, and browser speech synthesis
 
 ## Sour: the clinician summary agent
 
-Sour is queued as a `sour.run` job after Sweetie wraps up when Dexcom data is available, or when the clinician explicitly generates a summary; a background runner picks it up (design 3.4, and docs/JOBS.md). Neither the patient nor the clinician waits on the two model calls, and a crash between the request and the summary costs an attempt rather than the summary. Its pipeline is deliberately split into deterministic analysis and model-written narrative.
+Sour is queued as a `sour.run` job after Sweetie wraps up when Dexcom data is available, or when the clinician
+presses Generate; a background runner picks it up (design §3.4, §7.1, and `docs/JOBS.md`, which is the list of
+who enqueues what). A Dexcom import is the third trigger §7.1 asks for and is not one of them yet: the import
+deletes the saved summary instead, so the next open of the provider page starts the run. Neither the patient nor the clinician waits on the two model calls, and a crash between the
+request and the summary costs an attempt rather than the summary. The job is idempotent per visit and per
+input hash (`lib/sourInput.ts`): a second run over unchanged intake and uploads returns the saved pair rather
+than paying for it again, and a changed input is what makes the provider page offer a fresh run. What the
+clinician sees while they wait is the job itself — queued, running, or failed with the reason and a retry
+(§7.2, `lib/sourState.ts`, `SourJobState` in `lib/types.ts`). Its pipeline is deliberately split into
+deterministic analysis and model-written narrative.
 
 ### Code calculates the clinical data
 
@@ -297,7 +330,11 @@ The patient rewrite uses simpler language and excludes clinician-only safety fla
 
 ## Why this architecture is useful
 
-The agents handle language tasks while ordinary application code handles decisions that must be reproducible. This makes the demo easier to debug, keeps clinical calculations consistent, supports an offline scripted mode, and reduces the chance that a model invents data or changes the workflow.
+The agents handle language tasks while ordinary application code handles decisions that must be reproducible.
+Clinical numbers come out the same every time and can be unit-tested against fixtures; safety does not depend
+on a model reading a message correctly; the product still works when the gateway is down; and a model cannot
+invent a reading or move the workflow along. It is also what makes the brief reviewable: a clinician who
+distrusts a sentence can check it against numbers that code computed.
 
 ## Main implementation files
 
@@ -306,11 +343,16 @@ The agents handle language tasks while ordinary application code handles decisio
 | `lib/llm.ts` | Shared Bedrock Responses API client, timeout, retry, circuit, JSON retry |
 | `lib/visits.ts` | Visit types and their labels: the client-safe half of Sweetie's vocabulary |
 | `lib/sweetie.ts` | Intake templates, safety scan, extraction, state transitions, and speech |
-| `app/api/sweetie/route.ts` | Sweetie request orchestration and persistence |
+| `lib/sweetieTurn.ts` | The order of one turn, which is design §6.2, behind injectable store and model ports |
+| `app/api/sweetie/route.ts` | Transport: token, verified session, rate limit, and the turn's database half |
+| `lib/jobs.ts`, `lib/jobHandlers.ts` | The queue and what each kind does: `sour.run`, the notifications, the sweeps (§3.4) |
 | `app/api/upload/route.ts` | Upload validation, parsing, storage, and removal |
 | `lib/glucose.ts` | Glucose parsing, time in range, averages, and spike detection |
 | `lib/match.ts` | Temporal matching between spikes and visits |
 | `lib/sour.ts` | Deterministic provider brief and safety flags |
 | `lib/prompts.ts` | Sour clinician, chat, and patient-rewrite prompts |
+| `lib/sourInput.ts` | The input fingerprint behind §7.1's idempotency |
 | `lib/sourRun.ts` | Summary generation, persistence, and notifications |
+| `lib/sourState.ts` | What the provider page says about a visit's summary job (§7.2) |
+| `lib/bundle.ts` | One visit's data and status, as every page reads it (`PatientBundle`) |
 | `app/api/sour/route.ts` | Sour generation and clinician follow-up API |
