@@ -47,13 +47,13 @@ tickets in the middle column, #55 and #60:
 
 | Number | The ticket that owns it | Also titled this in the history |
 |---|---|---|
-| `T42` | #55, open — "Unit tests for the `lib/` modules §12.1 still leaves untested" | #66 and its pull request #67 — the `node:crypto` edge-bundle build break (closed, merged) |
-| `T45` | #60, open — "Clear `.next` at the start of every check run" | #64 and its pull request #69 — `lib/log.ts` reaching the edge bundle (closed, merged) |
+| `T42` | #55 — "Unit tests for the `lib/` modules §12.1 still leaves untested" | #66 and its pull request #67 — the `node:crypto` edge-bundle build break (closed, merged) |
+| `T45` | #60 — "Clear `.next` at the start of every check run" | #64 and its pull request #69 — `lib/log.ts` reaching the edge bundle (closed, merged) |
 
-This matters for more than tidiness: both duplicates are *closed*, so resolving one of these two dependencies
-by title alone answers "closed" for a number whose real ticket is still open, and a ticket gets built on a
-dependency that was never done. Resolve a `Depends on:` with the dependency snippet below, which excludes pull
-requests, and read this table when it returns more than one row.
+This matters for more than tidiness: the duplicate in the right-hand column is closed either way, so resolving
+one of these two dependencies by title alone can answer "closed" for a number whose owning ticket is not done,
+and a ticket gets built on a dependency that was never finished. Resolve a `Depends on:` with the dependency
+snippet below, which excludes pull requests, and read this table when it returns more than one row.
 
 ## The builder
 
