@@ -232,9 +232,10 @@ Browser speech recognition converts speech to text, and browser speech synthesis
 
 ## Sour: the clinician summary agent
 
-Sour is queued as a `sour.run` job after Sweetie wraps up when Dexcom data is available, when a Dexcom import
-completes, or when the clinician presses Generate; a background runner picks it up (design §3.4, §7.1, and
-`docs/JOBS.md`). Neither the patient nor the clinician waits on the two model calls, and a crash between the
+Sour is queued as a `sour.run` job after Sweetie wraps up when Dexcom data is available, or when the clinician
+presses Generate; a background runner picks it up (design §3.4, §7.1, and `docs/JOBS.md`, which is the list of
+who enqueues what). A Dexcom import is the third trigger §7.1 asks for and is not one of them yet: the import
+deletes the saved summary instead, so the next open of the provider page starts the run. Neither the patient nor the clinician waits on the two model calls, and a crash between the
 request and the summary costs an attempt rather than the summary. The job is idempotent per visit and per
 input hash (`lib/sourInput.ts`): a second run over unchanged intake and uploads returns the saved pair rather
 than paying for it again, and a changed input is what makes the provider page offer a fresh run. What the

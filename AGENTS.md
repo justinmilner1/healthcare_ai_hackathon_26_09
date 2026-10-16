@@ -89,7 +89,8 @@ the name, the contact details and the Dexcom connection. `prisma/schema.prisma` 
 change is a migration (`npx prisma migrate dev --name ...`), never an edit to an existing one.
 
 `prisma migrate reset` refuses to run for an agent without recorded human consent. A clean database comes from
-`npm run db:up` (which drops and recreates the one database named on its command line) plus
+`bash scripts/dev-db.sh <name> --fresh`, which drops and recreates only the database named on its command line
+(`npm run db:up` is the same script with no arguments: it brings a server up without dropping anything), plus
 `prisma migrate deploy`.
 
 ## Shared shapes
@@ -160,8 +161,10 @@ closest.
 **Sour** (provider-facing) is `lib/sour.ts` (the numbers), `lib/prompts.ts` (the prompts) and
 `lib/sourRun.ts` (the run).
 - Clinical, terse, no fluff. Numbers first.
-- Runs as a `sour.run` job, not inside a request: enqueued when intake wraps, when a Dexcom import finishes,
-  and from the provider page's Generate button. Idempotent per visit and input hash (§7.1), so a second run
+- Runs as a `sour.run` job, not inside a request: the two enqueuers are the turn that wraps intake, when the
+  visit has Dexcom data, and the provider page's Generate button (`docs/JOBS.md` is the list). A Dexcom import
+  does not enqueue one — it deletes the saved summary, so the next open of the provider page runs a fresh one.
+  Idempotent per visit and input hash (§7.1), so a second run
   with unchanged inputs returns the saved pair. The page shows the job's state and offers a retry (§7.2).
 - Input: `GlucoseReading[]`, `Spike[]` with matched visits, `SleepNight[]`, patient notes — all computed in
   code. The model returns `patterns` and `questions` only; numbers and flags stay code-generated.
