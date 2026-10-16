@@ -153,7 +153,9 @@ Add the CIDR you decided on to `dbAllowedCidrs` in `infra/cdk.json` and `npx cdk
 inside that range:
 
 ```bash
-psql "$(aws ssm get-parameter --name /sweetspot/staging/DATABASE_URL --with-decryption --query Parameter.Value --output text)" -c 'select version()'
+URL=$(aws ssm get-parameter --name /sweetspot/staging/DATABASE_URL --with-decryption --query Parameter.Value --output text)
+# `schema=public` is Prisma's; psql refuses a query parameter it does not know, and `sslmode` it does.
+psql "${URL/schema=public&/}" -c 'select version()'
 ```
 
 The Amplify build needs it too, and for the same reason: `npx prisma migrate deploy` runs from the build

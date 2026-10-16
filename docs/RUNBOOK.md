@@ -315,6 +315,12 @@ visit with a corrected email updates `Patient.email` and leaves `emailUndelivera
 (`lib/visitStore.ts`), so the corrected address stays suppressed. There is no staff control for it yet, so
 today it is one statement against the stage's database, after confirming the new address is really different:
 
+```bash
+URL=$(aws ssm get-parameter --name "/sweetspot/$STAGE/DATABASE_URL" --with-decryption \
+  --query Parameter.Value --output text)
+psql "${URL/schema=public&/}"   # psql refuses Prisma's `schema` parameter; `sslmode` it understands
+```
+
 ```sql
 -- the patient id is on the dashboard row and in the audit trail; never match on name
 update "Patient"
@@ -322,8 +328,8 @@ update "Patient"
  where id = '<patientId>' and "practiceId" = '<practiceId>';
 ```
 
-A staff-facing version of that is worth a ticket; until then it is an ops request, and it is the only routine
-reason to open a `psql` against production.
+Expect `UPDATE 1`. A staff-facing version of this is worth a ticket; until then it is an ops request, and it
+is the only routine reason to open a `psql` against production.
 
 ### When it is a storm rather than a bounce
 
@@ -379,9 +385,12 @@ What then happens, in order:
 **Confirm it finished.** `/provider/audit`, admin only, filtered to `patient.deleted`: one row, with
 `visits`, `uploads`, `turns`, `summaries` and `objects`. Two things to read twice:
 
-- **`orphans` above zero** means rows are gone and some bytes were not: an object whose `Upload` row had
-  already disappeared, so nothing knew its key. The purge deletes by prefix, so pressing delete again on that
-  patient picks them up. Do that, and check the count is zero.
+- **`orphans` above zero** means the rows are gone and some of the bytes are not: S3 refused that many
+  deletes (`objects.failed`, `lib/storage.ts`). Nothing comes back for them on its own — the purge walks the
+  patient's visits and those rows no longer exist, so neither a retry of the job nor pressing delete again
+  revisits the prefix, and the job counts the purge a success either way. **Delete the prefix by hand**, with
+  the commands below, and record that you did. Treat a non-zero `orphans` as an unfinished deletion request
+  until you have.
 - **No row at all** means the job has not run or has failed. Look for `job_failed` with
   `kind: patient.delete`; the three attempts and the error are in the queue. Staff can press delete again —
   the route deliberately allows it, the idempotency key releases once the job is not in flight, and the purge
@@ -397,8 +406,8 @@ What then happens, in order:
 | The audit record of the deletion | kept | on purpose (§2.8). It carries counts and no identity. |
 | Application logs | 30 days staging, 90 production | they hold opaque ids only, never a name, an address or message text (§10.3) |
 
-If a request needs the object versions gone sooner than the lifecycle rule, delete them explicitly — this is
-destructive and unversioned, so read the prefix back before and after:
+Deleting a prefix by hand — for the `orphans` case above, or when a request needs the object versions gone
+sooner than the lifecycle rule — is destructive and unversioned, so read the prefix back before and after:
 
 ```bash
 BUCKET=$(aws cloudformation describe-stacks --stack-name "SweetSpot-$STAGE" \
@@ -414,8 +423,9 @@ Record what was done in the practice's own deletion log: this page does not keep
 
 All six alarms and every RDS event publish to one SNS topic, `sweetspot-<stage>-alarms`. **If `alarmEmail` is
 empty in `infra/cdk.json` for a stage, that topic has no subscriber and none of this reaches anybody** — check
-that before trusting the silence. A demo practice's lines are excluded from the first three (§13.4), so a
-synthetic visit cannot wake anyone.
+that before trusting the silence. A demo practice's lines are excluded from `http-5xx`, `job-failed` and
+`model-failures` (§13.4), so a synthetic visit cannot wake anyone. `model-degraded` counts them anyway, on
+purpose: the circuit is one per process, so whoever tripped it, everybody is now reading scripted replies.
 
 | Alarm | Fires when | Means | First look |
 |---|---|---|---|
@@ -472,8 +482,9 @@ or a 5xx is the app being down, in which case `http-5xx` is the alarm to work an
 Nothing is lost while it is red: due jobs stay due, and the first successful tick drains the backlog. If the
 backlog is urgent, `npm run jobs:drain` is the same drain from a terminal.
 
-**`db-storage`** — under 2 GiB free. Storage autoscaling is on, so this means it has not kept up or has hit
-its ceiling; raise `allocatedStorage` (or the maximum) in `infra/lib/stage.ts` and `cdk deploy`. The cause is
+**`db-storage`** — under 2 GiB free. Storage autoscaling is on (20 GiB allocated, 100 GiB ceiling), so this
+is either autoscaling not keeping up with a burst or the ceiling being reached; `maxAllocatedStorage` in
+`infra/lib/sweetspot-stack.ts` is the number to raise, followed by `cdk deploy`. The cause is
 worth a look rather than just the symptom: the retention sweep (§10.4) is what is supposed to keep the
 database bounded, and a sweep that has not run since a release is a `job-failed` nobody read. Growth with no
 new practices is usually `Upload`/`UploadData` rows that outlived their retention setting.
