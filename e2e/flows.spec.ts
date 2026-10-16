@@ -221,7 +221,66 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // The loading card says "getting your week ready", which the old loose text check matched, so the screenshot was
   // of a spinner. Assert on something only the loaded summary has.
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+  // T41 (§2.7, §6): the chip row names the visit in words. This visit was booked as `follow_up`, and the row
+  // read exactly that until the page started going through visitLabel() — a column value on the one screen
+  // written for the patient. Asserted here as well as in the sweep below because this is the row the
+  // screenshot is of.
+  await expect(page.locator(".patient-summary-meta")).toContainText("Follow-up");
+  await expect(page.locator(".patient-summary-meta")).not.toContainText("follow_up");
   await shot(page, "patient-summary");
+});
+
+// T41 (design §2.7, §6): every visit type, not just the one the flow above books. The labels are written out
+// here rather than imported from lib/visits.ts on purpose — a test that reads the same table as the page
+// would still pass if the page printed the id, and would pass again if a label were quietly reworded.
+const VISIT_TYPE_LABELS = [
+  { id: "follow_up", label: "Follow-up" },
+  { id: "new_patient", label: "New patient" },
+  { id: "medication", label: "Medication check" },
+  { id: "post_hospital", label: "After a hospital or ER visit" },
+  { id: "annual", label: "Annual review" },
+];
+
+test("patient summary names the visit type in words, for every visit type", async ({ page }) => {
+  // Six patient journeys in one test — book, verify, read the chip — so the default 60s is not the budget
+  // this needs. e2e/journey.spec.ts raises its own for the same reason.
+  test.setTimeout(180_000);
+
+  // Booking is staff's job and needs their session (§5.2); the summaries below are opened as the patient.
+  await signInAsDemo(page);
+
+  // A visit with no type at all is the fallback case: visitLabel() answers "Visit", and the chip has to be
+  // there saying so rather than vanishing and leaving the row a column short. Booking validates visitType
+  // against the same table (lib/visitIntake.ts), so an unrecognised id cannot be created through the API —
+  // null is the only way in, and it is the same branch of visitLabel().
+  const cases: { id: string | null; label: string }[] = [...VISIT_TYPE_LABELS, { id: null, label: "Visit" }];
+
+  for (const { id, label } of cases) {
+    const name = `E2E Type ${id ?? "none"}`;
+    const email = patientEmail(name);
+    const booked = await (
+      await postJson(page.request, "/api/book", { name, email, visitType: id, reason: "checking the chip", channel: "none" })
+    ).json();
+    expect(booked.token, `booking a ${id ?? "typeless"} visit: ${booked.error ?? ""}`).toBeTruthy();
+
+    // The summary sits behind the same code screen as the intake (§2.3, §5.3, components/VerifyGate.tsx), and
+    // the gate is a server component — without the verified session the page's markup never arrives, so there
+    // is no chip to read. Verified through the API rather than the three screens because page.request shares
+    // the browser's cookie jar: the session lands where the goto below needs it, in one call instead of six.
+    await verifyByApi(page.request, booked.token, email);
+
+    await page.goto(`/patient/${booked.token}`);
+    await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+    const meta = page.locator(".patient-summary-meta");
+    await expect(meta, `the chip for ${id ?? "a visit with no type"}`).toContainText(label);
+    // And the id itself is nowhere in the row. toContainText matches a string case-sensitively, which is what
+    // makes this work for `medication` and `annual`: both are prefixes of their own label, but the label
+    // capitalises them, so the lowercase id only matches if the raw column value is what got printed.
+    if (id) await expect(meta, `the raw id should not reach the chip for ${id}`).not.toContainText(id);
+    // One screenshot, of the longest label there is: "After a hospital or ER visit" is the chip most likely to
+    // wrap badly or push the row out of the hero, and at 375px the row is capped at 230px (§6.5).
+    if (id === "post_hospital") await shot(page, "patient-summary-visit-type");
+  }
 });
 
 // T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
