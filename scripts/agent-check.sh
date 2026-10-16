@@ -2,6 +2,7 @@
 # The one command both routines (and CI) run. Installs, audits the dependency tree, prepares a throwaway DB,
 # seeds, then typecheck, lint, unit tests with a coverage table, the Playwright suite with screenshots in
 # e2e/screenshots/, and the §11.4 restore drill's verification step against what the suite leaves behind.
+# The generated route types under .next/types are cleared first, so a typecheck failure is about this branch.
 # Exit code is the verdict.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,6 +18,18 @@ export AUTH_SECRET="${AUTH_SECRET:-e2e-session-secret-not-for-deployment}"
 # One mailbox per server in playwright.config.ts (the main one, the degraded one, the jobs runner, the
 # Dexcom production one), so a link from one never shows up in another's.
 rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded" "${DEV_MAIL_DIR}-runner" "${DEV_MAIL_DIR}-dexcom"
+# `tsconfig.json` includes `.next/types/**/*.ts`, and both routines keep one working directory across branch
+# switches (a CI runner checks out fresh, so this was never CI's problem). `next build` rewrites that whole
+# directory — but the typecheck step below runs before the build the e2e step does, so without this it reads
+# the route types the *previous* run wrote, for whatever branch that run was on. A route that branch had and
+# this one does not leaves behind a file that cannot resolve the page it was generated for: TS2307 errors in
+# files nobody wrote, about pages that are not in the working tree (T45).
+# Only `.next/types` goes, not all of `.next`. That directory is the only part of `.next` the typecheck reads
+# — TypeScript's wildcards skip dot-directories, which is why `tsconfig.json` spells that one path out — and
+# `next build` replaces it wholesale, so nothing else under `.next` survives a branch switch in a way the
+# build does not already fix. Clearing all of `.next` would take `.next/cache` with it and cost a cold build
+# every run: measured here at 63s, against 40s with the cache kept, on a check that takes about two minutes.
+rm -rf .next/types
 export APP_URL="http://localhost:${E2E_PORT}"
 export NEXT_TELEMETRY_DISABLED=1
 
