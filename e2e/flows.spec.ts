@@ -66,6 +66,21 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   expect((await postJson(page.request, "/api/sour", { patientId: booked.patientId })).status()).toBe(400);
   expect((await postJson(page.request, "/api/invite", { patientId: booked.patientId })).status()).toBe(400);
 
+  // /api/provider has the row; §12.2 asks whether the practice can see it. The workspace signed in above was
+  // loaded before the booking and fills in from one client fetch, so it has to be opened again. The row is
+  // found by the address this booking was given rather than by the name: the desktop and mobile projects run
+  // this spec against one database, so by the second project two visits are called "E2E Patient" and only the
+  // address is this one's. Waiting for `Sam Sample` instead — the seeded patient, which is what this used to
+  // assert — passes on a dashboard that drops the visit just created.
+  await page.goto(`/provider/${demo.id}`);
+  const bookedRow = page.locator(".provider-table tbody tr", { hasText: email });
+  await expect(bookedRow).toContainText("E2E Patient", LOADED);
+  // The visit's own details, not just a name that happens to be in the table: the type and the reason the
+  // booking was made with (design §2.2), which is what tells this row apart from the same patient's others.
+  await expect(bookedRow).toContainText("Follow-up");
+  await expect(bookedRow).toContainText("mornings running high");
+  await shot(page, "provider-dashboard-booked");
+
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
   const seeded = providerRows.visits.find((v: { name: string }) => v.name === "Sam Sample");
@@ -128,13 +143,16 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const queued = await (await postJson(page.request, "/api/sour", { visitId: seeded.id })).json();
   expect(queued.jobId).toBeTruthy();
 
+  // expect.poll rather than a loop around setTimeout: the same bounded wait on the same condition — this
+  // job, reported done — but it is the assertion that fails, with the last value it saw, instead of a loop
+  // falling out silently and the expect below guessing at why.
   let after = before;
-  for (let tries = 0; tries < 40; tries++) {
-    await new Promise((r) => setTimeout(r, 500));
-    after = await read();
-    if (after.sourJob?.id === queued.jobId && after.sourJob.status === "done") break;
-  }
-  expect(after.sourJob?.status, "the run reported back").toBe("done");
+  await expect
+    .poll(async () => {
+      after = await read();
+      return after.sourJob?.id === queued.jobId ? after.sourJob.status : null;
+    }, { message: "the run reported back", timeout: 20_000 })
+    .toBe("done");
   expect(after.providerSummaryAt, "the saved pair came back rather than a third one being written").toBe(before.providerSummaryAt);
   expect(after.patientSummaryAt).toBe(before.patientSummaryAt);
   expect(after.summaryStale).toBe(false);
@@ -165,14 +183,24 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   await shot(page, "sweetie-start");
 
   const input = page.locator("input[type='text'], input:not([type]), textarea").first();
+  // Sweetie's own bubbles, with the typing indicator left out: it is a `.sweetie-message` too, in a row of the
+  // same shape, and it comes and goes on its own. POST /api/sweetie answers every message with exactly one
+  // reply and the page appends it (`applyReply` in app/s/[token]/page.tsx), so one more bubble is the reply
+  // having landed. That is the signal this loop waits on. It used to sleep 800ms instead, which is both too
+  // long and too short: `send` ignores anything typed while a reply is in flight, so a slow run typed the
+  // second answer into a busy page and lost it, and a fast one paid the rest of the 800ms for nothing.
+  const sweetieSaid = page.locator(
+    ".sweetie-messages .sweetie-message-row:not(.sweetie-message-patient) .sweetie-message:not(.sweetie-typing)",
+  );
   for (const answer of [
     "Exhausted for six weeks, worse in the afternoons. I want to know if it's my sugars.",
     "New desk job in August and a cold two weeks ago. Shaky some mornings, sleeping about six hours.",
   ]) {
+    const said = await sweetieSaid.count();
     await input.fill(answer);
     await input.press("Enter");
     await expect(page.locator("body")).toContainText(answer.slice(0, 20));
-    await page.waitForTimeout(800);
+    await expect(sweetieSaid).toHaveCount(said + 1, LOADED);
   }
   await shot(page, "sweetie-done");
 
