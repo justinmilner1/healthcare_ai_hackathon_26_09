@@ -468,7 +468,8 @@ With `npm run seed` done and `npm run dev` running:
    then Sweetie. Share the sample Dexcom CSV and `Timeline.json` from `data/`, answer the two questions.
 4. Back on the dashboard the visit moves to `summary_ready` once the `sour.run` job has drained
    (`npm run jobs:drain -- --list` shows the queue). Open the visit: time in range, the spikes with the places
-   they followed, the sleep nights, three patterns and three questions.
+   they followed, the sleep nights, and — with a model key configured — three patterns and three questions to
+   ask. Without one the numbers are the same and the two written parts say the gateway is not configured.
 5. Ask Sour a follow-up, hit **Print** for the one-pager, and **Mark reviewed** to sign it off. The patient's
    own version of the same week is behind their link.
 
