@@ -108,7 +108,7 @@ health information". §10.2 names what has to be recorded and `docs/AUDIT.md` is
 | Readable by the practice | `app/provider/audit`, admin-only, filterable by action, actor, visit, upload and date range | `app/provider/audit` | T12 | `in place` | `compliance` |
 | Exportable | CSV from the same screen, with the same filters applied | `lib/auditLog.ts` | T12 | `in place` | `compliance` |
 | Application logs carry no PHI | One JSON line per event with a request id; every field outside the allow-list is dropped, ids included deliberately. A lint rule plus `lib/log.test.ts` stop application code writing to stdout at all | `lib/log.ts`, `docs/LOGGING.md` | T13, T40, T58 | `in place` | `compliance` |
-| Log review | CloudWatch metric filters and six alarms to an SNS topic: 5xx rate, job failures, model failures, model degraded, the job tick, database storage | `infra/lib/sweetspot-stack.ts`, `docs/DEPLOY.md` §"The alarms" | T29, T30 | `partial` — the alarms fire; nobody is named to read them, and no retention is set on the log groups | `ops` |
+| Log review | CloudWatch metric filters and six alarms to an SNS topic: 5xx rate, job failures, model failures, model degraded, the job tick, database storage | `infra/lib/sweetspot-stack.ts`, `docs/DEPLOY.md` §"The alarms" | T29, T30 | `partial` — the alarms fire and both groups expire (30 days staging, 90 production in `infra/lib/stage.ts`; a month on the jobs-tick group); nobody is named to read them, because `alarmEmail` is empty for both stages in `infra/cdk.json`, so the topic has no subscriber | `ops` |
 | The audit record survives the data | §10.4's sweep deletes a visit and leaves its rows | `lib/retention.ts` | T14 | `in place` | `compliance` |
 | Tamper resistance | None beyond database access control: a row is an ordinary Postgres row and nothing in the app writes to it twice, but anyone with the database password can delete one | — | — | `open` — risk `R4` | `compliance` |
 
@@ -199,7 +199,7 @@ Nothing here can be closed by writing code, except where a ticket is named.
 | Restore drill, run and written down | §164.308(a)(7)(ii)(B), (D) | T33, then T35 for the page | `ops` |
 | The remaining runbook procedures | §164.308(a)(6) | T35: rotate a secret, handle a bounce, handle a deletion request, what each alarm means | `ops` |
 | An RPO and an RTO | §164.308(a)(7) | A product decision, then the backup settings to match | `ops` |
-| Log group retention | §164.316(b)(2) | A number on the CloudWatch log groups. Six years is the Rule's floor for the records it names; application logs are not those records, but the default of "forever" is not a decision either | `ops` |
+| Somebody subscribed to the alarm topic, and the log retention written down as a decision | §164.308(a)(1)(ii)(D), §164.316(b)(2) | `alarmEmail` is empty for both stages, so every alarm of §11.1 publishes to a topic with no subscriber. The groups do expire — 30 days staging, 90 production — but nobody has recorded that those are the right numbers; six years is the Rule's floor for the records it names, and application logs are not those records, which is the argument and is written nowhere | `ops` |
 | Disclose browser speech on the consent screen | §164.520, risk `R3` | A line in T09's screen, or the listen button off by default. Needs a ticket | `sweetie` |
 | MFA for providers, or a documented decision not to | risk `R6` | A ticket. A magic link is one factor | `identity` |
 | Audit log tamper resistance | §164.312(b), risk `R4` | A ticket: append-only, or an export off-box | `compliance` |
