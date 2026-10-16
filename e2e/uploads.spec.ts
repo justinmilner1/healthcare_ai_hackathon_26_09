@@ -61,10 +61,9 @@ test("intake uploads: a real export is stored, the wrong file is refused in plai
   // icon element like the sibling states', not a bare "!" that the pill's uppercase ran into the word;
   // and the change is announced, naming the source that failed and that it can be retried.
   await expect(page.getByText("!Try again")).toHaveCount(0);
-  await expect(page.getByText("WHOOP could not be connected. Try again.")).toBeAttached();
-  await expect(page.locator('p[role="status"].sr-only')).toHaveText(
-    /^WHOOP could not be connected\..+You can try again\.$/,
-  );
+  await expect(
+    page.locator('[role="status"]', { hasText: "WHOOP could not be connected. Try again." }),
+  ).toHaveCount(1);
 
   await shot(page, "patient-intake-uploads");
 });
