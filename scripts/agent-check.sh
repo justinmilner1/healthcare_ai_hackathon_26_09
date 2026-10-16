@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The one command both routines (and CI) run. Installs, audits the dependency tree, prepares a throwaway DB,
 # seeds, then typecheck, lint, unit tests with a coverage table, the Playwright suite with screenshots in
-# e2e/screenshots/, and the §11.4 restore drill's verification step against what the suite leaves behind.
+# e2e/screenshots/ (emptied first, so it holds this run and nothing else), and the §11.4 restore drill's
+# verification step against what the suite leaves behind.
 # Exit code is the verdict.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,6 +18,13 @@ export AUTH_SECRET="${AUTH_SECRET:-e2e-session-secret-not-for-deployment}"
 # One mailbox per server in playwright.config.ts (the main one, the degraded one, the jobs runner, the
 # Dexcom production one), so a link from one never shows up in another's.
 rm -rf "$DEV_MAIL_DIR" "${DEV_MAIL_DIR}-degraded" "${DEV_MAIL_DIR}-runner" "${DEV_MAIL_DIR}-dexcom"
+# Screenshots are the other thing both routines read to decide whether what they built looks right
+# (design §12.3, docs/ROUTINES.md). Playwright overwrites the files this run produces and leaves every other
+# file alone, so a directory that is never emptied is the union of this run and every run before it on
+# whatever branch — and nothing in the filenames says which is which. Empty it here, with the mailboxes and
+# before anything that can fail, so a run that dies at typecheck leaves no stale PNG claiming to be current.
+rm -rf e2e/screenshots
+mkdir -p e2e/screenshots
 export APP_URL="http://localhost:${E2E_PORT}"
 export NEXT_TELEMETRY_DISABLED=1
 
@@ -77,7 +85,6 @@ if ! npx playwright install chromium >/dev/null 2>&1; then
 fi
 
 echo "== e2e"
-mkdir -p e2e/screenshots
 npm run e2e
 
 # The verification step of the §11.4 restore drill (docs/BACKUPS.md), rehearsed against the database the
@@ -88,4 +95,4 @@ npm run e2e
 echo "== restore drill (rehearsal)"
 npm run restore:drill -- --restored-to "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-echo "== done. screenshots:"; ls -1 e2e/screenshots
+echo "== done. screenshots (this run only):"; ls -1 e2e/screenshots

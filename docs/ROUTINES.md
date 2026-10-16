@@ -25,7 +25,7 @@ Runs every two hours. One ticket per run.
 2. Pick the ticket: the lowest-numbered issue labeled `changes-requested` whose branch exists; otherwise the lowest-numbered `ready`. Skip anything `blocked`. If none, stop.
 3. Label it `in-progress`. Branch `t<nn>-<slug>` from `main` (or continue the existing branch).
 4. Read the cited design sections and the acceptance criteria. Implement the whole ticket. Small, focused commits.
-5. Run `scripts/agent-check.sh`. Fix what fails. Look at the screenshots in `e2e/screenshots/` and confirm the affected screens look right. Copy the relevant ones to `docs/screenshots/tickets/t<nn>/` and commit them.
+5. Run `scripts/agent-check.sh`. Fix what fails. Look at the screenshots in `e2e/screenshots/` — the script empties it first, so everything in it is from this run — and confirm the affected screens look right. Copy the relevant ones to `docs/screenshots/tickets/t<nn>/` and commit them.
 6. Open or update the pull request: title `T<nn>: ...`, body with what changed, the design sections, how it was verified, and the screenshots. Label the issue `review`, remove `in-progress`.
 7. If the ticket cannot be finished (missing credential, unclear design), write what is missing in a comment, label `blocked`, and stop.
 
@@ -33,7 +33,7 @@ Runs every two hours. One ticket per run.
 
 Runs every three hours. Reviews every open pull request labeled `review`, oldest first.
 
-1. Check out the branch. Run `scripts/agent-check.sh`. Look at the screenshots.
+1. Check out the branch. Run `scripts/agent-check.sh`. Look at the screenshots; the run starts from an empty `e2e/screenshots/`, so they are this branch's and no earlier run's.
 2. Compare the result with the cited design sections and the acceptance criteria, line by line.
 3. Small problems (naming, a missing edge case, a lint warning, a wrong label): fix them on the branch, commit, note it in the review.
 4. If it matches: post a review with `event=COMMENT` whose body names the design sections it fulfills and what
@@ -54,6 +54,12 @@ verification step of the §11.4 restore drill (T33: `npm run restore:drill` agai
 just driven — `docs/BACKUPS.md` explains what it is rehearsing), and writes
 screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
+
+The script empties `e2e/screenshots/` before it does anything else, next to the mailboxes and the throwaway
+database (T43). So the directory holds the output of the last run of the script and nothing else: no PNG from
+an earlier run, and none from a check of another branch. If a run dies before Playwright, the directory is
+empty rather than stale. A file that is there is evidence about the branch and the commit just checked; a
+screen whose file is missing is a screen this run did not take, which is itself worth noticing.
 
 The suite runs two app servers (T20). Port 3100 is the usual one, with no model key, and port 3101 is the same
 build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
