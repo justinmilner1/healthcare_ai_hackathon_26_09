@@ -100,10 +100,6 @@ export function runWithRequestContext<T>(ctx: RequestContext, fn: () => T): T {
   return requestStore.run({ ...ctx }, fn);
 }
 
-export function currentRequestContext(): RequestContext | undefined {
-  return requestStore.getStore();
-}
-
 /**
  * Run `fn` in a copy of the current context, so a `demo` mark inside it does not escape (lib/jobs.ts gives
  * each job one of these). Outside a request there is no context to copy and one is minted, which is what

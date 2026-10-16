@@ -2,6 +2,9 @@
 //   resend  when RESEND_API_KEY is set (free tier: onboarding@resend.dev -> your own address only)
 //   ses     when AWS_ACCESS_KEY_ID is set (sandbox: EMAIL_FROM and every recipient must be verified identities)
 // Unconfigured -> { sent: false, error } and the UI shows the link instead.
+//
+// A deployment sends through SES, which is the one vendor the BAAs cover (§8.1, docs/COMPLIANCE.md). Resend
+// stays for local use only (§8.4): it is what lets somebody with no AWS account watch a real invite arrive.
 
 // Type-only, so the SDK itself is still imported lazily inside viaSes: a `import type` is erased at compile
 // time and nothing is pulled into a bundle that never sends mail.

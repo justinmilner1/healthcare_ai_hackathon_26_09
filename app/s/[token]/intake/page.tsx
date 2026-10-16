@@ -742,7 +742,7 @@ export default function SweetieIntakePage({
 
         <footer className={styles.footer}>
           <span>Sweet Spot is designed to support—not replace—your care team.</span>
-          <span>Demo experience · Not medical advice</span>
+          <span>Not medical advice</span>
         </footer>
       </div>
     </main>
