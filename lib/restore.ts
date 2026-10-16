@@ -131,7 +131,11 @@ function freshnessCheck(inventory: RestoreInventory, maxLagMinutes: number): Res
  * a restore being declared good, because every warning above describes a database that is intact.
  */
 export function verifyRestore(inventory: RestoreInventory, expectation: RestoreExpectation): RestoreVerdict {
-  const maxLag = expectation.maxLagMinutes ?? DEFAULT_MAX_LAG_MINUTES;
+  // `?? DEFAULT` alone would let `NaN` through — it is not nullish — and a `NaN` limit makes every lag
+  // comparison false, so the freshness check would quietly report `pass` whatever the gap. The caller reads
+  // its limit off a command line (`--max-lag`), so that is one typo away.
+  const asked = expectation.maxLagMinutes;
+  const maxLag = typeof asked === "number" && Number.isFinite(asked) && asked >= 0 ? asked : DEFAULT_MAX_LAG_MINUTES;
   const checks = [
     migrationCheck(inventory, expectation.expectedMigrations),
     tableCheck(inventory),

@@ -114,6 +114,16 @@ test("with nothing to date the restore by, freshness says so instead of guessing
   assert.match(untargeted.detail, /no restore target given/);
 });
 
+test("a max-lag that is not a number falls back to the default instead of disabling the check", () => {
+  // `?? DEFAULT` does not catch NaN, and a NaN limit makes `lag > limit` false for every gap — the freshness
+  // check would report `pass` on a restore hours older than its target. scripts/restore-drill.ts reads this
+  // off `--max-lag`, so a typo is the realistic way in.
+  const behind = inventory({ newestAuditAt: new Date("2026-10-15T06:00:00.000Z") }); // 180 min behind
+  const freshness = check(behind, "freshness", Number.NaN);
+  assert.equal(freshness.level, "warn");
+  assert.match(freshness.detail, /limit 60/);
+});
+
 test("the report is one line per check plus the counts, for pasting into the drill record", () => {
   const inv = inventory();
   const text = formatRestoreReport(verifyRestore(inv, { expectedMigrations: MIGRATIONS }), inv);

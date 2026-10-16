@@ -86,7 +86,15 @@ async function main(): Promise<number> {
     console.error(`restore drill: --restored-to ${target} is not a date. Use the ISO timestamp RDS prints as LatestRestorableTime.`);
     return 1;
   }
-  const maxLagMinutes = Math.max(0, Number(arg("max-lag", "60")));
+  const lagArg = arg("max-lag", "60");
+  const maxLagMinutes = Number(lagArg);
+  // Same refusal as --restored-to above, and for the same reason: a limit that is not a number would make
+  // every freshness comparison meaningless, and a drill tool that ignores its own argument is the quiet
+  // failure this script exists to catch. lib/restore.ts falls back to 60 if one reaches it anyway.
+  if (!Number.isFinite(maxLagMinutes) || maxLagMinutes < 0) {
+    console.error(`restore drill: --max-lag ${lagArg} is not a number of minutes.`);
+    return 1;
+  }
 
   console.log(`restore drill: ${describe(url)}`);
   const db = new PrismaClient({ datasourceUrl: url });
