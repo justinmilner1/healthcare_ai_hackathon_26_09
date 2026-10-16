@@ -151,8 +151,8 @@ export default function Home() {
         </section>
 
         <footer className="home-footer">
-          <span>Sweet Spot · Healthcare AI Hackathon</span>
-          <span>Demo only · Not medical advice</span>
+          <span>Sweet Spot · Diabetes visit preparation</span>
+          <span>Not medical advice</span>
         </footer>
       </div>
     </main>

@@ -642,7 +642,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
 
         <footer className="provider-footer">
           <span>Sweet Spot · Provider workspace</span>
-          <span>Demo only · Verify all AI-generated summaries</span>
+          <span>Verify all AI-generated summaries</span>
         </footer>
       </div>
 
