@@ -55,6 +55,20 @@ just driven — `docs/BACKUPS.md` explains what it is rehearsing), and writes
 screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
 
+### A clean start, so the verdict is about this branch (T45)
+
+Unlike a CI runner, both routines reuse one working directory across branch switches, so the script clears
+what the last run left behind before it does anything that can fail: the mailboxes, the `sweetspot_e2e`
+database, and the generated route types in `.next/types`. That last one is the one that used to bite.
+`tsconfig.json` includes `.next/types/**/*.ts`, and the typecheck step runs before the build inside the e2e
+step, so a run that did not clear it typechecked the *previous* branch's route types: a route that branch had
+and this one does not fails to resolve its page, and `== typecheck` fails with `TS2307` on files nobody wrote.
+Twelve of them cost the reviewer run of 2026-10-14 most of a run.
+
+So treat a typecheck failure as this branch's. Neither routine needs to `rm -rf .next` by hand, and neither
+should: `.next/types` is the only part of `.next` the typecheck reads, `next build` rewrites it in full, and
+taking the rest would throw away `.next/cache` and turn every run's build from about 40 seconds into about 63.
+
 The suite runs two app servers (T20). Port 3100 is the usual one, with no model key, and port 3101 is the same
 build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
 the real degraded path (design §6.3). Playwright starts them one after another, so only the first one builds.
