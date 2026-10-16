@@ -22,19 +22,20 @@ A merged pull request closes the issue. Bugs the reviewer finds become new issue
 **The highest `T<nn>` across every issue *and* pull request, in *any* state, plus one.** The snippet for it is
 [below](#github-from-the-sandbox-rest-only), next to the other REST calls.
 
-Nothing narrower is safe. The open issue list misses every closed ticket, and it misses whatever the other
-routine filed four minutes ago and has already moved to `review`. Both routines once picked from it and filed
-three tickets in one afternoon on numbers that were taken (#64, #66, #67) — and a duplicate number makes
-`Depends on: T<nn>` ambiguous, which is the one piece of state the whole stack rests on. Pull requests count
-because a pull request inherits its ticket's title, so a number is spoken for the moment either one exists.
+Nothing narrower is safe. Both routines once took the number from the open issue list, which misses every
+closed ticket — and most of the stack is closed. Three items landed in one afternoon on numbers already
+taken: #64 and #66, plus #66's pull request #67, which inherited the number from it. A duplicate number makes
+`Depends on: T<nn>` ambiguous, and that is the one piece of state the whole stack rests on. Pull requests count
+towards the maximum because a pull request inherits its ticket's title, so a number is spoken for as soon as
+either one exists.
 
 Two routines on different schedules can still race between the read and the write. When the number you filed
 under turns out to be taken:
 
 - **Retitle your own issue** to the next free number, recompute it with the snippet first, and leave a comment
   on it saying which number it moved from and which ticket it collided with.
-- **Never retitle someone else's.** Whichever ticket was filed first keeps the number, whatever the issue
-  numbers say. If you cannot tell, the lower issue number was filed first.
+- **Never retitle someone else's.** Whichever was filed first keeps the number, and GitHub hands out issue
+  numbers in order, so that is simply the lower `#`.
 - Fix the branch and pull request names too if you have already pushed; if the pull request is merged, leave it
   and add a row to the table below instead.
 
@@ -46,8 +47,8 @@ tickets in the middle column, #55 and #60:
 
 | Number | The ticket that owns it | Also titled this in the history |
 |---|---|---|
-| `T42` | #55 — unit tests for the `lib/` modules §12.1 leaves untested (open) | #66 and its pull request #67 — the `node:crypto` edge-bundle build break (closed, merged) |
-| `T45` | #60 — clear `.next` at the start of every check run (open) | #64 and its pull request #69 — `lib/log.ts` reaching the edge bundle (closed, merged) |
+| `T42` | #55, open — "Unit tests for the `lib/` modules §12.1 still leaves untested" | #66 and its pull request #67 — the `node:crypto` edge-bundle build break (closed, merged) |
+| `T45` | #60, open — "Clear `.next` at the start of every check run" | #64 and its pull request #69 — `lib/log.ts` reaching the edge bundle (closed, merged) |
 
 This matters for more than tidiness: both duplicates are *closed*, so resolving one of these two dependencies
 by title alone answers "closed" for a number whose real ticket is still open, and a ticket gets built on a
