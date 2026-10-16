@@ -1,4 +1,11 @@
 // Browser voice for Sweetie: speech synthesis to talk, speech recognition to listen. Client only.
+//
+// No lib/voice.test.ts, and no row in the `npm run test:coverage` table (design §12.1): every line of this
+// file is a call into `window.speechSynthesis` or `webkitSpeechRecognition`, neither of which exists under
+// `node --test`. A stub for them would be a test of the stub. The browser's half is exercised by the e2e
+// suite, and the agent's half does not go through here at all: a final transcript is posted to
+// /api/sweetie exactly like typed text, which is why lib/sweetieTurn.ts neither knows nor cares which it
+// was.
 // Chrome and Safari (desktop and iOS) ship both behind the webkit prefix; nothing to install, no keys.
 // The brain is unchanged: a final transcript is posted to /api/sweetie exactly like typed text.
 

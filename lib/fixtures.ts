@@ -1,6 +1,11 @@
 // Test support, not application code: how lib/*.test.ts reads data/fixtures/ (design §9.4) and how the
 // database-backed suites get a throwaway schema to work in.
 // Nothing under app/ imports this; it touches the filesystem and would never run in a request.
+//
+// No lib/fixtures.test.ts, and the one module `npm run test:coverage` excludes by name
+// (--test-coverage-exclude in package.json, design §12.1): it is the harness the other suites run on, so
+// every line of it is already executed by them and a coverage row for it would measure the measuring.
+// A bug in here fails the suite that uses it, loudly, which is the test.
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";

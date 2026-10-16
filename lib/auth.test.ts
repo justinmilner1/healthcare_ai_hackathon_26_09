@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after, before, describe, it } from "node:test";
 import type { PrismaClient } from "@prisma/client";
 import { ABSOLUTE_SESSION_SECONDS, authAdapter, isPastAbsoluteCap } from "./authAdapter";
 import { devMailFilename, divertsMail, formatDevMail, linkIn, readDevMail, writeDevMail } from "./devMailbox";
@@ -204,4 +204,139 @@ test("a send that fails is reported as unsent, so sign-in does not pretend a lin
     setLogSink();
     process.env = env;
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// The Auth.js configuration itself (T42, design §5.1, §5.2, §13.4).
+//
+// `lib/auth.ts` is mostly declaration, and what a browser does with it is the e2e suite's job (e2e/auth.ts
+// signs in for real). Three things in it are decisions, though, and all three are cheap to pin here: the
+// session callback, because §5.2's practice and role reach every page and route through it and nothing else;
+// `sendVerificationRequest`, because a send that failed must not look like a link on its way; and the two
+// clocks §5.1 names.
+//
+// `./auth` is imported dynamically so AUTH_SECRET is set before the module reads it — `authConfig.secret` is
+// evaluated once, at import. It pulls in the `db` singleton, which is why nothing here asks it for rows: the
+// file's other imports have already bound that client to whatever DATABASE_URL said.
+
+describe("authConfig", () => {
+  let auth: typeof import("./auth");
+  const saved = { secret: process.env.AUTH_SECRET };
+
+  before(async () => {
+    process.env.AUTH_SECRET = "auth-test-secret-not-for-deployment";
+    auth = await import("./auth");
+  });
+
+  after(() => {
+    if (saved.secret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = saved.secret;
+    setLogSink();
+  });
+
+  it("enforces §5.1's idle clock with database sessions, so signing out ends one for real", () => {
+    assert.equal(auth.IDLE_SESSION_SECONDS, 12 * 60 * 60);
+    assert.equal(auth.SIGN_IN_LINK_SECONDS, 15 * 60);
+    assert.equal(auth.authConfig.session?.strategy, "database");
+    assert.equal(auth.authConfig.session?.maxAge, auth.IDLE_SESSION_SECONDS);
+    // Short enough that the twelve hours mean what they say.
+    assert.ok((auth.authConfig.session?.updateAge ?? Infinity) <= 15 * 60);
+    assert.equal(auth.authConfig.trustHost, true, "self-hosted, so the host header is the app's own (§3.1)");
+    assert.equal(auth.authConfig.secret, "auth-test-secret-not-for-deployment");
+  });
+
+  it("has exactly one provider, an email link, and no password anywhere", () => {
+    const providers = auth.authConfig.providers as { id?: string; type?: string; maxAge?: number }[];
+    assert.equal(providers.length, 1);
+    assert.equal(providers[0].id, "email");
+    assert.equal(providers[0].type, "email");
+    assert.equal(providers[0].maxAge, auth.SIGN_IN_LINK_SECONDS);
+  });
+
+  it("redirects to our own screens, so Auth.js's unstyled ones are never shown", () => {
+    assert.deepEqual(auth.authConfig.pages, {
+      signIn: "/provider/signin",
+      verifyRequest: "/provider/check-email",
+      signOut: "/provider/signout",
+      error: "/provider/signin",
+    });
+  });
+
+  it("puts the practice and the role on the session, which is how §5.2 reaches every route", () => {
+    const user = { id: "cuser0000000000000000000a", email: "maya@practice.com", name: "Dr Maya", role: "clinician", practiceId: "cprac0000000000000000000a" };
+    const session = { user: { email: "stale@practice.com", image: null }, expires: "2026-10-20T09:00:00.000Z" };
+    // The default callback returns name, email and image only; a guard needs the id, the practice and the role.
+    const out = auth.authConfig.callbacks!.session!({ session, user, token: {}, newSession: {}, trigger: "update" } as never) as unknown as { user: typeof user };
+    assert.equal(out.user.id, user.id);
+    assert.equal(out.user.role, "clinician");
+    assert.equal(out.user.practiceId, user.practiceId);
+    assert.equal(out.user.email, "maya@practice.com", "the row wins over whatever was on the session");
+  });
+
+  it("logs a sign-in and a sign-out by user id and nothing else (§10.3)", async () => {
+    const lines: Record<string, unknown>[] = [];
+    setLogSink((_level, line) => lines.push(JSON.parse(line)));
+    try {
+      await auth.authConfig.events!.signIn!({ user: { id: "cuser0000000000000000000a", email: "maya@practice.com" } } as never);
+      await auth.authConfig.events!.signOut!({ session: Promise.resolve({ userId: "cuser0000000000000000000a" }) } as never);
+    } finally {
+      setLogSink();
+    }
+    assert.deepEqual(lines.map((l) => l.event), ["provider_signed_in", "provider_signed_out"]);
+    assert.deepEqual(lines.map((l) => l.userId), ["cuser0000000000000000000a", "cuser0000000000000000000a"]);
+    assert.equal(JSON.stringify(lines).includes("maya@practice.com"), false, "an address is never a field");
+  });
+
+  it("sends the link through the mailer, and says nothing about where it went", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "devmail-auth-"));
+    const env = { ...process.env };
+    const provider = auth.authConfig.providers[0] as unknown as { sendVerificationRequest: (p: { identifier: string; url: string }) => Promise<void> };
+    try {
+      process.env.DEV_MAIL_DIR = dir;
+      setLogSink(() => {});
+      await provider.sendVerificationRequest({ identifier: "maya@practice.com", url: LINK });
+      assert.equal(linkIn(readDevMail(dir)[0].text), LINK);
+    } finally {
+      setLogSink();
+      process.env = env;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when the link could not be sent, so sign-in shows an error instead of check-email", async () => {
+    const env = { ...process.env };
+    const provider = auth.authConfig.providers[0] as unknown as { sendVerificationRequest: (p: { identifier: string; url: string }) => Promise<void> };
+    try {
+      process.env.EMAIL_PROVIDER = "ses";
+      delete process.env.DEV_MAIL_DIR;
+      delete process.env.EMAIL_FROM; // SES with no verified sender fails before any network call
+      setLogSink(() => {});
+      await assert.rejects(provider.sendVerificationRequest({ identifier: "maya@practice.com", url: LINK }), /EMAIL_FROM/);
+    } finally {
+      setLogSink();
+      process.env = env;
+    }
+  });
+
+  it("refuses to mint a demo sign-in link with no secret to sign it with (§13.4)", async () => {
+    // NODE_ENV is typed read-only, and lib/auth.ts reads process.env rather than taking an env object the
+    // way lib/config.ts does, so this is the only way to ask it what a deployment would answer.
+    const env = process.env as Record<string, string | undefined>;
+    const saved = { secret: env.AUTH_SECRET, other: env.NEXTAUTH_SECRET, env: env.NODE_ENV };
+    try {
+      delete env.AUTH_SECRET;
+      delete env.NEXTAUTH_SECRET;
+      env.NODE_ENV = "production";
+      // A production deployment has no development fallback, and a link signed with a known constant is not
+      // signed. It fails before writing the VerificationToken row, so this needs no database.
+      await assert.rejects(auth.mintSignInUrl("demo@sweetspot.local", new URL("https://sweetspot.example")), /AUTH_SECRET is not set/);
+    } finally {
+      if (saved.secret === undefined) delete env.AUTH_SECRET;
+      else env.AUTH_SECRET = saved.secret;
+      if (saved.other === undefined) delete env.NEXTAUTH_SECRET;
+      else env.NEXTAUTH_SECRET = saved.other;
+      if (saved.env === undefined) delete env.NODE_ENV;
+      else env.NODE_ENV = saved.env;
+    }
+  });
 });
