@@ -24,8 +24,6 @@ import type { SourJobState } from "./types";
 export const JOB_KINDS = ["sour.run", "notify.invite", "notify.code", "notify.summary", "patient.delete", "retention.sweep"] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 
-export type JobStatus = "queued" | "running" | "done" | "failed";
-
 /** One row of `Job`. Written out rather than imported from @prisma/client so the raw claim below, which
  *  returns the same columns, and the Prisma delegate agree on one type. */
 export type JobRow = {

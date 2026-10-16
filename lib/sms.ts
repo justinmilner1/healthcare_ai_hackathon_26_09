@@ -3,6 +3,9 @@
 //   sns     when AWS_ACCESS_KEY_ID is set (sandbox: only numbers verified in the SNS console;
 //           US destinations also need an origination number registered in the account)
 // Unconfigured -> { sent: false, error } and the UI shows the link instead.
+//
+// A deployment sends through SNS, for the same reason email goes through SES (§8.1). Twilio stays for local
+// use only (§8.4), and docs/COMPLIANCE.md records that its BAA is only needed if a deployment picks it.
 
 import { appUrl } from "./config";
 import type { SendResult } from "./email";

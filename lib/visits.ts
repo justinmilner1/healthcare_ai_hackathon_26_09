@@ -36,8 +36,6 @@ export const VISIT_STATUSES = [
   { id: "cancelled", label: "Cancelled", tone: "cancelled" },
 ] as const;
 
-export type VisitStatus = (typeof VISIT_STATUSES)[number]["id"];
-
 const statusRow = (id: string | null | undefined) => VISIT_STATUSES.find((s) => s.id === id);
 
 /** §4.4's status in the words the dashboard uses. An unknown value is shown as stored, not hidden: a row

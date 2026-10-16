@@ -105,9 +105,6 @@ export function visitPartsRead(bundle: {
  *  a row from a newer build is still legible to the admin reading it. */
 export const actionLabel = (action: string): string => (AUDIT_ACTIONS as Record<string, string>)[action] ?? action;
 
-/** §4.8 entityType: what the action was done to. */
-export const ENTITY_TYPES = ["visit", "upload", "summary", "patient"] as const;
-
 // ---------------------------------------------------------------------------------------------
 // §4.8 "detail JSON without PHI".
 //
