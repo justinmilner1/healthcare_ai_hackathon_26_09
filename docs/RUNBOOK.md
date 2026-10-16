@@ -168,9 +168,14 @@ aws amplify update-app --app-id "$APP_ID" --environment-variables \
   DATABASE_URL="...",AUTH_SECRET="$NEW",JOBS_SECRET="...",OPENAI_API_KEY="..."
 
 # 2. Redeploy, because a variable change is not a deploy: the compute picks the list up when it is built.
+#    start-job returns as soon as the build is queued, so wait for it: step 3 is only safe once the new
+#    value is the one being served.
 aws amplify start-job --app-id "$APP_ID" --branch-name "$BRANCH" --job-type RELEASE
+aws amplify list-jobs --app-id "$APP_ID" --branch-name "$BRANCH" --max-results 1 \
+  --query 'jobSummaries[0].status'   # repeat until SUCCEED. A FAILED build means fix that, not step 3.
 
-# 3. SSM, so the next build and the Lambda agree with the app.
+# 3. SSM, so the next build and the Lambda agree with the app. Straight after the build goes live: the
+#    window between the two is the only one in which ticks fail.
 aws ssm put-parameter --name "/sweetspot/$STAGE/$NAME" --type SecureString --value "$NEW" --overwrite
 
 # 4. Check it.
@@ -182,13 +187,18 @@ Keep the old value in the shell until step 4 passes. `put-parameter --overwrite`
 existing anywhere, and a rotation that has to be undone in a hurry is not the time to be regenerating it.
 
 **Why the app before SSM.** `JOBS_SECRET` is the one where the order is visible, and it is the right order for
-every secret but `DATABASE_URL`, which has its own note below. The Lambda caches the parameter for the life of its container, and on a 401 or 403 it drops the
-cache, re-reads SSM and tries once more (`infra/lambda/jobs-tick/index.js`). Rotate the app first and the cost
-is exactly one failed tick: for the minute between the new build going live and step 3, the Lambda sends the
-old secret, gets a 401, re-reads, and succeeds. Rotate SSM first and the Lambda sends the new secret for the
-whole length of the build — five or ten minutes of ticks that cannot authenticate, which is enough to fire
-`jobs-tick-errors`. No jobs are lost either way; `run_after` is in the past and the next successful tick
-drains them.
+every secret but `DATABASE_URL`, which has its own note below. The Lambda caches the parameter for the life
+of its container, and on a 401 or 403 it drops the cache, re-reads SSM and tries once more
+(`infra/lambda/jobs-tick/index.js`). Rotate the app first and the cost
+is one failed tick, provided step 3 follows the build promptly. Be clear about which tick the retry rescues:
+between the new build going live and `put-parameter`, SSM still holds the *old* secret, so the Lambda sends
+it, gets a 401, drops the cache, re-reads the same old value and fails that tick anyway. What the cache-drop
+buys is the first tick *after* step 3 — it picks the new value up there and then, instead of waiting for a
+cold start. Rotate SSM first, or run step 3 before the build is live, and it is the other way round: the
+Lambda holds the new secret while the old version is still serving the old one, for the whole length of the
+build — five or ten minutes of ticks that cannot authenticate, which is enough to fire `jobs-tick-errors`
+(five errors in fifteen minutes). No jobs are lost either way; `run_after` is in the past and the next
+successful tick drains them.
 
 ### Minting each one
 
@@ -334,8 +344,9 @@ is the only routine reason to open a `psql` against production.
 ### When it is a storm rather than a bounce
 
 Watch the account's own numbers, because AWS acts on them: a bounce rate at or above 5%, or a complaint rate
-at or above 0.1%, puts the sending account under review, and roughly double either figure risks a sending
-pause that takes every message with it.
+at or above 0.1%, puts the sending account under review, and a higher rate still risks a sending pause that
+takes every message with it. The two "at risk" figures are AWS's and they move, so read them off the
+reputation dashboard in the SES console rather than from here.
 
 ```bash
 aws sesv2 get-account --query '{enabled:SendingEnabled,review:EnforcementStatus}'
