@@ -48,7 +48,7 @@ npm run mail             # the newest sign-in link or verification code out of t
 npm run typecheck        # tsc --noEmit
 npm run lint
 npm run config:check     # every env var, judged as this environment; -- --production to judge as a deployment
-npm run test             # unit tests for every lib/ module, against data/fixtures/
+npm run test             # the lib/ unit tests, against the fixtures in data/fixtures/
 npm run test:coverage    # the same, with a coverage table (design §12.1)
 npm run e2e              # Playwright, both flows, screenshots into e2e/screenshots/
 npm run agent:check      # all of the above in one command — this is the gate
@@ -199,8 +199,9 @@ closest.
   §10.2), with no PHI in `detail`.
 - Public routes get their limits from `lib/ratelimit.ts`: by IP before the body is read, by visit once the
   token has named one (§5.4).
-- Every module in `lib/` has unit tests against the synthetic fixtures in `data/fixtures/` (§12.1). A parser
-  change comes with a fixture. Real Dexcom and Timeline exports never get committed.
+- §12.1 asks for unit tests for every module in `lib/`, against the synthetic fixtures in `data/fixtures/`.
+  A module you add or change comes with its `lib/*.test.ts`, and a parser change comes with a fixture. Real
+  Dexcom and Timeline exports never get committed.
 - Keep parsers in `lib/`, API routes thin, pages thin. The repo layout is in the README.
 - Accessibility is a requirement, not a polish pass: the patient pages are checked with axe in the e2e suite
   (§12.5) and are tested at 375px (§6.5).
