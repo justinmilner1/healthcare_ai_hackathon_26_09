@@ -163,6 +163,32 @@ export async function recordPatientVerified(visit: { id: string; patientId: stri
   });
 }
 
+/**
+ * §2.4's consent screen, answered (T51). The same shape as the verification above, and deliberately so: the
+ * two rows sit next to each other on the audit page because they are the same kind of fact — the patient,
+ * on their own link, deciding something about their own data.
+ *
+ * Called from POST /api/consent, once per visit: a second acceptance keeps the first one's time and writes
+ * nothing, so the trail says when the patient actually agreed rather than when they last opened the link.
+ * Not coalesced — there is at most one of each per visit, and a decline after an acceptance is a change of
+ * mind an admin should see as two rows.
+ */
+export async function recordPatientConsent(
+  visit: { id: string; patientId: string; patient: { practiceId: string } },
+  accepted: boolean,
+  detail: AuditFields = {},
+): Promise<void> {
+  await recordAudit({
+    practiceId: visit.patient.practiceId,
+    actorType: "patient",
+    actorId: visit.patientId,
+    action: accepted ? "patient.consent_accepted" : "patient.consent_declined",
+    entityType: "visit",
+    entityId: visit.id,
+    detail,
+  });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Reading it back, for app/api/audit and the admin page behind it.
 

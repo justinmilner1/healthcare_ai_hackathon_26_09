@@ -125,3 +125,73 @@ test("the audit trail records reads, link use and deletions, and exports them wi
     }
   }
 });
+
+// T51, design §2.4, §4.8, §10.2: the consent screen's two answers, as rows. T09 wrote them straight to the
+// table while T12 was reconciling every other call site, so until now they were not keys of AUDIT_ACTIONS —
+// the page printed `patient.consent_accepted` in the What column, the Action dropdown had no entry that
+// selected them, and the row said `Visit` where the rest of the table says `visit`. This asks the page the
+// questions an admin would: name the two answers, filter to each one, and show the decline's detail.
+test("accepting and declining the consent screen each leave a row the audit page names and filters", async ({ page, request }) => {
+  await signInAsDemo(page);
+
+  /** A booked visit whose patient then verifies their link, which is the session consent needs (§5.3). One
+   *  patient at a time: the session cookie names one visit, so the second verification replaces the first. */
+  const consenting = async (name: string) => {
+    const email = patientEmail(name);
+    const booked = await (await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", channel: "none" })).json();
+    expect(booked.visitId, `booking: ${JSON.stringify(booked)}`).toBeTruthy();
+    await verifyByApi(request, booked.token, email);
+    return booked as { visitId: string; patientId: string; token: string };
+  };
+
+  const accepted = await consenting("Audit Consent Given");
+  expect((await postJson(request, "/api/consent", { token: accepted.token, accept: true })).ok()).toBeTruthy();
+
+  const declined = await consenting("Audit Consent Refused");
+  expect((await postJson(request, "/api/consent", { token: declined.token, accept: false })).ok()).toBeTruthy();
+
+  await page.goto("/provider/audit");
+  await expect(page.getByRole("heading", { name: "Who touched what." })).toBeVisible(LOADED);
+  const table = page.locator(".audit-table");
+
+  // In the vocabulary: both read as a sentence rather than as the stored string, and both are in the Action
+  // dropdown — which is AUDIT_ACTION_NAMES — so they can be filtered for at all.
+  await page.getByLabel("Action").selectOption("patient.consent_accepted");
+  await expect(table).toContainText("Intake consent accepted", LOADED);
+  await expect(table).not.toContainText("patient.consent_accepted");
+  await expect(table).not.toContainText("Intake consent declined");
+
+  await page.getByLabel("Action").selectOption("patient.consent_declined");
+  await expect(table).toContainText("Intake consent declined", LOADED);
+  await expect(table).not.toContainText("Intake consent accepted");
+
+  // And spelled like every other row: this visit's id finds it, the entity is a `visit` (lower case, so the
+  // page links it like the rest), and the detail is the §4.8 gate's output — the sessions the decline closed,
+  // with nothing dropped on the way in.
+  await page.getByLabel("Action").selectOption("");
+  await page.getByLabel("Visit or upload id").fill(declined.visitId);
+  await expect(table).toContainText("Intake consent declined", LOADED);
+  await expect(table).toContainText("Patient link accepted");
+  await expect(table).toContainText("rows: 1");
+  await expect(table).not.toContainText("droppedFields");
+  await expect(table.locator(".audit-entity-type").first()).toHaveText("visit");
+  await shot(page, "provider-audit-consent", true);
+
+  // The row's own columns, which the page only shows in part: the actor is the patient (§4.8's own id for
+  // them, the same one recordPatientVerified uses), not the visit, so a filter on either column finds both.
+  const listing = await (await page.request.get(`/api/audit?entityId=${declined.visitId}&limit=100`)).json();
+  const row = listing.entries.find((e: { action: string }) => e.action === "patient.consent_declined");
+  expect(row, JSON.stringify(listing.entries)).toBeTruthy();
+  expect(row.actorType).toBe("patient");
+  expect(row.actorId).toBe(declined.patientId);
+  expect(row.entityType).toBe("visit");
+  expect(row.entityId).toBe(declined.visitId);
+  expect(row.detail).toEqual({ rows: 1 });
+
+  const givenListing = await (await page.request.get(`/api/audit?entityId=${accepted.visitId}&limit=100`)).json();
+  const given = givenListing.entries.filter((e: { action: string }) => e.action === "patient.consent_accepted");
+  // One row, not one per open: a second acceptance keeps the first one's time and writes nothing (§2.4).
+  expect(given.length).toBe(1);
+  expect(given[0].actorId).toBe(accepted.patientId);
+  expect(given[0].detail).toBeNull();
+});

@@ -52,6 +52,23 @@ test("§10.2's four categories are all in the vocabulary", () => {
   }
 });
 
+test("§2.4's consent screen is in the vocabulary, both ways it can be answered (T51)", () => {
+  // The two rows app/api/consent/route.ts writes. Before T51 they were written straight to the table and
+  // were not keys here, so the audit page printed the raw string and the Action dropdown — which is
+  // AUDIT_ACTION_NAMES — could not select them at all.
+  for (const action of ["patient.consent_accepted", "patient.consent_declined"] as const) {
+    assert.ok(action in AUDIT_ACTIONS, `${action} is missing, so the audit page cannot name or filter it`);
+    assert.ok(AUDIT_ACTION_NAMES.includes(action), `${action} is not offered in the Action filter`);
+    assert.notEqual(actionLabel(action), action, `${action} reads as its raw stored string`);
+  }
+  // Two answers, told apart on the page: an admin reading the trail must not have to guess which it was.
+  assert.notEqual(AUDIT_ACTIONS["patient.consent_accepted"], AUDIT_ACTIONS["patient.consent_declined"]);
+  // What the decline records is the sessions it closed, and §4.8's gate takes it as a count.
+  assert.deepEqual(auditDetail({ rows: 1 }), { rows: 1 });
+  // The hand-rolled detail it used to carry is not representable: neither name is allow-listed.
+  assert.deepEqual(auditDetail({ screen: "intake_consent", section: "2.4" }), { droppedFields: ["screen", "section"] });
+});
+
 test("an action from a newer build is shown as stored rather than blank", () => {
   assert.equal(actionLabel("export.downloaded"), "export.downloaded");
   assert.equal(actionLabel("summary.read"), AUDIT_ACTIONS["summary.read"]);

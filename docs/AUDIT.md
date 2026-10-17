@@ -19,6 +19,7 @@ and is the record of who touched whose data. Both exist; neither does the other'
 |---|---|---|
 | `intake.read`, `messages.read`, `summary.read`, `uploads.read` | `GET /api/patient/[id]` when a provider reads it; `POST /api/sour` with a question | the signed-in user |
 | `patient.verified` | `POST /api/verify`, when a six-digit code is accepted (T08, §5.3) | the patient |
+| `patient.consent_accepted`, `patient.consent_declined` | `POST /api/consent`, when the §2.4 screen is answered (T09, T51) | the patient |
 | `invite.sent`, `code.sent`, `summary.sent` | `lib/jobHandlers.ts`, after the send returns | the job (`system`) |
 | `upload.deleted`, `summary.deleted` | `DELETE /api/upload` | the patient |
 
@@ -31,6 +32,14 @@ nothing else (§2.3), so resolving one is not a verification and records nothing
 is the moment a code from the visit's own phone or email is accepted and the browser gets a 24-hour session.
 That route writes it through `recordPatientVerified`, so it speaks the same vocabulary as the rest of the
 trail and its detail goes through the gate below.
+
+The consent rows are §2.4's screen, which is not one of §10.2's four categories and is recorded anyway: every
+other row about this visit's data exists because the patient said yes first, and an admin asked to stand
+behind that has to be able to see it. One row per visit per answer — accepting twice keeps the first time and
+writes nothing (`lib/consent.ts` `recordConsent`), and declining is the moment a verified session was ended on
+the patient's own say-so, so its detail is `rows`: how many sessions went with it. Both go through
+`recordPatientConsent` (`lib/auditStore.ts`), like the verification above; before T51 this one route wrote
+straight to the table, and the result was a row the page could neither name nor filter.
 
 Deletions are three different events and each has its own action. `upload.deleted` and `summary.deleted` are
 the patient withdrawing one upload from their own link. `patient.deleted` is §10.5's staff action — one row
