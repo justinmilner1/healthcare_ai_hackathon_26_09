@@ -29,7 +29,14 @@ export type Summary = {
   questions: string[]; // max 3, for the doctor to ask
   patientNotes: string; // from Sweetie chat
   flags?: string[]; // deterministic safety flags computed in code (lib/sour.ts safetyFlags), never by the model
+  // Why `patterns` and `questions` are empty, when no model could write them (design §6.3, §11.3): either no
+  // model is configured for this deployment, or a configured gateway was unreachable. Absent on a narrative
+  // the model wrote, and absent from the patient's copy — the provider page renders it as page state beside
+  // the §7.2 chip, and the patient's summary simply omits both sections (lib/sourRun.ts, lib/sourState.ts).
+  narrativeMissing?: NarrativeMissing;
 };
+
+export type NarrativeMissing = "unconfigured" | "unavailable";
 
 export type UploadKind = "dexcom" | "timeline" | "whoop" | "visits";
 

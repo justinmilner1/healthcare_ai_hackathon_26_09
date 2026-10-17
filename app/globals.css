@@ -2810,6 +2810,34 @@ textarea.ss-input {
   color: #a42b48;
 }
 
+/* T63 (design §6.3, §11.3): no model wrote this summary's narrative. Sits under the job chip in the same
+   amber as a stale one, because it is the same kind of fact — the numbers are current, the words are not —
+   and deliberately not the red the safety flags own. Matches .sweetie-degraded-note's weight: a clinician
+   reads this once and gets on with the numbers. */
+.sour-degraded-note {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #e5deb9;
+  border-radius: 12px;
+  background: #fffbea;
+  color: #675d29;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.sour-degraded-note > span {
+  flex: none;
+  font-size: 12px;
+}
+
+/* On paper the same sentence sits above the two blank columns it explains (§7.4). */
+.sour-print-narrative-note {
+  margin: 0 0 12px;
+}
+
 /* T16 (design §7.3): the sign-off. Green and quiet, under the job chip, and the one thing in that strip
    that prints — "who read this before the visit" belongs on the paper the clinician carries in. */
 .sour-reviewed {

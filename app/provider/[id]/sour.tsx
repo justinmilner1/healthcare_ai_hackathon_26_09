@@ -24,6 +24,7 @@ import SleepChart from "@/components/SleepChart";
 import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
+import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
@@ -363,6 +364,16 @@ export default function SourView({ id }: { id: string }) {
               pending={busy}
               onRetry={() => generate(bundle.visitId)}
             />
+            {/* §6.3, §11.3: a summary no model wrote still has all of its numbers, and the reason the
+                narrative is missing is page state next to the chip rather than a row in Patterns — the quiet
+                treatment Sweetie's `.sweetie-degraded-note` gets. role="status" announces it to a screen
+                reader without taking focus (§6.4). The wording is lib/sourState.ts. */}
+            {narrativeNote(s?.narrativeMissing) && (
+              <p className="sour-degraded-note print:hidden" role="status">
+                <span aria-hidden="true">⚠</span>
+                {narrativeNote(s?.narrativeMissing)}
+              </p>
+            )}
             {/* §7.3 The sign-off, printed with the one-pager: who read this before the visit, and when. */}
             {review && (
               <p className="sour-reviewed" role="status">
@@ -412,7 +423,7 @@ export default function SourView({ id }: { id: string }) {
                     ) : (
                       <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm leading-snug">
                         {s.patterns.map((p, i) => <li key={i}>{p}</li>)}
-                        {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">None found.</li>}
+                        {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">{emptyNarrativeText(s.narrativeMissing, "None found.")}</li>}
                       </ol>
                     )}
                   </div>
@@ -438,7 +449,7 @@ export default function SourView({ id }: { id: string }) {
                             <span className={checked.has(i) ? "text-[var(--viz-muted)] line-through" : ""}>{qq}</span>
                           </li>
                         ))}
-                        {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">None.</li>}
+                        {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">{emptyNarrativeText(s.narrativeMissing, "None.")}</li>}
                       </ul>
                     )}
                   </div>
