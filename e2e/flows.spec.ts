@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { expectNoHorizontalScroll } from "./mobile";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
@@ -61,13 +62,18 @@ async function expectHeroCaptionsLegible(page: Page): Promise<void> {
   expect(covered, "the hero captions name Sweetie and Sour; nothing may cover them (design §2, §6.5)").toEqual([]);
 }
 
-test("landing renders", async ({ page }) => {
+test("landing renders", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
   // Both names are on the page, and both are readable: the figcaptions are what the two alt texts introduce.
   await expect(page.locator(".home-character-sweetie figcaption")).toContainText("Sweetie");
   await expect(page.locator(".home-character-sour figcaption")).toContainText("Sour");
   await expectHeroCaptionsLegible(page);
+  // The captions are moved by hand-placed offsets, so the way to push one out of the pill's way is also the
+  // way to push it past the right edge. §6.5's own measurement, on the one screen e2e/mobile.spec.ts does
+  // not cover: that file is the patient screens, and this is the front door in front of them. Mobile only —
+  // at 1280px the document fits anything and the assertion would pass while meaning nothing.
+  if (testInfo.project.name === "mobile") await expectNoHorizontalScroll(page, "the landing page");
   await shot(page, "landing");
 });
 
