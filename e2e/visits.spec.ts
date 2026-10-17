@@ -148,6 +148,16 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   await expect(page.locator(".import-warning")).toContainText(/cannot open their link/i);
   // MODAL at either width: this is a dialog over the dashboard, and a full-page shot anchors at the top of
   // a very tall document, which cut the dialog's own header off above the image (T57).
+  //
+  // MODAL alone is not enough here, though: `.import-scroll` is the dialog's own scrolling body (one
+  // scrolling body with the actions fixed under it, app/provider/dashboard.tsx), and pasting the rows
+  // leaves it scrolled past its header — so the shot still began mid-sentence at "sends them a code." with
+  // the title above the fold of the dialog rather than of the page. The scroller goes back to the top
+  // rather than its header being scrolled into view, because `scrollIntoView` aligns the header's box to
+  // the scrollport and still cut the eyebrow and the cap-heights off the title.
+  await page.locator(".import-scroll").evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await shot(page, "provider-import-preview", MODAL);
 
   const beforeImport = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
