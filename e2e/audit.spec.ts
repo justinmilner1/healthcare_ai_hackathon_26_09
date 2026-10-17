@@ -85,15 +85,25 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await expect(table).not.toContainText("Uploaded data read", LOADED);
   await expect(table).toContainText("Patient link accepted");
 
-  // Filter by the thing itself. The seeded visit is in this practice too, so this is a filter that has
-  // something to exclude.
+  // Filter by the thing itself. The seeded visit is in this practice too and every other spec in the run
+  // books more, so this is a filter with plenty to exclude — and what says the filter was applied is what is
+  // *not* in the table. Three category names were not enough (T61): the whole trail contains every one of
+  // them, so all three passed against the unfiltered rows that were still on the screen.
   await page.getByLabel("Action").selectOption("");
   await page.getByLabel("Visit or upload id").fill(booked.visitId);
   await expect(table).toContainText("Upload deleted", LOADED);
-  await expect(page.locator(".audit-table tbody tr")).not.toHaveCount(0);
   // All of them this visit's: the code that was sent, the link accepted, the clinician's read, the deletion.
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Uploaded data read");
+  const rows = page.locator(".audit-table tbody tr");
+  await expect(rows).not.toHaveCount(0);
+  // The `On` cell holds the first eight characters of the id (app/provider/audit/audit.tsx, shortId), so a
+  // row of another visit's is a row with this visit's prefix nowhere in it.
+  await expect(rows.filter({ hasNotText: booked.visitId.slice(0, 8) })).toHaveCount(0);
+  // And the count agrees: every row that matches is on the screen, rather than the first hundred of a longer
+  // list the filter never narrowed.
+  const matching = await rows.count();
+  await expect(page.locator(".provider-patients [aria-live]")).toHaveText(`${matching} of ${matching} shown`);
   await shot(page, "provider-audit-visit", true);
 
   // A filter that matches nothing says so, rather than looking like an empty log.
@@ -124,4 +134,41 @@ test("the audit trail records reads, link use and deletions, and exports them wi
       expect(haystack, `${where} contains ${phi}`).not.toContain(phi);
     }
   }
+});
+
+// T61: the filter has to survive the answer to the question it replaced.
+//
+// The screen refetches on every filter change and keeps whatever answers last, which is not the same as
+// whatever was asked last (app/provider/audit/audit.tsx). The unfiltered trail is a hundred rows and a
+// filtered one is a handful, so the unfiltered read is the slower of the two and could land on top of the
+// filter that replaced it. Nothing arrives after it to put the screen right, so this is not a wait that
+// resolves itself: the whole practice's log stays there under a filter that excludes nearly all of it,
+// which is how a screenshot of "the filtered trail" came to be 1082 x 80,149 pixels of other visits.
+//
+// Held back by this test rather than hoped for: the delay is the real difference between the two responses,
+// made big enough to be certain about.
+test("a filter is not undone by the slower answer it replaced", async ({ page }) => {
+  await signInAsDemo(page);
+  await page.route("**/api/audit?**", async (route) => {
+    if (!route.request().url().includes("entityId=")) await new Promise((wait) => setTimeout(wait, 1_500));
+    await route.continue();
+  });
+
+  await page.goto("/provider/audit");
+  await expect(page.getByRole("heading", { name: "Who touched what." })).toBeVisible(LOADED);
+  // There is a trail to lose: every other spec in this run has put rows in it, and so has the one above.
+  await expect(page.locator(".audit-table tbody tr").first()).toBeVisible(LOADED);
+
+  // Clear the action — a slow unfiltered read — and filter by an id in the same breath, which answers at
+  // once. Both are in flight; only the second one was asked for.
+  await page.getByLabel("Action").selectOption("patient.verified");
+  await page.getByLabel("Action").selectOption("");
+  await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");
+
+  // Nothing is recorded against that id, so the only honest screen is the empty note. The wait is the point
+  // of the test and not a workaround for one: an assertion that passed before the held-back response landed
+  // would be the same assertion that let 80,000 pixels of unfiltered trail through.
+  await page.waitForTimeout(3_000);
+  await expect(page.locator(".audit-table tbody tr")).toHaveCount(0);
+  await expect(page.locator(".audit-empty")).toBeVisible();
 });
