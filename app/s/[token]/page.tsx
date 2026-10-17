@@ -105,13 +105,30 @@ export default function SweetiePage({
       .then((response) => response.json())
       .then((data) => {
         if (controller.signal.aborted) return;
-        // The snapshot is the transcript up to the moment the server built it; anything on screen now is
-        // newer than that, because this effect is the only thing that fills the list and it clears it
-        // first. So the two concatenate rather than one overwriting the other, in that order.
-        setMessages((current) => [...(data.messages ?? []), ...current]);
-        setAgent(data.agent ?? null);
-        // A turn the page has already taken has already set these from its own, newer response.
+        // The snapshot is the transcript as of the moment the server built it, which is not necessarily
+        // before a turn this page has taken: whether it holds that turn depends on which leg of the request
+        // was the slow one. If the bytes came back late the snapshot predates the turn and the page's own
+        // rows are the newer ones; if the request itself arrived late the server built the snapshot after
+        // `POST /api/sweetie` had committed, so the same rows are in both lists. Appending the screen to the
+        // snapshot is right in the first case and shows the turn twice in the second, so the overlap — the
+        // longest run the snapshot already ends with — is dropped from the page's copy first. Both orderings
+        // are asserted in e2e/durability.spec.ts.
+        setMessages((current) => {
+          const snapshot: ChatMessage[] = data.messages ?? [];
+          const same = (a: ChatMessage, b: ChatMessage) => a.role === b.role && a.content === b.content;
+          let overlap = Math.min(snapshot.length, current.length);
+          while (
+            overlap > 0 &&
+            !snapshot.slice(snapshot.length - overlap).every((row, i) => same(row, current[i]))
+          ) {
+            overlap--;
+          }
+          return [...snapshot, ...current.slice(overlap)];
+        });
+        // A turn the page has already taken has already set these from its own, newer response — `agent`
+        // included, whose `degraded` the older snapshot would otherwise flicker back off (§6.3).
         if (advanced.current) return;
+        setAgent(data.agent ?? null);
         setStatus(data.status ?? null);
         setIntake(data.intake ?? null);
         setFields(data.intakeFields ?? []);

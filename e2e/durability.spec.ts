@@ -150,62 +150,86 @@ test("a reply the browser never receives is still in the transcript after a relo
   expect(continued.intake.turns).toBe(2);
 });
 
-test("an answer typed before the opening transcript lands survives it arriving (§6.2)", async ({ page }) => {
-  // The composer is live while the opening GET is still on the wire, so a patient on a slow connection can
-  // answer into what looks like an empty page. That response is then older than the screen. It used to
-  // replace the transcript with its own snapshot, so the patient watched their own words disappear and
-  // Sweetie ask a question they had just answered (T78).
-  const token = await openChatAsPatient(page, "E2E Slow Open");
-  const greeting = await page.locator(BUBBLES).count();
+/**
+ * The two legs of the opening GET that a slow connection can stretch, and why both are tried.
+ *
+ * The page merges the opening snapshot with whatever is already on screen, so which leg is slow decides
+ * which list holds the turn — and the two orderings fail in opposite directions:
+ *
+ * - `"response"`: the server answers at once and the bytes arrive late, so its snapshot predates the turn.
+ *   Replacing the list with it wiped the patient's message off the screen, which is the bug T78 is about.
+ * - `"request"`: the GET reaches the server late, *after* `POST /api/sweetie` committed the turn, so the
+ *   snapshot already contains it and the page holds its own copy of the same rows. Concatenating the two
+ *   showed the patient their answer and Sweetie's reply twice.
+ *
+ * Neither is exotic: they are the same slow link, timed differently. Both are asserted rather than
+ * described, because the first fix for one of them introduced the other.
+ */
+const SLOW_LEG = ["response", "request"] as const;
 
-  // The response is held back, not the request: the server answers at once and the bytes arrive late, which
-  // is what a slow connection does. Delaying the request instead does not reproduce it — the snapshot would
-  // then be built after the message was stored, and the overwrite happens to be harmless.
-  let hold = true;
-  // Matched on the path rather than a glob, because the opening request carries `?token=...` and the turn's
-  // POST does not, and only the GET is being held.
-  const sweetie = (url: URL) => url.pathname === "/api/sweetie";
-  const holdOpening = async (route: Route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    const response = await route.fetch();
-    const body = await response.body();
-    if (hold) await new Promise((resolve) => setTimeout(resolve, 3_000));
-    await route.fulfill({ response, body });
-  };
-  await page.route(sweetie, holdOpening);
+for (const leg of SLOW_LEG) {
+  test(`an answer typed before the opening transcript lands survives it arriving, slow ${leg} (§6.2)`, async ({ page }) => {
+    // The composer is live while the opening GET is still on the wire, so a patient on a slow connection can
+    // answer into what looks like an empty page (T78).
+    const token = await openChatAsPatient(page, `E2E Slow ${leg === "response" ? "Open" : "Ask"}`);
+    const greeting = await page.locator(BUBBLES).count();
 
-  await page.reload();
+    let hold = true;
+    // Matched on the path rather than a glob, because the opening request carries `?token=...` and the turn's
+    // POST does not, and only the GET is being held.
+    const sweetie = (url: URL) => url.pathname === "/api/sweetie";
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 3_000));
+    const holdOpening = async (route: Route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      // Before `route.fetch()` the server has not been asked yet, so the delay is the request leg; after it,
+      // the snapshot is already built and the delay is the response leg.
+      if (hold && leg === "request") await wait();
+      const response = await route.fetch();
+      const body = await response.body();
+      if (hold && leg === "response") await wait();
+      await route.fulfill({ response, body });
+    };
+    await page.route(sweetie, holdOpening);
 
-  // Straight in, while the greeting is still in flight. The input is not disabled, so this is what the
-  // product invites the patient to do.
-  const mine = "My sugars run high after dinner on the days I work late.";
-  const input = page.locator("input[type='text'], input:not([type]), textarea").first();
-  await input.fill(mine);
-  await input.press("Enter");
-  await expect(page.locator(".sweetie-messages")).toContainText(mine, LOADED);
+    await page.reload();
 
-  // The held response now lands. Everything has to still be there: the greeting it carries, and the turn
-  // the page took without it.
-  await expect(page.locator(BUBBLES)).toHaveCount(greeting + 2, LOADED);
-  const settled = await onScreen(page);
-  expect(settled.transcript[0], "the greeting the late response carried, first").toMatch(/Hi E2E/);
-  expect(settled.transcript, "the patient's own words, kept").toContain(mine);
-  expect(
-    settled.transcript.filter((line) => line.includes("run high after dinner")).length,
-    "once, not duplicated by the merge",
-  ).toBe(1);
-  // And the stepper is where the turn left it, not rolled back to the snapshot's older state.
-  expect(settled.stepper.some((step) => step.done), "the answered step stayed answered").toBe(true);
-  await shot(page, "sweetie-answer-before-load");
+    // Straight in, while the greeting is still in flight. The input is not disabled, so this is what the
+    // product invites the patient to do.
+    const mine = "My sugars run high after dinner on the days I work late.";
+    const input = page.locator("input[type='text'], input:not([type]), textarea").first();
+    await input.fill(mine);
+    await input.press("Enter");
+    await expect(page.locator(".sweetie-messages")).toContainText(mine, LOADED);
 
-  hold = false;
-  await page.unroute(sweetie, holdOpening);
+    // The held response now lands. Everything has to be there exactly once: the greeting it carries, and the
+    // turn the page took without it.
+    await expect(page.locator(BUBBLES)).toHaveCount(greeting + 2, LOADED);
+    const settled = await onScreen(page);
+    expect(settled.transcript[0], "the greeting the late response carried, first").toMatch(/Hi E2E/);
+    expect(settled.transcript, "the patient's own words, kept").toContain(mine);
+    expect(
+      settled.transcript.filter((line) => line.includes("run high after dinner")).length,
+      "the patient's message once — not wiped, and not duplicated by the merge",
+    ).toBe(1);
+    // Sweetie's reply to it is one row too: the snapshot can hold a copy of that as well.
+    expect(
+      settled.transcript.filter((line) => /Since you last saw the doctor/.test(line)).length,
+      "Sweetie's reply once",
+    ).toBe(1);
+    // And the stepper is where the turn left it, not rolled back to the snapshot's older state.
+    expect(settled.stepper.some((step) => step.done), "the answered step stayed answered").toBe(true);
+    if (leg === "response") await shot(page, "sweetie-answer-before-load");
 
-  // The server was never in doubt — one turn, stored — so a reload agrees with what stayed on screen.
-  const bundle = await (await page.request.get(`/api/patient/${token}`)).json();
-  expect(bundle.intake.turns).toBe(1);
-  await page.reload();
-  await expect(page.locator(BUBBLES)).toHaveCount(greeting + 2, LOADED);
-  const reloaded = await onScreen(page);
-  expect(reloaded.transcript, "the same transcript the race left behind").toEqual(settled.transcript);
-});
+    hold = false;
+    await page.unroute(sweetie, holdOpening);
+
+    // The server was never in doubt — one turn, stored — so a reload agrees with what stayed on screen.
+    // This is the assertion that catches a duplicate: the screen is only right if it matches the record.
+    const bundle = await (await page.request.get(`/api/patient/${token}`)).json();
+    expect(bundle.intake.turns).toBe(1);
+    await page.reload();
+    await expect(page.locator(BUBBLES)).toHaveCount(greeting + 2, LOADED);
+    const reloaded = await onScreen(page);
+    expect(reloaded.transcript, "the same transcript the race left behind").toEqual(settled.transcript);
+  });
+}
