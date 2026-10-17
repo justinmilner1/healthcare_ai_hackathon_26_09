@@ -37,6 +37,37 @@ const DEXCOM_PORT = PORT + 3;
 // `/demo` offers the sign-in form with the address filled in, which e2e/signin.spec.ts asserts — so the
 // shortcut needs a server of its own to be seen at all. e2e/demo.spec.ts is the only spec that uses it.
 const DEMO_PORT = PORT + 4;
+/**
+ * How long each server below holds an idle keep-alive socket open, in milliseconds (T59).
+ *
+ * `next start` leaves Node's `server.keepAliveTimeout` at its five-second default, so the server retires an
+ * idle keep-alive connection a few seconds after the last response: a raw socket to this build is sent FIN
+ * 6.00s after the response it is holding, and is still open at 100s with the flag below. Playwright's
+ * `APIRequestContext` pools its connections and does not retry a reset, so a `request.*` call that picks a
+ * pooled socket in the moment the server is closing it is written to a socket that answers RST. The test then
+ * dies on the call — `apiRequestContext.get: read ECONNRESET` — without reaching an assertion, and with
+ * `retries: 0` one of those is a red run.
+ *
+ * That is why the failures moved between specs, routes and verbs (`deletion.spec.ts`, `flows.spec.ts`,
+ * `durability.spec.ts`, `followup.spec.ts`, `mobile.spec.ts`) with no route or load in common: the only thing
+ * they share is a request context reused across an idle gap, which is usually a screenshot or a run of page
+ * assertions.
+ *
+ * Five minutes is longer than the longest test in the suite — `e2e/journey.spec.ts` sets 240s, everything else
+ * gets the 60s `timeout` below — and a request context lives at most one test, so no socket can sit idle in a
+ * live context for long enough to be retired. The server therefore never closes an idle connection during a
+ * run and the client is always the side that does, and a close the client initiated is not a reset it has to
+ * read. The cost is a handful of sockets held open for the length of a run. The alternative fixes are worse: a
+ * `retries` bump would hide real failures in the other 190 tests, and a retry wrapper in `e2e/api.ts` would
+ * have to decide which of 60-odd `page.request` calls are safe to send twice.
+ *
+ * This is the suite's number only. `npm start` keeps Node's default, which is what a deployment behind a load
+ * balancer wants.
+ */
+const KEEP_ALIVE_MS = 300_000;
+
+/** `next start` for one of the servers below, on a port, with the keep-alive above. */
+const nextStart = (port: number) => `npx next start -p ${port} --keepAliveTimeout ${KEEP_ALIVE_MS}`;
 // Long enough to satisfy the §3.7 config gate, which refuses a secret under 16 characters because this one
 // guards a public route (T31). Named like AUTH_SECRET below for the same reason: neither is a secret here.
 const RUNNER_SECRET = "e2e-jobs-secret-not-for-deployment";
@@ -75,7 +106,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `npm run build && npx next start -p ${PORT}`,
+      command: `npm run build && ${nextStart(PORT)}`,
       url: `http://localhost:${PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 300_000, // the build is most of this; it takes about a minute here
@@ -95,7 +126,7 @@ export default defineConfig({
       },
     },
     {
-      command: `npx next start -p ${DEGRADED_PORT}`,
+      command: nextStart(DEGRADED_PORT),
       url: `http://localhost:${DEGRADED_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own: the first server already made one
@@ -113,7 +144,7 @@ export default defineConfig({
       },
     },
     {
-      command: `npx next start -p ${DEXCOM_PORT}`,
+      command: nextStart(DEXCOM_PORT),
       url: `http://localhost:${DEXCOM_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own either
@@ -134,7 +165,7 @@ export default defineConfig({
       },
     },
     {
-      command: `npx next start -p ${DEMO_PORT}`,
+      command: nextStart(DEMO_PORT),
       url: `http://localhost:${DEMO_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own either
@@ -149,7 +180,7 @@ export default defineConfig({
       },
     },
     {
-      command: `npx next start -p ${RUNNER_PORT}`,
+      command: nextStart(RUNNER_PORT),
       url: `http://localhost:${RUNNER_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000, // no build of its own either
