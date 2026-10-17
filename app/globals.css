@@ -1192,9 +1192,13 @@ textarea.ss-input {
   justify-self: end;
 }
 
+/* An ink token rather than a one-off grey. #797863 measured 4.49:1 even on the hero's near-white left end,
+   a hair under §6.4's 4.5:1 bar for text this size, and at the desk width the hint's second line runs over
+   the mascot's cream circle, which is darker still (4.2:1). The soft ink clears both — 8.7:1 on the white
+   the phone layout puts behind it, 7.6:1 on that cream — without moving anything. */
 .provider-hero-hint {
   max-width: 160px;
-  color: #797863;
+  color: var(--ss-ink-soft);
   font-size: 10px;
   line-height: 1.4;
   text-align: right;
@@ -5043,22 +5047,41 @@ button.sweetie-agent-badge {
   }
 
   .provider-hero {
-    min-height: 360px;
+    min-height: 395px;
     padding: 35px 25px;
   }
 
+  /* The mascot gives up enough width for a clear column on the left. min() keeps that column clear at
+     every width in this block: the mascot's left edge never comes closer than ~35px to the hint's
+     right edge, where at a fixed 250px it used to start at x=180 and sit under the text (T56). */
   .provider-hero-character {
     right: -55px;
-    bottom: -70px;
-    width: 250px;
-    height: 250px;
+    bottom: -52px;
+    width: min(250px, 56%);
+    height: auto;
     opacity: 0.7;
+    aspect-ratio: 1;
   }
 
   .provider-hero-actions {
     position: absolute;
     right: 24px;
     bottom: 24px;
+  }
+
+  /* The `ready > 0` clinician gets a solid button in that corner, which reads over the illustration.
+     Bare hint text does not, so it moves to the bottom-left instead of sitting on the mascot's face. */
+  .provider-hero-actions-hint {
+    right: auto;
+    bottom: 26px;
+    left: 25px;
+    max-width: min(165px, 42%);
+  }
+
+  .provider-hero-hint {
+    max-width: none;
+    font-size: 12px;
+    text-align: left;
   }
 
   .provider-stats {

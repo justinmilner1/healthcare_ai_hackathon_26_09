@@ -315,6 +315,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
   const mayBook = can(provider.role, "visits:create");
   const mayInvite = can(provider.role, "visits:invite");
   const maySeeSummaries = can(provider.role, "summaries:read");
+  // The hero's corner holds one of two things, and they need different room on a phone (T56, §6.5): a solid
+  // button, which reads over the mascot, or a line of bare text, which does not.
+  const mayOpenSummaries = ready > 0 && maySeeSummaries;
   // §10.5's staff action. Irreversible, so it is the one button on the row that opens a dialog first.
   const mayDelete = can(provider.role, "patients:delete");
 
@@ -382,8 +385,14 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
               priority
             />
           </div>
-          <div className="provider-hero-actions">
-            {ready > 0 && maySeeSummaries ? (
+          <div
+            className={
+              mayOpenSummaries
+                ? "provider-hero-actions"
+                : "provider-hero-actions provider-hero-actions-hint"
+            }
+          >
+            {mayOpenSummaries ? (
               <Link
                 href={`/provider/${provider?.id}`}
                 className="ss-button ss-button-primary"
