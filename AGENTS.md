@@ -132,7 +132,9 @@ Parse Google Maps Timeline export. Android export is `{ semanticSegments: [...] 
 array. Keep only segments with a `visit` key within the last 7 days of the file (the latest `endTime` is
 "now", so a sample file never goes stale). `topCandidate.placeLocation` is either `"37.77°, -122.41°"` or
 `{ latLng: "geo:37.77,-122.41" }`. Handle both. Place names are not in the export: join on `placeId`, then
-fall back to a hand-labelled `data/visits.csv` by proximity.
+fall back to a hand-labelled `data/visits.csv` by proximity. A visit neither of those names is called by its
+own coordinates, three decimals (`placeLabel`) — never by its place id, which means nothing to a clinician
+(T62). `placeId` stays on the `Visit` regardless; it is what the join uses.
 
 ### Matching (`lib/match.ts`)
 
