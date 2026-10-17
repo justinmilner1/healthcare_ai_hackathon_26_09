@@ -4140,6 +4140,12 @@ button.sweetie-agent-badge {
   gap: 16px;
 }
 
+/* T63: the row holds the sleep card and the patterns card, and a summary no model wrote has no patterns to
+   show (§6.3). Whichever is left then spans the row instead of sitting in half of it beside a gap. */
+.patient-detail-grid > :only-child {
+  grid-column: 1 / -1;
+}
+
 .patient-pattern-list,
 .patient-question-list {
   display: grid;
