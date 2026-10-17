@@ -31,7 +31,12 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // The dashboard fills in from a client fetch of GET /api/provider. Wait for the seeded patient, or the
   // screenshot catches an empty workspace and shows nothing about the data behind it.
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
-  await shot(page, "provider-dashboard", { scrollTo: ".provider-table-card" });
+  // The row this test is about, centred in the shot: on a phone the dashboard is as tall as the
+  // practice's visit list, and one screenful of somebody else's rows answers nothing (T57).
+  await shot(page, "provider-dashboard", {
+    scrollTo: '.provider-table tbody tr:has-text("Sam Sample")',
+    block: "center",
+  });
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts). The email is where
   // the patient's six-digit code goes (T08, §5.3), so a booking without one could never be opened.

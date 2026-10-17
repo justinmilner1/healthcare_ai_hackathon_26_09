@@ -133,7 +133,12 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.locator(".provider-table")).toContainText("Roles Patient", LOADED);
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Open in Sour|Summarize/ })).toHaveCount(0);
-  await shot(page, "provider-dashboard-staff", { scrollTo: ".provider-table-card" });
+  // The row this test is about, centred in the shot: on a phone the dashboard is as tall as the
+  // practice's visit list, and one screenful of somebody else's rows answers nothing (T57).
+  await shot(page, "provider-dashboard-staff", {
+    scrollTo: '.provider-table tbody tr:has-text("Roles Patient")',
+    block: "center",
+  });
 
   await page.goto("/provider/settings");
   await expect(page).toHaveURL(/\/provider(\?|$|\/)/);

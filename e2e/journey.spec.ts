@@ -199,7 +199,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("button", { name: /Add patient/i })).toHaveCount(0);
   const clinicianRow = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(clinicianRow).toContainText(patientName, LOADED);
-  await shot(page, "11-clinician-dashboard", { scrollTo: ".provider-table-card" });
+  await shot(page, "11-clinician-dashboard", { scrollTo: clinicianRow, block: "center" });
 
   // The row offers Sour because there is data and answers to summarize, and no summary yet. Clicking it is
   // what asks for one: the page queues a `sour.run` job and waits for it (§3.4, §7.2).
@@ -232,7 +232,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const reviewed = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(reviewed).toContainText("Reviewed", LOADED);
   await expect(reviewed.locator(".provider-reviewed-by")).toContainText(clinicianName);
-  await shot(page, "14-dashboard-reviewed", { scrollTo: ".provider-table-card" });
+  await shot(page, "14-dashboard-reviewed", { scrollTo: reviewed, block: "center" });
 
   // §7.4: the sheet for the appointment itself. e2e/print.spec.ts is where the paper is checked; the journey
   // asks the one question it is here to ask — that the sheet carries this patient's week and their own words.

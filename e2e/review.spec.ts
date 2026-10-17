@@ -78,7 +78,9 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   const row = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(row).toContainText("Reviewed", LOADED);
   await expect(row.locator(".provider-reviewed-by")).toContainText("Dr. Demo Endo");
-  await shot(page, "provider-dashboard-reviewed", { scrollTo: ".provider-table-card" });
+  // The row this test is about, centred in the shot: on a phone the dashboard is as tall as the
+  // practice's visit list, and one screenful of somebody else's rows answers nothing (T57).
+  await shot(page, "provider-dashboard-reviewed", { scrollTo: row, block: "center" });
 
   // Pressing again is not an error and does not move the record: the first sign-off is the one that stands.
   const again = await postJson(page.request, "/api/review", { visitId: booked.visitId });
