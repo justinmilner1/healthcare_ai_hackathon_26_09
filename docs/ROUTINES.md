@@ -55,6 +55,17 @@ just driven — `docs/BACKUPS.md` explains what it is rehearsing), and writes
 screenshots to `e2e/screenshots/`. Both agents read those PNGs to
 see what they built. `npm run e2e:ui` is for humans.
 
+### What is in a screenshot (T57)
+
+Every spec takes its shots through `shot()` in `e2e/shot.ts`, which decides how much of the page is in the
+image: the desktop project shoots the whole document, where a table row is one line of it, and the mobile
+project shoots its 375px viewport, where it is not — a full-page phone shot of the provider dashboard is as
+tall as the practice's visit list and came out 20,000 pixels of three-pixel rows. A spec overrides that
+where the subject asks for it: `WHOLE_PAGE` for a page bounded by its own content (a patient screen, the
+landing page, the printed sheet), `MODAL` for a dialog, which is one viewport's worth of subject at either
+width, and `scrollTo` to put the table card or one booked row in the shot before it is taken. Add a shot by
+calling the helper; a new `page.screenshot` call is the thing this replaced.
+
 The suite runs two app servers (T20). Port 3100 is the usual one, with no model key, and port 3101 is the same
 build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
 the real degraded path (design §6.3). Playwright starts them one after another, so only the first one builds.
