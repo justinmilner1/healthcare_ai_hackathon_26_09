@@ -23,16 +23,25 @@ import { createHash } from "node:crypto";
  * Where a saved summary's patterns and questions came from.
  *
  * Part of the fingerprint because the two are not interchangeable. With no `OPENAI_API_KEY` configured at all,
- * Sour writes a deterministic placeholder ("LLM not configured…"); that is a complete answer for that
- * deployment and reusing it is right. The moment a key is configured the same inputs deserve a real
- * narrative, and because the source is in the hash, that run finds no match and really runs.
+ * Sour writes no narrative: the numbers, and both narrative sections empty (lib/sourRun.ts `degradedPair`).
+ * That is the whole of what such a deployment can produce, it is deterministic, and reusing it is right. The
+ * moment a key is configured the same inputs deserve a real narrative, and because the source is in the hash,
+ * that run finds no match and really runs.
+ *
+ * `"none"` rather than the `"unconfigured"` this value used to be, and that is load-bearing: before T63 the
+ * same deployment saved a pair whose first pattern read "LLM not configured: set OPENAI_API_KEY…". Those rows
+ * are still in the database of anything that ran Sour before the upgrade, and their inputs have not changed,
+ * so under the old value `existingSummaryFor` would hand that sentence to a clinician and a patient for ever
+ * — Generate included. Renaming the source is what retires them: a legacy pair no longer matches any
+ * fingerprint, so the next run writes the numbers-only pair in its place. Pairs the model wrote still say
+ * `"model"` and are untouched, which is the point of doing this here rather than by bumping HASH_VERSION.
  *
  * The third case — a key is configured but the gateway is down — has no value here: lib/sourRun.ts stores a
- * null `inputHash` for it, so the placeholder it writes is never reused and the retry really retries.
+ * null `inputHash` for it, so the pair it writes is never reused and the retry really retries.
  */
-export type NarrativeSource = "model" | "unconfigured";
+export type NarrativeSource = "model" | "none";
 
-export const narrativeSource = (configured: boolean): NarrativeSource => (configured ? "model" : "unconfigured");
+export const narrativeSource = (configured: boolean): NarrativeSource => (configured ? "model" : "none");
 
 /** One upload, as the fingerprint sees it. */
 export type SourUploadRef = { id: string; kind: string; parsedRows: number };

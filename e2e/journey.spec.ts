@@ -191,6 +191,14 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect
     .poll(async () => (await (await page.request.get(`/api/patient/${token}`)).json()).patientSummary !== null, { timeout: 60_000 })
     .toBe(true);
+  // And the response itself, not just the page: a patient's token gets their own summary and none of the
+  // clinician's half of the bundle (§5.2, §10.6, lib/bundle.ts `patientView`). The clinician's copy of this
+  // same visit, with its summary and its sign-off, is read further down with a provider session.
+  const patientBundle = await (await page.request.get(`/api/patient/${token}`)).json();
+  expect(patientBundle.patientSummary, "their own summary is theirs").toBeTruthy();
+  expect(patientBundle.providerSummary, "the clinician's narrative and safety flags are not").toBeNull();
+  expect(patientBundle.sourJob).toBeNull();
+  expect(patientBundle.review).toBeNull();
   await page.reload();
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   await expect(page.locator(".patient-summary-content")).not.toContainText(/OPENAI|API_KEY/i);

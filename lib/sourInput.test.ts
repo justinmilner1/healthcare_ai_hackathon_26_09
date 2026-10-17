@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { narrativeSource, sourInputHash, sourInputsFor, type SourInputs } from "./sourInput";
+import { narrativeSource, sourInputHash, sourInputsFor, type NarrativeSource, type SourInputs } from "./sourInput";
 
 const base: SourInputs = {
   intake: JSON.stringify({ fields: { meals: { value: "pasta most nights", confidence: "high" } }, turns: 2, wrapped: true, skipped: [], flagged: null }),
@@ -55,12 +55,21 @@ describe("sourInputHash", () => {
     assert.notEqual(hash({ visitType: null }), hash());
   });
 
-  it("separates a model narrative from the no-key placeholder", () => {
-    // The point of carrying the source: configuring a key must not leave the clinician looking at
-    // "LLM not configured" forever just because nothing about the patient changed.
-    assert.notEqual(hash({ source: "unconfigured" }), hash({ source: "model" }));
+  it("separates a model narrative from a run that wrote none", () => {
+    // The point of carrying the source: configuring a key must not leave the clinician looking at a summary
+    // with no patterns in it forever just because nothing about the patient changed.
+    assert.notEqual(hash({ source: "none" }), hash({ source: "model" }));
     assert.equal(narrativeSource(true), "model");
-    assert.equal(narrativeSource(false), "unconfigured");
+    assert.equal(narrativeSource(false), "none");
+  });
+
+  it("retires the pairs an unconfigured deployment saved before T63", () => {
+    // Those rows carry "LLM not configured: set OPENAI_API_KEY…" as their first pattern and were hashed with
+    // source "unconfigured". Their inputs have not changed, so the only thing that stops existingSummaryFor
+    // handing that sentence to a patient after the upgrade is this value no longer being the one we hash.
+    const legacy = sourInputHash({ ...base, source: "unconfigured" as unknown as NarrativeSource });
+    assert.notEqual(hash({ source: "none" }), legacy, "a pre-T63 no-key pair must not match today's run");
+    assert.notEqual(hash({ source: "model" }), legacy);
   });
 
   it("treats an empty visit as its own fingerprint rather than throwing", () => {
