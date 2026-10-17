@@ -64,6 +64,10 @@ export default function SweetiePage({
   const micOn = useRef(false);
   const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
+  // Whether this page has taken a turn yet (T78). `send`, `upload` and `skipQuestions` each set it before
+  // they touch the transcript, so the opening fetch below can tell a snapshot that is merely older than the
+  // screen from one that is the whole truth, and refuse to roll the stepper back to it.
+  const advanced = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,20 +91,38 @@ export default function SweetiePage({
   }, [token]);
 
   useEffect(() => {
+    const controller = new AbortController();
     setSupport(voiceSupport());
     warmVoices();
-    fetch(`/api/sweetie?token=${encodeURIComponent(token)}`)
+    // The composer is live while this is on the wire — `busy` is false until the patient sends something —
+    // so on a slow connection they can take a whole turn before the opening transcript arrives. This
+    // response is then older than the screen, and replacing the state with it wiped their message and
+    // Sweetie's reply off the page and rolled the stepper back (T78, design §6.2). Nothing was ever lost
+    // server-side; what follows keeps the screen from disagreeing with it.
+    advanced.current = false;
+    setMessages([]);
+    fetch(`/api/sweetie?token=${encodeURIComponent(token)}`, { signal: controller.signal })
       .then((response) => response.json())
       .then((data) => {
-        setMessages(data.messages ?? []);
+        if (controller.signal.aborted) return;
+        // The snapshot is the transcript up to the moment the server built it; anything on screen now is
+        // newer than that, because this effect is the only thing that fills the list and it clears it
+        // first. So the two concatenate rather than one overwriting the other, in that order.
+        setMessages((current) => [...(data.messages ?? []), ...current]);
+        setAgent(data.agent ?? null);
+        // A turn the page has already taken has already set these from its own, newer response.
+        if (advanced.current) return;
         setStatus(data.status ?? null);
         setIntake(data.intake ?? null);
         setFields(data.intakeFields ?? []);
-        setAgent(data.agent ?? null);
         done.current = Boolean(data.status?.done && data.intake?.wrapped);
-      });
+      })
+      // An abort is the cleanup below, not a failure; a genuine network error leaves the greeting absent,
+      // which a reload fixes and which the page already renders as an empty transcript.
+      .catch(() => {});
 
     return () => {
+      controller.abort();
       micOn.current = false;
       listener.current?.stop();
       hush();
@@ -189,6 +211,7 @@ export default function SweetiePage({
   async function send(raw: string) {
     const mine = raw.trim();
     if (!mine || busy || uploading || skipping) return;
+    advanced.current = true;
     setText("");
     setMessages((current) => [
       ...current,
@@ -234,6 +257,7 @@ export default function SweetiePage({
 
   async function upload(kind: UploadKind, file: File) {
     if (sandboxPatient !== false || busy || uploading || skipping) return;
+    advanced.current = true;
     setUploading(kind);
     const form = new FormData();
     form.set("token", token);
@@ -286,6 +310,7 @@ export default function SweetiePage({
 
   async function skipQuestions() {
     if (busy || uploading || skipping) return;
+    advanced.current = true;
     micOn.current = false;
     listener.current?.stop();
     hush();

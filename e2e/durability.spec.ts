@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyLink } from "./patient";
@@ -148,4 +148,64 @@ test("a reply the browser never receives is still in the transcript after a relo
   await answer(page, "Also tired by mid-morning, and my sleep has been poor since August.");
   const continued = await (await page.request.get(`/api/patient/${token}`)).json();
   expect(continued.intake.turns).toBe(2);
+});
+
+test("an answer typed before the opening transcript lands survives it arriving (§6.2)", async ({ page }) => {
+  // The composer is live while the opening GET is still on the wire, so a patient on a slow connection can
+  // answer into what looks like an empty page. That response is then older than the screen. It used to
+  // replace the transcript with its own snapshot, so the patient watched their own words disappear and
+  // Sweetie ask a question they had just answered (T78).
+  const token = await openChatAsPatient(page, "E2E Slow Open");
+  const greeting = await page.locator(BUBBLES).count();
+
+  // The response is held back, not the request: the server answers at once and the bytes arrive late, which
+  // is what a slow connection does. Delaying the request instead does not reproduce it — the snapshot would
+  // then be built after the message was stored, and the overwrite happens to be harmless.
+  let hold = true;
+  // Matched on the path rather than a glob, because the opening request carries `?token=...` and the turn's
+  // POST does not, and only the GET is being held.
+  const sweetie = (url: URL) => url.pathname === "/api/sweetie";
+  const holdOpening = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const body = await response.body();
+    if (hold) await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await route.fulfill({ response, body });
+  };
+  await page.route(sweetie, holdOpening);
+
+  await page.reload();
+
+  // Straight in, while the greeting is still in flight. The input is not disabled, so this is what the
+  // product invites the patient to do.
+  const mine = "My sugars run high after dinner on the days I work late.";
+  const input = page.locator("input[type='text'], input:not([type]), textarea").first();
+  await input.fill(mine);
+  await input.press("Enter");
+  await expect(page.locator(".sweetie-messages")).toContainText(mine, LOADED);
+
+  // The held response now lands. Everything has to still be there: the greeting it carries, and the turn
+  // the page took without it.
+  await expect(page.locator(BUBBLES)).toHaveCount(greeting + 2, LOADED);
+  const settled = await onScreen(page);
+  expect(settled.transcript[0], "the greeting the late response carried, first").toMatch(/Hi E2E/);
+  expect(settled.transcript, "the patient's own words, kept").toContain(mine);
+  expect(
+    settled.transcript.filter((line) => line.includes("run high after dinner")).length,
+    "once, not duplicated by the merge",
+  ).toBe(1);
+  // And the stepper is where the turn left it, not rolled back to the snapshot's older state.
+  expect(settled.stepper.some((step) => step.done), "the answered step stayed answered").toBe(true);
+  await shot(page, "sweetie-answer-before-load");
+
+  hold = false;
+  await page.unroute(sweetie, holdOpening);
+
+  // The server was never in doubt — one turn, stored — so a reload agrees with what stayed on screen.
+  const bundle = await (await page.request.get(`/api/patient/${token}`)).json();
+  expect(bundle.intake.turns).toBe(1);
+  await page.reload();
+  await expect(page.locator(BUBBLES)).toHaveCount(greeting + 2, LOADED);
+  const reloaded = await onScreen(page);
+  expect(reloaded.transcript, "the same transcript the race left behind").toEqual(settled.transcript);
 });
