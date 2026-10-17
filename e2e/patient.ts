@@ -152,14 +152,24 @@ export async function verifyLink(page: Page, token: string, email: string, dir =
  * that context's jar, so its later GETs speak as the verified patient. Consent is answered here too, for the
  * same reason as above: a context that has verified is a patient who got through the door, and POST
  * /api/consent is behind the same verified session.
+ *
+ * `consent: false` stops at the verified session and leaves the screen unanswered, for a spec that is about
+ * the answer itself: accepting here would be the row it then goes looking for (e2e/audit.spec.ts, T51).
  */
-export async function verifyByApi(request: APIRequestContext, token: string, email: string, dir = MAIL_DIR): Promise<string> {
+export async function verifyByApi(
+  request: APIRequestContext,
+  token: string,
+  email: string,
+  dir = MAIL_DIR,
+  { consent = true }: { consent?: boolean } = {},
+): Promise<string> {
   const before = latestCode(email, dir);
   const asked = await postJson(request, "/api/verify", { token });
   expect(asked.status(), `POST /api/verify: ${await asked.text()}`).toBe(202);
   const code = await waitForCode(email, dir, before);
   const verified = await postJson(request, "/api/verify", { token, code });
   expect(verified.status(), `POST /api/verify with the code: ${await verified.text()}`).toBe(200);
+  if (!consent) return code;
   const consented = await postJson(request, "/api/consent", { token, accept: true });
   expect(consented.status(), `POST /api/consent: ${await consented.text()}`).toBe(200);
   return code;

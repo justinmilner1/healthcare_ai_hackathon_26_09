@@ -134,20 +134,22 @@ test("the audit trail records reads, link use and deletions, and exports them wi
 test("accepting and declining the consent screen each leave a row the audit page names and filters", async ({ page, request }) => {
   await signInAsDemo(page);
 
-  /** A booked visit whose patient then verifies their link, which is the session consent needs (§5.3). One
-   *  patient at a time: the session cookie names one visit, so the second verification replaces the first. */
-  const consenting = async (name: string) => {
+  /** A booked visit whose patient then verifies their link, which is the session consent needs (§5.3), and
+   *  stops there: `consent: false`, because answering the screen is what this test is about and the helper's
+   *  own acceptance would be the row it then goes looking for. One patient at a time — the session cookie
+   *  names one visit, so the second verification replaces the first. */
+  const verified = async (name: string) => {
     const email = patientEmail(name);
     const booked = await (await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", channel: "none" })).json();
     expect(booked.visitId, `booking: ${JSON.stringify(booked)}`).toBeTruthy();
-    await verifyByApi(request, booked.token, email);
+    await verifyByApi(request, booked.token, email, undefined, { consent: false });
     return booked as { visitId: string; patientId: string; token: string };
   };
 
-  const accepted = await consenting("Audit Consent Given");
+  const accepted = await verified("Audit Consent Given");
   expect((await postJson(request, "/api/consent", { token: accepted.token, accept: true })).ok()).toBeTruthy();
 
-  const declined = await consenting("Audit Consent Refused");
+  const declined = await verified("Audit Consent Refused");
   expect((await postJson(request, "/api/consent", { token: declined.token, accept: false })).ok()).toBeTruthy();
 
   await page.goto("/provider/audit");
@@ -172,6 +174,8 @@ test("accepting and declining the consent screen each leave a row the audit page
   await page.getByLabel("Visit or upload id").fill(declined.visitId);
   await expect(table).toContainText("Intake consent declined", LOADED);
   await expect(table).toContainText("Patient link accepted");
+  // Only the one answer on this visit: the row says which way the patient went, not that they were asked.
+  await expect(table).not.toContainText("Intake consent accepted");
   await expect(table).toContainText("rows: 1");
   await expect(table).not.toContainText("droppedFields");
   await expect(table.locator(".audit-entity-type").first()).toHaveText("visit");
