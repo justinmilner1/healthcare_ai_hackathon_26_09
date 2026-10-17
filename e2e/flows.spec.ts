@@ -15,9 +15,59 @@ const shot = async (page: Page, name: string) => {
 // slow runner can take longer than the 5s default to come back, so these get their own budget.
 const LOADED = { timeout: 30_000 };
 
+/**
+ * The hero illustration names the two agents, and nothing in it may cover those names (T52, design §2, §6.5).
+ *
+ * Measured rather than eyeballed because the three boxes are absolutely positioned against a column whose
+ * width is a percentage: the captions and the handoff pill move apart or together with the viewport, and the
+ * overlap that hid "Sweetie" at 1280px and both names at 375px was invisible in the markup. The test runs in
+ * both projects, so the two widths §6.5 and the ticket name are both covered.
+ */
+async function expectHeroCaptionsLegible(page: Page): Promise<void> {
+  const covered = await page.evaluate(() => {
+    const box = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { selector, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    };
+    type Box = NonNullable<ReturnType<typeof box>>;
+    const over = (a: Box, b: Box) => {
+      const x = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      // A pixel of slack: the boxes are laid out from percentages, so edges that are meant to meet can
+      // measure as a hair of overlap without a reader losing a single letter.
+      return x > 1 && y > 1 ? `${a.selector} covers ${b.selector} by ${Math.round(x)}×${Math.round(y)}px` : null;
+    };
+    const sweetie = box(".home-character-sweetie figcaption");
+    const sour = box(".home-character-sour figcaption");
+    const pill = box(".home-handoff");
+    const visual = box(".home-visual");
+    const found: string[] = [];
+    if (!sweetie || !sour || !pill || !visual) return ["the hero is missing a caption or the handoff pill"];
+    for (const caption of [sweetie, sour]) {
+      const hit = over(pill, caption);
+      if (hit) found.push(hit);
+      // Clipped by the visual's own `overflow: hidden` is the other way a caption disappears.
+      if (caption.left < visual.left - 1 || caption.right > visual.right + 1
+        || caption.top < visual.top - 1 || caption.bottom > visual.bottom + 1) {
+        found.push(`${caption.selector} is clipped by .home-visual`);
+      }
+    }
+    const both = over(sweetie, sour);
+    if (both) found.push(both);
+    return found;
+  });
+  expect(covered, "the hero captions name Sweetie and Sour; nothing may cover them (design §2, §6.5)").toEqual([]);
+}
+
 test("landing renders", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
+  // Both names are on the page, and both are readable: the figcaptions are what the two alt texts introduce.
+  await expect(page.locator(".home-character-sweetie figcaption")).toContainText("Sweetie");
+  await expect(page.locator(".home-character-sour figcaption")).toContainText("Sour");
+  await expectHeroCaptionsLegible(page);
   await shot(page, "landing");
 });
 
