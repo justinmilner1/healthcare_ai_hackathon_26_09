@@ -100,9 +100,13 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // with: the dashboard reads GET /api/provider once, and the send finished after that.
   await page.reload();
   await expect(row).toContainText("Consent: Over the phone", LOADED);
-  // The row this test is about, centred in the shot: on a phone the dashboard is as tall as the
-  // practice's visit list, and one screenful of somebody else's rows answers nothing (T57).
-  await shot(page, "provider-dashboard-visit-statuses", { scrollTo: row, block: "center" });
+// The cell this test asserts on, not just the row: the table is wider than a phone, so Stage,
+  // Messages and Actions are off to the right until the shot asks for them (T57).
+  await shot(page, "provider-dashboard-visit-statuses", {
+    scrollTo: row.locator(".provider-invite"),
+    block: "center",
+    inline: "center",
+  });
 });
 
 test("a day of visits imports from a CSV, one error per bad row", async ({ page }, testInfo) => {

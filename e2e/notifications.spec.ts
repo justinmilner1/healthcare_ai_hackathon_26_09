@@ -81,7 +81,11 @@ test("the dashboard shows what each message did, and why a channel is closed", a
   const sam = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" });
   await expect(sam.locator(".provider-suppressed")).toHaveCount(0);
 
-  // The Messages column on Dana's row is what this is about, so that row is what the shot is centred on:
-  // the table is a screen below the hero on a phone and as tall as the practice's visit list (T57).
-  await shot(page, "provider-dashboard-deliveries", { scrollTo: dana, block: "center" });
+  // The Messages cell on Dana's row is what this is about, and on a phone it is both a screen down and a
+  // column to the right of what the dashboard opens on (T57).
+  await shot(page, "provider-dashboard-deliveries", {
+    scrollTo: dana.locator(".provider-invite"),
+    block: "center",
+    inline: "center",
+  });
 });

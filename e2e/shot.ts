@@ -30,12 +30,19 @@ export type ShotOptions = {
    */
   scrollTo?: string | Locator;
   /**
-   * Where `scrollTo` puts the subject. `"start"` (the default) is the top of the viewport, which is what a
-   * card taller than the screen wants — `scrollIntoViewIfNeeded` stops as soon as the card is barely on
-   * screen and leaves the shot mid-rows with no header on it. `"center"` is for a single row inside a long
-   * table, which otherwise lands half cut off at the bottom edge.
+   * Where `scrollTo` puts the subject vertically. `"start"` (the default) is the top of the viewport, which
+   * is what a card taller than the screen wants — `scrollIntoViewIfNeeded` stops as soon as the card is
+   * barely on screen and leaves the shot mid-rows with no header on it. `"center"` is for a single row
+   * inside a long table, which otherwise lands half cut off at the bottom edge.
    */
   block?: "start" | "center" | "end" | "nearest";
+  /**
+   * And horizontally. The dashboard's table is `min-width: 1120px` inside an `overflow-x: auto` card
+   * (app/globals.css), so at 375px a third of it is on screen and the Stage, Messages and Actions columns
+   * are off to the right — which is where most of what these tests assert on lives. Passing the cell rather
+   * than the row as `scrollTo`, with `inline: "center"`, brings that column into the shot.
+   */
+  inline?: "start" | "center" | "end" | "nearest";
   /** Freeze the 480ms card fade, so the committed shot is the layout and not a half-faded card. */
   animations?: "disabled" | "allow";
 };
@@ -59,12 +66,12 @@ export const WHOLE_PAGE: ShotOptions = { fullPage: true };
  * `docs/screenshots/tickets/*` reference depend on.
  */
 export async function shot(page: Page, name: string, options: ShotOptions = {}): Promise<void> {
-  const { fullPage = fullPageByDefault(), scrollTo, block = "start", animations } = options;
+  const { fullPage = fullPageByDefault(), scrollTo, block = "start", inline = "nearest", animations } = options;
   if (scrollTo) {
     const target = typeof scrollTo === "string" ? page.locator(scrollTo) : scrollTo;
     await target.first().evaluate((element, position) => {
-      element.scrollIntoView({ block: position });
-    }, block);
+      element.scrollIntoView(position);
+    }, { block, inline });
   }
   await page.screenshot({
     path: `e2e/screenshots/${test.info().project.name}-${name}.png`,

@@ -232,7 +232,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const reviewed = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(reviewed).toContainText("Reviewed", LOADED);
   await expect(reviewed.locator(".provider-reviewed-by")).toContainText(clinicianName);
-  await shot(page, "14-dashboard-reviewed", { scrollTo: reviewed, block: "center" });
+  await shot(page, "14-dashboard-reviewed", {
+    scrollTo: reviewed.locator(".provider-stage-cell"),
+    block: "center",
+    inline: "center",
+  });
 
   // §7.4: the sheet for the appointment itself. e2e/print.spec.ts is where the paper is checked; the journey
   // asks the one question it is here to ask — that the sheet carries this patient's week and their own words.

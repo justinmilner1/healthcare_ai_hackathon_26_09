@@ -82,8 +82,9 @@ test("a demo practice does not message a number that could be somebody's", async
   // as the practice's visit list and the Messages column on one row is all this is about (T57).
   await shot(page, "provider-dashboard-demo-messages", {
     fullPage: false,
-    scrollTo: `.provider-table tbody tr:has-text("${realPhone}")`,
+    scrollTo: `.provider-table tbody tr:has-text("${realPhone}") .provider-invite`,
     block: "center",
+    inline: "center",
   });
 });
 
