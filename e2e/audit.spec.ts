@@ -17,12 +17,21 @@ import { patientEmail, verifyByApi } from "./patient";
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
 // JSON the page reads, and found in neither.
 
-// The whole practice's trail is on this screen and every other spec in the run adds rows to it, so the
-// unfiltered shot has no fixed height. Full-page on the desktop project, where a row is a line of a table;
-// the viewport on the phone, where each row stacks into five labelled lines and the same page came out
-// 25,000 pixels tall — a picture that shows a reviewer nothing. The filtered shot below is full-page on
-// both, because by then exactly this visit's three rows are on screen.
-const shot = async (page: Page, name: string, fullPage = test.info().project.name === "desktop") => {
+// The whole practice's trail is on this screen and every other spec in the run adds rows to it, so neither
+// shot has a fixed height. Full-page on the desktop project, where a row is a line of a table; the viewport
+// on the phone, where each row stacks into five labelled lines and the same page came out 25,000 pixels
+// tall — a picture that shows a reviewer nothing.
+//
+// Filtering does not make the phone's page short enough to shoot whole (T61). Six rows of this visit's own
+// are 2,800 CSS pixels once the six stacked filter fields above them are counted, which at the phone's
+// device scale is a 7,400-pixel image — over the §12.3 size gate in e2e/screenshotSize.ts, and four screens
+// of scrolling to find the rows the shot is about. So a shot can say what to put at the top of the viewport
+// first, and the filtered ones below ask for the entries.
+const shot = async (page: Page, name: string, scrollTo?: string) => {
+  const fullPage = test.info().project.name === "desktop";
+  if (!fullPage && scrollTo) {
+    await page.locator(scrollTo).first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  }
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
 };
 
@@ -104,7 +113,7 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   // list the filter never narrowed.
   const matching = await rows.count();
   await expect(page.locator(".provider-patients [aria-live]")).toHaveText(`${matching} of ${matching} shown`);
-  await shot(page, "provider-audit-visit", true);
+  await shot(page, "provider-audit-visit", ".provider-patients");
 
   // A filter that matches nothing says so, rather than looking like an empty log.
   await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");

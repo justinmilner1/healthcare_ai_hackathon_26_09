@@ -55,6 +55,9 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   retries: 0,
+  // The §12.3 size gate (T61): after the last spec, every screenshot this run wrote is measured and one
+  // taller than a reviewer can open fails the suite. e2e/screenshotSize.ts says what the limit is and why.
+  globalTeardown: "./e2e/screenshotSize.ts",
   reporter: [["list"], ["html", { open: "never", outputFolder: "e2e/report" }]],
   use: {
     baseURL: `http://localhost:${PORT}`,

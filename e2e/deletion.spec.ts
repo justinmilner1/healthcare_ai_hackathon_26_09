@@ -23,8 +23,13 @@ import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 // The dashboard is as tall as the practice's visit list, which by the time the mobile project runs is every
 // patient every other spec booked — a full-page phone shot of it came out 12,000 pixels tall, which shows a
 // reviewer nothing. So the phone shoots its viewport (the dialog is centred in it anyway) and the desktop
-// shoots the page, the same split e2e/audit.spec.ts makes for the same reason.
-const shot = async (page: Page, name: string, fullPage = test.info().project.name === "desktop") => {
+// shoots the page, the same split e2e/audit.spec.ts makes for the same reason. A shot whose subject is
+// below the fold on the phone names what to bring to the top of the viewport first, as that file does.
+const shot = async (page: Page, name: string, scrollTo?: string) => {
+  const fullPage = test.info().project.name === "desktop";
+  if (!fullPage && scrollTo) {
+    await page.locator(scrollTo).first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  }
   await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
 };
 
@@ -110,7 +115,14 @@ test("a deletion request removes everything the patient gave us, and leaves a re
   await expect(table).toContainText("Patient data deleted", LOADED);
   await page.getByLabel("Action").selectOption("patient.deleted");
   await expect(table).toContainText(demo.name, LOADED);
-  await shot(page, "provider-audit-deletion", true);
+  // The clinician's name is on nearly every row of the unfiltered trail, so on its own it passes whether
+  // the filter landed or not — and the shot below is then a picture of the whole practice's log (T61,
+  // app/provider/audit/audit.tsx). What only the filtered table satisfies is every row being this one
+  // action: the deletions, and nothing anybody read, accepted or sent.
+  const deletions = page.locator(".audit-table tbody tr");
+  await expect(deletions).not.toHaveCount(0);
+  await expect(deletions.filter({ hasNotText: "Patient data deleted" })).toHaveCount(0);
+  await shot(page, "provider-audit-deletion", ".provider-patients");
 
   // §4.8, against the real table: the row says how much went and nothing about whom.
   const csv = await page.request.get("/api/audit?limit=500&format=csv");
