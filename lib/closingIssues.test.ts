@@ -23,6 +23,7 @@ test("a body naming no issue, or none at all, yields nothing rather than throwin
   assert.deepEqual(parseClosingIssues("Closes #<issue>."), []);
   assert.deepEqual(parseClosingIssues("See #12 for context"), []);
   assert.deepEqual(parseClosingIssues("Refs #12, part of #13"), []);
+  assert.deepEqual(parseClosingIssues("Closes #0"), []); // there is no issue 0
 });
 
 test("several issues come back in order, once each", () => {
