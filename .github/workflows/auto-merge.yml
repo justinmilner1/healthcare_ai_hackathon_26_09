@@ -64,8 +64,11 @@ jobs:
               // selection rule in docs/ROUTINES.md never looks at, so neither was picked up again. The regex
               // lives in lib/closingIssues.ts, which lib/closingIssues.test.ts keeps identical to this copy;
               // github-script has no checkout, so it cannot import it.
+              // Fenced blocks and inline code spans are quoted examples, not links: a body explaining this
+              // workflow writes "`Closes: #12`" and must not thereby close #12. Blanked before matching.
+              const prose = (pr.body ?? "").replace(/```[\s\S]*?```|`[^`\n]*`/g, " ");
               const closing = [];
-              for (const m of (pr.body ?? "").matchAll(/(?:^|[^\w/-])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)/gi)) {
+              for (const m of prose.matchAll(/(?:^|[^\w/-])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)/gi)) {
                 const n = Number(m[1]);
                 if (n > 0 && !closing.includes(n)) closing.push(n);
               }

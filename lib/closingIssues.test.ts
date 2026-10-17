@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { CLOSING_KEYWORD_PATTERN, parseClosingIssues } from "./closingIssues";
+import { CLOSING_KEYWORD_PATTERN, CODE_SPAN_PATTERN, parseClosingIssues } from "./closingIssues";
 
 const workflow = readFileSync(".github/workflows/auto-merge.yml", "utf8");
 
@@ -30,6 +30,18 @@ test("several issues come back in order, once each", () => {
   assert.deepEqual(parseClosingIssues("Closes #66.\nAlso fixes #10 and closes #66 again."), [66, 10]);
 });
 
+test("a keyword inside code is an example, not a link", () => {
+  // #139's own body, which explains the colon form in a code span. Literally parsed it also closed #12.
+  assert.deepEqual(
+    parseClosingIssues("Closes #83.\n- parses the optional colon GitHub accepts (`Closes: #12`);\n"),
+    [83],
+  );
+  assert.deepEqual(parseClosingIssues("```\nCloses #12\n```\n\nCloses #83."), [83]);
+  assert.deepEqual(parseClosingIssues("`fixes #12`"), []);
+  // A lone backtick is not a span, so it must not swallow the rest of the body.
+  assert.deepEqual(parseClosingIssues("Costs 5` of rope. Closes #83."), [83]);
+});
+
 test("another repository's issue is not ours to close", () => {
   assert.deepEqual(parseClosingIssues("Closes justinmilner1/other#12"), []);
   assert.deepEqual(parseClosingIssues("Fixes some-org/repo#12 and closes #13"), [13]);
@@ -41,6 +53,9 @@ test("the auto-merge workflow carries this exact pattern", () => {
   const inWorkflow = /matchAll\((\/.+\/gi)\)/.exec(workflow);
   assert.ok(inWorkflow, "auto-merge.yml no longer has a matchAll(/.../gi) over the pull request body");
   assert.equal(inWorkflow[1], `/${CLOSING_KEYWORD_PATTERN}/gi`);
+  const blanksCode = /replace\((\/.+\/g), " "\)/.exec(workflow);
+  assert.ok(blanksCode, "auto-merge.yml no longer blanks code spans before matching");
+  assert.equal(blanksCode[1], `/${CODE_SPAN_PATTERN}/g`);
 });
 
 test("the auto-merge workflow closes what it finds and says so", () => {
