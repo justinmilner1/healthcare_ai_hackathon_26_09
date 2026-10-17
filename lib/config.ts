@@ -246,6 +246,15 @@ export const SPEC: readonly VarSpec[] = [
     requirement: "recommended",
     summary: "Bedrock API key (the AWS_BEARER_TOKEN_BEDROCK value), not an OpenAI key.",
     whenMissing: "Sweetie and Sour answer from their scripted paths and the page says so (design §6.3, §11.3)",
+    // T63 asked whether this should become `required`, which under §3.7 means a deployment without it
+    // refuses to serve at all. Deliberately not: scripted mode is a supported mode of this product rather
+    // than a broken one (§6.3, §11.3). Booking visits, the patient's intake and transcript, every
+    // deterministic number in lib/sour.ts, the spike table and the printed one-pager all work with no key,
+    // so refusing to boot would take a practice entirely offline in order to withhold three sentences of
+    // narrative — and a pilot deploying while its Bedrock key is still being issued (§1) is exactly the case
+    // the design plans for. What reports the gap instead: this check, which warns about it in production
+    // (groupProblems below), the `model` leg of GET /api/health (§11.2), and the §11.1 model alarms. Not a
+    // patient's summary, which since T63 says nothing about configuration at all.
   },
   {
     name: "BEDROCK_OPENAI_MODEL_ID",

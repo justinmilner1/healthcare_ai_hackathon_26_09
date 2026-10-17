@@ -184,6 +184,18 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // §2.7's patient view of the same week.
   await page.goto(`/patient/${token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+  // T63 (§2.7, §6.3): no model key here, so Sour saved this week's numbers with no narrative. Waiting for the
+  // patient's own saved summary first, because the claim is about a summary that exists: the page omits the
+  // two narrative sections the way it does for any empty pair, rather than rendering the reason as a pattern,
+  // and nothing on it names a variable or is addressed to whoever deploys the app.
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/patient/${token}`)).json()).patientSummary !== null, { timeout: 60_000 })
+    .toBe(true);
+  await page.reload();
+  await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+  await expect(page.locator(".patient-summary-content")).not.toContainText(/OPENAI|API_KEY/i);
+  await expect(page.getByRole("heading", { name: "What your week showed" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Things you might ask your doctor" })).toHaveCount(0);
   await shot(page, "10-patient-summary");
 
   // ---- The clinician reads it, signs it off, prints it (§7.2, §7.3, §7.4) ------------------------------

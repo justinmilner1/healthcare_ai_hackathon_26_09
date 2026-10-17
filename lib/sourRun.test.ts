@@ -15,7 +15,7 @@ import { randomBytes } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { PrismaClient } from "@prisma/client";
 import { sourInputHash, sourInputsFor } from "./sourInput";
-import { existingSummaryFor, uploadRefs } from "./sourRun";
+import { degradedPair, existingSummaryFor, uploadRefs } from "./sourRun";
 import type { Summary } from "./types";
 
 const SERVER_URL = process.env.DATABASE_URL;
@@ -159,5 +159,53 @@ describe("existingSummaryFor", { skip: SERVER_URL ? false : "DATABASE_URL is not
       assert.notEqual(afterUpload, before, "a WHOOP export is new input");
       assert.equal(await existingSummaryFor(visitId, afterUpload, db), null);
     });
+  });
+});
+
+// T63 (design §2.7, §6.3, §7, §11.3): what reaches `Summary.json` for each audience when no model wrote the
+// narrative. Both of `LLMUnavailable`'s causes go through here, and the thing being asserted is an absence —
+// that nothing in either row is addressed to whoever deploys the app. The stringify is not decoration: the
+// row is JSON, and a reason smuggled into any field of it would reach the patient's own page.
+describe("degradedPair", () => {
+  const base: Summary = { ...summary([]), flags: undefined };
+  const flags = ["2 readings below 54 mg/dL"];
+
+  for (const [configured, missing] of [[false, "unconfigured"], [true, "unavailable"]] as const) {
+    describe(configured ? "a configured gateway that is down" : "no model configured at all", () => {
+      const { provider, patient } = degradedPair(base, flags, configured);
+
+      it("keeps every deterministic number and drops both narrative sections", () => {
+        for (const [who, s] of [["provider", provider], ["patient", patient]] as const) {
+          assert.equal(s.timeInRange, base.timeInRange, `${who} keeps the numbers lib/sour.ts computed`);
+          assert.equal(s.avgGlucose, base.avgGlucose, who);
+          assert.equal(s.patientNotes, base.patientNotes, `${who} keeps the patient's own words`);
+          assert.deepEqual(s.patterns, [], `${who} must have no pattern to render (§7: a pattern cites data)`);
+          assert.deepEqual(s.questions, [], who);
+        }
+      });
+
+      it("tells the clinician which cause it was, and tells the patient nothing", () => {
+        assert.equal(provider.narrativeMissing, missing);
+        assert.equal(patient.narrativeMissing, undefined, "the patient cannot act on it and §10.6 keeps it out");
+        assert.deepEqual(provider.flags, flags, "safety flags are computed in code and still the clinician's");
+        assert.deepEqual(patient.flags, [], "the patient's copy carries none, degraded or not");
+      });
+
+      it("writes no variable name, key name, or instruction for whoever deploys the app", () => {
+        for (const [who, s] of [["provider", provider], ["patient", patient]] as const) {
+          const json = JSON.stringify(s);
+          assert.doesNotMatch(json, /OPENAI|API_KEY|apiKey|\.env/i, `${who}: ${json}`);
+          assert.doesNotMatch(json, /not configured|unavailable:|set .* to generate/i, `${who} renders no sentence at all`);
+        }
+      });
+    });
+  }
+
+  it("marks only the unconfigured pair as one worth reusing (§7.1)", () => {
+    // lib/sourRun.ts reads this back: `narrativeMissing === "unconfigured"` is what keeps the fingerprint,
+    // because that pair is the whole of what such a deployment can produce. A gateway that was merely down
+    // gets a null hash so the next run really runs.
+    assert.equal(degradedPair(base, flags, false).provider.narrativeMissing, "unconfigured");
+    assert.equal(degradedPair(base, flags, true).provider.narrativeMissing, "unavailable");
   });
 });
