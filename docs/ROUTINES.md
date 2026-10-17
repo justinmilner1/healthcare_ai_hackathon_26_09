@@ -38,7 +38,10 @@ Runs every three hours. Reviews every open pull request labeled `review`, oldest
 3. Small problems (naming, a missing edge case, a lint warning, a wrong label): fix them on the branch, commit, note it in the review.
 4. If it matches: post a review with `event=COMMENT` whose body names the design sections it fulfills and what
    you checked, then add the label `merge-ready` to the pull request. The `auto-merge` workflow squash-merges it
-   once CI is green, deletes the branch, and the linked issue closes. Do not call APPROVE and do not try to merge
+   once CI is green, deletes the branch, and closes the issues the pull request body names with a closing
+   keyword, dropping `review` and `in-progress` from each (T55: it does that itself rather than trusting
+   GitHub's implicit linking, which twice merged a pull request and left its ticket open and labeled
+   `review` — a state step 2's selection rule never looks at). Do not call APPROVE and do not try to merge
    or delete branches yourself: GitHub refuses a self-approval from the account that opened the pull request, and
    the sandbox proxy refuses branch deletion (T44).
 5. If it does not: post a review with `event=COMMENT` whose body is a precise numbered list, label the issue
@@ -127,7 +130,7 @@ gh api "repos/$R/pulls?state=open&per_page=50" --jq 'sort_by(.number)[] | "\(.nu
 # issue labels on a PR (PRs are issues): same /issues/{n}/labels endpoints with the PR number
 # review verdict (COMMENT only; APPROVE and REQUEST_CHANGES are refused as self-review)
 gh api -X POST "repos/$R/pulls/40/reviews" -f event=COMMENT -F body=@/tmp/review.md
-# hand the merge to the auto-merge workflow (it squash-merges when CI is green and deletes the branch)
+# hand the merge to the auto-merge workflow (squash-merges when CI is green, deletes the branch, closes the issue)
 gh api -X POST "repos/$R/issues/40/labels" -f 'labels[]=merge-ready'
 # CI status for a commit
 gh api "repos/$R/commits/<sha>/check-runs" --jq '.check_runs[] | "\(.name) \(.conclusion)"'
