@@ -18,7 +18,7 @@ phone screen is 984×1751 of them. "Before" is the same check run on `main` (`e2
 | `mobile-provider-dashboard.png` | 21,520 | 1,751 | The seeded dashboard, centred on Sam Sample's row. |
 | `mobile-provider-dashboard-deliveries.png` | 24,575 | 1,751 | §8.3's delivery pills: `TEXT ✓`, `EMAIL ↩`, **Email bounced · Oct 15** and the consent line under them, on Dana Demo's row. |
 | `desktop-provider-import-preview.png` | 5,726 | 720 | The desktop case the issue adds at the end, the same cause with the opposite symptom: a dialog over a very tall page, anchored at the top of the document, so the dialog's own header was cut off above the image and the first readable line was "sends them a code.", mid sentence. `before-` is that. **IMPORT A DAY / One CSV, a day of visits.** is now the top of the shot. |
-| `desktop-provider-dashboard-reviewed.png` | 5,726 | 5,726 | The control. The desktop project still shoots the whole document, so nothing a reviewer looks at on the wide screen changed. |
+| `desktop-provider-dashboard-reviewed.png` | — | 4,322 | The control: the same screen as the row above it, on the desktop project, which still shoots the whole document. No before/after to give — the desktop behaviour is unchanged, and this height is the practice's visit list on the run that wrote it, so it is a different number every run either way. That is the reason the phone could not keep shooting the page. |
 
 ## The one shot deliberately left tall
 
