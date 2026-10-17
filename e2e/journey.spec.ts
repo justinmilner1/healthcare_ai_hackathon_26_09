@@ -212,7 +212,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(brief, "the patient's own words (lib/sweetie.ts renderNotes)").toContainText("new job in August");
   await expect(brief).toContainText("Called about: highs after dinner since the new job");
   await expect(brief).toContainText(/In range \d+%/);
-  await expect(page.getByRole("heading", { name: /Glucose, last \d+ days/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await shot(page, "12-sour-brief");

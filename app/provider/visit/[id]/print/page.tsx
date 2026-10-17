@@ -28,6 +28,7 @@ import { visitPartsRead } from "@/lib/auditLog";
 import { recordVisitRead } from "@/lib/auditStore";
 import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
+import { countOf } from "@/lib/plural";
 import { findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
 import PrintControls from "./controls";
@@ -83,7 +84,7 @@ export default async function PrintPage({
             <p>
               {visitLabel(bundle.patient.visitType)}
               {bundle.patient.apptAt ? <> · <LocalTime iso={bundle.patient.apptAt} options={DAY} /></> : " · no visit date"}
-              {st && st.readings > 0 && ` · ${st.days} days · ${st.readings.toLocaleString()} readings`}
+              {st && st.readings > 0 && ` · ${countOf(st.days, "day")} · ${countOf(st.readings, "reading")}`}
               {sources && ` · ${sources}`}
             </p>
             {bundle.patient.reason && (
@@ -231,7 +232,7 @@ export default async function PrintPage({
 
             {bundle.status.hasDexcom && (
               <section className="sour-card">
-                <h2>Glucose, last {st?.days ?? 7} days</h2>
+                <h2>Glucose, last {countOf(st?.days ?? 7, "day")}</h2>
                 <p className="text-xs text-[var(--viz-muted)]">
                   Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.
                 </p>
