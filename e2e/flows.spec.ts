@@ -17,7 +17,7 @@ const LOADED = { timeout: 30_000 };
 test("landing renders", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
-  await shot(page, "landing", WHOLE_PAGE);
+  await shot(page, "landing");
 });
 
 test("practice flow: sign in, dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
@@ -88,7 +88,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief-header")).toContainText("Sam Sample", LOADED);
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
-  await shot(page, "provider-sour", WHOLE_PAGE);
+  await shot(page, "provider-sour");
 });
 
 // T04 (design §3.4, §7.1): the summary is written by a `sour.run` job, not by the request that asks for it.
@@ -119,7 +119,7 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const chip = page.locator(".sour-job-state");
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
   await expect(chip).toContainText(/Ready/);
-  await shot(page, "provider-sour-generated", WHOLE_PAGE);
+  await shot(page, "provider-sour-generated");
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
   // draining for anyone who asks. The e2e servers set no JOBS_SECRET, so this is the unconfigured answer.
@@ -253,7 +253,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   await page.goto(`/provider/${demo.id}?visit=${booked.visitId}`);
   const chip = page.locator(".sour-job-state");
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
-  await shot(page, "provider-sour-ready", WHOLE_PAGE);
+  await shot(page, "provider-sour-ready");
   const first = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(first.summaryStale).toBe(false);
 
@@ -262,7 +262,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   await page.reload();
   await expect(chip).toHaveAttribute("data-phase", "stale", LOADED);
   await expect(chip).toContainText(/Out of date/);
-  await shot(page, "provider-sour-stale", WHOLE_PAGE);
+  await shot(page, "provider-sour-stale");
 
   // And Regenerate is a real run, not the saved pair coming back.
   await page.getByRole("button", { name: /Regenerate/ }).click();

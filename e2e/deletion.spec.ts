@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
-import { MODAL, shot, WHOLE_PAGE } from "./shot";
+import { MODAL, shot } from "./shot";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 
 // T14 (design §2.8, §10.4, §10.5): the deletion a patient asks for, driven through the screen staff use.
@@ -101,8 +101,7 @@ test("a deletion request removes everything the patient gave us, and leaves a re
   await expect(table).toContainText("Patient data deleted", LOADED);
   await page.getByLabel("Action").selectOption("patient.deleted");
   await expect(table).toContainText(demo.name, LOADED);
-  // Full-page at either width: filtered to this visit, the trail is three rows and fits on one screen.
-  await shot(page, "provider-audit-deletion", WHOLE_PAGE);
+  await shot(page, "provider-audit-deletion", { scrollTo: ".provider-table-card" });
 
   // §4.8, against the real table: the row says how much went and nothing about whom.
   const csv = await page.request.get("/api/audit?limit=500&format=csv");

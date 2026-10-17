@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { DEMO_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { DEMO_EMAIL, MAIL_DIR, signInAsDemo } from "./auth";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // Demo practices (T32, design §13.4): "a flag on a practice that marks it synthetic; demo practices are
 // excluded from retention sweeps and alarms and are never emailed real addresses."
@@ -30,7 +30,7 @@ test("the seeded practice says it is a demo, on the screen that explains what th
   await expect(page.locator(".settings-demo-note")).toContainText(/reserved test address/i);
   await expect(page.locator("input#is-demo, [name='isDemo']")).toHaveCount(0);
 
-  await shot(page, "provider-settings-demo", WHOLE_PAGE);
+  await shot(page, "provider-settings-demo");
 });
 
 test("a demo practice does not message a number that could be somebody's", async ({ page }) => {

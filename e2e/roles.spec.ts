@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
 // running app rather than against lib/access.ts. Nothing here stubs a session — each identity signs in by its
@@ -80,7 +80,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.getByText(new RegExp(`Invited ${staffEmail.replace("+", "\\+")}`))).toBeVisible(LOADED);
   await expect(page.locator(".provider-table")).toContainText(staffEmail);
   await expect(page.locator(".provider-table")).toContainText("Invited");
-  await shot(page, "provider-settings", WHOLE_PAGE);
+  await shot(page, "provider-settings");
 
   // A retention window outside the bounds never leaves the browser — the input carries min and max, so the
   // form does not submit — which is why the server's own refusal is checked where it can be reached. §10.4's

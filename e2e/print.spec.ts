@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // T17 (design §7.4): "a clean one-pager with no navigation, used by the Print button and by a
 // GET /provider/visit/[id]/print route".
@@ -93,13 +93,13 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "provider-print", WHOLE_PAGE);
+  await shot(page, "provider-print");
 
   // The print CSS, as the browser applies it: the toolbar goes, the sheet becomes the page.
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".sour-print-toolbar")).toBeHidden();
   await expect(page.locator(".sour-print-sheet")).toBeVisible();
-  await shot(page, "provider-print-media", WHOLE_PAGE);
+  await shot(page, "provider-print-media");
   await page.emulateMedia({ media: null });
 
   // And as paper. page.pdf is headless Chromium's own print pipeline, so this is the acceptance criterion's

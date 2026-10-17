@@ -5,7 +5,7 @@ import { expectNoSeriousA11yViolations } from "./a11y";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { AGREE, acceptConsent, enterCode, patientEmail } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // T22, design §6.4 and §12.5: the four screens a patient sees — the code screen, consent, Sweetie, and the
 // summary — judged by axe against WCAG 2.1 AA, plus the six things §6.4 names by hand because no automated
@@ -19,10 +19,10 @@ import { shot, WHOLE_PAGE } from "./shot";
 
 const LOADED = { timeout: 30_000 };
 
-// Patient screens, so the page itself is the shot at either width (e2e/shot.ts). The cards fade in over
-// 480ms; without `animations` the committed screenshot is a half-faded card and says nothing about contrast
-// or the weight of the type.
-const SCREEN = { ...WHOLE_PAGE, animations: "disabled" } as const;
+// How much of the page is in the shot is e2e/shot.ts's decision; what these need on top of it is the fade.
+// The cards come in over 480ms, and without `animations` the committed screenshot is a half-faded card,
+// which says nothing about the contrast or the weight of the type it was taken to show.
+const SCREEN = { animations: "disabled" } as const;
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */

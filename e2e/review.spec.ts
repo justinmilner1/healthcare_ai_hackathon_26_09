@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // T16 (design §2.6, §7.3): "they see the one-pager, ask follow-ups, print, and mark it reviewed; reviewer and
 // time are recorded", and the dashboard shows it. Driven through the screen a clinician uses, so the button,
@@ -55,7 +55,7 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   await expect(record).toContainText("Dr. Demo Endo");
   await expect(record).toContainText(/today at/i);
   await expect(markReviewed, "there is no unmarking, so the button goes").toHaveCount(0);
-  await shot(page, "provider-sour-reviewed", WHOLE_PAGE);
+  await shot(page, "provider-sour-reviewed");
 
   // It is a row and not a piece of page state: a fresh load of the one-pager reads the same record back.
   await page.reload();

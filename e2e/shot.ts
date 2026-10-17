@@ -46,10 +46,11 @@ export const MODAL: ShotOptions = { fullPage: false };
 /**
  * The page itself is the subject, at either width.
  *
- * These are the shots that should stay full-page on the phone: a patient screen, the landing page, the
- * printed sheet. Each is bounded by its own content — there is no list on it that grows with the practice's
- * visits — so the phone shot is a screenful or two, and the whole-page layout at 375px is exactly what
- * design §6.5 asks to be able to look at.
+ * For a page that fits in about two phone screens and whose layout is the point: the code screen, consent,
+ * the Sweetie transcript, the connect steps. Nothing on them grows with the practice's data, so the shot has
+ * a fixed height, and the whole-page layout at 375px is what design §6.5 asks to be able to look at. A page
+ * taller than that takes the default instead and gets a screenful on the phone — a 7,000-pixel column of a
+ * clinician's brief is the same unreadable picture the dashboard was, only shorter.
  */
 export const WHOLE_PAGE: ShotOptions = { fullPage: true };
 

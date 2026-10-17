@@ -3,7 +3,7 @@ import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
 // something. Both claims are checked against the running build, not against the source that sets them.
@@ -55,7 +55,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // before signing in, because afterwards that URL is a redirect to the dashboard.
   await page.goto("/provider/signin");
   await expect(page.getByRole("button", { name: /Email me a link/i })).toBeVisible({ timeout: 30_000 });
-  await shot(page, "security-provider-signin", WHOLE_PAGE);
+  await shot(page, "security-provider-signin");
 
   const demo = await signInAsDemo(page);
   expect(violations, `sign-in: ${violations.join("\n")}`).toEqual([]);
@@ -71,7 +71,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // the patient's are different cookies, so the walk holds both and no sign-out is needed in between.
   await page.goto(`/s/${booked.token}`);
   await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
-  await shot(page, "security-verify", WHOLE_PAGE);
+  await shot(page, "security-verify");
   expect(violations, `verify: ${violations.join("\n")}`).toEqual([]);
   await enterCode(page, email);
 
@@ -79,7 +79,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // walk for the same reason as the code screen — its own client JavaScript posts the answer. The one tap is
   // what opens everything below.
   await expect(page.getByRole("heading", { name: /Before we start/i })).toBeVisible({ timeout: 30_000 });
-  await shot(page, "security-consent", WHOLE_PAGE);
+  await shot(page, "security-consent");
   expect(violations, `consent: ${violations.join("\n")}`).toEqual([]);
   expect(await acceptConsent(page), "the consent screen was up").toBe(true);
 
@@ -103,7 +103,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
     await expect(page.locator("body"), screen.name).toContainText(screen.loaded, { timeout: 30_000 });
     // The dashboard is the one screen in this walk whose height is the practice's visit list, so it gets a
     // screenful with the table scrolled into it; the rest are their own page (T57).
-    await shot(page, `security-${screen.name}`, screen.name === "provider-dashboard" ? { scrollTo: ".provider-table-card" } : WHOLE_PAGE);
+    await shot(page, `security-${screen.name}`, screen.name === "provider-dashboard" ? { scrollTo: ".provider-table-card" } : {});
     expect(violations, `${screen.name}: ${violations.join("\n")}`).toEqual([]);
   }
 });

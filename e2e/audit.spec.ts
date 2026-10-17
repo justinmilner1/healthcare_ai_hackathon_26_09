@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot } from "./shot";
 
 // T12 (design §4.8, §10.2): the audit trail end to end. All four of §10.2's categories are produced here by
 // doing the thing rather than by writing a row — a patient verifies their link with the six-digit code (T08)
@@ -89,9 +89,9 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   // All of them this visit's: the code that was sent, the link accepted, the clinician's read, the deletion.
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Uploaded data read");
-  // Full-page on both projects, unlike the shot above: by now exactly this visit's three rows are on
-  // screen, so the whole page is one screenful of subject and worth having at either width.
-  await shot(page, "provider-audit-visit", WHOLE_PAGE);
+  // Filtered to this visit, so the rows in the shot are the three this test caused. The desktop gets the
+  // page; on the phone each row stacks into five labelled lines, so it gets the table card scrolled up.
+  await shot(page, "provider-audit-visit", { scrollTo: ".provider-table-card" });
 
   // A filter that matches nothing says so, rather than looking like an empty log.
   await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");

@@ -27,9 +27,11 @@ const LOADED = { timeout: 30_000 };
  * two specs writing one path means whichever finished last is the one committed.
  */
 // WHOLE_PAGE on purpose, against e2e/shot.ts's default: §6.5 is about the whole of a patient screen at
-// 375px, and these pages are bounded by their own content rather than by the practice's visit list, so the
-// full-page shot stays a screenful or two (T57). The cards fade in over 480ms; a shot taken mid-fade shows
-// nothing about the layout underneath.
+// 375px, which is this file's whole subject, and these pages are bounded by their own content rather than by
+// the practice's visit list, so the shots have a fixed height (T57). Nine of the ten are a screenful or two;
+// `375-patient-summary-full` is a patient's whole week and comes out around 6,000 pixels, which is the one
+// shot in the suite deliberately over the height T57 holds the rest to — scrolling a legible page is the
+// point of it. The cards fade in over 480ms; a shot taken mid-fade shows nothing about the layout underneath.
 const SCREEN = { ...WHOLE_PAGE, animations: "disabled" } as const;
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
