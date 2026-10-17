@@ -72,12 +72,17 @@ export function labelVisits(visits: Visit[], labelled: Visit[]): Visit[] {
     const byId = v.placeId && labelled.find((l) => l.placeId && l.placeId === v.placeId);
     const near = byId ?? labelled.find((l) => distanceM(l.lat, l.lng, v.lat, v.lng) < 100);
     if (near) return { ...v, place: near.place };
-    // Uploads parsed before T62 stored the place id as the name. Nothing labelled them then and nothing
-    // will now, so they would still print the id; this is where every stored Timeline visit passes on its
-    // way to a brief (lib/bundle.ts), so it is where they get the coordinates instead.
-    return v.placeId && v.place === v.placeId ? { ...v, place: placeLabel(v.lat, v.lng) } : v;
+    // Uploads parsed before T62 kept the place id as the name — or LEGACY_UNNAMED, for a visit the export
+    // gave coordinates but no id. Nothing labelled them then and nothing will now, so they would still
+    // print one of those two; this is where every stored Timeline visit passes on its way to a brief
+    // (lib/bundle.ts), so it is where both get the coordinates they already carry instead.
+    const unnamed = v.place === v.placeId || v.place === LEGACY_UNNAMED;
+    return unnamed ? { ...v, place: placeLabel(v.lat, v.lng) } : v;
   });
 }
+
+/** What parseTimeline called a visit with coordinates but no place id, before T62 named it by them. */
+const LEGACY_UNNAMED = "Unknown place";
 
 /** Always three decimals, so a column of them lines up: 37.7766 -> "37.777", 37.7899 -> "37.790". */
 const round3 = (n: number) => n.toFixed(3);

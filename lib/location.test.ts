@@ -118,9 +118,14 @@ test("a Timeline visit stored before T62 is relabelled on its way out (T62)", ()
   // Timeline visit passes through (lib/bundle.ts), so that is where it stops being an id.
   const stored: Visit = { ...CAFE, place: "ChIJ_fixture_cafe", lat: 37.7766, lng: -122.4231, placeId: "ChIJ_fixture_cafe" };
   assert.equal(labelVisits([stored], [])[0].place, "37.777, -122.423");
-  // A hand label still wins over the coordinates.
+  // The other thing the old parser wrote: an export that gave a visit coordinates but no place id was
+  // called "Unknown place" and stored with no placeId, so the id test above does not catch it.
+  const legacy: Visit = { ...CAFE, place: "Unknown place", lat: 37.7766, lng: -122.4231 };
+  assert.equal(labelVisits([legacy], [])[0].place, "37.777, -122.423");
+  // A hand label still wins over the coordinates, for both.
   const labels = parseVisitsCsv(fixture("visits.csv"));
   assert.equal(labelVisits([stored], labels)[0].place, "Fixture Cafe");
+  assert.equal(labelVisits([legacy], labels)[0].place, "Fixture Cafe");
 });
 
 test("placeLabel pads to three decimals so a column of them lines up", () => {
