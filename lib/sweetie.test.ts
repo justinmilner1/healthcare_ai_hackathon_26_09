@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { answeredCount, backstop, emptyIntake, fieldsFor, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, SANDBOX_CONNECT_HELP, scanRedFlags, scripted, skipQuestions, VISIT_TYPES } from "./sweetie";
 
@@ -39,6 +41,43 @@ test("sandbox greeting preserves optional upload and first-question flow", () =>
   assert.match(greeting("Demo", "James", demo, defs, true), /readings are ready/);
   assert.match(greeting("Demo", "James", demo, defs, false), /optionally.*Connect Dexcom sandbox/);
   assert.match(greeting("Demo", "James", demo, defs, false), /fictional answers/);
+});
+
+test("the opening nudge names the upload button instead of placing it", () => {
+  // §6.5: at 375px the Dexcom, Timeline and WHOOP controls sit above the conversation, so any opener that
+  // says "on the left" points a phone patient at nothing.
+  const opener = greeting("Ada", "James", visit, defs, false);
+  assert.match(opener, /add your Dexcom export with the Dexcom button/);
+  assert.match(opener, /Google Maps Timeline or WHOOP/);
+  for (const placement of [/on the left/, /to the left/, /on the right/, /below/, /above/]) {
+    assert.doesNotMatch(opener, placement);
+  }
+  // With glucose already in there is nothing to point at, and the opener still carries the first question.
+  const withData = greeting("Ada", "James", visit, defs, true);
+  assert.match(withData, /glucose data is already in/);
+  assert.doesNotMatch(withData, /button/);
+  for (const text of [opener, withData]) {
+    assert.match(text, /I'm Sweetie/);
+    assert.ok(text.endsWith(defs[0].fallbackQuestion));
+  }
+});
+
+test("the scripted upload offer names its button and places nothing", () => {
+  const dexcom = scripted({ firstName: "Ada", target: { kind: "upload", which: "dexcom" }, exportHelp: null });
+  assert.match(dexcom, /the Dexcom button/);
+  const timeline = scripted({ firstName: "Ada", target: { kind: "upload", which: "timeline" }, exportHelp: null });
+  assert.match(timeline, /the Timeline button/);
+  for (const text of [dexcom, timeline]) assert.doesNotMatch(text, /on the left|to the left|on the right/);
+});
+
+test("no Sweetie copy, scripted or model prompt, places a control on the screen", () => {
+  // speak() hands its prompt straight to the model, so the only way to hold the §6.5 rule is to read the
+  // module: nothing Sweetie can say should name a side of a layout that changes at 375px.
+  const source = readFileSync(path.join(import.meta.dirname, "sweetie.ts"), "utf8");
+  for (const placement of [/on the left/, /to the left/, /on the right/, /to the right/]) {
+    assert.doesNotMatch(source, placement);
+  }
+  assert.match(source, /Call the upload controls by their names/);
 });
 
 test("sandbox fallback suppresses unavailable export instructions", () => {
