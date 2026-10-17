@@ -4,6 +4,7 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
 import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets } from "./mobile";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T23, design §6.5: every screen a patient sees, at the 375px width the section names. One spec rather than
 // assertions scattered through the others, because §6.5 is a property of the whole set of patient screens —
@@ -25,14 +26,11 @@ const LOADED = { timeout: 30_000 };
  * `mobile-verify-code.png`, `mobile-consent.png` and `mobile-patient-summary.png` from their own runs, and
  * two specs writing one path means whichever finished last is the one committed.
  */
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({
-    path: `e2e/screenshots/${test.info().project.name}-${name}.png`,
-    fullPage: true,
-    // The cards fade in over 480ms; a shot taken mid-fade shows nothing about the layout underneath.
-    animations: "disabled",
-  });
-};
+// WHOLE_PAGE on purpose, against e2e/shot.ts's default: §6.5 is about the whole of a patient screen at
+// 375px, and these pages are bounded by their own content rather than by the practice's visit list, so the
+// full-page shot stays a screenful or two (T57). The cards fade in over 480ms; a shot taken mid-fade shows
+// nothing about the layout underneath.
+const SCREEN = { ...WHOLE_PAGE, animations: "disabled" } as const;
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */
@@ -63,12 +61,12 @@ test("the code screen and the consent screen fit a 375px phone", async ({ page }
   await page.goto(`/s/${token}`);
   await expect(page.getByLabel("6-digit code")).toBeVisible(LOADED);
   await expectMobileReady(page, "the code screen");
-  await shot(page, "375-verify-code");
+  await shot(page, "375-verify-code", SCREEN);
 
   await enterCode(page, email);
   await expect(page.getByRole("button", { name: /I agree/i })).toBeVisible(LOADED);
   await expectMobileReady(page, "the consent screen");
-  await shot(page, "375-consent");
+  await shot(page, "375-consent", SCREEN);
 });
 
 test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async ({ page }) => {
@@ -93,7 +91,7 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
     expect(fits, `the upload chip "${await name.textContent()}" is cut off at 375px (design §6.5)`).toBe(true);
   }
 
-  await shot(page, "375-sweetie-first-question");
+  await shot(page, "375-sweetie-first-question", SCREEN);
 
   // Mid-conversation is the harder case: the stepper has a current step and a done step, the transcript has
   // the patient's own words in it, and the composer has gained a note under it.
@@ -103,7 +101,7 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expect(page.locator(".sweetie-messages")).toContainText(/Exhausted for six weeks/, LOADED);
   await expect(page.locator(".sweetie-field-done, .sweetie-field-current")).not.toHaveCount(0, LOADED);
   await expectMobileReady(page, "Sweetie mid-conversation", ".sweetie-field-progress");
-  await shot(page, "375-sweetie-answered");
+  await shot(page, "375-sweetie-answered", SCREEN);
 
   // The widest the bar ever gets: a red flag adds a fourth pill whose label is a phrase, on top of the
   // three steps fieldsFor() always produces (lib/sweetie.ts). The stepper wraps rather than scrolls now,
@@ -114,7 +112,7 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expectMobileReady(page, "Sweetie with a flagged answer", ".sweetie-field-progress");
   const bar = await page.locator(".sweetie-field-progress").evaluate((element) => element.getBoundingClientRect().height);
   expect(bar, "the stepper has become a stack rather than a bar (design §6.5)").toBeLessThanOrEqual(80);
-  await shot(page, "375-sweetie-flagged");
+  await shot(page, "375-sweetie-flagged", SCREEN);
 });
 
 test("the connect-your-data screen fits a 375px phone on every step", async ({ page }) => {
@@ -129,19 +127,19 @@ test("the connect-your-data screen fits a 375px phone on every step", async ({ p
   const started = page.getByRole("button", { name: /Let's get started/i });
   await expect(started).toBeVisible(LOADED);
   await expectMobileReady(page, "the connect screen, welcome step", "nav[aria-label='Onboarding progress']");
-  await shot(page, "375-connect-welcome");
+  await shot(page, "375-connect-welcome", SCREEN);
 
   // Step 1: the three data sources, which is the widest thing on the patient side of the app.
   await started.click();
   await expect(page.getByLabel(/Upload Dexcom file/i)).toBeAttached(LOADED);
   await expectMobileReady(page, "the connect screen, data sources", "nav[aria-label='Onboarding progress']");
-  await shot(page, "375-connect-sources");
+  await shot(page, "375-connect-sources", SCREEN);
 
   // Step 2: the hand-off back to Sweetie.
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: /You.re all set/i })).toBeVisible(LOADED);
   await expectMobileReady(page, "the connect screen, finished", "nav[aria-label='Onboarding progress']");
-  await shot(page, "375-connect-done");
+  await shot(page, "375-connect-done", SCREEN);
 });
 
 test("the patient summary fits a 375px phone, empty and full", async ({ page }) => {
@@ -156,7 +154,7 @@ test("the patient summary fits a 375px phone, empty and full", async ({ page }) 
   await page.goto(`/patient/${token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   await expectMobileReady(page, "the patient summary, empty");
-  await shot(page, "375-patient-summary-empty");
+  await shot(page, "375-patient-summary-empty", SCREEN);
 
   // And the full one, which is where the charts, the spike table and the stat tiles are — the widest things
   // on the patient side. The three sample exports are uploaded to this same visit rather than borrowing the
@@ -180,5 +178,5 @@ test("the patient summary fits a 375px phone, empty and full", async ({ page }) 
   await expectNoHorizontalScroll(page, "the patient summary, full");
   await expectNothingScrollsSideways(page, "the patient summary, full");
   await expectTapTargets(page, "the patient summary, full");
-  await shot(page, "375-patient-summary-full");
+  await shot(page, "375-patient-summary-full", SCREEN);
 });

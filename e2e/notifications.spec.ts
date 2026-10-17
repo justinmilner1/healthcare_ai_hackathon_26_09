@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { signInAsDemo } from "./auth";
+import { shot } from "./shot";
 import { E2E_TOPIC_ARN } from "../playwright.config";
 
 // T19 (design §8.1, §8.3): the webhook SES and SNS report through, and what staff then see.
@@ -13,10 +14,6 @@ import { E2E_TOPIC_ARN } from "../playwright.config";
 //
 // The second half is §8.3's "shown to staff": the seeded Dana Demo visit carries the delivery rows SES's
 // topic would have written — the text arrived, the email came back — and the dashboard has to say so.
-
-const shot = async (page: Page, name: string, fullPage = true) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -84,5 +81,6 @@ test("the dashboard shows what each message did, and why a channel is closed", a
   const sam = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" });
   await expect(sam.locator(".provider-suppressed")).toHaveCount(0);
 
-  await shot(page, "provider-dashboard-deliveries");
+  // The Messages column is what this is about, and it is in the table, a screen below the hero on a phone.
+  await shot(page, "provider-dashboard-deliveries", { scrollTo: ".provider-table-card" });
 });

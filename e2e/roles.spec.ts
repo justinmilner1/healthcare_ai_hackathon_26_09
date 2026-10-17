@@ -1,6 +1,7 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
 // running app rather than against lib/access.ts. Nothing here stubs a session — each identity signs in by its
@@ -14,10 +15,6 @@ import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 //   1. "a user never sees another practice's data" — and sees a 404, not a 403, so the refusal does not tell
 //      them the visit exists.
 //   2. the role a colleague was invited with is what they can do, in the API and on the screen.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -83,7 +80,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.getByText(new RegExp(`Invited ${staffEmail.replace("+", "\\+")}`))).toBeVisible(LOADED);
   await expect(page.locator(".provider-table")).toContainText(staffEmail);
   await expect(page.locator(".provider-table")).toContainText("Invited");
-  await shot(page, "provider-settings");
+  await shot(page, "provider-settings", WHOLE_PAGE);
 
   // A retention window outside the bounds never leaves the browser — the input carries min and max, so the
   // form does not submit — which is why the server's own refusal is checked where it can be reached. §10.4's
@@ -136,7 +133,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.locator(".provider-table")).toContainText("Roles Patient", LOADED);
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Open in Sour|Summarize/ })).toHaveCount(0);
-  await shot(page, "provider-dashboard-staff");
+  await shot(page, "provider-dashboard-staff", { scrollTo: ".provider-table-card" });
 
   await page.goto("/provider/settings");
   await expect(page).toHaveURL(/\/provider(\?|$|\/)/);

@@ -4,14 +4,11 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T11 (design §3.3, §9.1): the upload gates and the storage adapter, through the real route. The file a
 // patient picks is checked for size and shape before any parser sees it, the bytes go to the storage
 // adapter, and the row keeps the key — so these drive the intake screen rather than calling lib/ directly.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -56,7 +53,7 @@ test("intake uploads: a real export is stored, the wrong file is refused in plai
   await whoopInput.setInputFiles({ name: "Takeout.zip", mimeType: "application/zip", buffer: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x08, 0x00]) });
   await expect(page.getByText(/unzip it and upload the file inside/i)).toBeVisible(LOADED);
   await expect(page.getByText(/records securely added/i)).toBeVisible();
-  await shot(page, "patient-intake-uploads");
+  await shot(page, "patient-intake-uploads", WHOLE_PAGE);
 });
 
 test("upload gates: oversized, wrong format, and empty files never reach a parser", async ({ page, request }) => {

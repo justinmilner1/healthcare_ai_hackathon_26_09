@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T17 (design §7.4): "a clean one-pager with no navigation, used by the Print button and by a
 // GET /provider/visit/[id]/print route".
@@ -20,10 +21,6 @@ import { patientEmail, verifyByApi } from "./patient";
 // The uploads go through `request` rather than `page.request`: the patient's credential is the token plus
 // the verified session the six-digit code leaves behind (§5.3), and keeping the two contexts apart means the
 // provider stays signed in for the half of the test that is the clinician's.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -96,13 +93,13 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "provider-print");
+  await shot(page, "provider-print", WHOLE_PAGE);
 
   // The print CSS, as the browser applies it: the toolbar goes, the sheet becomes the page.
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".sour-print-toolbar")).toBeHidden();
   await expect(page.locator(".sour-print-sheet")).toBeVisible();
-  await shot(page, "provider-print-media");
+  await shot(page, "provider-print-media", WHOLE_PAGE);
   await page.emulateMedia({ media: null });
 
   // And as paper. page.pdf is headless Chromium's own print pipeline, so this is the acceptance criterion's

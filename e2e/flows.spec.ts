@@ -1,15 +1,14 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
-// reviewer routines can find them: e2e/screenshots/<project>-<name>.png
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
+// reviewer routines can find them: e2e/screenshots/<project>-<name>.png. e2e/shot.ts decides how much of the
+// page each one gets: the patient screens are the page, the dashboard is one screenful with its table in it.. e2e/shot.ts decides how much of the
+// page each one gets: the patient screens are the page, the dashboard is one screenful with its table in it.
 
 // Waits for a client fetch to paint, not for app logic: the page renders its shell first and fills in after. A
 // slow runner can take longer than the 5s default to come back, so these get their own budget.
@@ -18,7 +17,7 @@ const LOADED = { timeout: 30_000 };
 test("landing renders", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body")).toContainText(/Sweet Spot|Sweetie/i);
-  await shot(page, "landing");
+  await shot(page, "landing", WHOLE_PAGE);
 });
 
 test("practice flow: sign in, dashboard, add visit, invite link, Sour view", async ({ page, request }) => {
@@ -32,7 +31,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // The dashboard fills in from a client fetch of GET /api/provider. Wait for the seeded patient, or the
   // screenshot catches an empty workspace and shows nothing about the data behind it.
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
-  await shot(page, "provider-dashboard");
+  await shot(page, "provider-dashboard", { scrollTo: ".provider-table-card" });
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts). The email is where
   // the patient's six-digit code goes (T08, §5.3), so a booking without one could never be opened.
@@ -80,7 +79,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // booking was made with (design §2.2), which is what tells this row apart from the same patient's others.
   await expect(bookedRow).toContainText("Follow-up");
   await expect(bookedRow).toContainText("mornings running high");
-  await shot(page, "provider-dashboard-booked");
+  await shot(page, "provider-dashboard-booked", { scrollTo: bookedRow, block: "center" });
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
@@ -89,7 +88,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief-header")).toContainText("Sam Sample", LOADED);
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
-  await shot(page, "provider-sour");
+  await shot(page, "provider-sour", WHOLE_PAGE);
 });
 
 // T04 (design §3.4, §7.1): the summary is written by a `sour.run` job, not by the request that asks for it.
@@ -120,7 +119,7 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const chip = page.locator(".sour-job-state");
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
   await expect(chip).toContainText(/Ready/);
-  await shot(page, "provider-sour-generated");
+  await shot(page, "provider-sour-generated", WHOLE_PAGE);
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
   // draining for anyone who asks. The e2e servers set no JOBS_SECRET, so this is the unconfigured answer.
@@ -181,7 +180,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // question rather than of the shell around it. The greeting is used rather than the question count because the
   // count is hidden by CSS on the mobile layout; LOADED above explains the timeout.
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
-  await shot(page, "sweetie-start");
+  await shot(page, "sweetie-start", WHOLE_PAGE);
 
   const input = page.locator("input[type='text'], input:not([type]), textarea").first();
   // Sweetie's own bubbles, with the typing indicator left out: it is a `.sweetie-message` too, in a row of the
@@ -211,7 +210,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   const doneCard = page.locator(".sweetie-done-card");
   await expect(doneCard).toContainText(/check-in is complete/i, LOADED);
   await expect(doneCard).toBeInViewport();
-  await shot(page, "sweetie-done");
+  await shot(page, "sweetie-done", WHOLE_PAGE);
 
   // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
   const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
@@ -221,7 +220,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // The loading card says "getting your week ready", which the old loose text check matched, so the screenshot was
   // of a spinner. Assert on something only the loaded summary has.
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
-  await shot(page, "patient-summary");
+  await shot(page, "patient-summary", WHOLE_PAGE);
 });
 
 // T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
@@ -254,7 +253,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   await page.goto(`/provider/${demo.id}?visit=${booked.visitId}`);
   const chip = page.locator(".sour-job-state");
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
-  await shot(page, "provider-sour-ready");
+  await shot(page, "provider-sour-ready", WHOLE_PAGE);
   const first = await (await page.request.get(`/api/patient/${booked.visitId}`)).json();
   expect(first.summaryStale).toBe(false);
 
@@ -263,7 +262,7 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   await page.reload();
   await expect(chip).toHaveAttribute("data-phase", "stale", LOADED);
   await expect(chip).toContainText(/Out of date/);
-  await shot(page, "provider-sour-stale");
+  await shot(page, "provider-sour-stale", WHOLE_PAGE);
 
   // And Regenerate is a real run, not the saved pair coming back.
   await page.getByRole("button", { name: /Regenerate/ }).click();

@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
+import { MODAL, shot as rawShot, WHOLE_PAGE, type ShotOptions } from "./shot";
 
 // T26 (design §12.2): "both flows against a seeded database: staff creates a visit, patient verifies and
 // completes intake in scripted mode, Sour summary appears, clinician marks reviewed" — as one journey,
@@ -30,9 +31,11 @@ import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
 // written by the `sour.run` job (§3.4, §7.2) — if the queue never drains, the chip never reads Ready and this
 // test fails where that happened.
 
-/** Screenshots are numbered, because the point of these is the order (§12.3). */
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-journey-${name}.png`, fullPage: true });
+/** Screenshots are numbered, because the point of these is the order (§12.3). e2e/shot.ts decides how much
+ *  of each page is in the shot; the dashboards pass the table card, because on a phone that is what the step
+ *  is about and the page is as tall as the practice's visit list (T57). */
+const shot = async (page: Page, name: string, options: ShotOptions = {}) => {
+  await rawShot(page, `journey-${name}`, options);
 };
 
 // Waits for a client fetch to paint, not for app logic: these pages render a shell and fill it in after.
@@ -74,7 +77,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await page.getByRole("radio", { name: /Clinician/ }).check();
   await page.getByRole("button", { name: /Send invite/i }).click();
   await expect(page.locator(".provider-table")).toContainText(clinicianEmail, LOADED);
-  await shot(page, "01-practice-users");
+  await shot(page, "01-practice-users", WHOLE_PAGE);
 
   // ---- Staff books the visit (§2.2, §5.2) --------------------------------------------------------------
   await signOutOfBrowser(page);
@@ -85,7 +88,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // settings link. Both are asserted exhaustively in e2e/roles.spec.ts; here they are the state of the screen
   // the next screenshot is of.
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
-  await shot(page, "02-staff-dashboard");
+  await shot(page, "02-staff-dashboard", { scrollTo: ".provider-table-card" });
 
   // The wizard, step by step, because this is the screen the appointment is made on (e2e/visits.spec.ts
   // drives its refusals; this is the path through it).
@@ -107,7 +110,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // "Text and email" as well, since it matches a case-insensitive substring.
   await page.getByText("Email", { exact: true }).click();
   await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
-  await shot(page, "03-add-visit");
+  await shot(page, "03-add-visit", MODAL);
   await page.getByRole("button", { name: /Add patient & send/i }).click();
 
   // The link on the success card is the one that was emailed, and it is the patient's way in from here on.
@@ -115,7 +118,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const link = await page.locator(".patient-link-card a").innerText();
   const token = link.split("/s/")[1]?.trim();
   expect(token, `a /s/<token> link on the success card, got ${link}`).toBeTruthy();
-  await shot(page, "04-invite-sent");
+  await shot(page, "04-invite-sent", MODAL);
 
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
   const row = page.locator(".provider-table tbody tr", { hasText: email });
@@ -127,7 +130,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await signOutOfBrowser(page);
   await page.goto(`/s/${token}`);
   await expect(page.getByLabel("6-digit code")).toBeVisible(LOADED);
-  await shot(page, "05-verify-code");
+  await shot(page, "05-verify-code", WHOLE_PAGE);
   await enterCode(page, email);
 
   // §2.4's one screen between the code and Sweetie, on first open only. e2e/consent.spec.ts checks each
@@ -135,12 +138,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const consent = page.locator(".patient-consent-card");
   await expect(consent).toBeVisible(LOADED);
   await expect(consent).toContainText("Journey Endocrinology");
-  await shot(page, "06-consent");
+  await shot(page, "06-consent", WHOLE_PAGE);
   await page.getByRole("button", { name: AGREE }).click();
 
   const firstName = patientName.split(" ")[0];
   await expect(page.locator(".sweetie-messages")).toContainText(new RegExp(`Hi ${firstName}`), LOADED);
-  await shot(page, "07-sweetie-greeting");
+  await shot(page, "07-sweetie-greeting", WHOLE_PAGE);
 
   // §2.5's optional sharing, on the screen that offers it. Two of the three sources, so the brief at the end
   // has the glucose it is mostly made of and the sleep card beside it.
@@ -155,7 +158,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
     .setInputFiles({ name: "whoop_cycles.csv", mimeType: "text/csv", buffer: sample("whoop_sample.csv") });
   // Both cards say it now, so the assertion is on how many do: one sentence per connected source.
   await expect(page.getByText(/records securely added/i)).toHaveCount(2, LOADED);
-  await shot(page, "08-intake-connections");
+  await shot(page, "08-intake-connections", WHOLE_PAGE);
 
   // Back to the conversation, and through it. Two substantive answers fill the two required fields of a
   // follow-up template (lib/sweetie.ts), which is what "completes intake" means in scripted mode: the model
@@ -179,12 +182,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // The transcript scrolls itself as messages land, and the card is the last thing in it; without this the
   // committed screenshot is of the middle of the conversation and shows nothing about the end of it.
   await doneCard.scrollIntoViewIfNeeded();
-  await shot(page, "09-sweetie-complete");
+  await shot(page, "09-sweetie-complete", WHOLE_PAGE);
 
   // §2.7's patient view of the same week.
   await page.goto(`/patient/${token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
-  await shot(page, "10-patient-summary");
+  await shot(page, "10-patient-summary", WHOLE_PAGE);
 
   // ---- The clinician reads it, signs it off, prints it (§7.2, §7.3, §7.4) ------------------------------
   await signOutOfBrowser(page);
@@ -196,7 +199,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("button", { name: /Add patient/i })).toHaveCount(0);
   const clinicianRow = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(clinicianRow).toContainText(patientName, LOADED);
-  await shot(page, "11-clinician-dashboard");
+  await shot(page, "11-clinician-dashboard", { scrollTo: ".provider-table-card" });
 
   // The row offers Sour because there is data and answers to summarize, and no summary yet. Clicking it is
   // what asks for one: the page queues a `sour.run` job and waits for it (§3.4, §7.2).
@@ -215,21 +218,21 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days/ })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "12-sour-brief");
+  await shot(page, "12-sour-brief", WHOLE_PAGE);
 
   // §7.3: the sign-off, by the clinician who read it.
   await page.getByRole("button", { name: "Mark reviewed" }).click();
   const record = page.locator(".sour-reviewed");
   await expect(record).toContainText(/Reviewed by/i, LOADED);
   await expect(record).toContainText(clinicianName);
-  await shot(page, "13-sour-reviewed");
+  await shot(page, "13-sour-reviewed", WHOLE_PAGE);
 
   // And on the dashboard behind it (§4.4, §7.3), which is where the practice sees it.
   await page.goto("/provider");
   const reviewed = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(reviewed).toContainText("Reviewed", LOADED);
   await expect(reviewed.locator(".provider-reviewed-by")).toContainText(clinicianName);
-  await shot(page, "14-dashboard-reviewed");
+  await shot(page, "14-dashboard-reviewed", { scrollTo: ".provider-table-card" });
 
   // §7.4: the sheet for the appointment itself. e2e/print.spec.ts is where the paper is checked; the journey
   // asks the one question it is here to ask — that the sheet carries this patient's week and their own words.
@@ -245,7 +248,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".sour-print-sheet")).toContainText("new job in August");
   await expect(page.locator(".sour-print-numbers")).toContainText("Time in range");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "15-print-sheet");
+  await shot(page, "15-print-sheet", WHOLE_PAGE);
 
   // One last look at the state behind all of it: the visit is reviewed, the sign-off names the clinician and
   // not the staff account that booked it, and the intake is recorded as complete.

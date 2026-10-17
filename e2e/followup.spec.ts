@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { MAIL_DIR, signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T18 (design §2.6, §7.5): "Follow-up questions to Sour are logged with the clinician id and the answer,
 // visible on the page, never emailed."
@@ -18,10 +19,6 @@ import { patientEmail, verifyByApi } from "./patient";
 // The uploads go through `request` and not `page.request`: the patient's credential is the token plus the
 // verified session the six-digit code leaves behind (§5.3), and keeping them in separate contexts means the
 // provider session stays signed in for the half of the test that is the clinician's.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
@@ -74,7 +71,7 @@ test("a follow-up question is logged with the clinician and the time, survives a
   await expect(logged).toContainText(/today at/i);
   await expect(logged.locator(".sour-answer-unanswered")).toContainText(/No answer recorded/i);
   await expect(page.locator(".sour-ask-card .ss-error")).toContainText(/Sour chat is unavailable/i);
-  await shot(page, "provider-sour-followup");
+  await shot(page, "provider-sour-followup", WHOLE_PAGE);
 
   // It is a row and not a piece of page state: a fresh load of the one-pager reads the same question back.
   await page.reload();
@@ -126,7 +123,7 @@ test("the log belongs to the visit: a second clinician reads what the first aske
   await expect(seeded).toContainText("Dr. Demo Endo");
   await expect(seeded.locator(".sour-answer-reply")).toContainText(/dinner out/i);
   await expect(seeded.locator(".sour-answer-unanswered")).toHaveCount(0);
-  await shot(page, "provider-sour-followup-answered");
+  await shot(page, "provider-sour-followup-answered", WHOLE_PAGE);
 
   // A visit nobody has asked about reads back an empty log, not the last visit's.
   const booked = (await (

@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T16 (design §2.6, §7.3): "they see the one-pager, ask follow-ups, print, and mark it reviewed; reviewer and
 // time are recorded", and the dashboard shows it. Driven through the screen a clinician uses, so the button,
@@ -16,10 +17,6 @@ import { patientEmail, verifyByApi } from "./patient";
 // The uploads go through `request` and not `page.request`: the patient's credential is the token plus the
 // verified session the six-digit code leaves behind (§5.3), and keeping them in separate contexts means the
 // provider session stays signed in for the half of the test that is the clinician's.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
@@ -58,7 +55,7 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   await expect(record).toContainText("Dr. Demo Endo");
   await expect(record).toContainText(/today at/i);
   await expect(markReviewed, "there is no unmarking, so the button goes").toHaveCount(0);
-  await shot(page, "provider-sour-reviewed");
+  await shot(page, "provider-sour-reviewed", WHOLE_PAGE);
 
   // It is a row and not a piece of page state: a fresh load of the one-pager reads the same record back.
   await page.reload();
@@ -81,7 +78,7 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   const row = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(row).toContainText("Reviewed", LOADED);
   await expect(row.locator(".provider-reviewed-by")).toContainText("Dr. Demo Endo");
-  await shot(page, "provider-dashboard-reviewed");
+  await shot(page, "provider-dashboard-reviewed", { scrollTo: ".provider-table-card" });
 
   // Pressing again is not an error and does not move the record: the first sign-off is the one that stands.
   const again = await postJson(page.request, "/api/review", { visitId: booked.visitId });

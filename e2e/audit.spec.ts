@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T12 (design §4.8, §10.2): the audit trail end to end. All four of §10.2's categories are produced here by
 // doing the thing rather than by writing a row — a patient verifies their link with the six-digit code (T08)
@@ -16,15 +17,6 @@ import { patientEmail, verifyByApi } from "./patient";
 // The last assertions are §4.8's promise, checked against the real table rather than against the allow-list
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
 // JSON the page reads, and found in neither.
-
-// The whole practice's trail is on this screen and every other spec in the run adds rows to it, so the
-// unfiltered shot has no fixed height. Full-page on the desktop project, where a row is a line of a table;
-// the viewport on the phone, where each row stacks into five labelled lines and the same page came out
-// 25,000 pixels tall — a picture that shows a reviewer nothing. The filtered shot below is full-page on
-// both, because by then exactly this visit's three rows are on screen.
-const shot = async (page: Page, name: string, fullPage = test.info().project.name === "desktop") => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -78,6 +70,9 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Upload deleted");
   await expect(table).toContainText(demo.name);
+  // The whole practice's trail is on this screen and every other spec in the run adds rows to it, so the
+  // unfiltered shot has no fixed height: e2e/shot.ts leaves the page to the desktop, where a row is a line
+  // of a table, and takes one screenful on the phone, where each row stacks into five labelled lines.
   await shot(page, "provider-audit");
 
   // Filter by action: the one category stays, the others go.
@@ -94,7 +89,9 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   // All of them this visit's: the code that was sent, the link accepted, the clinician's read, the deletion.
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Uploaded data read");
-  await shot(page, "provider-audit-visit", true);
+  // Full-page on both projects, unlike the shot above: by now exactly this visit's three rows are on
+  // screen, so the whole page is one screenful of subject and worth having at either width.
+  await shot(page, "provider-audit-visit", WHOLE_PAGE);
 
   // A filter that matches nothing says so, rather than looking like an empty log.
   await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");
