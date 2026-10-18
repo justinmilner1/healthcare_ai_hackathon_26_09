@@ -136,6 +136,11 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // booking was made with (design §2.2), which is what tells this row apart from the same patient's others.
   await expect(bookedRow).toContainText("Follow-up");
   await expect(bookedRow).toContainText("mornings running high");
+  // T54: and the seeded row beside it, which is what a demo and the staging practice are shown first. It used
+  // to read the `visitLabel` fallback "Visit", because `npm run seed` set neither of those two §2.2 fields.
+  const seededRow = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" }).first();
+  await expect(seededRow).toContainText("Follow-up");
+  await expect(seededRow).toContainText("going high overnight");
   await shot(page, "provider-dashboard-booked");
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
@@ -144,6 +149,9 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   expect(seeded).toBeTruthy();
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief-header")).toContainText("Sam Sample", LOADED);
+  // T54: the seeded visit's type and reason reach the brief too, not the "Visit" fallback.
+  await expect(page.locator(".sour-brief-header")).toContainText("Follow-up");
+  await expect(page.locator(".sour-called-about")).toContainText("going high overnight");
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
   await shot(page, "provider-sour");
 });

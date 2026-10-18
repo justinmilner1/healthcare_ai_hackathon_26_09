@@ -34,6 +34,13 @@ async function main() {
       consentRecordedAt: new Date(Date.now() - 86400000),
       token,
       scheduledAt: new Date(Date.now() + 2 * 86400000),
+      // The other two fields §2.2 names at visit creation. Without them the one visit a demo and the staging
+      // practice actually show was the only visit in the workspace that did not exercise §2.2: the dashboard
+      // and the Sour header fell back to "Visit", and Sweetie opened with the generic purpose question instead
+      // of quoting what the patient called about. A follow-up, because Sam has a week of readings and a prior
+      // visit behind them, and a reason in Sam's own words that is what the seeded data shows.
+      visitType: "follow_up",
+      reason: "my numbers keep going high overnight and I don't know why",
       // An email as well as a phone, because opening the link now sends a six-digit code (design §5.3) and
       // no SMS backend is configured locally: with an address on file the code lands in the local mailbox
       // and `npm run mail` prints it, so the patient flow can be walked offline.
