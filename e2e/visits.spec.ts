@@ -61,6 +61,10 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // The row carries §4.4's status, the chosen channels and the consent behind them.
   const row = page.locator(".provider-table tbody tr", { hasText: name });
   await expect(row).toContainText("Invited", LOADED);
+  // §2.2's date and time is part of a visit but not a condition of booking one: this wizard run left it
+  // blank, and the schedule column says so rather than inventing a day. e2e/journey.spec.ts books the dated
+  // visit (T67); this is the row that keeps the undated one covered.
+  await expect(row.locator(".provider-cell-main"), "no date typed, so none shown").toHaveText("Date pending");
   await expect(row).toContainText("Consent: Over the phone");
   await expect(row.locator(".provider-invite")).toContainText("Text");
   await expect(row.locator(".provider-invite")).toContainText("Email");
