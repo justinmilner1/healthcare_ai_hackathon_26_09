@@ -61,15 +61,25 @@ export function writeDevMail(mail: DevMail, dir = devMailDir(), now = new Date()
  * A mailbox is shared and something in it moves: e2e/auth.ts renames the sign-in mail a test claims, so two
  * tests cannot redeem one single-use magic link (design §5.1). Every other walker of the same directory can
  * therefore list a name whose file is already `.claimed` by the time it reads it, and an unguarded
- * `readFileSync` throws ENOENT over a message it did not even want (T65). A file that cannot be read is a
- * file that is no longer in the mailbox, which is not an error worth taking a caller down for.
+ * `readFileSync` throws ENOENT over a message it did not even want (T65).
+ *
+ * Only ENOENT, though. A mailbox hands out credentials — `npm run mail` prints a sign-in link — so a message
+ * that is there but unreadable (a permission change, a bad disk) must not read as one that was claimed: that
+ * would quietly answer with an older link, or with no mail at all, and leave a caller to time out against a
+ * mailbox nobody can open. The disappearance is the one expected failure; everything else is news.
  */
 export function readDevMailFile(path: string): string | null {
   try {
     return readFileSync(path, "utf8");
-  } catch {
-    return null;
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
   }
+}
+
+/** Gone, as opposed to unreadable — the one failure a shared mailbox produces on its own. */
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 }
 
 /**
@@ -91,8 +101,10 @@ export function findDevMail<T>(dirs: string[], to: string, pick: (raw: string, p
       for (const name of readdirSync(dir)) {
         if (name.endsWith(".txt")) files.push({ name, path: join(dir, name) });
       }
-    } catch {
-      // A mailbox a server has not written to yet simply is not there.
+    } catch (error) {
+      // A mailbox a server has not written to yet simply is not there. One that is there and will not open
+      // is not an empty mailbox, and saying it is would lose every message in it in silence.
+      if (!isMissing(error)) throw error;
     }
   }
   files.sort((a, b) => b.name.localeCompare(a.name));
@@ -113,7 +125,8 @@ export function readDevMail(dir = devMailDir()): StoredDevMail[] {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".txt")).sort();
-  } catch {
+  } catch (error) {
+    if (!isMissing(error)) throw error;
     return [];
   }
   const mail: StoredDevMail[] = [];

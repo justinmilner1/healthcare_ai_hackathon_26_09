@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,19 @@ test("a mail that vanishes reads as absent, not as an error", () => {
   });
 });
 
+test("a message that is there but will not open is news, not a claim", () => {
+  mailbox((dir, at) => {
+    writeDevMail({ to: PATIENT, subject: "Your code is 480913", text: "Use it within 10 minutes." }, dir, at(0));
+    // Unreadable rather than gone. A mailbox hands out credentials, so answering "claimed" here would hand
+    // back the older code and say nothing about the mailbox nobody can open.
+    mkdirSync(join(dir, "2026-10-15T15-54-31-874Z-unreadable.txt"));
+
+    assert.throws(() => findDevMail([dir], PATIENT, codeIn), /EISDIR/);
+    assert.throws(() => readDevMail(dir), /EISDIR/);
+    assert.throws(() => readDevMailFile(join(dir, "2026-10-15T15-54-31-874Z-unreadable.txt")), /EISDIR/);
+  });
+});
+
 test("readDevMail returns the mail it can read instead of throwing on the one it cannot", () => {
   mailbox((dir, at) => {
     writeDevMail({ to: PROVIDER, subject: "Your Sweet Spot sign-in link", text: SIGN_IN }, dir, at(0));
@@ -93,7 +106,9 @@ test("an address is not a pattern, and a walk that finds nothing says so", () =>
     writeDevMail({ to: `nurse+${PATIENT}`, subject: "Your code is 999999", text: "somebody else's" }, dir, at(0));
 
     assert.equal(findDevMail([dir], PATIENT, codeIn), null);
+    // A mailbox no server has written to is an empty one, which is the one listing failure that is expected.
     assert.equal(findDevMail([join(dir, "no-such-mailbox")], PATIENT, codeIn), null);
+    assert.deepEqual(readDevMail(join(dir, "no-such-mailbox")), []);
     assert.equal(findDevMail([dir], `nurse+${PATIENT}`, codeIn), "999999");
   });
 });
