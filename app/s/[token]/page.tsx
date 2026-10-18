@@ -35,6 +35,15 @@ const reducedMotion = () =>
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
+/** Whose office this is, in Sweetie's words. The fallback is lib/visit.ts's CARE_TEAM, which the API has
+ *  already applied; this one only shows if the opening fetch never answered. */
+const providerLabel = (provider: string | null) => provider ?? "your care team";
+
+/** §2.5's instruction as a headline: call the office, or 911 if it is happening now. The order and the name
+ *  are `redFlagReply`'s (lib/sweetie.ts), which is the message sitting right above this card. */
+const officeAction = (provider: string | null) =>
+  `Please call ${providerLabel(provider)}'s office today — or 911 if it's happening now`;
+
 export default function SweetiePage({
   params,
 }: {
@@ -53,6 +62,10 @@ export default function SweetiePage({
   const [intake, setIntake] = useState<IntakeState | null>(null);
   const [fields, setFields] = useState<IntakeFieldDef[]>([]);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
+  // Who the patient thinks they are talking to, in the same words Sweetie's own messages use
+  // (lib/visit.ts providerName). The flagged card below has to name them, and §2.5's instruction is no use
+  // to a patient if the card and the message disagree about whose office to call.
+  const [provider, setProvider] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState<UploadKind | null>(null);
@@ -129,6 +142,7 @@ export default function SweetiePage({
         // included, whose `degraded` the older snapshot would otherwise flicker back off (§6.3).
         if (advanced.current) return;
         setAgent(data.agent ?? null);
+        setProvider(typeof data.provider === "string" ? data.provider : null);
         setStatus(data.status ?? null);
         setIntake(data.intake ?? null);
         setFields(data.intakeFields ?? []);
@@ -160,6 +174,7 @@ export default function SweetiePage({
       intake?: IntakeState;
       intakeFields?: IntakeFieldDef[];
       agent?: AgentInfo;
+      provider?: string;
     }) => {
       if (data.reply) {
         setMessages((current) => [
@@ -171,6 +186,7 @@ export default function SweetiePage({
       if (data.intake) setIntake(data.intake);
       if (data.intakeFields) setFields(data.intakeFields);
       if (data.agent) setAgent(data.agent);
+      if (data.provider) setProvider(data.provider);
       done.current = Boolean(data.status?.done && data.intake?.wrapped);
       return data.reply ?? "";
     },
@@ -363,8 +379,12 @@ export default function SweetiePage({
     return confidence === "medium" || confidence === "high";
   }).length;
   const finished = Boolean(status?.done || intake?.wrapped);
+  // The safety scan wraps the intake too (lib/sweetieTurn.ts, §2.5), and a wrap because the questions are
+  // answered is not a wrap because the patient described something urgent. Everything that congratulates the
+  // patient asks this first: a flagged check-in stopped, it did not finish (T66).
+  const flagged = Boolean(intake?.flagged);
   const totalSteps = fields.length + 1;
-  const completedSteps = completeFields + (finished ? 1 : 0);
+  const completedSteps = completeFields + (finished && !flagged ? 1 : 0);
   const progress = totalSteps
     ? Math.round((completedSteps / totalSteps) * 100)
     : 0;
@@ -435,18 +455,25 @@ export default function SweetiePage({
               />
             </div>
 
+            {/* A percentage beside "your story is ready" is the wrong pair of facts for a flagged
+                check-in: it stopped at whatever was answered, so the card says that and drops the number
+                and the bar rather than drawing a part-full track next to it (T66, §2.5). */}
             <div className="sweetie-progress-card">
               <div>
-                <span>Conversation progress</span>
-                <strong>{progress}%</strong>
+                <span>{flagged ? "Check-in stopped" : "Conversation progress"}</span>
+                {!flagged && <strong>{progress}%</strong>}
               </div>
-              <div className="sweetie-progress-track">
-                <span style={{ width: `${progress}%` }} />
-              </div>
+              {!flagged && (
+                <div className="sweetie-progress-track">
+                  <span style={{ width: `${progress}%` }} />
+                </div>
+              )}
               <small>
-                {finished
-                  ? "Your story is ready"
-                  : `${completeFields} of ${fields.length || "—"} questions answered`}
+                {flagged
+                  ? `We stopped early so ${providerLabel(provider)} can look at this now.`
+                  : finished
+                    ? "Your story is ready"
+                    : `${completeFields} of ${fields.length || "—"} questions answered`}
               </small>
             </div>
 
@@ -572,7 +599,24 @@ export default function SweetiePage({
                   </div>
                 </div>
               )}
-              {finished && (
+              {/* A flagged intake has just been told to call someone; §2.5 is that instruction, so it is
+                  the headline, in the same words and with the same name as Sweetie's own message. The
+                  summary link stays (§2.5 "ends with the patient's summary link", §2.7) as the second thing
+                  on the card rather than the first (T66). */}
+              {finished && flagged && (
+                <div className="sweetie-flagged-card">
+                  <span aria-hidden="true">!</span>
+                  <div>
+                    <strong>{officeAction(provider)}</strong>
+                    <small>If you can&apos;t reach them, go to urgent care.</small>
+                    <a href={`/patient/${token}`}>
+                      See what you&apos;ve shared so far
+                      <b aria-hidden="true"> →</b>
+                    </a>
+                  </div>
+                </div>
+              )}
+              {finished && !flagged && (
                 <a href={`/patient/${token}`} className="sweetie-done-card">
                   <span>✓</span>
                   <div>
@@ -737,6 +781,10 @@ function Progress({
     return confidence === "medium" || confidence === "high";
   };
   const finished = intake.wrapped || status.done;
+  // The safety scan wraps the intake where it stood (§2.5), so the last step is reached either way — but it
+  // was reached by stopping, not by finishing. Naming it "Done" with a tick beside a "Flagged for the
+  // office" pill told the patient both things at once (T66).
+  const flagged = Boolean(intake.flagged);
   const firstOpen = fields.find((field) => !filled(field.id));
   const currentKey = finished ? "done" : (firstOpen?.id ?? "done");
   const steps = [
@@ -745,7 +793,7 @@ function Progress({
       label: field.label,
       done: filled(field.id),
     })),
-    { key: "done", label: "Done", done: finished },
+    { key: "done", label: flagged ? "Stopped" : "Done", done: finished && !flagged },
   ];
 
   return (
@@ -757,7 +805,9 @@ function Progress({
             key={step.key}
             title={
               step.key === "done"
-                ? "Check-in complete"
+                ? flagged
+                  ? "Check-in stopped early and flagged for the office"
+                  : "Check-in complete"
                 : intake.fields[step.key]?.value ??
                   fields.find((field) => field.id === step.key)?.goal
             }

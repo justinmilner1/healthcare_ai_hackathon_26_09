@@ -1,8 +1,8 @@
 // Sweetie chat. Owner: Justin. Brain in lib/sweetie.ts; this route is transport.
 // Every call needs a verified patient session for the visit the token names (design §5.3): the link alone
 // opens the code screen and nothing else.
-// GET  /api/sweetie?token=...                                   -> { visitId, name, messages, status, intake, agent }
-// POST /api/sweetie { token, message }                          -> { reply, status, intake, agent }
+// GET  /api/sweetie?token=...                                   -> { visitId, name, provider, messages, status, intake, agent }
+// POST /api/sweetie { token, message }                          -> { reply, provider, status, intake, agent }
 // POST /api/sweetie { token, event: { type: "upload", kind, count, days? } }  -> same; Sweetie acknowledges the upload
 // POST /api/sweetie { token, event: { type: "skip_questions" } } -> same; saves an explicit opt-out
 // Every patient message goes through the deterministic red-flag scan before the model sees it.
@@ -63,7 +63,7 @@ async function getHandler(req: Request) {
     await db.message.create({ data: { visitId: visit.id, role: "sweetie", content: hello } });
     messages.push({ role: "sweetie", content: hello });
   }
-  return NextResponse.json({ visitId: visit.id, name: visit.patient.name, messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
+  return NextResponse.json({ visitId: visit.id, name: visit.patient.name, provider: providerName(visit), messages, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 async function postHandler(req: Request) {
@@ -172,7 +172,7 @@ async function respond(visitId: string, state: IntakeState, reply: string, wasWr
     nudge(after);
   }
 
-  return NextResponse.json({ reply, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
+  return NextResponse.json({ reply, provider: bundle?.patient.provider.name, status: bundle?.status, intake: bundle?.intake, intakeFields: bundle?.intakeFields, agent: agentInfo() });
 }
 
 export const GET = withRoute("GET /api/sweetie", getHandler);

@@ -3727,6 +3727,75 @@ textarea.ss-input {
   margin-left: auto;
 }
 
+/* Where the done card would be, when the safety scan stopped the intake instead of the questions running
+   out (T66, design §2.5). Same shape and width as that card, so the transcript still ends with one thing,
+   in the warning colours the stepper's "Flagged for the office" pill already uses. Not a link as a whole:
+   the instruction is to call someone, and the summary is one choice inside the card rather than the card's
+   own destination. */
+.sweetie-flagged-card {
+  display: flex;
+  width: min(100%, 440px);
+  align-items: start;
+  gap: 11px;
+  margin: 4px auto;
+  padding: 11px 14px;
+  border: 1px solid #efc2a9;
+  border-radius: 15px;
+  color: #8f4524;
+  background: #fff4ed;
+  box-shadow: 0 8px 25px rgba(168, 82, 44, 0.1);
+}
+
+.sweetie-flagged-card > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  color: white;
+  background: #a8522c;
+  font-weight: 700;
+}
+
+.sweetie-flagged-card strong,
+.sweetie-flagged-card small {
+  display: block;
+}
+
+.sweetie-flagged-card strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.sweetie-flagged-card small {
+  margin-top: 3px;
+  color: #96553a;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* The secondary choice on the card, drawn as a control rather than as a line of text: it is the whole of
+   its own line, so design §6.5's 44px minimum applies to it (e2e/mobile.ts) and an 17px-tall link fails it. */
+.sweetie-flagged-card a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 0 13px;
+  border: 1px solid #e7c4ad;
+  border-radius: 11px;
+  color: #a8522c;
+  background: white;
+  font-size: 11px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.sweetie-flagged-card a:hover {
+  border-color: #d79a73;
+}
+
 .sweetie-composer {
   display: flex;
   gap: 8px;
