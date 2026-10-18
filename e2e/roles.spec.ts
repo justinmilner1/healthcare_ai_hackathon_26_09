@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
+import { expectNoHorizontalScroll } from "./mobile";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
 // running app rather than against lib/access.ts. Nothing here stubs a session — each identity signs in by its
@@ -20,6 +21,38 @@ const shot = async (page: Page, name: string) => {
 };
 
 const LOADED = { timeout: 30_000 };
+
+/**
+ * The hero hint does not sit on the mascot (T56, design §6.5).
+ *
+ * The hint is the one line that says what the screen is for — §5.2's division of labour for staff, "Sour
+ * will light up" for a clinician with nothing ready yet — and at 375px it used to be printed across the
+ * illustration's face. A `ready > 0` clinician gets a solid button in that corner instead, which reads over
+ * the image; bare text does not, so the fix is distance, and distance is a measurement rather than something
+ * to eyeball in a screenshot. Phone only: at 1280px the hero has room for both and the boxes say nothing.
+ */
+async function expectHintClearOfMascot(page: Page, variant: string): Promise<void> {
+  if (test.info().project.name !== "mobile") return;
+  // The hint is wider on a phone than it was, so §6.5's own measurement comes along with it.
+  await expectNoHorizontalScroll(page, `the ${variant} provider dashboard`);
+  const boxes = await page.evaluate(() => {
+    const box = (selector: string) => {
+      const found = document.querySelector(selector)?.getBoundingClientRect();
+      return found ? { left: found.left, right: found.right, top: found.top, bottom: found.bottom } : null;
+    };
+    return { hint: box(".provider-hero-hint"), mascot: box(".provider-hero-character") };
+  });
+  const { hint, mascot } = boxes;
+  expect(hint, `the ${variant} hero shows its hint`).not.toBeNull();
+  expect(mascot, `the ${variant} hero shows its mascot`).not.toBeNull();
+  const overlaps =
+    hint!.right > mascot!.left && hint!.left < mascot!.right &&
+    hint!.bottom > mascot!.top && hint!.top < mascot!.bottom;
+  expect(
+    overlaps,
+    `the ${variant} hero hint [${Math.round(hint!.left)}…${Math.round(hint!.right)}] overlaps the mascot [${Math.round(mascot!.left)}…${Math.round(mascot!.right)}] (T56, design §6.5)`,
+  ).toBe(false);
+}
 
 test("a user from another practice gets 404 on this practice's visits", async ({ page }) => {
   // Practice A: the seeded one, with Sam Sample's visit in it (`npm run seed`).
@@ -67,6 +100,12 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
 
   // The dashboard offers settings to an admin; the link is what gets us there.
   await expect(page.getByRole("link", { name: "Settings" })).toBeVisible(LOADED);
+
+  // Nothing is ready in a practice this new, so this is the hero's other hint (T56) — the one a clinician or
+  // admin reads where a `ready > 0` clinician gets the "Open Sour summaries" button.
+  await expect(page.locator(".provider-hero-hint")).toHaveText(/Sour will light up/);
+  await expectHintClearOfMascot(page, "clinician");
+  await shot(page, "provider-dashboard-nothing-ready");
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(/\/provider\/settings/);
   await expect(page.getByRole("heading", { name: "Users and roles." })).toBeVisible(LOADED);
@@ -136,6 +175,8 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.locator(".provider-table")).toContainText("Roles Patient", LOADED);
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Open in Sour|Summarize/ })).toHaveCount(0);
+
+  await expectHintClearOfMascot(page, "staff");
   await shot(page, "provider-dashboard-staff");
 
   await page.goto("/provider/settings");
