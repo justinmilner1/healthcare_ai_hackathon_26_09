@@ -403,10 +403,12 @@ What then happens, in order:
 
 - **`orphans` above zero** means the rows are gone and some of the bytes are not: S3 refused that many
   deletes (`objects.failed`, `lib/storage.ts`). **This is no longer yours to repair by hand** (T70). The
-  prefix is on `StorageOrphan` and two things come back to it: the nightly `retention.sweep`, and staff
-  pressing *Delete data* on the patient again — which now reaches the bucket even though the patient has no
-  visits left. When the bytes finally go, the trail says so: a `storage.orphans_purged` row against the
-  practice, with `prefixes`, `objects` and `orphans`.
+  prefix is on `StorageOrphan` and two things come back to it. The nightly `retention.sweep` is the one that
+  needs nobody: it walks the ledger after it has swept, every night, until the bucket takes the bytes. Any
+  further `patient.delete` for that patient walks their part of it too — a retry of the job, or staff
+  pressing *Delete data* again where the row is still on the dashboard — which is the fix for the old
+  behaviour of returning early on an empty `patient.visits`. When the bytes finally go, the trail says so: a
+  `storage.orphans_purged` row against the practice, with `prefixes`, `objects` and `orphans`.
 
   What is still yours is noticing that it is not clearing. Treat a non-zero `orphans` as an unfinished
   deletion request until a later row says otherwise, and look at the ledger directly if it is not moving:

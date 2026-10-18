@@ -40,8 +40,9 @@ would otherwise be invisible and stay for ever.
 deletes the `Visit` seconds after its objects, and `visits/<visitId>/` is built from that id — so a refusal
 that was only counted was a prefix nothing could name again, and the job finished successfully with bytes
 still in the bucket. Every refusal now lands on `StorageOrphan` before the rows do, keyed by the prefix.
-`retention.sweep` walks that ledger nightly and `patient.delete` walks the patient's own part of it, which is
-what makes a second press of *Delete data* reach the object store with no visits left. A prefix that comes
+`retention.sweep` walks that ledger nightly, which is the pass that needs nobody, and `patient.delete` walks
+the patient's own part of it — so a retry of that job reaches the object store rather than finding
+`patient.visits` empty and returning. A prefix that comes
 back empty leaves the ledger; one refused again stays with `attempts` one higher (`docs/RUNBOOK.md`).
 
 ## Who drains the queue
