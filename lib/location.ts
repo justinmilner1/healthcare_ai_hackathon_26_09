@@ -3,6 +3,11 @@
 // Keep only segments with a `visit` key within the last 7 days of the file (latest endTime = "now",
 // so sample files never go stale). placeLocation is "37.77°, -122.41°" or { latLng: "geo:37.77,-122.41" }.
 // Place names are not in the export: join on placeId, then fall back to visits.csv by proximity.
+// Until one of those names a visit, `place` is its own coordinates rounded to three decimals, never the
+// place id (T62): a brief that reads "ChIJN1t_tDeuEmsRUsoyG83frY4" tells a clinician nothing, and three
+// spikes all reading "an unnamed place" would read as one place when they are three. Three decimals is
+// ~110 m, the radius labelVisits joins on, so two visits share a label exactly when a label would match
+// both. `placeId` stays on the Visit either way; only the display changes.
 
 import type { Visit } from "./types";
 
@@ -28,7 +33,7 @@ export function parseTimeline(jsonText: string, opts: { now?: Date; windowMs?: n
     visits.push({
       start: new Date(s.startTime).toISOString(),
       end: new Date(s.endTime).toISOString(),
-      place: s.visit.topCandidate?.placeId ?? "Unknown place",
+      place: placeLabel(loc.lat, loc.lng),
       lat: loc.lat,
       lng: loc.lng,
       placeId: s.visit.topCandidate?.placeId,
@@ -53,15 +58,34 @@ export function parseVisitsCsv(text: string): Visit[] {
   return out;
 }
 
+/**
+ * What an unlabelled Timeline visit is called: its coordinates, rounded to three decimals (~110 m).
+ * Never the place id — see the note at the top of this file (T62).
+ */
+export function placeLabel(lat: number, lng: number): string {
+  return `${round3(lat)}, ${round3(lng)}`;
+}
+
 /** Give Timeline visits human names from a labelled list, by placeId or by being within ~100 m. */
 export function labelVisits(visits: Visit[], labelled: Visit[]): Visit[] {
-  if (labelled.length === 0) return visits;
   return visits.map((v) => {
     const byId = v.placeId && labelled.find((l) => l.placeId && l.placeId === v.placeId);
     const near = byId ?? labelled.find((l) => distanceM(l.lat, l.lng, v.lat, v.lng) < 100);
-    return near ? { ...v, place: near.place } : v;
+    if (near) return { ...v, place: near.place };
+    // Uploads parsed before T62 kept the place id as the name — or LEGACY_UNNAMED, for a visit the export
+    // gave coordinates but no id. Nothing labelled them then and nothing will now, so they would still
+    // print one of those two; this is where every stored Timeline visit passes on its way to a brief
+    // (lib/bundle.ts), so it is where both get the coordinates they already carry instead.
+    const unnamed = v.place === v.placeId || v.place === LEGACY_UNNAMED;
+    return unnamed ? { ...v, place: placeLabel(v.lat, v.lng) } : v;
   });
 }
+
+/** What parseTimeline called a visit with coordinates but no place id, before T62 named it by them. */
+const LEGACY_UNNAMED = "Unknown place";
+
+/** Always three decimals, so a column of them lines up: 37.7766 -> "37.777", 37.7899 -> "37.790". */
+const round3 = (n: number) => n.toFixed(3);
 
 function parseLatLng(raw: unknown): { lat: number; lng: number } | null {
   let s: string | undefined;

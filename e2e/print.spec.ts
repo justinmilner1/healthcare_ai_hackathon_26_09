@@ -91,6 +91,12 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(page.locator(".sour-print-questions li").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
+  // T62: this visit has a Timeline export and no hand-labelled place list beside it, which is all a patient
+  // can actually send (§9.3). Every place on the sheet is therefore the visit's own coordinates — Google's
+  // internal place id is not a place name, and a clinician holding this paper cannot read one.
+  const sheet = page.locator(".sour-print-sheet");
+  await expect(sheet, "a Google place id on the sheet a clinician holds").not.toContainText(/ChIJ/);
+  await expect(sheet, "the 'Where' column names each place by its coordinates instead").toContainText(/-?\d+\.\d{3}, -?\d+\.\d{3}/);
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await shot(page, "provider-print");
