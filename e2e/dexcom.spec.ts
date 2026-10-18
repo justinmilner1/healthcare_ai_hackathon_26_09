@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyLink } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T24, design §9.2: the same OAuth code against the Dexcom sandbox or against production, chosen by
 // DEXCOM_ENV. The two servers playwright.config.ts starts are the whole fixture; nothing is stubbed.
@@ -56,7 +57,7 @@ test.describe("DEXCOM_ENV=production", () => {
     const dexcomCard = page.locator("section, div").filter({ hasText: /Glucose trends/ }).last();
     await expect(dexcomCard).toContainText(/Your last 7 days of readings are imported/);
     await expect(dexcomCard).not.toContainText(/synthetic/i);
-    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-dexcom-production-connect.png`, fullPage: true });
+    await shot(page, "dexcom-production-connect", WHOLE_PAGE);
 
     // The same patient, the same browser, against the server that has no Dexcom configured — which is why
     // the demo button there is the disabled one, and why this half is about which button is offered rather
@@ -68,7 +69,7 @@ test.describe("DEXCOM_ENV=production", () => {
     const demoButton = page.getByRole("button", { name: /Connect Dexcom · Demo/ });
     await expect(demoButton).toBeVisible(LOADED);
     await expect(page.getByRole("button", { name: "Connect Dexcom", exact: true })).toHaveCount(0);
-    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-dexcom-sandbox-connect.png`, fullPage: true });
+    await shot(page, "dexcom-sandbox-connect", WHOLE_PAGE);
 
     const sandboxStatus = await (await page.request.get(`http://localhost:${PORT}/api/dexcom/status?token=${booked.token}`)).json();
     expect(sandboxStatus.env).toBe("sandbox");

@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { DEMO_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { DEMO_EMAIL, MAIL_DIR, signInAsDemo } from "./auth";
+import { shot } from "./shot";
 
 // Demo practices (T32, design §13.4): "a flag on a practice that marks it synthetic; demo practices are
 // excluded from retention sweeps and alarms and are never emailed real addresses."
@@ -14,25 +15,6 @@ import { DEMO_EMAIL, MAIL_DIR, signInAsDemo } from "./auth";
 // `/demo` gets a server of its own (port+4, playwright.config.ts): DEMO_SIGN_IN is what turns the shortcut
 // on, and the main server deliberately leaves it off so e2e/signin.spec.ts can see the default — the sign-in
 // form with the address filled in.
-
-/** A full-page shot, for a screen that fits on one. */
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
-
-/**
- * The viewport, scrolled to whatever the test is about.
- *
- * The dashboard is the screen T57 is about: a `fullPage` shot of it is 20,000 pixels tall on the phone
- * profile and shows a reviewer nothing, and the table card is no better — a seeded database has a hundred
- * rows in it. So the shot is one screenful, with the row this test booked scrolled into it.
- */
-const shotOf = async (page: Page, name: string, selector?: string) => {
-  // Centred rather than scrollIntoViewIfNeeded, which stops as soon as the row is barely on screen and
-  // leaves it half cut off at the bottom edge of the shot.
-  if (selector) await page.locator(selector).first().evaluate((el) => el.scrollIntoView({ block: "center" }));
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png` });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -96,7 +78,14 @@ test("a demo practice does not message a number that could be somebody's", async
   const attemptedTitle = await attempted.getAttribute("title");
   expect(attemptedTitle ?? "", `the reserved number is not refused by §13.4 (title: ${attemptedTitle})`).not.toMatch(/demo practice/i);
 
-  await shotOf(page, "provider-dashboard-demo-messages", `.provider-table tbody tr:has-text("${realPhone}")`);
+  // One screenful at either width, with the row this test booked centred in it: the dashboard is as tall
+  // as the practice's visit list and the Messages column on one row is all this is about (T57).
+  await shot(page, "provider-dashboard-demo-messages", {
+    fullPage: false,
+    scrollTo: `.provider-table tbody tr:has-text("${realPhone}") .provider-invite`,
+    block: "center",
+    inline: "center",
+  });
 });
 
 test.describe("DEMO_SIGN_IN=1", () => {
@@ -115,7 +104,7 @@ test.describe("DEMO_SIGN_IN=1", () => {
     expect(provider.email).toBe(DEMO_EMAIL);
     expect(provider.role).toBe("admin");
     await expect(page.locator(".provider-table")).toBeVisible(LOADED);
-    await shotOf(page, "demo-signed-in");
+    await shot(page, "demo-signed-in", { fullPage: false });
 
     // Nothing was emailed: this server has its own mailbox and the shortcut is the whole point.
     const { readdirSync } = await import("node:fs");

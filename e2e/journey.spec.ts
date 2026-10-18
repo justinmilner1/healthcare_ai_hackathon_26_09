@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
+import { MODAL, shot as rawShot, type ShotOptions } from "./shot";
 
 // T26 (design §12.2): "both flows against a seeded database: staff creates a visit, patient verifies and
 // completes intake in scripted mode, Sour summary appears, clinician marks reviewed" — as one journey,
@@ -30,9 +31,11 @@ import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
 // written by the `sour.run` job (§3.4, §7.2) — if the queue never drains, the chip never reads Ready and this
 // test fails where that happened.
 
-/** Screenshots are numbered, because the point of these is the order (§12.3). */
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-journey-${name}.png`, fullPage: true });
+/** Screenshots are numbered, because the point of these is the order (§12.3). e2e/shot.ts decides how much
+ *  of each page is in the shot; the dashboards pass the table card, because on a phone that is what the step
+ *  is about and the page is as tall as the practice's visit list (T57). */
+const shot = async (page: Page, name: string, options: ShotOptions = {}) => {
+  await rawShot(page, `journey-${name}`, options);
 };
 
 // Waits for a client fetch to paint, not for app logic: these pages render a shell and fill it in after.
@@ -85,7 +88,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // settings link. Both are asserted exhaustively in e2e/roles.spec.ts; here they are the state of the screen
   // the next screenshot is of.
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
-  await shot(page, "02-staff-dashboard");
+  await shot(page, "02-staff-dashboard", { scrollTo: ".provider-table-card" });
 
   // The wizard, step by step, because this is the screen the appointment is made on (e2e/visits.spec.ts
   // drives its refusals; this is the path through it).
@@ -107,7 +110,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // "Text and email" as well, since it matches a case-insensitive substring.
   await page.getByText("Email", { exact: true }).click();
   await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
-  await shot(page, "03-add-visit");
+  await shot(page, "03-add-visit", MODAL);
   await page.getByRole("button", { name: /Add patient & send/i }).click();
 
   // The link on the success card is the one that was emailed, and it is the patient's way in from here on.
@@ -115,7 +118,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const link = await page.locator(".patient-link-card a").innerText();
   const token = link.split("/s/")[1]?.trim();
   expect(token, `a /s/<token> link on the success card, got ${link}`).toBeTruthy();
-  await shot(page, "04-invite-sent");
+  await shot(page, "04-invite-sent", MODAL);
 
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
   const row = page.locator(".provider-table tbody tr", { hasText: email });
@@ -196,7 +199,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("button", { name: /Add patient/i })).toHaveCount(0);
   const clinicianRow = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(clinicianRow).toContainText(patientName, LOADED);
-  await shot(page, "11-clinician-dashboard");
+  await shot(page, "11-clinician-dashboard", { scrollTo: clinicianRow, block: "center" });
 
   // The row offers Sour because there is data and answers to summarize, and no summary yet. Clicking it is
   // what asks for one: the page queues a `sour.run` job and waits for it (§3.4, §7.2).
@@ -229,7 +232,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const reviewed = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(reviewed).toContainText("Reviewed", LOADED);
   await expect(reviewed.locator(".provider-reviewed-by")).toContainText(clinicianName);
-  await shot(page, "14-dashboard-reviewed");
+  await shot(page, "14-dashboard-reviewed", {
+    scrollTo: reviewed.locator(".provider-stage-cell"),
+    block: "center",
+    inline: "center",
+  });
 
   // §7.4: the sheet for the appointment itself. e2e/print.spec.ts is where the paper is checked; the journey
   // asks the one question it is here to ask — that the sheet carries this patient's week and their own words.

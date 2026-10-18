@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
+import { MODAL, shot } from "./shot";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 
 // T14 (design §2.8, §10.4, §10.5): the deletion a patient asks for, driven through the screen staff use.
@@ -19,14 +20,6 @@ import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 // asserting on it would be asserting on which other spec drained the queue first. Its behaviour is in
 // lib/retentionStore.test.ts against a real database, visit by visit; what this file checks is the wiring
 // that gets it queued at all.
-
-// The dashboard is as tall as the practice's visit list, which by the time the mobile project runs is every
-// patient every other spec booked — a full-page phone shot of it came out 12,000 pixels tall, which shows a
-// reviewer nothing. So the phone shoots its viewport (the dialog is centred in it anyway) and the desktop
-// shoots the page, the same split e2e/audit.spec.ts makes for the same reason.
-const shot = async (page: Page, name: string, fullPage = test.info().project.name === "desktop") => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -74,7 +67,7 @@ test("a deletion request removes everything the patient gave us, and leaves a re
   await expect(confirm).toBeDisabled();
   await dialog.getByLabel(/Type the patient's name to confirm/i).fill("Someone Else");
   await expect(confirm).toBeDisabled();
-  await shot(page, "provider-delete-confirm");
+  await shot(page, "provider-delete-confirm", MODAL);
 
   await dialog.getByLabel(/Type the patient's name to confirm/i).fill(patient.name);
   await expect(confirm).toBeEnabled();
@@ -92,11 +85,9 @@ test("a deletion request removes everything the patient gave us, and leaves a re
     .toBe(false);
   await page.reload();
   await expect(page.locator(".provider-table")).not.toContainText(patient.name, LOADED);
-  // The table is what this shot is about, and on a phone it is below a screen of hero and metrics. Scrolled
-  // to its top rather than "into view": the card is taller than a phone viewport, so the minimum scroll
-  // leaves the shot in the middle of the rows with no header on it.
-  await page.locator(".provider-table-card").evaluate((card) => card.scrollIntoView({ block: "start" }));
-  await shot(page, "provider-dashboard-after-deletion");
+  // The table is what this shot is about, and on a phone it is below a screen of hero and metrics, so the
+  // helper scrolls the card to the top of the viewport first (e2e/shot.ts).
+  await shot(page, "provider-dashboard-after-deletion", { scrollTo: ".provider-table-card" });
 
   // Gone for the clinician: the visit is not a visit any more, which is the same 404 as one that never was.
   expect((await page.request.get(`/api/patient/${booked.visitId}`)).status()).toBe(404);
@@ -110,7 +101,7 @@ test("a deletion request removes everything the patient gave us, and leaves a re
   await expect(table).toContainText("Patient data deleted", LOADED);
   await page.getByLabel("Action").selectOption("patient.deleted");
   await expect(table).toContainText(demo.name, LOADED);
-  await shot(page, "provider-audit-deletion", true);
+  await shot(page, "provider-audit-deletion", { scrollTo: ".provider-table-card" });
 
   // §4.8, against the real table: the row says how much went and nothing about whom.
   const csv = await page.request.get("/api/audit?limit=500&format=csv");

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { acceptConsent, latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T08, design §2.3, §5.3, §5.5: the patient link is a door with a lock on it.
 //
@@ -38,7 +39,7 @@ test("opening a link sends a code and shows the code screen, and the right code 
   await expect(page.locator(".patient-verify-note")).toContainText(/code to your email/i, LOADED);
   await expect(page.locator("body")).not.toContainText("E2E Verify");
   await expect(page.locator("body")).not.toContainText(email);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-code.png`, fullPage: true });
+  await shot(page, "verify-code", WHOLE_PAGE);
 
   const code = await waitForCode(email);
   // Sweetie's greeting is behind the lock: the chat is not in the page until the code is in.
@@ -51,7 +52,7 @@ test("opening a link sends a code and shows the code screen, and the right code 
   await expect(page.locator(".patient-consent-card")).toBeVisible(LOADED);
   expect(await acceptConsent(page), "the consent screen was up").toBe(true);
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-done.png`, fullPage: true });
+  await shot(page, "verify-done", WHOLE_PAGE);
 
   // 24 hours and bound to the visit (§5.3): the cookie is httpOnly, so the page's own script cannot read it.
   const cookie = (await page.context().cookies()).find((c) => c.name === "ss_patient");
@@ -85,7 +86,7 @@ test("a wrong code counts down, and the third one invalidates the code for good 
   await page.getByLabel("6-digit code").fill(wrong);
   await page.getByRole("button", { name: /Continue/i }).click();
   await expect(page.locator(".patient-verify-card .ss-error")).toContainText(/no longer works/i, LOADED);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-locked.png`, fullPage: true });
+  await shot(page, "verify-locked", WHOLE_PAGE);
 
   await page.getByLabel("6-digit code").fill(code);
   await page.getByRole("button", { name: /Continue/i }).click();
@@ -170,5 +171,5 @@ test("a link with no phone or email on file says so instead of showing a code sc
   await page.goto(`/s/${token}`);
   await expect(page.locator(".patient-state-card")).toContainText(/no phone number or email address on file/i, LOADED);
   expect((await postJson(request, "/api/verify", { token })).status()).toBe(422);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-verify-no-contact.png`, fullPage: true });
+  await shot(page, "verify-no-contact", WHOLE_PAGE);
 });

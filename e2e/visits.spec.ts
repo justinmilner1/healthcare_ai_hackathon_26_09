@@ -1,6 +1,7 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo } from "./auth";
+import { MODAL, shot } from "./shot";
 
 // T07 (design §2.2, §4.4, §8.3): the two ways a practice creates visits, driven through the screens staff
 // actually use. One at a time in the wizard, with the contact channel and the recorded consent §2.2 asks for;
@@ -9,10 +10,6 @@ import { freshEmail, signInAs, signInAsDemo } from "./auth";
 //
 // Nothing here stubs a session: each identity signs in by its own magic link (§5.1, e2e/auth.ts). Every
 // state-changing API call goes through postJson, which echoes the CSRF cookie the way the pages do (§10.8).
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 // The dashboard paints its shell and fills in from GET /api/provider; a slow runner takes longer than the 5s
 // default to come back, so the waits for that data get their own budget.
@@ -50,7 +47,7 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // Step 3 is §2.2's channel and consent. Saving without the consent is refused by the route, which is worth
   // asserting here rather than only in lib/visitIntake.test.ts: the sentence has to reach the screen.
   await expect(page.getByText("Contact channel")).toBeVisible();
-  await shot(page, "provider-add-visit-consent");
+  await shot(page, "provider-add-visit-consent", MODAL);
   await page.getByRole("button", { name: /Add patient & send/i }).click();
   await expect(page.locator(".ss-error")).toContainText(/consent/i, LOADED);
 
@@ -103,7 +100,13 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // with: the dashboard reads GET /api/provider once, and the send finished after that.
   await page.reload();
   await expect(row).toContainText("Consent: Over the phone", LOADED);
-  await shot(page, "provider-dashboard-visit-statuses");
+// The cell this test asserts on, not just the row: the table is wider than a phone, so Stage,
+  // Messages and Actions are off to the right until the shot asks for them (T57).
+  await shot(page, "provider-dashboard-visit-statuses", {
+    scrollTo: row.locator(".provider-invite"),
+    block: "center",
+    inline: "center",
+  });
 });
 
 test("a day of visits imports from a CSV, one error per bad row", async ({ page }, testInfo) => {
@@ -143,14 +146,26 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // And a row with nothing to reach the patient on is still importable, with what that costs on it: after
   // T08 (§5.3) opening the link sends a code, so this visit has no way in until someone adds a number.
   await expect(page.locator(".import-warning")).toContainText(/cannot open their link/i);
-  await shot(page, "provider-import-preview");
+  // MODAL at either width: this is a dialog over the dashboard, and a full-page shot anchors at the top of
+  // a very tall document, which cut the dialog's own header off above the image (T57).
+  //
+  // MODAL alone is not enough here, though: `.import-scroll` is the dialog's own scrolling body (one
+  // scrolling body with the actions fixed under it, app/provider/dashboard.tsx), and pasting the rows
+  // leaves it scrolled past its header — so the shot still began mid-sentence at "sends them a code." with
+  // the title above the fold of the dialog rather than of the page. The scroller goes back to the top
+  // rather than its header being scrolled into view, because `scrollIntoView` aligns the header's box to
+  // the scrollport and still cut the eyebrow and the cap-heights off the title.
+  await page.locator(".import-scroll").evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await shot(page, "provider-import-preview", MODAL);
 
   const beforeImport = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
   expect(beforeImport.visits.some((v) => v.name === goodName), "the preview writes nothing").toBeFalsy();
 
   await page.getByRole("button", { name: /Create 3 visits/i }).click();
   await expect(page.locator(".import-tally")).toContainText("3 created", LOADED);
-  await shot(page, "provider-import-created");
+  await shot(page, "provider-import-created", MODAL);
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
   // Both rows are on the dashboard, and the one with no channel says it is not being messaged (§8.3).

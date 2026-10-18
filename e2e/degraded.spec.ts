@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { DEGRADED_MAIL_DIR, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyLink } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // Design 6.3 / 11.3: when the model gateway is down Sweetie answers from the scripted path and the page says so.
 // Two servers, started by playwright.config.ts, are the whole fixture; nothing in the app is stubbed.
@@ -64,7 +65,7 @@ test.describe("model gateway unreachable", () => {
 
     // "The questions continue": the scripted second question arrives, and the answer was stored.
     await expect(page.locator(".sweetie-messages")).toContainText(SCRIPTED_FOLLOW_UP, LOADED);
-    await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-sweetie-degraded.png`, fullPage: true });
+    await shot(page, "sweetie-degraded", WHOLE_PAGE);
 
     // page.request: the verified patient session lives in the browser's cookie jar (T08, §5.3).
     const bundle = await (await page.request.get(`/api/patient/${token}`)).json();

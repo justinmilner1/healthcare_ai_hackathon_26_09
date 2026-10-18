@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { AGREE, enterCode, patientEmail } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T09, design §2.4: the one screen between the code and Sweetie. Shown on first open only; it says what is
 // collected, that it is optional, that a clinician reviews it, and how to have it deleted; one tap continues
@@ -48,7 +49,7 @@ test("the consent screen is what a verified link opens, and one tap goes through
   await expect(page.locator(".sweetie-messages")).toHaveCount(0);
   // `animations: "disabled"` finishes the card's 480ms entrance before the shutter: without it the committed
   // screenshot is a half-faded card and says nothing about the contrast or the weight of the type.
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-consent.png`, fullPage: true, animations: "disabled" });
+  await shot(page, "consent", { ...WHOLE_PAGE, animations: "disabled" });
 
   // One tap to continue (§2.4).
   await page.getByRole("button", { name: AGREE }).click();
@@ -91,7 +92,7 @@ test("declining ends the session politely, and the pages behind it close", async
   await expect(card).toContainText(/Nothing has been collected/i);
   await expect(card).toContainText(/appointment goes ahead/i);
   await expect(page.getByRole("button", { name: AGREE })).toHaveCount(0);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-consent-declined.png`, fullPage: true, animations: "disabled" });
+  await shot(page, "consent-declined", { ...WHOLE_PAGE, animations: "disabled" });
 
   // And ended: the session that was verified a moment ago is gone, so the API refuses this browser and the
   // pages behind the gate are back to asking for a code.

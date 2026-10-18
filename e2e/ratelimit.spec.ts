@@ -2,6 +2,7 @@ import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // T10, design §5.4: limits on the public routes, keyed by IP and by visit.
 //
@@ -55,7 +56,7 @@ test("too many code requests for one visit are refused with a plain message (§5
   // so a reload while the window is spent shows the refusal rather than a dead form (§5.3, VerifyScreen).
   await page.goto(`/s/${token}`);
   await expect(page.locator(".patient-verify-card .ss-error")).toContainText(/too many requests/i, LOADED);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-ratelimit-verify.png`, fullPage: true });
+  await shot(page, "ratelimit-verify", WHOLE_PAGE);
 });
 
 test("one visit's spent window is not another visit's (§5.4)", async ({ page, browser }) => {
@@ -105,5 +106,5 @@ test("the invite link route is limited too, and says so in a page a browser can 
   await page.goto(`/s/${token}`);
   await expect(page.locator("h1")).toHaveText("Just a moment", LOADED);
   await expect(page.locator("body")).toContainText(/too many requests/i);
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-ratelimit-link.png`, fullPage: true });
+  await shot(page, "ratelimit-link", WHOLE_PAGE);
 });

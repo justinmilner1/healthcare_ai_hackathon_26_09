@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { expectNoHorizontalScroll } from "./mobile";
+import { shot } from "./shot";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
 // running app rather than against lib/access.ts. Nothing here stubs a session — each identity signs in by its
@@ -15,10 +16,6 @@ import { expectNoHorizontalScroll } from "./mobile";
 //   1. "a user never sees another practice's data" — and sees a 404, not a 403, so the refusal does not tell
 //      them the visit exists.
 //   2. the role a colleague was invited with is what they can do, in the API and on the screen.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 
@@ -177,7 +174,13 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.getByRole("link", { name: /Open in Sour|Summarize/ })).toHaveCount(0);
 
   await expectHintClearOfMascot(page, "staff");
-  await shot(page, "provider-dashboard-staff");
+  // What staff do not get is the point, and it is the Actions column that does not have it — the far right
+  // of a table wider than a phone (T57).
+  await shot(page, "provider-dashboard-staff", {
+    scrollTo: '.provider-table tbody tr:has-text("Roles Patient") .provider-row-actions',
+    block: "center",
+    inline: "center",
+  });
 
   await page.goto("/provider/settings");
   await expect(page).toHaveURL(/\/provider(\?|$|\/)/);

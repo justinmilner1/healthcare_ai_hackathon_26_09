@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyLink } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // Design §6.2 from the patient's side: "Every patient message is stored before any model call; the transcript
 // survives a crash." The order and the crash behaviour of one turn are unit-tested against fakes in
@@ -13,9 +14,6 @@ import { patientEmail, verifyLink } from "./patient";
 // before it reaches the browser, which is what a closed tab or a dropped connection does to a turn.
 
 const LOADED = { timeout: 30_000 };
-const shot = (page: Page, name: string) =>
-  page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-
 /** Only the real bubbles: the typing dots and the voice interim share the class and are not transcript. */
 const BUBBLES = ".sweetie-messages .sweetie-message:not(.sweetie-typing):not(.sweetie-interim)";
 
@@ -78,7 +76,7 @@ test("reloading the page restores the full transcript and the stepper state (§6
   // rather than a confusing diff below.
   expect(before.transcript.length).toBe(5);
   expect(before.stepper.some((step) => step.done), "answering filled at least one step").toBe(true);
-  await shot(page, "sweetie-before-reload");
+  await shot(page, "sweetie-before-reload", WHOLE_PAGE);
 
   // Nothing is kept in the browser: the page holds the transcript in React state and the stepper is computed
   // from the intake. A reload throws both away and rebuilds them from the visit.
@@ -91,7 +89,7 @@ test("reloading the page restores the full transcript and the stepper state (§6
   expect(after.stepper, "the same steps, the same one current, the same ones done").toEqual(before.stepper);
   expect(after.progress).toBe(before.progress);
   expect(after.answered).toBe(before.answered);
-  await shot(page, "sweetie-after-reload");
+  await shot(page, "sweetie-after-reload", WHOLE_PAGE);
 
   // And the server agrees with the screen, which is the point: the page is a view of the visit, not the
   // record of it. page.request, because the verified patient session is in the browser's jar (§5.3).
@@ -125,7 +123,7 @@ test("a reply the browser never receives is still in the transcript after a relo
 
   // What the page does with a failed send: its own apology, which is never stored (app/s/[token]/page.tsx).
   await expect(page.locator(".sweetie-messages")).toContainText(/trouble with that reply/i, LOADED);
-  await shot(page, "sweetie-lost-reply");
+  await shot(page, "sweetie-lost-reply", WHOLE_PAGE);
 
   await page.unroute("**/api/sweetie");
   await page.reload();
@@ -137,7 +135,7 @@ test("a reply the browser never receives is still in the transcript after a relo
   expect(restored.transcript).toContain("Lows most afternoons and I have started skipping lunch.");
   expect(restored.transcript.join("\n")).not.toMatch(/trouble with that reply/i);
   expect(restored.transcript.filter((line) => line.includes("skipping lunch")).length, "stored once, not twice").toBe(1);
-  await shot(page, "sweetie-after-lost-reply");
+  await shot(page, "sweetie-after-lost-reply", WHOLE_PAGE);
 
   // One turn's worth of state, not two and not none: the aborted response cost the patient nothing and
   // charged them nothing. And the conversation carries on from there.

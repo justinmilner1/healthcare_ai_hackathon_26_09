@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { MAIL_DIR, signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
+import { shot } from "./shot";
 
 // T18 (design §2.6, §7.5): "Follow-up questions to Sour are logged with the clinician id and the answer,
 // visible on the page, never emailed."
@@ -18,10 +19,6 @@ import { patientEmail, verifyByApi } from "./patient";
 // The uploads go through `request` and not `page.request`: the patient's credential is the token plus the
 // verified session the six-digit code leaves behind (§5.3), and keeping them in separate contexts means the
 // provider session stays signed in for the half of the test that is the clinician's.
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
 
 const LOADED = { timeout: 30_000 };
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");

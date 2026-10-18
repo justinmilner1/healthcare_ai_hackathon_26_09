@@ -1,16 +1,15 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { expectNoHorizontalScroll } from "./mobile";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
+import { shot, WHOLE_PAGE } from "./shot";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
-// reviewer routines can find them: e2e/screenshots/<project>-<name>.png
-
-const shot = async (page: Page, name: string) => {
-  await page.screenshot({ path: `e2e/screenshots/${test.info().project.name}-${name}.png`, fullPage: true });
-};
+// reviewer routines can find them: e2e/screenshots/<project>-<name>.png. e2e/shot.ts decides how much of the
+// page each one gets: the patient screens are the page, the dashboard is one screenful with its table in it.. e2e/shot.ts decides how much of the
+// page each one gets: the patient screens are the page, the dashboard is one screenful with its table in it.
 
 // Waits for a client fetch to paint, not for app logic: the page renders its shell first and fills in after. A
 // slow runner can take longer than the 5s default to come back, so these get their own budget.
@@ -88,7 +87,12 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // The dashboard fills in from a client fetch of GET /api/provider. Wait for the seeded patient, or the
   // screenshot catches an empty workspace and shows nothing about the data behind it.
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
-  await shot(page, "provider-dashboard");
+  // The row this test is about, centred in the shot: on a phone the dashboard is as tall as the
+  // practice's visit list, and one screenful of somebody else's rows answers nothing (T57).
+  await shot(page, "provider-dashboard", {
+    scrollTo: '.provider-table tbody tr:has-text("Sam Sample")',
+    block: "center",
+  });
 
   // postJson adds the CSRF header the way the dashboard does (design §10.8, e2e/api.ts). The email is where
   // the patient's six-digit code goes (T08, §5.3), so a booking without one could never be opened.
@@ -141,7 +145,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   const seededRow = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" }).first();
   await expect(seededRow).toContainText("Follow-up");
   await expect(seededRow).toContainText("going high overnight");
-  await shot(page, "provider-dashboard-booked");
+  await shot(page, "provider-dashboard-booked", { scrollTo: bookedRow, block: "center" });
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.
@@ -245,7 +249,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // question rather than of the shell around it. The greeting is used rather than the question count because the
   // count is hidden by CSS on the mobile layout; LOADED above explains the timeout.
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
-  await shot(page, "sweetie-start");
+  await shot(page, "sweetie-start", WHOLE_PAGE);
 
   const input = page.locator("input[type='text'], input:not([type]), textarea").first();
   // Sweetie's own bubbles, with the typing indicator left out: it is a `.sweetie-message` too, in a row of the
@@ -275,7 +279,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   const doneCard = page.locator(".sweetie-done-card");
   await expect(doneCard).toContainText(/check-in is complete/i, LOADED);
   await expect(doneCard).toBeInViewport();
-  await shot(page, "sweetie-done");
+  await shot(page, "sweetie-done", WHOLE_PAGE);
 
   // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
   const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
@@ -291,7 +295,7 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // screenshot is of.
   await expect(page.locator(".patient-summary-meta")).toContainText("Follow-up");
   await expect(page.locator(".patient-summary-meta")).not.toContainText("follow_up");
-  await shot(page, "patient-summary");
+  await shot(page, "patient-summary", WHOLE_PAGE);
 });
 
 // T41 (design §2.7, §6): every visit type, not just the one the flow above books. The labels are written out
