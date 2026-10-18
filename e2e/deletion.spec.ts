@@ -101,7 +101,14 @@ test("a deletion request removes everything the patient gave us, and leaves a re
   await expect(table).toContainText("Patient data deleted", LOADED);
   await page.getByLabel("Action").selectOption("patient.deleted");
   await expect(table).toContainText(demo.name, LOADED);
-  await shot(page, "provider-audit-deletion", { scrollTo: ".provider-table-card" });
+  // The clinician's name is on nearly every row of the unfiltered trail, so on its own it passes whether
+  // the filter landed or not — and the shot below is then a picture of the whole practice's log (T61,
+  // app/provider/audit/audit.tsx). What only the filtered table satisfies is every row being this one
+  // action: the deletions, and nothing anybody read, accepted or sent.
+  const deletions = page.locator(".audit-table tbody tr");
+  await expect(deletions).not.toHaveCount(0);
+  await expect(deletions.filter({ hasNotText: "Patient data deleted" })).toHaveCount(0);
+  await shot(page, "provider-audit-deletion", { scrollTo: ".provider-patients" });
 
   // §4.8, against the real table: the row says how much went and nothing about whom.
   const csv = await page.request.get("/api/audit?limit=500&format=csv");

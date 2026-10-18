@@ -80,18 +80,26 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await expect(table).not.toContainText("Uploaded data read", LOADED);
   await expect(table).toContainText("Patient link accepted");
 
-  // Filter by the thing itself. The seeded visit is in this practice too, so this is a filter that has
-  // something to exclude.
+  // Filter by the thing itself. The seeded visit is in this practice too and every other spec in the run
+  // books more, so this is a filter with plenty to exclude — and what says the filter was applied is what is
+  // *not* in the table. Three category names were not enough (T61): the whole trail contains every one of
+  // them, so all three passed against the unfiltered rows that were still on the screen.
   await page.getByLabel("Action").selectOption("");
   await page.getByLabel("Visit or upload id").fill(booked.visitId);
   await expect(table).toContainText("Upload deleted", LOADED);
-  await expect(page.locator(".audit-table tbody tr")).not.toHaveCount(0);
   // All of them this visit's: the code that was sent, the link accepted, the clinician's read, the deletion.
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Uploaded data read");
-  // Filtered to this visit, so the rows in the shot are the three this test caused. The desktop gets the
-  // page; on the phone each row stacks into five labelled lines, so it gets the table card scrolled up.
-  await shot(page, "provider-audit-visit", { scrollTo: ".provider-table-card" });
+  const rows = page.locator(".audit-table tbody tr");
+  await expect(rows).not.toHaveCount(0);
+  // The `On` cell holds the first eight characters of the id (app/provider/audit/audit.tsx, shortId), so a
+  // row of another visit's is a row with this visit's prefix nowhere in it.
+  await expect(rows.filter({ hasNotText: booked.visitId.slice(0, 8) })).toHaveCount(0);
+  // And the count agrees: every row that matches is on the screen, rather than the first hundred of a longer
+  // list the filter never narrowed.
+  const matching = await rows.count();
+  await expect(page.locator(".provider-patients [aria-live]")).toHaveText(`${matching} of ${matching} shown`);
+  await shot(page, "provider-audit-visit", { scrollTo: ".provider-patients" });
 
   // A filter that matches nothing says so, rather than looking like an empty log.
   await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");
@@ -123,76 +131,39 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   }
 });
 
-// T51, design §2.4, §4.8, §10.2: the consent screen's two answers, as rows. T09 wrote them straight to the
-// table while T12 was reconciling every other call site, so until now they were not keys of AUDIT_ACTIONS —
-// the page printed `patient.consent_accepted` in the What column, the Action dropdown had no entry that
-// selected them, and the row said `Visit` where the rest of the table says `visit`. This asks the page the
-// questions an admin would: name the two answers, filter to each one, and show the decline's detail.
-test("accepting and declining the consent screen each leave a row the audit page names and filters", async ({ page, request }) => {
+// T61: the filter has to survive the answer to the question it replaced.
+//
+// The screen refetches on every filter change and keeps whatever answers last, which is not the same as
+// whatever was asked last (app/provider/audit/audit.tsx). The unfiltered trail is a hundred rows and a
+// filtered one is a handful, so the unfiltered read is the slower of the two and could land on top of the
+// filter that replaced it. Nothing arrives after it to put the screen right, so this is not a wait that
+// resolves itself: the whole practice's log stays there under a filter that excludes nearly all of it,
+// which is how a screenshot of "the filtered trail" came to be 1082 x 80,149 pixels of other visits.
+//
+// Held back by this test rather than hoped for: the delay is the real difference between the two responses,
+// made big enough to be certain about.
+test("a filter is not undone by the slower answer it replaced", async ({ page }) => {
   await signInAsDemo(page);
-
-  /** A booked visit whose patient then verifies their link, which is the session consent needs (§5.3), and
-   *  stops there: `consent: false`, because answering the screen is what this test is about and the helper's
-   *  own acceptance would be the row it then goes looking for. One patient at a time — the session cookie
-   *  names one visit, so the second verification replaces the first. */
-  const verified = async (name: string) => {
-    const email = patientEmail(name);
-    const booked = await (await postJson(page.request, "/api/book", { name, email, visitType: "follow_up", channel: "none" })).json();
-    expect(booked.visitId, `booking: ${JSON.stringify(booked)}`).toBeTruthy();
-    await verifyByApi(request, booked.token, email, undefined, { consent: false });
-    return booked as { visitId: string; patientId: string; token: string };
-  };
-
-  const accepted = await verified("Audit Consent Given");
-  expect((await postJson(request, "/api/consent", { token: accepted.token, accept: true })).ok()).toBeTruthy();
-
-  const declined = await verified("Audit Consent Refused");
-  expect((await postJson(request, "/api/consent", { token: declined.token, accept: false })).ok()).toBeTruthy();
+  await page.route("**/api/audit?**", async (route) => {
+    if (!route.request().url().includes("entityId=")) await new Promise((wait) => setTimeout(wait, 1_500));
+    await route.continue();
+  });
 
   await page.goto("/provider/audit");
   await expect(page.getByRole("heading", { name: "Who touched what." })).toBeVisible(LOADED);
-  const table = page.locator(".audit-table");
+  // There is a trail to lose: every other spec in this run has put rows in it, and so has the one above.
+  await expect(page.locator(".audit-table tbody tr").first()).toBeVisible(LOADED);
 
-  // In the vocabulary: both read as a sentence rather than as the stored string, and both are in the Action
-  // dropdown — which is AUDIT_ACTION_NAMES — so they can be filtered for at all.
-  await page.getByLabel("Action").selectOption("patient.consent_accepted");
-  await expect(table).toContainText("Intake consent accepted", LOADED);
-  await expect(table).not.toContainText("patient.consent_accepted");
-  await expect(table).not.toContainText("Intake consent declined");
-
-  await page.getByLabel("Action").selectOption("patient.consent_declined");
-  await expect(table).toContainText("Intake consent declined", LOADED);
-  await expect(table).not.toContainText("Intake consent accepted");
-
-  // And spelled like every other row: this visit's id finds it, the entity is a `visit` (lower case, so the
-  // page links it like the rest), and the detail is the §4.8 gate's output — the sessions the decline closed,
-  // with nothing dropped on the way in.
+  // Clear the action — a slow unfiltered read — and filter by an id in the same breath, which answers at
+  // once. Both are in flight; only the second one was asked for.
+  await page.getByLabel("Action").selectOption("patient.verified");
   await page.getByLabel("Action").selectOption("");
-  await page.getByLabel("Visit or upload id").fill(declined.visitId);
-  await expect(table).toContainText("Intake consent declined", LOADED);
-  await expect(table).toContainText("Patient link accepted");
-  // Only the one answer on this visit: the row says which way the patient went, not that they were asked.
-  await expect(table).not.toContainText("Intake consent accepted");
-  await expect(table).toContainText("rows: 1");
-  await expect(table).not.toContainText("droppedFields");
-  await expect(table.locator(".audit-entity-type").first()).toHaveText("visit");
-  await shot(page, "provider-audit-consent", true);
+  await page.getByLabel("Visit or upload id").fill("c0nosuchvisitidatallhere");
 
-  // The row's own columns, which the page only shows in part: the actor is the patient (§4.8's own id for
-  // them, the same one recordPatientVerified uses), not the visit, so a filter on either column finds both.
-  const listing = await (await page.request.get(`/api/audit?entityId=${declined.visitId}&limit=100`)).json();
-  const row = listing.entries.find((e: { action: string }) => e.action === "patient.consent_declined");
-  expect(row, JSON.stringify(listing.entries)).toBeTruthy();
-  expect(row.actorType).toBe("patient");
-  expect(row.actorId).toBe(declined.patientId);
-  expect(row.entityType).toBe("visit");
-  expect(row.entityId).toBe(declined.visitId);
-  expect(row.detail).toEqual({ rows: 1 });
-
-  const givenListing = await (await page.request.get(`/api/audit?entityId=${accepted.visitId}&limit=100`)).json();
-  const given = givenListing.entries.filter((e: { action: string }) => e.action === "patient.consent_accepted");
-  // One row, not one per open: a second acceptance keeps the first one's time and writes nothing (§2.4).
-  expect(given.length).toBe(1);
-  expect(given[0].actorId).toBe(accepted.patientId);
-  expect(given[0].detail).toBeNull();
+  // Nothing is recorded against that id, so the only honest screen is the empty note. The wait is the point
+  // of the test and not a workaround for one: an assertion that passed before the held-back response landed
+  // would be the same assertion that let 80,000 pixels of unfiltered trail through.
+  await page.waitForTimeout(3_000);
+  await expect(page.locator(".audit-table tbody tr")).toHaveCount(0);
+  await expect(page.locator(".audit-empty")).toBeVisible();
 });

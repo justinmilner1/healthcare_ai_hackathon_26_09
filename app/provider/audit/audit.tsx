@@ -13,7 +13,7 @@
 // touched this", not "what did it say".
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { actionLabel, AUDIT_ACTION_NAMES, AUDIT_LIMITS, DEFAULT_AUDIT_LIMIT, type AuditEntry } from "@/lib/auditLog";
 
@@ -45,11 +45,23 @@ export default function AuditTrail({ meId }: { meId: string }) {
   const [loading, setLoading] = useState(true);
   const query = useMemo(() => queryOf(filters), [filters]);
 
+  /** The request this screen is waiting on, so a newer one can abandon it (T61). */
+  const inFlight = useRef<AbortController | null>(null);
+
   const load = useCallback(async (search: string) => {
+    // Every filter change starts a request, and the table keeps whatever answers *last* — which is not the
+    // same as whatever was asked last. The unfiltered trail is a hundred rows and a filtered one is a
+    // handful, so the slower unfiltered response can land on top of the filter that replaced it and leave
+    // the whole practice's log on the screen under a filter that excludes most of it. Nothing arrives after
+    // it to put that right, so the screen stays wrong until the next keystroke. The older request is
+    // abandoned instead: aborted, and its answer dropped if it comes anyway.
+    inFlight.current?.abort();
+    const mine = new AbortController();
+    inFlight.current = mine;
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/audit?${search}`);
+      const response = await fetch(`/api/audit?${search}`, { signal: mine.signal });
       if (response.status === 401) {
         window.location.href = "/provider/signin";
         return;
@@ -60,16 +72,22 @@ export default function AuditTrail({ meId }: { meId: string }) {
         return;
       }
       if (!response.ok) throw new Error("The audit log could not be read. Try again.");
-      setListing((await response.json()) as Listing);
+      const listed = (await response.json()) as Listing;
+      if (inFlight.current !== mine) return;
+      setListing(listed);
     } catch (e) {
+      // An abort is this screen's own doing, not a failure to report: a newer request is already running.
+      if (mine.signal.aborted) return;
       setError(e instanceof Error ? e.message : "The audit log could not be read.");
     } finally {
-      setLoading(false);
+      // Not this request's to turn off while a newer one is still waiting on its own answer.
+      if (inFlight.current === mine) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     load(query);
+    return () => inFlight.current?.abort();
   }, [load, query]);
 
   const set = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch }));
