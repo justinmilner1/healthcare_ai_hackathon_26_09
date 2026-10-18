@@ -114,6 +114,67 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expectMobileReady(page, "Sweetie with a flagged answer", ".sweetie-field-progress");
   const bar = await page.locator(".sweetie-field-progress").evaluate((element) => element.getBoundingClientRect().height);
   expect(bar, "the stepper has become a stack rather than a bar (design §6.5)").toBeLessThanOrEqual(80);
+
+  // T66, design §2.5: the scan stops the interview, so the intake is wrapped — but the patient has just
+  // been told to call someone, and the screen underneath that message used to congratulate them on a
+  // complete check-in beside a 67% bar. The two wrap reasons are one boolean away from collapsing back
+  // into each other, so each half of what §2.5 asks for is asserted here.
+  const flaggedCard = page.locator(".sweetie-flagged-card");
+  await expect(flaggedCard).toBeVisible(LOADED);
+  await expect(page.locator(".sweetie-done-card")).toHaveCount(0);
+  await expect(page.locator(".sweetie-messages")).not.toContainText(/check-in is complete/i);
+  // The instruction is the headline, with the same name and the same two actions as Sweetie's own message
+  // (redFlagReply, lib/sweetie.ts).
+  const headline = flaggedCard.locator("strong");
+  await expect(headline).toContainText(/call .+'s office today/i);
+  await expect(headline).toContainText(/911/);
+  // §2.5 still "ends with the patient's summary link" (§2.7) — second on the card, not the headline.
+  await expect(flaggedCard.getByRole("link", { name: /shared so far/i })).toHaveAttribute("href", `/patient/${token}`);
+  // And the rail no longer reads a percentage next to a finished check-in.
+  const progressCard = page.locator(".sweetie-progress-card");
+  await expect(progressCard).toContainText(/Check-in stopped/i);
+  await expect(progressCard).not.toContainText(/%/);
+  await expect(page.locator(".sweetie-progress-track")).toHaveCount(0);
+  const lastStep = page.locator('.sweetie-field-progress > li[title*="stopped early"]');
+  await expect(lastStep).toHaveCount(1);
+  await expect(lastStep).not.toHaveClass(/sweetie-field-done/);
+  await expect(page.locator(".sweetie-field-progress")).not.toContainText(/Done/);
+
+  // The transcript is its own scrolling region and glides to the newest message (§6.4), so the card being in
+  // the document is not the same moment as all of it being on screen — and this card is taller than the one
+  // it replaced, so the shot caught it cut off at the composer. Jump the region to its end (instantly: the
+  // stylesheet's `scroll-behavior: smooth` is not a CSS animation and survives `animations: "disabled"`) and
+  // wait for the whole card, so the committed PNG is evidence about the card and not about the scroll.
+  const transcript = page.locator(".sweetie-messages");
+  // Measure, then jump: the first pass reads whatever the glide has reached and asks for the end, and a
+  // later pass reads 0 once the glide is over and no longer pulls the region back off it.
+  await expect
+    .poll(
+      () =>
+        transcript.evaluate((element) => {
+          const gap = element.scrollHeight - element.scrollTop - element.clientHeight;
+          element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+          return gap;
+        }),
+      { message: "the transcript never settled on the newest message" },
+    )
+    .toBeLessThanOrEqual(2);
+  const fit = await transcript.evaluate((element) => {
+    const region = element.getBoundingClientRect();
+    const card = element.querySelector(".sweetie-flagged-card")!.getBoundingClientRect();
+    return {
+      atEnd: element.scrollHeight - element.scrollTop - element.clientHeight <= 2,
+      cut: Math.round(Math.max(0, region.top - card.top) + Math.max(0, card.bottom - region.bottom)),
+      card: Math.round(card.height),
+      region: Math.round(region.height),
+    };
+  });
+  expect(fit.atEnd, "the transcript did not scroll to its end").toBe(true);
+  expect(
+    fit.cut,
+    `the flagged card (${fit.card}px) does not fit the transcript (${fit.region}px) at 375px, so the patient has to scroll for the instruction`,
+  ).toBe(0);
+
   await shot(page, "375-sweetie-flagged", SCREEN);
 });
 
