@@ -147,9 +147,10 @@ export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Pro
 
   // The fingerprint is stored only on a pair worth reusing (§7.1). A narrative the model wrote qualifies, and
   // so does the numbers-only pair an unconfigured deployment produces: it is the whole of what that
-  // deployment can say, it is deterministic, and its fingerprint says `unconfigured`, so configuring a key
-  // invalidates it. The one pair that gets a null hash is the one a configured-but-unreachable gateway
-  // caused: the next run must really run rather than leave the clinician on "retry in a minute" forever.
+  // deployment can say, it is deterministic, and its fingerprint says `none` rather than `model`
+  // (lib/sourInput.ts `narrativeSource`), so configuring a key invalidates it. The one pair that gets a null
+  // hash is the one a configured-but-unreachable gateway caused: the next run must really run rather than
+  // leave the clinician on "retry in a minute" forever.
   const inputHash = llmOk || provider.narrativeMissing === "unconfigured" ? c.inputHash : null;
   await db.summary.createMany({
     data: [
