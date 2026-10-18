@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { findDevMail } from "../lib/devMailbox";
 import { csrfToken, postJson } from "./api";
-import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
+import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -14,11 +13,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 const LOADED = { timeout: 30_000 };
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
-/** Every mailbox the suite's servers write to: the inline drain happens in whichever server the queue's next
- *  request lands on, and it writes to its own (e2e/patient.ts says the same thing about the codes). */
-const MAILBOXES = [MAIL_DIR, `${MAIL_DIR}-degraded`, `${MAIL_DIR}-runner`, `${MAIL_DIR}-dexcom`, `${MAIL_DIR}-demo`];
-/** The "your summary is ready" message for this address, or null while none has arrived (lib/notify.ts). */
-const summaryMail = (to: string) => findDevMail(MAILBOXES, to, (raw) => raw.match(/^Subject: (Your summary is ready.*)$/m)?.[1] ?? null);
 const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "timeline_android.json"), "utf8");
 
 /**
@@ -123,12 +117,20 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
   expect((await good.json()).count).toBeGreaterThan(0);
 });
 
-// T72 (design §7.1, §2.6, §3.4): the third trigger. A visit whose intake wrapped with no readings has
-// nothing queued — the wrapping turn's trigger is gated on the data being in — so the Dexcom export the
-// patient shares afterwards is what has to queue the run. Before this ticket it deleted the saved summaries
-// and queued nothing: the clinician was never emailed, and whoever opened the provider page next paid for
-// the run. Nothing here presses Generate or opens the brief until the job has already reported back.
-test("a Dexcom export shared after intake wrapped queues the summary run, and the clinician is told", async ({ page, request }) => {
+// T72 (design §7.1, §3.4): the third trigger. A visit whose intake wrapped with no readings has nothing
+// queued — the wrapping turn's trigger is gated on the data being in — so the Dexcom export the patient
+// shares afterwards is what has to queue the run. Before this ticket it deleted the saved summaries and
+// queued nothing: whoever opened the provider page next paid for the run, and `notify.summary` (§2.6), which
+// only `runSour` queues, never happened at all. Nothing here presses Generate or opens the brief until the
+// job has already reported back.
+//
+// The message itself is one step further than this suite can see: with no model key a run saves the
+// numbers-only pair and deliberately skips the notification (lib/sourRun.ts), so what the clinician is told
+// is asserted where a narrator can be injected (lib/sourRun.test.ts, "queues the two links"). What was
+// missing, and what this test is about, is the run.
+test("a Dexcom export shared after intake wrapped queues the summary run", async ({ page, request }) => {
+  // Two sign-ins, a verification and a drained queue, all behind one patient's export.
+  test.setTimeout(120_000);
   const { token, visitId, email } = await bookVisit(page, "E2E Late Export");
   // The patient's half of this test is the request context (§5.3); the clinician's is the browser.
   await verifyByApi(request, token, email);
@@ -156,7 +158,6 @@ test("a Dexcom export shared after intake wrapped queues the summary run, and th
   expect(before.status.hasDexcom).toBe(false);
   expect(before.sourJob, "the wrap had no readings to summarize").toBeNull();
   expect(before.providerSummary).toBeNull();
-  expect(summaryMail(email), "and nobody has been told a summary is ready").toBeNull();
 
   // The export arrives. This is the import §7.1 asks about, through the route a Clarity upload takes.
   const shared = await request.post("/api/upload", {
@@ -174,14 +175,18 @@ test("a Dexcom export shared after intake wrapped queues the summary run, and th
     .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", { timeout: 30_000 })
     .toMatch(/^(queued|running|done)$/);
 
-  // §2.6: the run finishes and tells them, with nobody having opened the brief. The patient's own address
-  // is the one the mailbox can be searched by — a message to the clinician goes to the seeded demo address
-  // every other spec signs in as — and it is the same `notify.summary` job that writes both halves.
-  await expect.poll(() => summaryMail(email), { timeout: 60_000 }).toMatch(/Your summary is ready/);
-  const after = await (await page.request.get(`/api/patient/${visitId}`)).json();
-  expect(after.providerSummary, "the brief the clinician's link opens").toBeTruthy();
-  expect(after.visitStatus).toBe("summary_ready");
-  expect(after.sourJob.status).toBe("done");
+  // And the run finishes on its own, with nobody having opened the brief: a saved pair, the visit moved on,
+  // and the job reporting done (§3.4, §4.4, §7.2).
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", { timeout: 60_000 })
+    .toBe("done");
+  const ran = await (await page.request.get(`/api/patient/${visitId}`)).json();
+  expect(ran.providerSummary, "the brief the clinician's link opens").toBeTruthy();
+  expect(ran.providerSummary.timeInRange).toBeGreaterThan(0);
+  expect(ran.visitStatus).toBe("summary_ready");
+  // Why no message went out, in one assertion: this build has no model, which is the one reason
+  // `runSour` skips `notify.summary` — not a run that never happened (§6.3, §11.3, T63).
+  expect(ran.providerSummary.narrativeMissing).toBe("unconfigured");
 
   // And the screen behind it: the brief is ready on first open, with the chip reading Ready rather than the
   // page having queued the run itself (§7.2, app/provider/[id]/sour.tsx).
