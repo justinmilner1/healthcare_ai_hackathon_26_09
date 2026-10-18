@@ -42,10 +42,16 @@ test("intake uploads: a real export is stored, the wrong file is refused in plai
 
   const dexcomInput = page.getByLabel(/Upload Dexcom file/i);
   await expect(dexcomInput).toBeAttached(LOADED);
+  // T71 (§2.5): with no credentials set — how this suite and the demo run — the hint under the Dexcom card
+  // offers the patient the path that works instead of reporting the deployment to them.
+  await expect(page.getByText(/Upload your Clarity CSV export/)).toBeVisible(LOADED);
   await dexcomInput.setInputFiles({ name: "Clarity_export.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) });
   // The card states what was stored, which only happens after the route parsed the file and the adapter
   // wrote the bytes: the response the card reads comes after both.
   await expect(page.getByText(/records securely added/i)).toBeVisible(LOADED);
+  // ...and the hint follows the upload rather than contradicting it (T71).
+  await expect(page.getByText(/Your Clarity CSV is in\./)).toBeVisible(LOADED);
+  await expect(page.getByText(/Upload your Clarity CSV export/)).toHaveCount(0);
 
   // A Takeout zip is the mistake patients actually make. It is named for what it is, not fed to a CSV parser,
   // and the Dexcom data already connected stays connected.

@@ -9,6 +9,7 @@ import { asSentence } from "@/lib/uploads";
 import styles from "./intake.module.css";
 import { apiFetch, CSRF_PARAM, ensureCsrfToken } from "@/lib/csrf";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
+import { dexcomCardHint } from "@/lib/dexcomHint";
 
 type DexcomStatus = {
   /** Which Dexcom this deployment talks to (design §9.2). The sandbox answers with synthetic readings, so
@@ -598,19 +599,19 @@ export default function SweetieIntakePage({
                         </div>
                         {source.kind === "dexcom" && (
                           <p className={styles.connectionHint}>
-                            {!dexcomStatus.configured ? "Dexcom connection is not configured yet. CSV upload is still available outside demo mode."
-                              : !dexcomStatus.canConnect
-                                // Nothing for this visit to connect to (§9.2): on the sandbox a real patient
-                                // is offered the separate demonstration instead, and in production a demo
-                                // visit has nothing to be offered at all.
-                                ? dexcomStatus.env === "sandbox"
-                                  ? "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."
-                                  : "This demonstration visit cannot connect to a real Dexcom account."
-                                : dexcomStatus.connected && dexcomStatus.start && dexcomStatus.end
-                                  ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)}${sandbox ? " · Synthetic readings" : ""}`
-                                  : sandbox
-                                    ? "Authorize on Dexcom and return here. Only synthetic readings are imported."
-                                    : "Authorize on Dexcom and return here. Your last 7 days of readings are imported."}
+                            {dexcomCardHint({
+                              env: dexcomStatus.env,
+                              configured: dexcomStatus.configured,
+                              canConnect: dexcomStatus.canConnect,
+                              sandboxPatient: sandbox,
+                              imported: dexcomStatus.connected,
+                              importRange: dexcomStatus.start && dexcomStatus.end
+                                ? `${formatImportDate(dexcomStatus.start)} – ${formatImportDate(dexcomStatus.end)}`
+                                : null,
+                              // The patient's own file, which the status route does not count: it reports the
+                              // OAuth import alone, so a CSV is only visible here (T71).
+                              uploaded: !sandbox && connections.dexcom.state === "connected",
+                            })}
                           </p>
                         )}
                         {confirmRemoval === source.kind && (
