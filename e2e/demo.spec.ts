@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { DEMO_PORT } from "../playwright.config";
 import { postJson } from "./api";
-import { DEMO_EMAIL, MAIL_DIR, signInAsDemo } from "./auth";
+import { DEMO_EMAIL, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { shot } from "./shot";
 
 // Demo practices (T32, design §13.4): "a flag on a practice that marks it synthetic; demo practices are
@@ -128,7 +128,7 @@ test.describe("DEMO_SIGN_IN=1", () => {
     const used = seen.find((url) => url.includes("/api/auth/callback/email"));
     expect(used, "/demo redirected through Auth.js's own callback").toBeTruthy();
 
-    await page.context().clearCookies();
+    await signOutOfBrowser(page);
     await page.goto(used!);
     await expect(page).toHaveURL(/\/provider\/signin/, LOADED);
     await expect(page.locator("body")).toContainText(/already been used|expired/i);

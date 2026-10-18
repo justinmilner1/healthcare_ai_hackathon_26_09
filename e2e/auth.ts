@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { renameSync } from "node:fs";
+import { CSRF_COOKIE } from "../lib/csrf";
 import { findDevMail } from "../lib/devMailbox";
 
 // Signing in the way a provider does (design §5.1): type the address, read the link out of the mail that was
@@ -84,8 +85,9 @@ async function waitForSignInLink(email: string, dir: string): Promise<string> {
  * them too. Nothing here knows whether the address existed: a seeded provider, an address an admin invited
  * (lib/teamStore.ts), and a stranger who gets a practice of their own all sign in by the same three steps.
  *
- * To change identity inside one test, clear the context's cookies first — otherwise /provider/signin sees a
- * session and redirects to the dashboard before the form is ever filled in.
+ * To change identity inside one test, call signOutOfBrowser first — otherwise /provider/signin sees a
+ * session and redirects to the dashboard before the form is ever filled in. Not `clearCookies()`: see the
+ * note on signOutOfBrowser for what that costs.
  */
 export async function signInAs(page: Page, email: string, opts: SignInOptions = {}): Promise<SignedInProvider> {
   const dir = opts.mailDir ?? MAIL_DIR;
@@ -115,7 +117,25 @@ export async function signInAs(page: Page, email: string, opts: SignInOptions = 
 /** The seeded demo provider, admin of the seeded practice (scripts/seed.ts). */
 export const signInAsDemo = (page: Page, opts: SignInOptions = {}): Promise<SignedInProvider> => signInAs(page, DEMO_EMAIL, opts);
 
-/** Sign the current identity out of the browser, so the next signInAs starts from nobody. */
+/**
+ * Sign the current identity out of the browser, so the next signInAs starts from nobody.
+ *
+ * Selective on purpose, and not `page.context().clearCookies()` — do not simplify it back to that (T69).
+ * Signing out means dropping the credentials: Auth.js's `authjs.*` session cookies and the patient's
+ * `ss_patient` (lib/patientSession.ts). `ss_csrf` is neither. It is middleware's double-submit token
+ * (design §10.8, lib/csrf.ts), and it has a second writer: `ensureCsrfToken()` on any page still open mints
+ * a fresh one into `document.cookie` the moment `apiFetch` finds the cookie gone. Taking it away while the
+ * provider dashboard is still rendered therefore starts a race — the next `postJson` reads the cookie out of
+ * the jar (e2e/api.ts) to put in its header, the page overwrites the cookie before the request lands, header
+ * and cookie disagree, and middleware is right to answer 403 `csrf_failed`. Leaving it alone closes that by
+ * construction: middleware stays the only writer of `ss_csrf` in the suite, because nothing here ever
+ * removes it. It is not a credential, so keeping it signs nobody in.
+ */
 export async function signOutOfBrowser(page: Page): Promise<void> {
-  await page.context().clearCookies();
+  const context = page.context();
+  const names = new Set((await context.cookies()).map((cookie) => cookie.name));
+  names.delete(CSRF_COOKIE);
+  // One call per name: the filter matches a name exactly, so this drops every cookie of that name across
+  // whatever domains the context holds, and never touches the one name left out of the set.
+  for (const name of names) await context.clearCookies({ name });
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { postJson } from "./api";
-import { freshEmail, signInAs, signInAsDemo } from "./auth";
+import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { MODAL, shot } from "./shot";
 
 // T07 (design §2.2, §4.4, §8.3): the two ways a practice creates visits, driven through the screens staff
@@ -212,7 +212,7 @@ test("a second visit for the same person reuses the patient, matched on phone", 
 
   // The match is scoped to the practice (§5.2): the same number booked by the seeded clinic is their own new
   // patient, not this one. Otherwise a shared mobile number would be a way to reach into another practice.
-  await page.context().clearCookies();
+  await signOutOfBrowser(page);
   await signInAsDemo(page);
   const elsewhere = await (await postJson(page.request, "/api/book", { name, phone, channel: "sms", consentMethod: "phone" })).json();
   expect(elsewhere.patientReused).toBe(false);
@@ -238,7 +238,7 @@ test("the import refuses what it cannot read, and refuses a role that cannot boo
       await postJson(page.request, "/api/practice/users", { email: clinicianEmail, role: "clinician", name: "Dr Import" })
     ).ok(),
   ).toBeTruthy();
-  await page.context().clearCookies();
+  await signOutOfBrowser(page);
   await signInAs(page, clinicianEmail);
   const refused = await postJson(page.request, "/api/visits/import", { csv: "name\nNope\n" });
   expect(refused.status()).toBe(403);

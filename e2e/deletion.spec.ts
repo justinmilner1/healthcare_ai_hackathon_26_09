@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
-import { freshEmail, signInAs, signInAsDemo } from "./auth";
+import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
 import { MODAL, shot } from "./shot";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
@@ -139,7 +139,7 @@ test("the deletion refuses a role that may not do it, a session that is not ther
   // §5.2: a clinician reads summaries and does not delete the record behind them.
   const clinicianEmail = freshEmail("deletion-clinician");
   expect((await postJson(page.request, "/api/practice/users", { email: clinicianEmail, role: "clinician", name: "Dr Keep" })).ok()).toBeTruthy();
-  await page.context().clearCookies();
+  await signOutOfBrowser(page);
   await signInAs(page, clinicianEmail);
   expect((await postJson(page.request, "/api/deletion", { patientId: booked.patientId, confirm: name })).status()).toBe(403);
   // The button is not on their screen either, which is a courtesy and not the lock (lib/guard.ts).
@@ -149,7 +149,7 @@ test("the deletion refuses a role that may not do it, a session that is not ther
 
   // §5.2 again: another practice's patient id is the same 404 as one that never existed, because a 403 here
   // would confirm that this clinic has a patient with that id.
-  await page.context().clearCookies();
+  await signOutOfBrowser(page);
   await signInAsDemo(page);
   expect((await postJson(page.request, "/api/deletion", { patientId: booked.patientId, confirm: name })).status()).toBe(404);
   expect((await postJson(page.request, "/api/deletion", { patientId: "c0nosuchpatientidhere", confirm: name })).status()).toBe(404);
