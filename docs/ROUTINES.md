@@ -131,11 +131,12 @@ an earlier run, and none from a check of another branch. If a run dies before Pl
 empty rather than stale. A file that is there is evidence about the branch and the commit just checked; a
 screen whose file is missing is a screen this run did not take, which is itself worth noticing.
 
-### A clean start, so the verdict is about this branch (T45)
+### A clean start, so the verdict is about this branch (T45, T68)
 
 Unlike a CI runner, both routines reuse one working directory across branch switches, so the script clears
 what the last run left behind before it does anything that can fail: the mailboxes, the `sweetspot_e2e`
-database, and the generated route types in `.next/types`. That last one is the one that used to bite.
+database, the generated route types in `.next/types`, and — inside the `/infra` step — the cloud assembly in
+`infra/cdk.out`. The route types are the one that used to bite.
 `tsconfig.json` includes `.next/types/**/*.ts`, and the typecheck step runs before the build inside the e2e
 step, so a run that did not clear it typechecked the *previous* branch's route types: a route that branch had
 and this one does not fails to resolve its page, and `== typecheck` fails with `TS2307` on files nobody wrote.
@@ -144,6 +145,16 @@ Twelve of them cost the reviewer run of 2026-10-14 most of a run.
 So treat a typecheck failure as this branch's. Neither routine needs to `rm -rf .next` by hand, and neither
 should: `.next/types` is the only part of `.next` the typecheck reads, `next build` rewrites it in full, and
 taking the rest would throw away `.next/cache` and turn every run's build from about 40 seconds into about 63.
+
+`infra/cdk.out` is the same shape of problem with a different symptom, so treat the `/infra` step's closing
+line the same way (T68). `cdk synth` writes the stacks this branch builds and leaves every other file in the
+directory alone, and the line used to list `cdk.out/*.template.json` — so after a branch that builds a stack
+this one does not, it named that stack as having synthesized. `scripts/infra-check.sh` now removes `cdk.out`
+before its install and reads the stacks out of the `cdk.out/manifest.json` the synth just wrote, which is
+cheap (the directory is about 420K and a synth about seven seconds either way) and makes the line unable to
+name a stack the branch cannot build. Quote it as evidence; it is about this tree. If it is missing where you
+expected it, the step failed: an assembly with no stack, or one naming a template that is not on disk, is now
+`infra-check: ...` on stderr and a non-zero exit rather than a confident line.
 
 ### What is in a screenshot (T57)
 
