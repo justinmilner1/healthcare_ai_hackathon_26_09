@@ -18,12 +18,50 @@ Issues titled `T<nn>: ...`, numbered in dependency order. State lives in labels:
 
 A merged pull request closes the issue. Bugs the reviewer finds become new issues labeled `ready` and `bug`.
 
+### Where a new ticket's number comes from
+
+**The highest `T<nn>` across every issue *and* pull request, in *any* state, plus one.** The snippet for it is
+[below](#github-from-the-sandbox-rest-only), next to the other REST calls.
+
+Nothing narrower is safe. Both routines once took the number from the open issue list, which misses every
+closed ticket — and most of the stack is closed. Three items landed in one afternoon on numbers already
+taken: #64 and #66, plus #66's pull request #67, which inherited the number from it. A duplicate number makes
+`Depends on: T<nn>` ambiguous, and that is the one piece of state the whole stack rests on. Pull requests count
+towards the maximum because a pull request inherits its ticket's title, so a number is spoken for as soon as
+either one exists.
+
+Two routines on different schedules can still race between the read and the write. When the number you filed
+under turns out to be taken:
+
+- **Retitle your own issue** to the next free number, recompute it with the snippet first, and leave a comment
+  on it saying which number it moved from and which ticket it collided with.
+- **Never retitle someone else's.** Whichever was filed first keeps the number, and GitHub hands out issue
+  numbers in order, so that is simply the lower `#`.
+- Fix the branch and pull request names too if you have already pushed; if the pull request is merged, leave it
+  and add a row to the table below instead.
+
+### Numbers that name two tickets
+
+Two collisions predate the rule and are now permanent — their duplicates are closed and their pull requests are
+merged, so the titles in the history cannot be corrected. `Depends on: T42` and `Depends on: T45` mean the
+tickets in the middle column, #55 and #60:
+
+| Number | The ticket that owns it | Also titled this in the history |
+|---|---|---|
+| `T42` | #55 — "Unit tests for the `lib/` modules §12.1 still leaves untested" | #66 and its pull request #67 — the `node:crypto` edge-bundle build break (closed, merged) |
+| `T45` | #60 — "Clear `.next` at the start of every check run" | #64 and its pull request #69 — `lib/log.ts` reaching the edge bundle (closed, merged) |
+
+This matters for more than tidiness: the duplicate in the right-hand column is closed either way, so resolving
+one of these two dependencies by title alone can answer "closed" for a number whose owning ticket is not done,
+and a ticket gets built on a dependency that was never finished. Resolve a `Depends on:` with the dependency
+snippet below, which excludes pull requests, and read this table when it returns more than one row.
+
 ## The builder
 
 Runs every two hours. One ticket per run.
 
 1. `git fetch`, check out `main`.
-2. Pick the ticket: the lowest-numbered issue labeled `changes-requested` whose branch exists; otherwise the lowest-numbered `ready`. Skip anything `blocked`. If none, stop.
+2. Pick the ticket: the lowest-numbered issue labeled `changes-requested` whose branch exists; otherwise the lowest-numbered `ready`. Skip anything `blocked`. Resolve each of its `Depends on: T<nn>` lines with the dependency snippet below and require that ticket closed — the snippet excludes pull requests, and two numbers name two tickets apiece, so check that table when it returns more than one row. If none, stop.
 3. Label it `in-progress`. Branch `t<nn>-<slug>` from `main` (or continue the existing branch).
 4. Read the cited design sections and the acceptance criteria. Implement the whole ticket. Small, focused commits.
 5. Run `scripts/agent-check.sh`. Fix what fails. Look at the screenshots in `e2e/screenshots/` — the script empties it first, so everything in it is from this run — and confirm the affected screens look right. Copy the relevant ones to `docs/screenshots/tickets/t<nn>/` and commit them.
@@ -47,7 +85,7 @@ Runs every three hours. Reviews every open pull request labeled `review`, oldest
 6. Then sweep: start by reading the state of `main` below — a `main-red` issue, or a red `ci` run on it, says what
    broke and which merge did it before you run anything. Then run the full check on `main`, open the app, click
    through the two flows. Anything broken or drifting from the design becomes a new issue labeled `ready` and
-   `bug`, with steps to reproduce, placed before the next feature ticket in numbering if it blocks it.
+   `bug`, with steps to reproduce, placed before the next feature ticket in numbering if it blocks it. Take its `T<nn>` from the rule above — the highest across every issue and pull request, any state, plus one — and recompute it for each issue you file in the same sweep, so two bugs in one run do not land on one number.
 
 ## The state of `main` (T47)
 
@@ -188,7 +226,22 @@ gh api -X POST "repos/$R/issues/40/labels" -f 'labels[]=merge-ready'
 gh api "repos/$R/commits/<sha>/check-runs" --jq '.check_runs[] | "\(.name) \(.conclusion)"'
 # ci on main itself, after the merges (T47)
 gh api "repos/$R/actions/workflows/ci.yml/runs?branch=main&per_page=10" --jq '.workflow_runs[] | "\(.head_sha[0:7]) \(.event) \(.conclusion)"'
+# the next ticket number: the highest T<nn> over every issue AND pull request, any state, plus one
+n=$(for p in 1 2 3 4; do gh api "repos/$R/issues?state=all&per_page=100&page=$p" --jq '.[].title'; done \
+      | grep -oE '^T[0-9]+' | tr -d T | sort -n | tail -1); echo "T$((n + 1))"
+# resolve "Depends on: T41": the issue that owns the number, pull requests excluded
+for p in 1 2 3 4; do gh api "repos/$R/issues?state=all&per_page=100&page=$p" \
+      --jq ".[] | select(.pull_request == null) | select(.title | startswith(\"T41:\")) | \"\(.number) \(.state) \(.title)\""; done
 ```
+
+Two pagination traps, both of which silently give a wrong answer rather than an error:
+
+- **`gh api --paginate` does not work here.** It follows GitHub's `Link` header, whose `rel="next"` is a
+  numeric-id path (`repositories/{id}/...`), and the sandbox proxy refuses those with HTTP 403. It prints the
+  error to stderr and the first page to stdout, so a pipeline that ignores stderr looks like it succeeded.
+- **`per_page=100` is one page, not "everything".** This repository held 129 issues-plus-pull-requests when T48
+  was written — two pages — so the two snippets above walk pages explicitly and keep a spare page or two; add
+  pages as the stack grows. The `&state=open` calls higher up are still well inside one page.
 
 `git push` to a branch works with the sandbox's credentials. Never push to `main`.
 
