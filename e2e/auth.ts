@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
-import { readdirSync, readFileSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { renameSync } from "node:fs";
+import { findDevMail } from "../lib/devMailbox";
 
 // Signing in the way a provider does (design §5.1): type the address, read the link out of the mail that was
 // "sent", open it. Nothing is stubbed — the only concession to a test is that with no email provider
@@ -27,23 +27,19 @@ export function freshEmail(prefix: string, domain = "example-endo.com"): string 
   return `${prefix}+${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}@${domain}`;
 }
 
-/** The newest sign-in URL in the mailbox for this address, or null while nothing has arrived. */
+/** The link Auth.js puts in a sign-in mail (lib/mailer.ts), and nothing else in the message. */
+const SIGN_IN_URL = /https?:\/\/\S*\/api\/auth\/callback\/email\S*/;
+
+/**
+ * The newest sign-in URL in the mailbox for this address, or null while nothing has arrived. Reading only —
+ * the token stays in the mailbox for whoever claims it, so this is for a spec that wants to look at what was
+ * sent rather than spend it (e2e/signin.spec.ts).
+ *
+ * It walks through findDevMail, so a file claimed out from under the listing is skipped rather than thrown
+ * (T65): claimSignInLink below is renaming files in this very directory while two projects run.
+ */
 export function latestSignInLink(email: string, dir = MAIL_DIR): string | null {
-  let names: string[];
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith(".txt")).sort();
-  } catch {
-    return null;
-  }
-  // An address is not a pattern: `nurse+demo@...` would otherwise match half the mailbox.
-  const to = `To: ${email}`;
-  for (const name of names.reverse()) {
-    const raw = readFileSync(join(dir, name), "utf8");
-    if (!raw.split("\n").includes(to)) continue;
-    const link = raw.match(/https?:\/\/\S*\/api\/auth\/callback\/email\S*/)?.[0];
-    if (link) return link;
-  }
-  return null;
+  return findDevMail([dir], email, (raw) => raw.match(SIGN_IN_URL)?.[0] ?? null);
 }
 
 /**
@@ -58,34 +54,17 @@ export function latestSignInLink(email: string, dir = MAIL_DIR): string | null {
  * in as that address; using one twice is the only thing that fails.
  */
 function claimSignInLink(email: string, dir: string): string | null {
-  let names: string[];
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith(".txt")).sort().reverse();
-  } catch {
-    return null;
-  }
-  // An address is not a pattern: `nurse+demo@...` would otherwise match half the mailbox.
-  const to = `To: ${email}`;
-  for (const name of names) {
-    const path = join(dir, name);
-    let raw: string;
-    try {
-      raw = readFileSync(path, "utf8");
-    } catch {
-      continue; // claimed and renamed between the listing and the read
-    }
-    if (!raw.split("\n").includes(to)) continue;
-    const link = raw.match(/https?:\/\/\S*\/api\/auth\/callback\/email\S*/)?.[0];
-    if (!link) continue;
+  return findDevMail([dir], email, (raw, path) => {
+    const link = raw.match(SIGN_IN_URL)?.[0];
+    if (!link) return null;
     try {
       // The claim. `.claimed` does not end in .txt, so no later listing offers it again.
       renameSync(path, `${path}.claimed`);
     } catch {
-      continue; // someone else claimed it first
+      return null; // someone else claimed it first, so keep walking
     }
     return link;
-  }
-  return null;
+  });
 }
 
 /** Wait for a link to claim rather than sleeping: the send happens inside the POST, but the file write
