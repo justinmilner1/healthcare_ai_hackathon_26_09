@@ -112,7 +112,14 @@ export default defineConfig({
       command: `npm run build && ${nextStart(PORT)}`,
       url: `http://localhost:${PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
-      timeout: 300_000, // the build is most of this; it takes about a minute here
+      // The build is nearly all of this. How long it takes is a property of the box, not of the tree: the
+      // 2026-10-10 probe measured about 40s warm and about 63s cold, and the reviewer run of 2026-10-18
+      // measured 547s on an idle 4-CPU sandbox with a warm `.next/cache` — nine times the documented figure,
+      // on a build that exited 0. A flat 300s turned that healthy tree into `Timed out waiting 300000ms from
+      // config.webServer`, which names the server rather than the clock (T89). So the budget carries enough
+      // headroom for a box several times slower than the probe, and `E2E_WEBSERVER_TIMEOUT_MS` overrides it
+      // where a caller knows better. It is a ceiling for a hung build, not an estimate of a healthy one.
+      timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 1_800_000),
       // DEV_MAIL_DIR: with no email provider configured, lib/mailer.ts writes the sign-in links here instead
       // of sending them (design §5.1), and e2e/auth.ts reads them. scripts/agent-check.sh empties it first.
       // SNS_TOPIC_ARNS: §8.1's webhook trusts nothing until a topic is configured, and answers 503 while
