@@ -89,7 +89,7 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(page.getByRole("heading", { name: "Patterns" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ask the patient" })).toBeVisible();
   await expect(page.locator(".sour-print-questions li").first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Glucose, last \d+ days/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);

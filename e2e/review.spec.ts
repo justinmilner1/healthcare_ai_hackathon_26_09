@@ -43,6 +43,13 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   await expect(page.locator(".sour-brief-header")).toContainText("E2E Reviewer", LOADED);
   await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", LOADED);
 
+  // T60: this visit is `clarity_window.csv`, a single day with a single spike on it, so it is the screen
+  // where a count that disagrees with its noun shows. §7's brief leads with numbers; "1 days" is the one
+  // kind of sloppiness a numbers-first page cannot print (lib/plural.ts).
+  const brief = page.locator(".sour-brief");
+  await expect(brief).toContainText("1 day · 84 readings");
+  await expect(brief, "a count agrees with its noun").not.toContainText(/\b1 (days|spikes|readings)\b/);
+
   // Before the press: the button is offered and there is no record.
   const markReviewed = page.getByRole("button", { name: "Mark reviewed" });
   await expect(markReviewed).toBeEnabled(LOADED);
@@ -85,6 +92,13 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
     block: "center",
     inline: "center",
   });
+
+  // The sheet is the screen's twin (§7.4), so it counts the same single day the same way.
+  await page.goto(`/provider/visit/${booked.visitId}/print`);
+  const sheet = page.locator(".sour-print-sheet");
+  await expect(sheet).toContainText("1 day · 84 readings", LOADED);
+  await expect(sheet, "a count agrees with its noun on paper too").not.toContainText(/\b1 (days|spikes|readings)\b/);
+  await shot(page, "provider-print-single-day");
 
   // Pressing again is not an error and does not move the record: the first sign-off is the one that stands.
   const again = await postJson(page.request, "/api/review", { visitId: booked.visitId });
