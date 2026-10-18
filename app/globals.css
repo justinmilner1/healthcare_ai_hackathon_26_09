@@ -4095,9 +4095,13 @@ button.sweetie-agent-badge {
   display: block;
 }
 
+/* The label and the unit say what the number means, so they are set at the size this page already gives a
+   label (.ss-eyebrow, the hero's own eyebrow) rather than the 7px they were: half the body text beside them,
+   on the one screen §2.7 puts in front of a patient whose eyesight this product has every reason to doubt
+   (§6.4, §6.5, T64). */
 .patient-mini-stat span {
   color: var(--ss-muted);
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 750;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -4112,13 +4116,16 @@ button.sweetie-agent-badge {
   letter-spacing: -0.04em;
 }
 
+/* Wraps rather than truncates: at 841px the stats column is only 255px wide, and "hours / night" clipped to
+   "hours…" by the old text-overflow is worse for the patient than two lines (§6.5, T64). */
 .patient-mini-stat small {
-  margin-top: 2px;
-  overflow: hidden;
-  color: #7b6d73; /* 4.9:1; #a09399 was 2.9:1 at 11px (§6.4) */
-  font-size: 7px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-top: 3px;
+  /* 4.9:1, which is AA at any size. The note left here said the #a09399 this replaced was "2.9:1 at 11px";
+     the rule was 7px, not 11px, and 2.9:1 fails body text either way (§6.4, T22). */
+  color: #7b6d73;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: break-word;
 }
 
 .patient-chart-wrap {
