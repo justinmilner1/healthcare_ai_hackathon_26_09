@@ -163,11 +163,12 @@ closest.
 **Sour** (provider-facing) is `lib/sour.ts` (the numbers), `lib/prompts.ts` (the prompts) and
 `lib/sourRun.ts` (the run).
 - Clinical, terse, no fluff. Numbers first.
-- Runs as a `sour.run` job, not inside a request: the two enqueuers are the turn that wraps intake, when the
-  visit has Dexcom data, and the provider page's Generate button (`docs/JOBS.md` is the list). A Dexcom import
-  does not enqueue one — it deletes the saved summary, so the next open of the provider page runs a fresh one.
-  Idempotent per visit and input hash (§7.1), so a second run
-  with unchanged inputs returns the saved pair. The page shows the job's state and offers a retry (§7.2).
+- Runs as a `sour.run` job, not inside a request: the three enqueuers are the turn that wraps intake, when the
+  visit has Dexcom data, a completed Dexcom import — OAuth or a Clarity upload — when the intake is already
+  done, and the provider page's Generate button (`docs/JOBS.md` is the list; `lib/sourQueue.ts` is the key and
+  the gate the two patient-side ones share). The import also deletes the saved summary, so a stale narrative
+  is off the screen while the fresh run is in flight. Idempotent per visit and input hash (§7.1), so a second
+  run with unchanged inputs returns the saved pair. The page shows the job's state and offers a retry (§7.2).
 - Input: `GlucoseReading[]`, `Spike[]` with matched visits, `SleepNight[]`, patient notes — all computed in
   code. The model returns `patterns` and `questions` only; numbers and flags stay code-generated.
 - Patterns must cite data ("3 of 4 overnight highs followed dinners out after 8pm"). Questions must be

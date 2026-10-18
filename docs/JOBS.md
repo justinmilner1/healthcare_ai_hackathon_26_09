@@ -6,7 +6,7 @@ deletion.
 
 | Kind | Enqueued by | Does |
 |---|---|---|
-| `sour.run` | the turn that wraps intake (`/api/sweetie`), the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
+| `sour.run` | the turn that wraps intake (`/api/sweetie`) when the readings are in, a completed Dexcom import (`/api/dexcom/callback`, or a Clarity export through `/api/upload`) when the intake is done, the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
 | `notify.invite` | adding a patient with consent (`/api/book`), a CSV import (`/api/visits/import`), Send link (`/api/invite`) | the presigned `/s/<token>` link, on the channels the visit consented to (§2.2); what each channel did is recorded on the visit (§8.3) |
 | `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
@@ -17,6 +17,17 @@ Why a table and not an awaited call: two model calls and an SES round trip made 
 for something they were not reading, and a crash or a redeploy mid-request lost the work with nothing left to
 say it was owed. A job row says what to do, when it may run, how often it has been tried and why it last
 failed, so the work survives the process and a clinician can see where it got to.
+
+**Who queues Sour, and when (§7.1).** The Generate button queues whatever the state is — a clinician asked
+for it. The two patient-side triggers are each other's mirror image, and `lib/sourQueue.ts` holds both the
+idempotency key and the rule: the wrapping turn queues a run when the visit already has Dexcom data, and a
+completed import queues one when the intake is already done. A summary needs both halves and either can be
+the last to arrive, so whichever lands second is the one that queues — exactly once, with no trigger needing
+to know about the other. Data that arrives mid-intake queues nothing: summarizing there would write a brief
+from half an interview, move the visit to `summary_ready` while the patient is still answering, and email the
+clinician about a summary the wrapping turn is about to replace. An import also deletes the visit's saved
+summaries, which is a separate promise — never show an older narrative against newly imported readings — and
+the queued run is what puts a current one back without a clinician opening the page to pay for it.
 
 **No payload holds PHI.** Every payload is `{ visitId }` — or, for `patient.delete`, a patient id and the
 opaque user id of whoever asked; the handler reads the rest back. The row outlives the request, so nothing in

@@ -131,7 +131,8 @@ export function assertSendable(event: string, visitId: string, channels: Record<
 }
 
 export const handlers: JobHandlers = {
-  // §7.1 Enqueued when intake wraps, on demand from the provider page, and (T24) when a Dexcom import lands.
+  // §7.1 Enqueued when intake wraps, when a Dexcom import lands on a visit whose intake is done (T72), and
+  // on demand from the provider page. lib/sourQueue.ts is the key all three share.
   // runSour saves both summaries, moves the visit to summary_ready, and enqueues notify.summary itself.
   "sour.run": async (payload) => {
     await runSour(visitIdOf(payload));
