@@ -52,14 +52,25 @@ test("the server holds an idle keep-alive socket, so a reused connection is neve
   const get = () =>
     socket.write(`GET /api/health/live HTTP/1.1\r\nHost: localhost:${PORT}\r\nConnection: keep-alive\r\n\r\n`);
 
+  /** How many requests this socket has had answered, counted by status line.
+   *
+   *  Not by byte offset, which is what this test used to do and what made it fail on a server that had
+   *  done nothing wrong. `/api/health/live` answers with `Transfer-Encoding: chunked`, so its headers and
+   *  its body (`b\r\n{"ok":true}\r\n0\r\n\r\n`) can arrive in separate packets. Recording
+   *  `received.length` the moment the first `\r\n\r\n` landed therefore recorded the *middle* of the
+   *  first response, and those trailing body bytes satisfied "more has arrived than before" on their own,
+   *  before the second request had been answered at all — so the assertion read the tail of response one
+   *  and reported it as a missing 200. Counting status lines does not care how the bytes are framed or how
+   *  the kernel splits them. */
+  const answers = () => received.match(/HTTP\/1\.1 200/g)?.length ?? 0;
+
   try {
     await until(() => socket.readyState === "open", 10_000, "the socket should connect");
     get();
-    await until(() => received.includes("\r\n\r\n"), 20_000, "the server should answer the first request");
+    await until(() => answers() >= 1, 20_000, "the server should answer the first request");
     expect(received, "liveness should answer 200, and keep the connection").toContain("HTTP/1.1 200");
 
     // The gap. Without the flag in playwright.config.ts the server sends FIN in the middle of this.
-    const afterFirst = received.length;
     await new Promise((resolve) => setTimeout(resolve, IDLE_MS));
     expect(
       closedBy,
@@ -68,10 +79,9 @@ test("the server holds an idle keep-alive socket, so a reused connection is neve
 
     // And the connection is not merely open but still serving, which is what the suite's pooled contexts need.
     get();
-    await until(() => received.length > afterFirst, 20_000, "the reused connection should answer");
-    expect(received.slice(afterFirst), "the second request, on the same socket as the first").toContain(
-      "HTTP/1.1 200",
-    );
+    await until(() => answers() >= 2 || closedBy.length > 0, 20_000, "the reused connection should answer");
+    expect(closedBy, "the server hung up on the reused connection rather than answering it").toEqual([]);
+    expect(answers(), "the second request, on the same socket as the first, should answer 200 too").toBeGreaterThanOrEqual(2);
   } finally {
     // The client is the side that closes, which is the whole point of the fix.
     socket.destroy();
