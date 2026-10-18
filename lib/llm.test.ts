@@ -50,7 +50,12 @@ beforeEach(async () => {
   process.env.OPENAI_BASE_URL = await gateway.start();
   process.env.OPENAI_API_KEY = "fake-key";
   process.env.BEDROCK_OPENAI_MODEL_ID = "openai.gpt-5.5";
-  process.env.LLM_TIMEOUT_MS = "200";
+  // Generous on purpose. This is the budget for a *healthy* call to a loopback server, and 200ms of it was a
+  // trap: one round trip through the OpenAI SDK can exceed that on a loaded box, so `lib/llm.ts` timed the
+  // call out, retried, timed out again and reported `LLMUnavailable` — a red run naming the model client for
+  // what was only the clock (T88). A test whose subject *is* the timeout sets its own, below; nothing else
+  // should be able to reach this one.
+  process.env.LLM_TIMEOUT_MS = "5000";
   process.env.LLM_CIRCUIT_THRESHOLD = "2";
   process.env.LLM_CIRCUIT_COOLDOWN_MS = "60000";
   resetCircuit();
@@ -75,6 +80,9 @@ test("a healthy gateway answers in one request and leaves the circuit closed", a
 });
 
 test("a call that never answers times out and is retried once, then reports unavailable", async () => {
+  // The one test the timeout belongs to, so it is short here and nowhere else: the gateway never answers, so
+  // waiting is the whole point and every millisecond of it is spent twice.
+  process.env.LLM_TIMEOUT_MS = "200";
   gateway.script([{ status: 200, hang: true }, { status: 200, hang: true }]);
   const started = Date.now();
   await assert.rejects(() => ask("be brief", "hi"), LLMUnavailable);
