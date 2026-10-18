@@ -9,7 +9,7 @@
 // Precedence is deliberate: a job that is in flight or has failed outranks whatever summary is on screen,
 // because what the clinician needs to know first is whether anything is still coming.
 
-import type { SourJobState } from "./types";
+import type { NarrativeMissing, SourJobState } from "./types";
 
 export type SummaryPhase = "none" | "queued" | "running" | "failed" | "ready" | "stale";
 
@@ -85,3 +85,33 @@ export function summaryState({ job, hasSummary, stale, summaryAt }: SummaryState
   if (hasSummary) return { phase: "ready", label: "Ready", detail: "Written", at: summaryAt, canRetry: false, busy: false };
   return { phase: "none", label: "Not generated", detail: "Nothing has been summarized for this visit yet.", at: null, canRetry: false, busy: false };
 }
+
+/**
+ * Why this summary has no patterns and no questions, for the line beside the chip (§6.3, §7.2, §11.3).
+ *
+ * Here rather than in the JSX for the same reason as everything above it: the provider page and the printed
+ * sheet both say it, and §6.3's "quiet note" is one sentence that should read the same in both places —
+ * which is also why neither sentence says "above" or "below": the screen puts it over the numbers and the
+ * sheet puts it under them. Null for a summary the model wrote, which is every summary on a deployment with
+ * a working gateway.
+ *
+ * Neither sentence names an environment variable or tells anyone to go and set one: the patient reads a
+ * version of this screen (§2.7) and a clinician cannot fix a deployment from the exam room. What the
+ * clinician gets is which of the two it is — one clears on its own, the other needs someone at the practice
+ * — and the assurance that the numbers are complete, because they are: lib/sour.ts computes them.
+ */
+export function narrativeNote(missing: NarrativeMissing | undefined): string | null {
+  if (missing === "unavailable") {
+    // T63 keeps this wording: a clinician can act on it, and a minute later the retry may well work.
+    return "Model gateway unavailable: the numbers are complete; patterns and questions were not generated. Retry in a minute.";
+  }
+  if (missing === "unconfigured") {
+    return "The assistant is not enabled for this practice, so the numbers are complete but no patterns or questions were written. Your practice administrator can turn it on.";
+  }
+  return null;
+}
+
+/** What an empty Patterns or Ask-the-patient list says: "None found." is a finding, and a run with no
+ *  narrative has not looked (§6.3). */
+export const emptyNarrativeText = (missing: NarrativeMissing | undefined, found: string): string =>
+  missing ? "Not generated." : found;

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { expectNoHorizontalScroll } from "./mobile";
@@ -178,9 +178,13 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   await page.goto(`/provider/${demo.id}?visit=${seeded.id}`);
   await expect(page.locator(".sour-brief")).toContainText(seeded.name, LOADED);
   // The charts and the numbers come straight from the uploads, so they are on screen before any job has run;
-  // the Patterns block is the part only a saved summary fills. In scripted mode Sour writes both summaries
-  // with this placeholder where the model's patterns would be, so its arrival is the queue having worked.
-  await expect(page.locator(".sour-brief")).toContainText(/set OPENAI_API_KEY/i, LOADED);
+  // the note under the chip is the part only a saved summary puts there. This suite runs with no model key,
+  // so Sour saves the numbers with both narrative sections empty and the reason as page state (T63, §6.3,
+  // §11.3) — so the note's arrival is the queue having worked.
+  await expect(page.locator(".sour-degraded-note")).toContainText(/not enabled for this practice/i, LOADED);
+  // §2.7, §10.6: what the clinician is told is "ask your administrator", never the name of a variable, and
+  // the patient reads a version of this screen.
+  await expect(page.locator(".sour-brief")).not.toContainText(/OPENAI|API_KEY/i);
   await expect(page.locator(".sour-brief")).not.toContainText(/Sour is reading the data/i);
   // T15 (§7.2): the job's own state, not an inference from the summary's timestamp. Once the queue has run,
   // the chip reads Ready; while it was queued or running it said so, and a failure would name the reason and

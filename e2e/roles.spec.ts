@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { expectNoHorizontalScroll } from "./mobile";

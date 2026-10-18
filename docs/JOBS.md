@@ -84,9 +84,11 @@ summary is made from (the structured intake, the notes rendered from it, the vis
 upload by id and row count) and `runSour` stores that fingerprint on both `Summary` rows. A later run that
 hashes to the same thing returns the saved pair: no second pair of rows, no second pair of model calls, and no
 second "your summary is ready" email about a summary the clinician was already told about. The fingerprint
-also carries whether the narrative came from the model, so configuring `OPENAI_API_KEY` invalidates the "LLM
-not configured" placeholder instead of serving it for ever; a placeholder written while a *configured* gateway
-was down is stored with a null fingerprint and is never reused at all.
+also carries whether the narrative came from the model, so configuring `OPENAI_API_KEY` invalidates the
+numbers-only pair an unconfigured deployment saves instead of serving it for ever; a pair written while a
+*configured* gateway was down is stored with a null fingerprint and is never reused at all. Neither of those
+pairs carries a sentence for the reader: the patterns and questions are simply empty and the reason rides on
+`Summary.narrativeMissing`, which the provider page and the printed sheet show as state (T63, §6.3, §11.3).
 
 ## Adding a kind
 

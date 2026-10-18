@@ -12,7 +12,7 @@ import { log } from "./log";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
 import { narrativeSource, sourInputHash, sourInputsFor, type SourUploadRef } from "./sourInput";
-import type { GlucoseReading, PatientBundle, Summary } from "./types";
+import type { GlucoseReading, NarrativeMissing, PatientBundle, Summary } from "./types";
 import { findVisit } from "./visit";
 
 type Narrative = { patterns: string[]; questions: string[] };
@@ -142,21 +142,16 @@ export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Pro
   } catch (e) {
     if (!(e instanceof LLMUnavailable)) throw e;
     llmOk = false;
-    // LLMUnavailable covers both "no key" and "the gateway timed out or its circuit is open" (lib/llm.ts).
-    // A clinician reading this needs to know which, because only one of them is something they can fix.
-    const note = llmStatus().configured
-      ? "Model gateway unavailable: the numbers above are complete; patterns and questions were not generated. Retry in a minute."
-      : "LLM not configured: set OPENAI_API_KEY to generate patterns and questions.";
-    provider = { ...base, patterns: [note], questions: [], flags };
-    patient = { ...base, patterns: [note], questions: [], flags: [] };
+    ({ provider, patient } = degradedPair(base, flags, llmStatus().configured));
   }
 
   // The fingerprint is stored only on a pair worth reusing (§7.1). A narrative the model wrote qualifies, and
-  // so does the "LLM not configured" placeholder, which is the whole of what that deployment can produce and
-  // is deterministic — and whose fingerprint says `unconfigured`, so configuring a key invalidates it. The one
-  // pair that gets a null hash is the one a configured-but-unreachable gateway caused: the next run must
-  // really run rather than hand the clinician "retry in a minute" forever.
-  const inputHash = llmOk || !llmStatus().configured ? c.inputHash : null;
+  // so does the numbers-only pair an unconfigured deployment produces: it is the whole of what that
+  // deployment can say, it is deterministic, and its fingerprint says `none` rather than `model`
+  // (lib/sourInput.ts `narrativeSource`), so configuring a key invalidates it. The one pair that gets a null
+  // hash is the one a configured-but-unreachable gateway caused: the next run must really run rather than
+  // leave the clinician on "retry in a minute" forever.
+  const inputHash = llmOk || provider.narrativeMissing === "unconfigured" ? c.inputHash : null;
   await db.summary.createMany({
     data: [
       { visitId: c.visitId, audience: "provider", json: JSON.stringify(provider), inputHash },
@@ -167,8 +162,9 @@ export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Pro
 
   // Both summaries saved -> queue the two "it's ready" links (§3.4, §8.2). A job rather than two SES calls
   // here, because this function runs inside a job itself: a bounce or a throttled send must not cost Sour its
-  // summary, and the send gets its own three attempts. Skipped when the model was unavailable, so placeholder
-  // text never triggers a notification, and for sandbox data, which is nobody's real appointment.
+  // summary, and the send gets its own three attempts. Skipped when the model was unavailable, so a
+  // numbers-only pair never sends a "your summary is ready", and for sandbox data, which is nobody's real
+  // appointment.
   let notified: SourRunResult["notified"] = { skipped: llmStatus().configured ? "Model gateway unavailable" : "LLM not configured" };
   if (bundle.patient.isSandbox) notified = { skipped: "Synthetic sandbox data: email disabled" };
   if (llmOk && !bundle.patient.isSandbox) {
@@ -176,6 +172,30 @@ export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Pro
     notified = { queued: job.id };
   }
   return { provider, patient, notified, reused: false };
+}
+
+/**
+ * The pair a run saves when no model wrote the narrative (design §6.3, §11.3).
+ *
+ * `LLMUnavailable` covers both "no key is configured" and "a configured gateway timed out or its circuit is
+ * open" (lib/llm.ts), and a clinician needs to know which, because only one of them is something anyone at
+ * the practice can act on. What they do not need is that reason sitting in `patterns`: §7 asks a pattern to
+ * cite this patient's data, the patient's own summary renders the same array (§2.7, app/patient/[id]), and
+ * §6.3 wants an unavailable assistant shown as a quiet piece of page state — which is what Sweetie already
+ * does. So both audiences get the numbers with the two narrative sections empty, and the reason travels as
+ * `narrativeMissing` for the provider page and the printed sheet to render beside the §7.2 chip
+ * (lib/sourState.ts holds the wording).
+ *
+ * The patient's copy carries no reason and no flags: there is nothing for them to do about a model being
+ * down, and configuration detail stays out of a patient-facing bundle (§10.6). Exported because this pair is
+ * exactly what reaches `Summary.json` for each audience, which is what lib/sourRun.test.ts asserts.
+ */
+export function degradedPair(base: Summary, flags: string[], configured: boolean): { provider: Summary; patient: Summary } {
+  const narrativeMissing: NarrativeMissing = configured ? "unavailable" : "unconfigured";
+  return {
+    provider: { ...base, patterns: [], questions: [], flags, narrativeMissing },
+    patient: { ...base, patterns: [], questions: [], flags: [] },
+  };
 }
 
 /** The real narrator: the clinician's brief first, then the patient's version of it, which is written from the

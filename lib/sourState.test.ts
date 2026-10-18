@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { summaryState } from "./sourState";
+import { emptyNarrativeText, narrativeNote, summaryState } from "./sourState";
 import type { SourJobState } from "./types";
 
 const JOB: SourJobState = {
@@ -123,5 +123,36 @@ describe("summaryState", () => {
   it("falls back to the job's own ceiling rather than hardcoding three", () => {
     const s = view(job({ status: "running", attempts: 2, maxAttempts: 5, startedAt: "2026-10-11T12:00:05.000Z" }));
     assert.match(s.detail, /Attempt 2 of 5/);
+  });
+});
+
+// T63 (design §6.3, §11.3): the other half of that strip — why a summary that is Ready has no narrative in
+// it. The claim worth a test is not the prose, it is that neither sentence is an ops instruction: the patient
+// reads a version of this screen (§2.7), and the clinician cannot set an environment variable from the room.
+describe("narrativeNote", () => {
+  it("says nothing about a narrative the model wrote", () => {
+    assert.equal(narrativeNote(undefined), null);
+  });
+
+  it("tells a configured-but-unreachable gateway apart from a deployment with no model", () => {
+    assert.match(narrativeNote("unavailable")!, /retry in a minute/i);
+    assert.doesNotMatch(narrativeNote("unconfigured")!, /retry/i, "nobody at the practice can retry their way to a key");
+    assert.match(narrativeNote("unconfigured")!, /administrator/i, "who to ask is the actionable part");
+  });
+
+  it("never names a variable, a key, or whoever deploys the app", () => {
+    for (const missing of ["unavailable", "unconfigured"] as const) {
+      const note = narrativeNote(missing)!;
+      assert.doesNotMatch(note, /OPENAI|API_KEY|api key|env|\.env|variable|deploy/i, `${missing}: ${note}`);
+      assert.match(note, /the numbers are complete/, `${missing} must say the numbers still stand`);
+      // The screen puts this above the numbers and the printed sheet below them, so it cannot point.
+      assert.doesNotMatch(note, /\babove\b|\bbelow\b/i, `${missing} must read the same in both places`);
+    }
+  });
+
+  it("does not let an empty Patterns list claim Sour looked and found nothing", () => {
+    assert.equal(emptyNarrativeText(undefined, "None found."), "None found.");
+    assert.equal(emptyNarrativeText("unconfigured", "None found."), "Not generated.");
+    assert.equal(emptyNarrativeText("unavailable", "None."), "Not generated.");
   });
 });

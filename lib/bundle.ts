@@ -98,6 +98,22 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   };
 }
 
+/**
+ * The same bundle with the clinician's half taken out, for a request that authenticated with a patient's
+ * token rather than a provider session (§2.7, §5.2, §10.6).
+ *
+ * `loadBundle` builds one object for two audiences, and /api/patient/[id] answers both from it, so without
+ * this the patient's browser is handed the provider summary — the clinician's patterns and questions, the
+ * safety flags §7 keeps for the clinician, the summary job's state and error, and the sign-off — none of
+ * which belongs in a patient-facing response. The patient's own summary (`patientSummary`), their numbers,
+ * their uploads and their intake all stay: the page at /patient/[id] reads nothing else.
+ *
+ * Blanked rather than deleted, so this is still a `PatientBundle` and the page keeps one shape to render.
+ */
+export function patientView(bundle: PatientBundle): PatientBundle {
+  return { ...bundle, providerSummary: null, providerSummaryAt: null, sourJob: null, summaryStale: false, review: null };
+}
+
 export function computeStats(glucose: GlucoseReading[], sleep: SleepNight[]): GlucoseStats {
   const n = glucose.length;
   const avg = averageGlucose(glucose);

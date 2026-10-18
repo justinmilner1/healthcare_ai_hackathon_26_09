@@ -29,6 +29,7 @@ import { recordVisitRead } from "@/lib/auditStore";
 import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
 import { countOf } from "@/lib/plural";
+import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
 import { findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
 import PrintControls from "./controls";
@@ -185,6 +186,12 @@ export default async function PrintPage({
             )}
 
             <section className="sour-card">
+              {/* §6.3, §11.3: the sheet says why the two columns are blank, in the same words the screen
+                  uses (lib/sourState.ts), so a clinician holding the paper is not left guessing whether
+                  Sour found nothing or never ran. The numbers above it are complete either way. */}
+              {narrativeNote(s?.narrativeMissing) && (
+                <p className="ss-notice sour-print-narrative-note">{narrativeNote(s?.narrativeMissing)}</p>
+              )}
               <div className="sour-print-columns">
                 <div>
                   <h2>Patterns</h2>
@@ -193,7 +200,7 @@ export default async function PrintPage({
                       {s.patterns.map((p, i) => (
                         <li key={i}>{p}</li>
                       ))}
-                      {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">None found.</li>}
+                      {s.patterns.length === 0 && <li className="list-none text-[var(--viz-muted)]">{emptyNarrativeText(s.narrativeMissing, "None found.")}</li>}
                     </ol>
                   ) : (
                     <p className="mt-1 text-sm text-[var(--viz-muted)]">No summary has been written for this visit yet.</p>
@@ -210,7 +217,7 @@ export default async function PrintPage({
                           <span>{q}</span>
                         </li>
                       ))}
-                      {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">None.</li>}
+                      {s.questions.length === 0 && <li className="text-[var(--viz-muted)]">{emptyNarrativeText(s.narrativeMissing, "None.")}</li>}
                     </ul>
                   ) : (
                     <p className="mt-1 text-sm text-[var(--viz-muted)]">—</p>
