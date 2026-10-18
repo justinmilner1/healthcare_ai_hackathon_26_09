@@ -3,55 +3,20 @@
   "exceptions": [
     {
       "shots": [
-        "mobile-provider-dashboard.png",
-        "mobile-provider-dashboard-booked.png",
-        "mobile-provider-dashboard-deliveries.png",
-        "mobile-provider-dashboard-reviewed.png",
-        "mobile-provider-dashboard-visit-statuses.png",
-        "mobile-provider-add-visit-consent.png",
-        "mobile-security-provider-dashboard.png"
+        "mobile-375-patient-summary-full.png"
       ],
-      "reason": "Full-page phone shots of the provider dashboard, which is as tall as the practice's visit list: by the time the mobile project runs, that is every patient every other spec booked, and these come out between 21,000 and 31,000 pixels. T57 (#87) is the ticket that replaces the hardcoded `fullPage: true` in these specs with a per-project default; delete these entries with it.",
+      "reason": "A deliberate whole-page phone shot of the patient summary (e2e/mobile.spec.ts asks for WHOLE_PAGE): the page is long by design, not by data, and the point of the shot is the whole of it. T57 (#87) landed the per-project default and left this one as the exception it is.",
       "owner": "#87",
       "expires": "2027-01-09"
     },
     {
       "shots": [
-        "mobile-provider-sour.png",
-        "mobile-provider-sour-generated.png",
-        "mobile-provider-sour-ready.png",
-        "mobile-provider-sour-reviewed.png",
-        "mobile-provider-sour-stale.png",
-        "mobile-provider-sour-followup.png",
-        "mobile-provider-sour-followup-answered.png",
-        "mobile-provider-print.png",
-        "mobile-provider-print-media.png",
-        "mobile-provider-settings.png",
-        "mobile-provider-settings-demo.png",
-        "mobile-375-patient-summary-full.png",
-        "mobile-a11y-summary.png",
-        "mobile-landing.png",
-        "mobile-security-landing.png",
-        "mobile-journey-01-practice-users.png",
-        "mobile-journey-10-patient-summary.png",
-        "mobile-journey-12-sour-brief.png",
-        "mobile-journey-13-sour-reviewed.png",
-        "mobile-journey-15-print-sheet.png"
-      ],
-      "reason": "Full-page phone shots of pages that are long by design rather than by data -- the clinician's brief, the printed sheet, settings, the patient summary, the landing page -- at between 4,200 and 7,700 pixels. Each needs the same judgement T57 (#87) applies to the dashboard: either the page is worth a whole-page phone shot and the gate is wrong about it, or the shot wants its subject scrolled up and a screenful taken. Not T61's call to make spec by spec.",
-      "owner": "#87",
-      "expires": "2027-01-09"
-    },
-    {
-      "shots": [
+        "desktop-provider-dashboard-deliveries.png",
         "desktop-provider-dashboard-reviewed.png",
         "desktop-provider-dashboard-visit-statuses.png",
-        "desktop-provider-add-visit-consent.png",
-        "desktop-provider-import-created.png",
-        "desktop-provider-import-preview.png",
         "desktop-security-provider-dashboard.png"
       ],
-      "reason": "The same pages on the desktop project, at between 4,300 and 6,200 pixels. A desktop row is one line of a table rather than five stacked ones, so these are the only desktop shots over the limit at all, and they are over it for the same reason: a list that grows a row per booked visit. Same owner as the phone shots above.",
+      "reason": "Desktop shots of the provider dashboard, where T57 (#87) shoots the whole document on purpose: a desktop row is one line of a table, so the page is worth having whole, but the list grows a row per visit every other spec books and these land between 4,000 and 6,200 pixels by the time they are taken. The phone equivalents are now one screenful each and no longer need excusing.",
       "owner": "#87",
       "expires": "2027-01-09"
     }
