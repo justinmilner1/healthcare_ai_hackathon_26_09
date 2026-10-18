@@ -1,7 +1,6 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { findDevMail } from "../lib/devMailbox";
 import { postJson } from "./api";
 import { MAIL_DIR } from "./auth";
 
@@ -39,30 +38,18 @@ export const patientEmail = (name: string) =>
 const MAIL_DIRS = (first: string) =>
   [...new Set([first, MAIL_DIR, `${MAIL_DIR}-degraded`, `${MAIL_DIR}-runner`, `${MAIL_DIR}-dexcom`])];
 
-/** The newest code sent to this address, or null while nothing has arrived. */
+/**
+ * The newest code sent to this address, or null while nothing has arrived.
+ *
+ * The walk is lib/devMailbox.ts's findDevMail, newest file first across every box, because these boxes are
+ * shared with the sign-in links e2e/auth.ts claims by renaming: a read of a listed name can find the file
+ * already gone, and a code this spec is waiting for must not be lost to an ENOENT over somebody else's mail
+ * (T65). findDevMail skips what it cannot read, so waitForCode's retry loop gets to go round again.
+ */
 export function latestCode(email: string, dir = MAIL_DIR): string | null {
-  const files: { name: string; path: string }[] = [];
-  for (const box of MAIL_DIRS(dir)) {
-    try {
-      for (const name of readdirSync(box)) {
-        if (name.endsWith(".txt")) files.push({ name, path: join(box, name) });
-      }
-    } catch {
-      // A mailbox a server has not written to yet simply is not there.
-    }
-  }
-  // The file name starts with the time it was written, so one sort orders the boxes together.
-  files.sort((a, b) => a.name.localeCompare(b.name));
-  const to = `To: ${email}`;
-  for (const file of files.reverse()) {
-    const raw = readFileSync(file.path, "utf8");
-    if (!raw.split("\n").includes(to)) continue;
-    // The subject is "Your code is 480913" (lib/notify.ts codeTemplates), which is also the only place in
-    // the mailbox a bare six-digit number appears.
-    const code = raw.match(/^Subject: Your code is (\d{6})$/m)?.[1];
-    if (code) return code;
-  }
-  return null;
+  // The subject is "Your code is 480913" (lib/notify.ts codeTemplates), which is also the only place in the
+  // mailbox a bare six-digit number appears.
+  return findDevMail(MAIL_DIRS(dir), email, (raw) => raw.match(/^Subject: Your code is (\d{6})$/m)?.[1] ?? null);
 }
 
 /**
