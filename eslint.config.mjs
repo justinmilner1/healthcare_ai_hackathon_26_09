@@ -21,6 +21,24 @@ const eslintConfig = [
     rules: { "no-console": "error" },
   },
   {
+    // Cookie hygiene in the suite (T69). `clearCookies()` with no filter takes `ss_csrf` with it, and any
+    // page still open then mints a second token into document.cookie the moment apiFetch finds the cookie
+    // gone (lib/csrf.ts) — overwriting the one a request already read out of the jar, which middleware
+    // answers with a 403 `csrf_failed` that looks like anything but a cookie problem. Sign out through
+    // signOutOfBrowser in e2e/auth.ts, which drops the credentials and leaves the token alone; the filtered
+    // call it makes is the one clearCookies this suite needs, and the filter is what this rule looks for.
+    files: ["e2e/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.property.name='clearCookies'][arguments.length=0]",
+          message: "clearCookies() with no filter drops ss_csrf too (T69): sign out with signOutOfBrowser from e2e/auth.ts.",
+        },
+      ],
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",
