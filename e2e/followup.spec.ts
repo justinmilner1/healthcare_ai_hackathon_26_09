@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { readDevMailFile } from "../lib/devMailbox";
 import { csrfToken, postJson } from "./api";
 import { MAIL_DIR, signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
@@ -36,7 +37,11 @@ function mailbox(dir = MAIL_DIR): string {
   } catch {
     return "";
   }
-  return names.map((n) => readFileSync(join(dir, n), "utf8")).join("\n");
+  // The same claim race T65 takes out of e2e/patient.ts, in the same directory: signInAsDemo below has
+  // e2e/auth.ts renaming the sign-in mail it claims, and the other project is doing it too, so a listed name
+  // can be gone by the time it is read. readDevMailFile answers null for it rather than throwing, and a
+  // message that is no longer in the mailbox is not one this assertion wants.
+  return names.map((n) => readDevMailFile(join(dir, n))).filter((raw) => raw !== null).join("\n");
 }
 
 test("a follow-up question is logged with the clinician and the time, survives a reload, and is never emailed", async ({ page, request }) => {

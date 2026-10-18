@@ -15,21 +15,26 @@ reads any of them, so a `pick` callback invoked on the first message can claim a
 ```
 ok 1 - a mail claimed between the listing and the read is skipped, and the walk goes on to find the code (T65)
 ok 2 - a mail that vanishes reads as absent, not as an error
-ok 3 - readDevMail returns the mail it can read instead of throwing on the one it cannot
-ok 4 - the newest addressed mail wins, across every mailbox the walk is given
-ok 5 - an address is not a pattern, and a walk that finds nothing says so
+ok 3 - a message that is there but will not open is news, not a claim
+ok 4 - readDevMail returns the mail it can read instead of throwing on the one it cannot
+ok 5 - the newest addressed mail wins, across every mailbox the walk is given
+ok 6 - an address is not a pattern, and a walk that finds nothing says so
 ```
 
 Against the unguarded read these are the ticket's own failure, three times over:
 
 ```
 error: "ENOENT: no such file or directory, open '/tmp/devmail-walk-gEmrn5/2026-10-15T15-53-32-874Z-your-sweet-spot-sign-in-link.txt'"
-# tests 5
-# pass 2
+# tests 6
+# pass 3
 # fail 3
 ```
 
-`devMailbox.ts` finishes the run at 97.83% of lines and 100% of functions in the §12.1 coverage table.
+The three that fail are 1, 2 and 4 — the walk, the single read and `readDevMail`. Test 3 passes either way,
+which is the point of it: a message that is present and will not open has to throw with the guard in place
+as well as without it.
+
+`devMailbox.ts` finishes the run at 100% of lines and 100% of functions in the §12.1 coverage table.
 
 ## The screens, unchanged
 
