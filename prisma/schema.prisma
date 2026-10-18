@@ -342,6 +342,30 @@ model Job {
   @@index([status, runAfter])
 }
 
+// §10.5 A storage prefix a deletion could not empty, kept until something empties it (T70).
+//
+// The bytes outlive the rows that pointed at them. A patient purge deletes the `Visit` (§4.4) and with it
+// the only thing that knew the prefix, so a refusal from the object store has to be written down here or
+// nothing can ever walk that prefix again — which is exactly what used to happen: the purge reported
+// `orphans: n`, finished successfully, and the bytes stayed until an operator removed them by hand.
+//
+// Keyed by the prefix itself, so a second attempt on the same visit updates one row rather than growing a
+// list. `patientId` is how a second press of *Delete data* finds the backlog when the patient has no visits
+// left, and `practiceId` is whose audit trail the later pass is recorded in. Neither is a relation and
+// neither cascades: a row here has to outlive everything it came from, which is the whole point of it.
+model StorageOrphan {
+  prefix      String   @id // visits/<visitId>/ — lib/retention.ts visitStoragePrefix
+  practiceId  String
+  patientId   String?
+  objects     Int      @default(0) // how many the last attempt could not remove
+  attempts    Int      @default(1)
+  createdAt   DateTime @default(now())
+  lastTriedAt DateTime @default(now())
+
+  @@index([patientId])
+  @@index([practiceId])
+}
+
 // §4.10 OAuth secrets never leave the server. Tokens are encrypted in lib/dexcom.ts, per patient.
 model DexcomConnection {
   patientId       String    @id
