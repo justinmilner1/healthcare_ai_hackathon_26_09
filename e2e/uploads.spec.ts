@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { findDevMail } from "../lib/devMailbox";
 import { csrfToken, postJson } from "./api";
-import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -13,6 +14,11 @@ import { shot, WHOLE_PAGE } from "./shot";
 const LOADED = { timeout: 30_000 };
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
+/** Every mailbox the suite's servers write to: the inline drain happens in whichever server the queue's next
+ *  request lands on, and it writes to its own (e2e/patient.ts says the same thing about the codes). */
+const MAILBOXES = [MAIL_DIR, `${MAIL_DIR}-degraded`, `${MAIL_DIR}-runner`, `${MAIL_DIR}-dexcom`, `${MAIL_DIR}-demo`];
+/** The "your summary is ready" message for this address, or null while none has arrived (lib/notify.ts). */
+const summaryMail = (to: string) => findDevMail(MAILBOXES, to, (raw) => raw.match(/^Subject: (Your summary is ready.*)$/m)?.[1] ?? null);
 const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "timeline_android.json"), "utf8");
 
 /**
@@ -115,6 +121,76 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
   const good = await post("dexcom", "Clarity_export.csv", Buffer.from(clarity()));
   expect(good.ok()).toBeTruthy();
   expect((await good.json()).count).toBeGreaterThan(0);
+});
+
+// T72 (design §7.1, §2.6, §3.4): the third trigger. A visit whose intake wrapped with no readings has
+// nothing queued — the wrapping turn's trigger is gated on the data being in — so the Dexcom export the
+// patient shares afterwards is what has to queue the run. Before this ticket it deleted the saved summaries
+// and queued nothing: the clinician was never emailed, and whoever opened the provider page next paid for
+// the run. Nothing here presses Generate or opens the brief until the job has already reported back.
+test("a Dexcom export shared after intake wrapped queues the summary run, and the clinician is told", async ({ page, request }) => {
+  const { token, visitId, email } = await bookVisit(page, "E2E Late Export");
+  // The patient's half of this test is the request context (§5.3); the clinician's is the browser.
+  await verifyByApi(request, token, email);
+
+  // Both required fields of a follow-up template, answered through the route the intake screen posts to.
+  // The GET first, because that is what writes the greeting and settles the field list (lib/sweetie.ts),
+  // and in scripted mode the deterministic backstop is what records the answers.
+  expect((await request.get(`/api/sweetie?token=${token}`)).ok()).toBeTruthy();
+  const said = [
+    "My sugars run high after dinner, maybe four nights a week since I started the new job in August.",
+    "Nothing else changed except the hours. No lows, but I am sleeping about six hours and feel wrung out by Friday.",
+  ];
+  let intake: { wrapped?: boolean } = {};
+  for (const message of said) {
+    const turn = await postJson(request, "/api/sweetie", { token, message });
+    expect(turn.status(), await turn.text()).toBe(200);
+    intake = (await turn.json()).intake;
+  }
+  expect(intake.wrapped, "the second answer is the turn that wraps").toBe(true);
+
+  // The state this ticket is about: the intake is done and there is no glucose data, so nothing was queued.
+  const clinician = await signInAsDemo(page);
+  const before = await (await page.request.get(`/api/patient/${visitId}`)).json();
+  expect(before.visitStatus).toBe("intake_done");
+  expect(before.status.hasDexcom).toBe(false);
+  expect(before.sourJob, "the wrap had no readings to summarize").toBeNull();
+  expect(before.providerSummary).toBeNull();
+  expect(summaryMail(email), "and nobody has been told a summary is ready").toBeNull();
+
+  // The export arrives. This is the import §7.1 asks about, through the route a Clarity upload takes.
+  const shared = await request.post("/api/upload", {
+    multipart: { token, kind: "dexcom", file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) } },
+    headers: { "x-csrf-token": await csrfToken(request) },
+  });
+  expect(shared.status(), await shared.text()).toBe(200);
+  expect((await shared.json()).count).toBeGreaterThan(0);
+
+  // A job, queued by the import: read through the clinician's bundle, which is where §7.2 keeps it
+  // (lib/bundle.ts, latestJobForVisit). Polled because the row is written while the upload's response is
+  // on its way back, and the inline runner may already have taken it — queued, running or done all say the
+  // import queued one, and "no job at all" is the bug.
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", { timeout: 30_000 })
+    .toMatch(/^(queued|running|done)$/);
+
+  // §2.6: the run finishes and tells them, with nobody having opened the brief. The patient's own address
+  // is the one the mailbox can be searched by — a message to the clinician goes to the seeded demo address
+  // every other spec signs in as — and it is the same `notify.summary` job that writes both halves.
+  await expect.poll(() => summaryMail(email), { timeout: 60_000 }).toMatch(/Your summary is ready/);
+  const after = await (await page.request.get(`/api/patient/${visitId}`)).json();
+  expect(after.providerSummary, "the brief the clinician's link opens").toBeTruthy();
+  expect(after.visitStatus).toBe("summary_ready");
+  expect(after.sourJob.status).toBe("done");
+
+  // And the screen behind it: the brief is ready on first open, with the chip reading Ready rather than the
+  // page having queued the run itself (§7.2, app/provider/[id]/sour.tsx).
+  await page.goto(`/provider/${clinician.id}?visit=${visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Late Export", LOADED);
+  const chip = page.locator(".sour-job-state");
+  await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
+  await expect(page.locator(".sour-brief")).toContainText("new job in August");
+  await shot(page, "provider-sour-from-import");
 });
 
 // The cap is 20 MB, so a file well past the size a request survives through middleware has to arrive whole.
