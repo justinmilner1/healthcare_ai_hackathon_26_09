@@ -1234,13 +1234,15 @@
     flex: 1;
   }
 
+  /* T73 (design §6.5, §2.5): this is the footer that mattered most — §2.3 hands the patient their link
+     by text, so the phone is the device this flow is lived on, and it was the one device where the page
+     never said "Not medical advice". The strapline it kept is reassurance, not the caveat. Wrap, do not
+     hide. */
   .footer {
+    flex-wrap: wrap;
     justify-content: center;
+    gap: 2px 12px;
     text-align: center;
-  }
-
-  .footer span:last-child {
-    display: none;
   }
 
   /* 44px of thumb (T23, design §6.5). Skip connections, Back, the per-source chips and the Dexcom demo

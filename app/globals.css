@@ -5102,12 +5102,15 @@ button.sweetie-agent-badge {
     padding: 30px 24px;
   }
 
+  /* T73 (design §6.5, §2.5): the caveat is the second span, so hiding `span:last-child` here took
+     "Not medical advice" off every phone and left only the strapline beside it. Two spans of 9px type
+     have room to sit on one line at 375px and to wrap onto two when they do not, which is what the rest
+     of this block does instead of hiding content. */
   .home-footer {
+    flex-wrap: wrap;
     justify-content: center;
-  }
-
-  .home-footer span:last-child {
-    display: none;
+    gap: 2px 12px;
+    text-align: center;
   }
 
   .onboard-card {
@@ -5205,12 +5208,14 @@ button.sweetie-agent-badge {
     margin-top: 45px;
   }
 
+  /* T73 (design §6.5, §2.5): same as .home-footer above — the hidden second span was "Verify all
+     AI-generated summaries" on the dashboard, and the per-page caveat on settings and the audit trail.
+     It wraps now. */
   .provider-footer {
+    flex-wrap: wrap;
     justify-content: center;
-  }
-
-  .provider-footer span:last-child {
-    display: none;
+    gap: 2px 12px;
+    text-align: center;
   }
 
   .settings-grid {
