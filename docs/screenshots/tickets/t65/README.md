@@ -33,7 +33,7 @@ error: "ENOENT: no such file or directory, open '/tmp/devmail-walk-gEmrn5/2026-1
 
 ## The screens, unchanged
 
-From the `bash scripts/agent-check.sh` run this pull request reports (178 passed, 6 skipped, 5.5m). Each of
+From the `bash scripts/agent-check.sh` run that landed this ticket on `main` (178 passed, 6 skipped, 5.5m). Each of
 these is a screen that only appears if one of the two readers found its message, which is why they are the
 ones worth looking at for a ticket about reading the mailbox.
 
