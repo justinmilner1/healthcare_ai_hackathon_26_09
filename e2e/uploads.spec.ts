@@ -56,6 +56,15 @@ test("intake uploads: a real export is stored, the wrong file is refused in plai
   await whoopInput.setInputFiles({ name: "Takeout.zip", mimeType: "application/zip", buffer: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x08, 0x00]) });
   await expect(page.getByText(/unzip it and upload the file inside/i)).toBeVisible(LOADED);
   await expect(page.getByText(/records securely added/i)).toBeVisible();
+
+  // T49 (§6.1, §6.4): the one pill a patient sees when something they did went wrong. Its marker is an
+  // icon element like the sibling states', not a bare "!" that the pill's uppercase ran into the word;
+  // and the change is announced, naming the source that failed and that it can be retried.
+  await expect(page.getByText("!Try again")).toHaveCount(0);
+  await expect(
+    page.locator('[role="status"]', { hasText: "WHOOP could not be connected. Try again." }),
+  ).toHaveCount(1);
+
   await shot(page, "patient-intake-uploads");
 });
 

@@ -529,7 +529,9 @@ export default function SweetieIntakePage({
                         <span className={styles.sourceCopy}>
                           <span className={styles.sourceHeading}>
                             <strong>{source.name}</strong>
-                            {!unavailable && <SourceStatus connection={connection} />}
+                            {!unavailable && (
+                              <SourceStatus connection={connection} name={source.name} />
+                            )}
                           </span>
                           <span className={styles.sourceDescription}>
                             {source.description}
@@ -769,22 +771,40 @@ function Benefit({
   );
 }
 
-function SourceStatus({ connection }: { connection: Connection }) {
-  if (connection.state === "idle") return null;
+/**
+ * The status of one source, as a pill and as an announcement (T49, §6.4). It is a live region that is
+ * mounted empty rather than one that appears with the first upload, because a region inserted into the
+ * page along with its text is not reliably read out; and the text it is read with has to name the source,
+ * since "Try again" on its own says nothing about which card moved.
+ */
+function SourceStatus({ connection, name }: { connection: Connection; name: string }) {
+  const idle = connection.state === "idle";
   return (
     <span
-      className={`${styles.statusPill} ${
-        connection.state === "connected" ? styles.statusConnected : ""
-      } ${connection.state === "error" ? styles.statusError : ""}`}
+      role="status"
+      className={
+        idle
+          ? "sr-only"
+          : `${styles.statusPill} ${
+              connection.state === "connected" ? styles.statusConnected : ""
+            } ${connection.state === "error" ? styles.statusError : ""}`
+      }
     >
       {connection.state === "uploading" && <span className={styles.spinner} />}
       {connection.state === "connected" && <CheckIcon />}
-      {connection.state === "error" && "!"}
+      {/* A marker element like its siblings, not a character in the text: the pill is uppercased, so a
+          bare "!" read as a typo inside the word rather than as a warning. */}
+      {connection.state === "error" && <AlertIcon />}
       {connection.state === "uploading"
         ? "Connecting"
         : connection.state === "connected"
           ? "Connected"
-          : "Try again"}
+          : connection.state === "error" && (
+              <>
+                <span aria-hidden="true">Try again</span>
+                <span className="sr-only">{name} could not be connected. Try again.</span>
+              </>
+            )}
     </span>
   );
 }
@@ -817,6 +837,16 @@ function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m5 12.5 4.2 4.2L19 7" />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 4.6 2.9 19.6h18.2Z" />
+      <path d="M12 10.1v3.5" />
+      <path d="M12 16.6h.01" />
     </svg>
   );
 }
