@@ -79,6 +79,11 @@ export const AUDIT_ACTIONS = {
   "summary.deleted": "Summaries discarded",
   "patient.deleted": "Patient data deleted",
   "retention.swept": "Visit data removed by retention",
+  // §10.5's unfinished deletions, finished later (T70). A purge that the object store refused leaves the
+  // prefix on `StorageOrphan`; the nightly job comes back to it, and when the bytes finally go that is a
+  // deletion §10.2 counts like any other. One row per practice per pass, against the job — nobody pressed
+  // anything, and the patient it was for is already a blanked row (§4.3).
+  "storage.orphans_purged": "Orphaned files removed",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
@@ -153,6 +158,7 @@ export const AUDIT_DETAIL_FIELDS: readonly string[] = [
   "turns",    // chat rows removed. Not "messages": §4.8's guard refuses a field that could pass for one
   "objects",  // stored files removed from S3 or the local backend
   "orphans",  // objects the storage backend would not remove, so an admin can see bytes were left behind
+  "prefixes", // how many storage prefixes a later pass re-attempted (§10.5, T70)
   "dexcom",   // whether the patient's encrypted Dexcom tokens were among the things deleted (§4.10)
   "days",     // the practice's retention window, on a sweep row
 ];

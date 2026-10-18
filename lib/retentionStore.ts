@@ -19,7 +19,11 @@
 //      `patient.delete` and `retention.sweep` jobs safe to retry, which §3.4 will do three times.
 //   2. **Objects before rows.** The bytes are deleted by *prefix* (lib/storage.ts deletePrefix) rather than by
 //      the keys on the `Upload` rows, so an object whose row a half-finished earlier attempt already removed
-//      is still found. Deleting by key would lose it for ever.
+//      is still found. Deleting by key would lose it for ever. A prefix the store *refuses* is written to
+//      `StorageOrphan` before the rows go (T70, §10.5): the purge deletes the `Visit` seconds later and the
+//      prefix is derived from its id, so a refusal that is not written down is a prefix nothing can name
+//      again. retryOrphanedPrefixes() is what comes back to it — from the nightly sweep, and from the next
+//      purge of the same patient.
 //   3. **A record of every deletion.** §10.2 counts deletions, so each cleared visit and each purged patient
 //      writes one audit row, with counts and no contents (§4.8). A run that removed nothing writes nothing:
 //      a row saying a sweep considered a practice and deleted none of it is a record of nothing happening.
@@ -60,6 +64,7 @@ export type RetentionClient = Pick<
   | "visitDelivery"
   | "dexcomConnection"
   | "dexcomOAuthState"
+  | "storageOrphan"
 >;
 
 /** What a purge may be handed instead of the real thing, so a unit test needs neither a bucket nor the
@@ -87,6 +92,160 @@ const resolve = (deps: RetentionDeps): Resolved => ({
   now: deps.now ?? new Date(),
 });
 
+// ---------------------------------------------------------------------------------------------
+// §10.5 The ledger of prefixes the object store would not empty (T70)
+
+/** Whose deletion left a prefix behind: the practice whose audit trail a later pass belongs in, and the
+ *  patient a second press of *Delete data* would be for. The patient is null on a sweep row (§10.4), where
+ *  the `Visit` stays and the patient was never being deleted. */
+type OrphanOwner = { practiceId: string; patientId: string | null };
+
+/** What one pass over the ledger did. Separate from `PurgeCounts` because none of it is the patient's data:
+ *  these are bytes a previous deletion already accounted for, being chased. */
+export type OrphanSweep = {
+  /** Prefixes this pass asked the object store about again. */
+  prefixes: number;
+  /** Objects it managed to remove this time. */
+  objects: number;
+  /** Objects still outstanding after it — the ones whose rows stay for the next pass. */
+  orphans: number;
+  /** Prefixes that came back empty, so their row is gone. */
+  cleared: number;
+};
+
+export const EMPTY_ORPHAN_SWEEP: OrphanSweep = { prefixes: 0, objects: 0, orphans: 0, cleared: 0 };
+
+/** How many prefixes one pass re-attempts. A ceiling for the same reason as SWEEP_LIMIT: the backlog is
+ *  pathological if it is ever long, and the nightly job should not hold a connection open walking it. */
+export const ORPHAN_RETRY_LIMIT = 200;
+
+/**
+ * What the object store said about one prefix, written down.
+ *
+ * A refusal becomes a `StorageOrphan` row (or bumps the one already there); a prefix that came back empty
+ * clears any row an earlier attempt left. Both halves matter: without the first the bytes are unreachable,
+ * and without the second a prefix somebody emptied by hand stays on the ledger for ever.
+ *
+ * Upsert rather than create, keyed on the prefix: one visit is one row however many times it is attempted,
+ * and `attempts` is how an operator tells "refused once" from "refusing every night".
+ */
+async function recordPrefixOutcome(
+  { client, now }: Resolved,
+  prefix: string,
+  result: { deleted: number; failed: number },
+  owner: OrphanOwner,
+): Promise<void> {
+  if (result.failed === 0) {
+    // deleteMany, not delete: most prefixes were never on the ledger and a missing row is the normal case.
+    await client.storageOrphan.deleteMany({ where: { prefix } });
+    return;
+  }
+  await client.storageOrphan.upsert({
+    where: { prefix },
+    create: {
+      prefix,
+      practiceId: owner.practiceId,
+      patientId: owner.patientId,
+      objects: result.failed,
+      attempts: 1,
+      createdAt: now,
+      lastTriedAt: now,
+    },
+    // `patientId` is filled in rather than overwritten: a sweep leaves it null and a later purge of the same
+    // patient is what gives the row the owner that makes it findable without a `Visit`.
+    update: {
+      objects: result.failed,
+      attempts: { increment: 1 },
+      lastTriedAt: now,
+      ...(owner.patientId ? { patientId: owner.patientId } : {}),
+    },
+  });
+}
+
+/**
+ * Walk the ledger and ask the object store again.
+ *
+ * This is the pass that the comment in this file used to claim a second deletion was: it works from the
+ * prefixes themselves, so it needs neither the `Visit` rows the purge deleted nor the `Upload` rows that
+ * named the keys. A prefix that comes back empty leaves the ledger; one that is refused again stays, with
+ * `attempts` one higher, for the next pass.
+ *
+ * `skip` is the prefixes the caller has just attempted itself, so a purge does not ask about the same visit
+ * twice in one run.
+ *
+ * `record` is whether this pass writes its own audit row. The nightly sweep does, because nothing else
+ * accounts for what it removed; a purge does not, because the objects land in its own `patient.deleted`
+ * counts and two rows for one deletion would overstate it (§10.2).
+ */
+async function retryOrphans(
+  deps: Resolved,
+  where: { practiceId?: string; patientId?: string },
+  opts: { skip?: readonly string[]; record?: boolean } = {},
+): Promise<OrphanSweep> {
+  const { client } = deps;
+  const skip = new Set(opts.skip ?? []);
+  const pending = await client.storageOrphan.findMany({
+    where: {
+      ...(where.practiceId ? { practiceId: where.practiceId } : {}),
+      ...(where.patientId ? { patientId: where.patientId } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    // Room for the skipped ones, so a purge with a long backlog still re-attempts a full page of it.
+    take: ORPHAN_RETRY_LIMIT + skip.size,
+  });
+
+  const report: OrphanSweep = { ...EMPTY_ORPHAN_SWEEP };
+  // Tallied per practice, because that is the unit an audit row belongs to: a nightly pass over three
+  // practices' leftovers is three practices' deletions, and §10.2 is read one practice at a time.
+  const byPractice = new Map<string, { prefixes: number; objects: number; orphans: number }>();
+  for (const row of pending) {
+    if (skip.has(row.prefix)) continue;
+    if (report.prefixes >= ORPHAN_RETRY_LIMIT) break;
+    const result = await deps.removePrefix(row.prefix);
+    await recordPrefixOutcome(deps, row.prefix, result, { practiceId: row.practiceId, patientId: row.patientId });
+    report.prefixes += 1;
+    report.objects += result.deleted;
+    report.orphans += result.failed;
+    if (result.failed === 0) report.cleared += 1;
+    const tally = byPractice.get(row.practiceId) ?? { prefixes: 0, objects: 0, orphans: 0 };
+    tally.prefixes += 1;
+    tally.objects += result.deleted;
+    tally.orphans += result.failed;
+    byPractice.set(row.practiceId, tally);
+  }
+
+  if (report.prefixes === 0) return report;
+  log.info("storage_orphans_retried", {
+    rows: report.prefixes,
+    objects: report.objects,
+    orphans: report.orphans,
+    count: report.cleared,
+  });
+  if (!opts.record) return report;
+  for (const [practiceId, tally] of byPractice) {
+    // Property 3 again: a pass that removed nothing is not a deletion, and a row saying the bucket refused
+    // again is the `warn` line's job, not the practice's trail.
+    if (tally.objects === 0) continue;
+    await deps.audit({
+      practiceId,
+      actorType: "system",
+      action: "storage.orphans_purged",
+      entityType: "practice",
+      entityId: practiceId,
+      detail: tally,
+    });
+  }
+  return report;
+}
+
+/**
+ * The ledger pass on its own, for a caller that is not already purging something — the nightly sweep calls
+ * it through sweepRetention, and the runbook's manual drain can call it directly.
+ */
+export async function sweepStorageOrphans(opts: RetentionDeps & { practiceId?: string } = {}): Promise<OrphanSweep> {
+  return retryOrphans(resolve(opts), opts.practiceId ? { practiceId: opts.practiceId } : {}, { record: true });
+}
+
 /**
  * Everything one visit collected, gone: the stored files, the parsed rows, the transcript, the summaries, and
  * the plumbing that hangs off it (verified patient sessions, delivery results, pending Dexcom OAuth states).
@@ -100,9 +259,13 @@ const resolve = (deps: RetentionDeps): Resolved => ({
  * counted; they are deleted because leaving them would leave a way back into a visit with nothing in it.
  * Follow-ups (§7.5) are not counted either, for the reason given where they are deleted.
  */
-async function purgeVisitData({ client, removePrefix }: Resolved, visitId: string): Promise<PurgeCounts> {
+async function purgeVisitData(deps: Resolved, visitId: string, owner: OrphanOwner): Promise<PurgeCounts> {
+  const { client } = deps;
   // Objects first: by prefix, so the bytes go even when no row points at them any more (property 2).
-  const objects = await removePrefix(visitStoragePrefix(visitId));
+  const prefix = visitStoragePrefix(visitId);
+  const objects = await deps.removePrefix(prefix);
+  // And written down before the rows go, because afterwards nothing can name this prefix (property 2).
+  await recordPrefixOutcome(deps, prefix, objects, owner);
   // `UploadData` is the heavy half of an upload and cascades from the `Upload` row (§4.6).
   const uploads = await client.upload.deleteMany({ where: { visitId } });
   const turns = await client.message.deleteMany({ where: { visitId } });
@@ -135,6 +298,8 @@ export type SweepReport = {
   /** How many visits were cleared. */
   visits: number;
   counts: PurgeCounts;
+  /** §10.5's unfinished deletions, re-attempted on the same nightly clock (T70). */
+  orphans: OrphanSweep;
 };
 
 /** How many visits one sweep clears before leaving the rest for the next run. A ceiling rather than a
@@ -165,7 +330,13 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
   // every night. `demo: true` is §13.4's label for §11.1's alarm filters (lib/demo.ts).
   if (demoPractices > 0) log.info("retention_demo_skipped", { count: demoPractices, demo: true });
 
-  const report: SweepReport = { practices: practices.length, demoPractices, visits: 0, counts: EMPTY_PURGE };
+  const report: SweepReport = {
+    practices: practices.length,
+    demoPractices,
+    visits: 0,
+    counts: EMPTY_PURGE,
+    orphans: EMPTY_ORPHAN_SWEEP,
+  };
   for (const practice of practices) {
     const cutoff = retentionCutoff(practice.retentionDays, now);
     const expired = await client.visit.findMany({
@@ -176,7 +347,7 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
         // booked for next month is not old, whatever its `createdAt` says.
         OR: [{ scheduledAt: { lt: cutoff } }, { AND: [{ scheduledAt: null }, { createdAt: { lt: cutoff } }] }],
       },
-      select: { id: true },
+      select: { id: true, patientId: true },
       orderBy: { createdAt: "asc" },
       take: SWEEP_LIMIT,
     });
@@ -184,7 +355,10 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
 
     let practiceCounts = EMPTY_PURGE;
     for (const visit of expired) {
-      const counts = await purgeVisitData(deps, visit.id);
+      // No patient on the owner: the sweep is not deleting anybody, it is clearing an old visit's data, and
+      // the `Visit` row stays. A prefix it cannot empty is still unreachable afterwards — `retentionSweptAt`
+      // stops the next sweep considering the visit — so it goes on the ledger the same way (T70).
+      const counts = await purgeVisitData(deps, visit.id, { practiceId: practice.id, patientId: null });
       // What is left is the appointment and its outcome: when it was, what type, who it was for, that it was
       // reviewed. `reason` goes with the rest — it is what the patient called in about, in their own words.
       await client.visit.update({
@@ -224,6 +398,12 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
       orphans: practiceCounts.orphans,
     });
   }
+
+  // §10.5's leftovers, chased on §10.4's clock: the two are different promises but there is only one nightly
+  // job, and a prefix the bucket refused is not waiting on anybody's retention window. Demo practices are
+  // not excluded here the way their visits are (§13.4) — a patient somebody deleted from a demo practice is
+  // as deleted as any other, and these bytes were supposed to be gone already.
+  report.orphans = await retryOrphans(deps, opts.practiceId ? { practiceId: opts.practiceId } : {}, { record: true });
   return report;
 }
 
@@ -265,13 +445,24 @@ export async function purgePatient(opts: RetentionDeps & { patientId: string; re
   }
 
   let counts = EMPTY_PURGE;
+  const owner: OrphanOwner = { practiceId: patient.practiceId, patientId: patient.id };
+  const attempted: string[] = [];
   for (const visit of patient.visits) {
-    counts = addCounts(counts, await purgeVisitData(deps, visit.id));
+    attempted.push(visitStoragePrefix(visit.id));
+    counts = addCounts(counts, await purgeVisitData(deps, visit.id, owner));
     // The visit row goes too, which is what tells this apart from the sweep: there is no patient left for the
     // appointment to belong to. Anything still hanging off it cascades (§4.4).
     await client.visit.delete({ where: { id: visit.id } });
     counts = addCounts(counts, { ...EMPTY_PURGE, visits: 1 });
   }
+
+  // What an earlier attempt could not empty, before it deleted the `Visit` rows that named those prefixes
+  // (T70). This is what makes pressing *Delete data* again reach the object store at all: by here
+  // `patient.visits` is usually empty, and walking it was the only thing the old purge did. The prefixes
+  // just attempted above are skipped, so one run asks about one visit once; anything that fails in this
+  // pass is already back on the ledger for the nightly one.
+  const retried = await retryOrphans(deps, { patientId: patient.id }, { skip: attempted });
+  counts = addCounts(counts, { ...EMPTY_PURGE, objects: retried.objects, orphans: retried.orphans });
 
   const dexcom = (await client.dexcomConnection.deleteMany({ where: { patientId: patient.id } })).count > 0;
   const identified = patient.name !== DELETED_PATIENT_NAME || Boolean(patient.phone || patient.email);
@@ -281,7 +472,9 @@ export async function purgePatient(opts: RetentionDeps & { patientId: string; re
   });
 
   // A retry whose first attempt finished the work finds nothing to remove and says nothing: see property 3.
-  if (removedSomething(counts) || dexcom || identified) {
+  // `orphans` is the exception that is not nothing: a deletion the object store refused is a deletion that
+  // did not finish, and the practice is owed a row saying so even on a run that removed nothing else.
+  if (removedSomething(counts) || dexcom || identified || counts.orphans > 0) {
     await deps.audit({
       practiceId: patient.practiceId,
       actorType: opts.requestedBy ? "user" : "system",
@@ -304,8 +497,9 @@ export async function purgePatient(opts: RetentionDeps & { patientId: string; re
     });
   }
   if (counts.orphans > 0) {
-    // The rows are gone and the bytes are not. Said out loud because §10.5 promises the objects too, and the
-    // next deletion of this patient — the staff member pressing it again — deletes by prefix and will find them.
+    // The rows are gone and the bytes are not. Said out loud because §10.5 promises the objects too. The
+    // prefixes are on `StorageOrphan` (T70), so the nightly sweep and the next press of *Delete data* both
+    // come back to them; this line is how an operator knows that is happening rather than finishing.
     log.warn("patient_purge_orphans", { patientId: patient.id, orphans: counts.orphans });
   }
   return { counts, dexcom, found: true };
