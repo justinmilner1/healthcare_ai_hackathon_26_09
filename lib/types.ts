@@ -1,4 +1,8 @@
 // Shared shapes. Front end and back end both depend on these. Change with care (see AGENTS.md).
+//
+// No lib/types.test.ts, and no row in the `npm run test:coverage` table (design §12.1): this file is
+// declarations only. TypeScript erases every line of it, so there is nothing at runtime to instrument and
+// nothing a test could assert that `npm run typecheck` does not already enforce at every call site.
 
 export type GlucoseReading = { t: string; mgdl: number }; // ISO time
 

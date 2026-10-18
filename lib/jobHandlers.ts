@@ -61,12 +61,6 @@ async function visitOf(payload: JobPayload) {
 }
 
 /**
- * Did a notification fail in a way another attempt could fix? `provider` is set only when a backend was
- * chosen and the message really went out, so "no email on file" and an unconfigured sender come back without
- * one: nothing to retry with, and the job is done having sent what it could. A configured channel that
- * errored keeps its retries.
- */
-/**
  * §10.2 records "every send". One row per channel that a backend really tried, whether or not it landed: a
  * channel with no address on file and an unconfigured sender never sent anything (that is what a missing
  * `provider` means, see assertSendable), and a row saying so would be a record of nothing happening.
@@ -115,7 +109,17 @@ async function recordPatientSends(
   }
 }
 
-function assertSendable(event: string, visitId: string, channels: Record<string, { sent: boolean; error?: string; provider?: string }>): void {
+/**
+ * Did a notification fail in a way another attempt could fix? `provider` is set only when a backend was
+ * chosen and the message really went out, so "no address on file" and an unconfigured sender come back
+ * without one: nothing to retry with, and the job is done having sent what it could. A configured channel
+ * that errored keeps its retries, by throwing.
+ *
+ * Exported for lib/jobHandlers.test.ts: the difference between "the job is done" and "try again in a minute"
+ * is the whole of §3.4's retry policy for a send, and the only other way to reach it from a test is to make
+ * a real backend fail.
+ */
+export function assertSendable(event: string, visitId: string, channels: Record<string, { sent: boolean; error?: string; provider?: string }>): void {
   const results = Object.values(channels);
   if (results.some((r) => r.sent)) return;
   const attempted = results.filter((r) => !r.sent && r.provider);

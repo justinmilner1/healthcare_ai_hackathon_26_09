@@ -1,4 +1,10 @@
 // Agent prompts. Sweetie is patient-facing, Sour is provider-facing. See AGENTS.md "Agent prompts".
+//
+// No lib/prompts.test.ts (design §12.1): the functions here return constant strings, so a test would be a
+// second copy of the prompt and would fail on every reword rather than on a regression. What the prompts
+// have to make the model do is asserted where it matters — on the shape the run keeps (lib/sourRun.test.ts)
+// and on the brief the model is handed (lib/sour.test.ts). The file does appear in the coverage table,
+// because lib/sourRun.ts imports it.
 // Owner: Sweetie -> Justin (lib/sweetie.ts), Sour -> Justin (this file + lib/sour.ts + app/api/sour/route.ts).
 
 // Sweetie's prompts live in lib/sweetie.ts (field-driven; see FIELDS there).
