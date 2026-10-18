@@ -44,6 +44,33 @@ const LOADED = { timeout: 30_000 };
 /** The patient's week, as a patient would have it: files picked on the intake screen (§3.3, §9.1). */
 const sample = (name: string) => readFileSync(join(process.cwd(), "data", name));
 
+/** §2.2's "visit date and time", fixed relative to the run: three days out at 09:30, local time. Local
+ *  because that is the clock both ends of this read — the wizard's `datetime-local` field holds a wall time
+ *  with no zone on it, and `parseScheduledAt` (lib/visitIntake.ts) resolves it in the practice's own zone,
+ *  which here is the one zone this container has. Relative to the run so the brief never shows an
+ *  appointment in the past; 09:30 so the day cannot drift across midnight when the run is late (T67). */
+const bookedFor = () => {
+  const at = new Date();
+  at.setDate(at.getDate() + 3);
+  at.setHours(9, 30, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    iso: at.toISOString(),
+    /** What the field holds and what the wizard posts (app/provider/dashboard.tsx). */
+    field: `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`,
+  };
+};
+
+/** That date as a page writes it, formatted in the browser by the same `Intl` call the component makes, so
+ *  an assertion cannot fail over a locale or a zone this process and Chromium disagree about. Each screen
+ *  picks its own options: the dashboard row abbreviates the weekday, the brief and the sheet spell it out. */
+const asRendered = (page: Page, iso: string, call: "date" | "dateTime", options: Intl.DateTimeFormatOptions) =>
+  page.evaluate(
+    ([at, which, opts]) =>
+      which === "date" ? new Date(at).toLocaleDateString(undefined, opts) : new Date(at).toLocaleString(undefined, opts),
+    [iso, call, options] as [string, "date" | "dateTime", Intl.DateTimeFormatOptions],
+  );
+
 test("the whole journey: staff books, the patient checks in, the clinician signs it off and prints it", async ({ page }) => {
   // Eleven screens across three identities and two flows, each sign-in waiting on a mailbox. The per-test
   // default of 60s is for a test that drives one of them; this one needs the budget of the journey it is.
@@ -100,6 +127,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await page.getByRole("button", { name: /Continue/i }).click();
 
   await page.getByText("Follow-up", { exact: true }).click();
+  // §2.2 lists the date and time as part of creating a visit, so the journey books a dated one (T67). The
+  // field stays optional — a visit with no date is a visit, and e2e/visits.spec.ts is where that row and its
+  // "Date pending" keep being covered.
+  const appt = bookedFor();
+  await page.getByLabel("Visit date and time").fill(appt.field);
   await page.getByLabel(/What did the patient call about/i).fill("highs after dinner since the new job");
   await page.getByRole("button", { name: /Continue/i }).click();
 
@@ -110,6 +142,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // "Text and email" as well, since it matches a case-insensitive substring.
   await page.getByText("Email", { exact: true }).click();
   await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
+  // The card reads the booking back before anything is written, the appointment included.
+  await expect(page.locator(".patient-review-card"), "the date staff just typed, not 'Date pending'").toContainText(
+    await asRendered(page, appt.iso, "dateTime", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+  );
   await shot(page, "03-add-visit", MODAL);
   await page.getByRole("button", { name: /Add patient & send/i }).click();
 
@@ -123,6 +159,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
   const row = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(row, "§4.4's first stage").toContainText("Invited", LOADED);
+  // And §2.2's date in the column the front desk schedules by.
+  await expect(row.locator(".provider-cell-main"), "the booked date, not 'Date pending'").toHaveText(
+    await asRendered(page, appt.iso, "date", { weekday: "short", month: "short", day: "numeric" }),
+  );
 
   // ---- The patient checks in (§2.3, §2.4, §2.5, §5.3) --------------------------------------------------
   // From here the browser is the patient's: the staff session is dropped, and the only credential in play is
@@ -234,6 +274,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const brief = page.locator(".sour-brief");
   await expect(brief, "the patient's own words (lib/sweetie.ts renderNotes)").toContainText("new job in August");
   await expect(brief).toContainText("Called about: highs after dinner since the new job");
+  // The appointment this brief is for, under the patient's name (§2.2, §7.2).
+  await expect(page.locator(".sour-brief-header"), "the booked date, not 'no visit date'").toContainText(
+    await asRendered(page, appt.iso, "date", { weekday: "long", month: "short", day: "numeric" }),
+  );
   await expect(brief).toContainText(/In range \d+%/);
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
@@ -269,6 +313,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   expect(sheet?.status()).toBe(200);
   await expect(page.getByRole("heading", { level: 1, name: patientName })).toBeVisible(LOADED);
   await expect(page.locator(".sour-print-sheet")).toContainText("Follow-up");
+  // The same appointment on paper: the instant for anything machine-read, and the clinician's own zone in
+  // the words beside it (app/provider/visit/[id]/print/localTime.tsx).
+  await expect(page.locator(".sour-print-header time").first(), "the booked date, not 'no visit date'").toHaveAttribute("datetime", appt.iso);
+  await expect(page.locator(".sour-print-header")).toContainText(
+    await asRendered(page, appt.iso, "dateTime", { weekday: "long", month: "short", day: "numeric" }),
+  );
   await expect(page.locator(".sour-print-sheet")).toContainText("new job in August");
   await expect(page.locator(".sour-print-numbers")).toContainText("Time in range");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
