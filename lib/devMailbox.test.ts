@@ -112,3 +112,36 @@ test("an address is not a pattern, and a walk that finds nothing says so", () =>
     assert.equal(findDevMail([dir], `nurse+${PATIENT}`, codeIn), "999999");
   });
 });
+
+test("two messages with one subject in one millisecond are both kept, so neither link is lost (T85)", () => {
+  mailbox((dir, at) => {
+    // The e2e suite signs the one seeded provider in from two workers against one mailbox, and every one of
+    // those mails is titled "Your Sweet Spot sign-in link" (lib/mailer.ts). The filename is the time and the
+    // subject, so a shared millisecond asks twice for one name — and a magic link is good once (design
+    // §5.1), so the message that loses is a credential nobody can get back. e2e/auth.ts claims each link it
+    // spends, so the shortfall is permanent: it is handed on until a test gives up waiting for a link that
+    // was overwritten before it ever looked.
+    const first = writeDevMail({ to: PROVIDER, subject: "Your Sweet Spot sign-in link", text: `${SIGN_IN}&n=first` }, dir, at(0));
+    const second = writeDevMail({ to: PROVIDER, subject: "Your Sweet Spot sign-in link", text: `${SIGN_IN}&n=second` }, dir, at(0));
+    assert.notEqual(first, second, "the second message took the first one's filename");
+
+    // Both are in the mailbox, and claiming one the way e2e/auth.ts does still leaves the other to be found.
+    const tokens = new Set(readDevMail(dir).map((mail) => mail.text.match(/&n=(\w+)/)?.[1]));
+    assert.deepEqual(tokens, new Set(["first", "second"]));
+
+    const claim = (raw: string, path: string) => {
+      const n = raw.match(/&n=(\w+)/)?.[1];
+      if (!n) return null;
+      try {
+        renameSync(path, `${path}.claimed`);
+      } catch {
+        return null;
+      }
+      return n;
+    };
+    const one = findDevMail([dir], PROVIDER, claim);
+    const other = findDevMail([dir], PROVIDER, claim);
+    assert.ok(one && other, "a second claimer found nothing left to claim");
+    assert.notEqual(one, other, "both claimers were handed the same single-use link");
+  });
+});

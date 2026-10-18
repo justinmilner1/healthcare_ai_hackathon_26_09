@@ -47,12 +47,36 @@ export function formatDevMail(mail: DevMail, now = new Date()): string {
   return [`Date: ${now.toISOString()}`, `To: ${mail.to}`, `Subject: ${mail.subject}`, "", mail.text, ""].join("\n");
 }
 
-/** Write one message and return the path it landed at. */
+/**
+ * Write one message and return the path it landed at.
+ *
+ * The name is the time and the subject, and nothing else — so two messages with one subject written in the
+ * same millisecond ask for one filename, and a plain `writeFileSync` would truncate the first away. What is
+ * lost that way is a credential: every provider sign-in mail is titled "Your Sweet Spot sign-in link", a
+ * magic link is good once (design §5.1), and the suite signs the seeded demo provider in from two workers
+ * against one mailbox. Overwriting one leaves a reader waiting for a link that no longer exists anywhere —
+ * `e2e/auth.ts` claims each mail it spends, so the loss is permanent and the shortfall is simply passed on
+ * until some test gives up with "no sign-in link arrived" (T85).
+ *
+ * `wx` is the fix: it refuses to open a file that is already there, so a collision takes the next free name
+ * instead of a victim. The suffix goes before `.txt`, because that extension is what every reader lists on.
+ */
 export function writeDevMail(mail: DevMail, dir = devMailDir(), now = new Date()): string {
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, devMailFilename(mail.subject, now));
-  writeFileSync(file, formatDevMail(mail, now), "utf8");
-  return file;
+  const name = devMailFilename(mail.subject, now);
+  const body = formatDevMail(mail, now);
+  // Bounded only so a filesystem refusing every name cannot spin here; one millisecond never holds this many
+  // messages, and the throw below says what happened rather than looping in silence.
+  for (let n = 0; n < 1000; n++) {
+    const file = join(dir, n === 0 ? name : name.replace(/\.txt$/, `-${n}.txt`));
+    try {
+      writeFileSync(file, body, { encoding: "utf8", flag: "wx" });
+      return file;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | null)?.code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(`dev mailbox: no free filename for ${name} after 1000 tries`);
 }
 
 /**
