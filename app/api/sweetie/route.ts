@@ -13,13 +13,14 @@
 import { after, NextResponse } from "next/server";
 import { loadBundle } from "@/lib/bundle";
 import { db } from "@/lib/db";
-import { enqueue, nudge } from "@/lib/jobs";
+import { nudge } from "@/lib/jobs";
 import { llmStatus } from "@/lib/llm";
 import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
 import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { fieldsFor, greeting, parseIntake, renderNotes, skipQuestions } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
+import { queueSour } from "@/lib/sourQueue";
 import { runTurn } from "@/lib/sweetieTurn";
 import type { TurnStore } from "@/lib/sweetieTurn";
 import type { ChatMessage, ChatRole, IntakeFieldDef, IntakeState } from "@/lib/types";
@@ -163,7 +164,7 @@ async function respond(visitId: string, state: IntakeState, reply: string, wasWr
   // between the reply and the summary used to lose it silently, and now it is a row with three attempts.
   if (state.wrapped && !wasWrapped && bundle?.status.hasDexcom) {
     try {
-      const { job } = await enqueue({ kind: "sour.run", payload: { visitId }, idempotencyKey: `sour.run:${visitId}` });
+      const { job } = await queueSour(visitId);
       log.info("sour_queued", { visitId, jobId: job.id });
     } catch (e) {
       // Sweetie's goodbye still goes out; the clinician's Generate button is the fallback.

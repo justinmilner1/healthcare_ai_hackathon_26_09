@@ -28,10 +28,11 @@ import { after, NextResponse } from "next/server";
 import { recordAudit, recordVisitRead } from "@/lib/auditStore";
 import { followUpsFor, historyFrom, MAX_QUESTION_CHARS, recordAnswer, recordQuestion, renderHistory } from "@/lib/followUps";
 import { requireCapability, requireProvider, requireVisitInPractice } from "@/lib/guard";
-import { enqueue, nudge } from "@/lib/jobs";
+import { nudge } from "@/lib/jobs";
 import { ask, llmStatus, LLMUnavailable } from "@/lib/llm";
 import { log, withRoute } from "@/lib/log";
 import { sourChatSystem } from "@/lib/prompts";
+import { queueSour } from "@/lib/sourQueue";
 import { loadSourContext } from "@/lib/sourRun";
 
 async function postHandler(req: Request) {
@@ -51,7 +52,7 @@ async function postHandler(req: Request) {
     // Generation is a job (§3.4): two model calls and two emails are not something a clinician should hold a
     // request open for, and the row survives a redeploy mid-run. Asking twice while the first run is still in
     // flight joins it; asking again after it has finished is a real regenerate (lib/jobs.ts, enqueue).
-    const { job, deduped } = await enqueue({ kind: "sour.run", payload: { visitId: visit.id }, idempotencyKey: `sour.run:${visit.id}` });
+    const { job, deduped } = await queueSour(visit.id);
     nudge(after);
     return NextResponse.json({ jobId: job.id, status: job.status, queued: true, deduped }, { status: 202 });
   }

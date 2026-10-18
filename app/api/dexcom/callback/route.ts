@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dexcomConfig, DEXCOM_COOKIE, encryptTokens, exchangeCode, fetchSnapshot, hash, importFilename, visitMatchesEnv } from "@/lib/dexcom";
 import { withRoute } from "@/lib/log";
+import { nudge } from "@/lib/jobs";
+import { queueSourAfterImport } from "@/lib/sourQueue";
 import { newUploadKey, putObject } from "@/lib/storage";
 import { contentTypeFor } from "@/lib/uploads";
 
@@ -55,7 +57,7 @@ async function getHandler(req: NextRequest) {
     const s3Key = newUploadKey(visit.id, "dexcom", "json");
     const rawBytes = new TextEncoder().encode(snapshot.raw);
     await putObject(s3Key, rawBytes, contentTypeFor("json"));
-    await db.$transaction(async (tx) => {
+    const imported = await db.$transaction(async (tx) => {
       const fresh = await tx.visit.findUnique({ where: { id: visit.id } });
       if (!fresh || !visitMatchesEnv(fresh, config.env)) throw new Error("Visit no longer matches the Dexcom environment.");
       await tx.upload.create({ data: {
@@ -70,7 +72,14 @@ async function getHandler(req: NextRequest) {
       // Never serve an older narrative against newly imported readings.
       await tx.summary.deleteMany({ where: { visitId: fresh.id } });
       await tx.dexcomConnection.update({ where: { patientId: visit.patientId }, data: { importedAt: new Date() } });
+      return fresh;
     });
+    // §7.1's third trigger, after the transaction and not inside it: the job is a row in the same database,
+    // and a run that was queued by a transaction that then rolled back would summarize readings nobody
+    // imported. Deleting the summaries above keeps a stale narrative off the clinician's screen; this is
+    // what puts a current one back there without anybody waiting for it (lib/sourQueue.ts).
+    await queueSourAfterImport(imported);
+    nudge(after);
     return back("connected");
   } catch (e) {
     // Avoid logging the exception: upstream errors can contain authorization details.

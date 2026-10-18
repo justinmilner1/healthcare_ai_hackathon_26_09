@@ -5,16 +5,18 @@
 // keeps the key, the byte count and the parsed rows (§4.6). Returns { kind, count, status }.
 // Owners: Dexcom -> Nisarga, location -> Robbert, WHOOP -> unassigned.
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/auditStore";
 import { loadBundle } from "@/lib/bundle";
 import { checkCsrfRequest } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import { parseClarityCsv } from "@/lib/glucose";
+import { nudge } from "@/lib/jobs";
 import { parseTimeline, parseVisitsCsv } from "@/lib/location";
 import { log, withRoute } from "@/lib/log";
 import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { parseWhoopCsv } from "@/lib/sleep";
+import { queueSourAfterImport } from "@/lib/sourQueue";
 import { deleteObjects, newUploadKey, putObject, storageBackend } from "@/lib/storage";
 import type { UploadKind } from "@/lib/types";
 import { requireVerifiedPatient } from "@/lib/guard";
@@ -196,6 +198,15 @@ async function postHandler(req: Request) {
   });
   log.info("upload_stored", { patientId: visit.patientId, visitId: visit.id, uploadId: upload.id, kind, rows: parsed.length, bytes: bytes.byteLength, provider: storageBackend() });
   const bundle = await loadBundle(visit.id);
+  // §7.1's third trigger, for the other way a patient's Dexcom data arrives: a Clarity export, which is the
+  // path a deployment with no Dexcom credentials offers (T71). Queued only once the row is committed, and
+  // only for a visit whose intake is already done — lib/sourQueue.ts has the rule and the reason. The status
+  // comes from the bundle, which read the visit after the upload landed, so an upload racing the wrapping
+  // turn sees the status that turn committed rather than the one this request started with.
+  if (kind === "dexcom" && bundle) {
+    await queueSourAfterImport({ id: visit.id, status: bundle.visitStatus });
+    nudge(after);
+  }
   // Day span for glucose uploads, so Sweetie can say "about 7 days" when she thanks the patient.
   const days = kind === "dexcom" && parsed.length > 1
     ? Math.max(1, Math.round((Date.parse((parsed[parsed.length - 1] as { t: string }).t) - Date.parse((parsed[0] as { t: string }).t)) / 86400000))
