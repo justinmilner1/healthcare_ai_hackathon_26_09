@@ -13,6 +13,7 @@ import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import type { PatientBundle } from "@/lib/types";
+import { visitLabel } from "@/lib/visits";
 
 export default function PatientPage({
   params,
@@ -82,9 +83,12 @@ export default function PatientPage({
             </h1>
             <p>{visitMessage}</p>
             <div className="patient-summary-meta">
-              {bundle.patient.visitType && (
-                <span>{bundle.patient.visitType}</span>
-              )}
+              {/* The label, never the id: `follow_up` is a column value, and this is the one screen written
+                  for the patient (design §2.7, §6). visitLabel comes from lib/visits.ts rather than
+                  lib/sweetie.ts because this is a client component — lib/sweetie.ts reaches lib/llm.ts and
+                  node:async_hooks, which webpack will not bundle for the browser (T20). It falls back to
+                  "Visit", so the chip is always a phrase and the row never loses a column. */}
+              <span>{visitLabel(bundle.patient.visitType)}</span>
               <span>
                 {bundle.status.done ? "Check-in complete" : "Check-in in progress"}
               </span>
