@@ -8,6 +8,8 @@ import {
   auditDetailJson,
   AUDIT_ACTIONS,
   AUDIT_ACTION_NAMES,
+  detailWarns,
+  ORPHANS_WARNING,
   AUDIT_CSV_HEADER,
   AUDIT_DETAIL_FIELDS,
   AUDIT_LIMITS,
@@ -75,6 +77,20 @@ test("§2.4's consent screen is in the vocabulary, both ways it can be answered 
 test("§10.5's later pass can say how much of the backlog it walked (T70)", () => {
   // The three counts a `storage.orphans_purged` row carries. All numbers, so §4.8's gate takes them whole.
   assert.deepEqual(auditDetail({ prefixes: 2, objects: 5, orphans: 1 }), { prefixes: 2, objects: 5, orphans: 1 });
+});
+
+test("an unfinished deletion is read as a warning on the audit page, and a finished one is not (T70)", () => {
+  // The row an admin opens /provider/audit to confirm a deletion request with. `orphans: 0` is the ordinary
+  // case and must not shout; above zero the rows are gone and the bytes are not, which is the whole point of
+  // looking. Same pill, same column, so the colour is the only thing that can carry it.
+  assert.equal(detailWarns("orphans", 1), true);
+  assert.equal(detailWarns("orphans", 0), false);
+  assert.equal(detailWarns("objects", 12), false, "how much went is a count, not a problem");
+  assert.equal(detailWarns("droppedFields", ["screen"]), true, "§4.8 refusing a field is the other warning");
+  // A stored row is JSON, so a hand-edited one can hold anything; nothing but a positive number warns.
+  assert.equal(detailWarns("orphans", "1"), false);
+  assert.equal(detailWarns("orphans", -1), false);
+  assert.ok(ORPHANS_WARNING.length > 20, "and the hover says what the admin should do about it");
 });
 
 test("an action from a newer build is shown as stored rather than blank", () => {

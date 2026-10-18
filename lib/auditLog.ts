@@ -121,6 +121,23 @@ export function visitPartsRead(bundle: {
  *  a row from a newer build is still legible to the admin reading it. */
 export const actionLabel = (action: string): string => (AUDIT_ACTIONS as Record<string, string>)[action] ?? action;
 
+/**
+ * Which `detail` field is a problem rather than a count, so the page can print it as a warning (T70).
+ *
+ * `droppedFields` is a caller that passed something §4.8 would not store. `orphans` above zero is the one
+ * that says a deletion did not finish: the rows are gone and that many stored objects are not. An admin
+ * filtering to "Patient data deleted" to confirm a request has to see that at a glance rather than read it
+ * out of a number sitting in the same grey as `objects` beside it. Zero is the ordinary case and stays quiet.
+ *
+ * Here rather than in the page for the reason the labels are: this is the vocabulary, and §12.1 can assert
+ * it without rendering anything (lib/auditLog.test.ts).
+ */
+export const detailWarns = (key: string, value: unknown): boolean =>
+  key === "droppedFields" || (key === "orphans" && typeof value === "number" && value > 0);
+
+/** What an admin is told when they hover the one pill that is warning them about something. */
+export const ORPHANS_WARNING = "The storage backend refused this many objects. The deletion is unfinished until a later pass clears them.";
+
 // ---------------------------------------------------------------------------------------------
 // §4.8 "detail JSON without PHI".
 //

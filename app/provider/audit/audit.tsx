@@ -15,7 +15,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
-import { actionLabel, AUDIT_ACTION_NAMES, AUDIT_LIMITS, DEFAULT_AUDIT_LIMIT, type AuditEntry } from "@/lib/auditLog";
+import {
+  actionLabel,
+  AUDIT_ACTION_NAMES,
+  AUDIT_LIMITS,
+  DEFAULT_AUDIT_LIMIT,
+  detailWarns,
+  ORPHANS_WARNING,
+  type AuditEntry,
+} from "@/lib/auditLog";
 
 type Listing = { entries: AuditEntry[]; total: number; actors: { id: string; label: string }[] };
 
@@ -32,23 +40,6 @@ function queryOf(filters: Filters, extra: Record<string, string> = {}): string {
 /** A cuid is 25 characters of nothing in particular, so the table shows the first eight and the title holds
  *  the rest — enough to recognise a row you were already looking for, short enough to keep the columns. */
 const shortId = (id: string) => `${id.slice(0, 8)}…`;
-
-/**
- * Which `detail` fields are read as a problem rather than a count (T70).
- *
- * `droppedFields` is a caller passing something §4.8 would not store. `orphans` above zero is the one that
- * says a deletion did not finish: the rows are gone and that many stored objects are not, which an admin
- * filtering to "Patient data deleted" has to be able to see at a glance rather than read out of a number
- * sitting next to `objects` in the same grey. Zero is the ordinary case and stays quiet.
- */
-const warns = (key: string, value: unknown): boolean =>
-  key === "droppedFields" || (key === "orphans" && typeof value === "number" && value > 0);
-
-/** The hover text for a pill that is warning about something; nothing for the rest. */
-const pillTitle = (key: string, value: unknown): string | undefined =>
-  key === "orphans" && warns(key, value)
-    ? "The storage backend refused this many objects. The deletion is unfinished until a later pass clears them."
-    : undefined;
 
 const when = (iso: string) => {
   const at = new Date(iso);
@@ -275,7 +266,11 @@ export default function AuditTrail({ meId }: { meId: string }) {
                         {entry.detail ? (
                           <span className="audit-detail">
                             {Object.entries(entry.detail).map(([key, value]) => (
-                              <span key={key} className={`ss-pill ${warns(key, value) ? "ss-pill-warning" : "ss-pill-info"}`} title={pillTitle(key, value)}>
+                              <span
+                                key={key}
+                                className={`ss-pill ${detailWarns(key, value) ? "ss-pill-warning" : "ss-pill-info"}`}
+                                title={key === "orphans" && detailWarns(key, value) ? ORPHANS_WARNING : undefined}
+                              >
                                 {key}: {Array.isArray(value) ? value.join(", ") : String(value)}
                               </span>
                             ))}
