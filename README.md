@@ -448,7 +448,7 @@ data/                           synthetic 7-day exports (see data/README.md)
 data/fixtures/                  what the unit tests parse (§9.4)
 data/uploads/                   where uploaded files land when no bucket is configured (gitignored)
 security/audit-exceptions.json  dated, owned exceptions to the dependency audit (§10.8)
-.github/workflows/              ci.yml on every pull request, auto-merge, release.yml on a v* tag (§12.4, §13.3)
+.github/workflows/              ci.yml on every pull request and on main after a merge, auto-merge, release.yml on a v* tag (§12.4, §13.3)
 ```
 
 Everything runs end to end with scripted agent replies when no model key is configured — which is how the

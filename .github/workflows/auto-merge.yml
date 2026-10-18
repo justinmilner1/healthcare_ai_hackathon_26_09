@@ -2,6 +2,8 @@
 # Why a workflow: both routines run as the same GitHub account that opens the pull requests, and GitHub refuses
 # self-approval; the sandbox proxy also refuses branch deletion. The Actions bot is a different actor, so neither
 # refusal applies. Design §12.4: merges to main require green checks, never a review approval.
+#
+# It also asks for the run that checks the merge result: see the dispatch at the end of the script (T47).
 name: auto-merge
 on:
   pull_request_target:
@@ -14,7 +16,7 @@ permissions:
   pull-requests: write
   issues: write
   checks: read # listForRef on the head commit; an explicit permissions block sets everything unlisted to none
-  actions: read
+  actions: write # the workflow_run payload above needs read; the ci dispatch at the end needs write (T47)
 concurrency:
   group: auto-merge
   cancel-in-progress: false
@@ -27,6 +29,7 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             let candidates = [];
+            const merged = [];
             if (context.eventName === "pull_request_target") {
               if (context.payload.label?.name !== "merge-ready") { core.info("label is not merge-ready"); return; }
               candidates = [context.payload.pull_request.number];
@@ -53,10 +56,27 @@ jobs:
               try {
                 await github.rest.pulls.merge({ owner, repo, pull_number: number, merge_method: "squash", commit_title: `${pr.title} (#${number})` });
                 core.info(`#${number}: merged`);
+                merged.push(number);
               } catch (e) {
                 core.warning(`#${number}: merge failed: ${e.message}`);
                 await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `auto-merge: merge failed: ${e.message}. Will retry on the next CI completion.` });
                 continue;
               }
               await github.rest.git.deleteRef({ owner, repo, ref: `heads/${pr.head.ref}` }).catch((e) => core.info(`branch delete skipped: ${e.message}`));
+            }
+
+            if (!merged.length) return;
+
+            // The squash merges above were pushed with the repository's GITHUB_TOKEN, and a push made with
+            // that token starts no workflow run (GitHub's recursion guard), so main would carry these commits
+            // with no ci run of its own — which is how main sat red through three merges (T47). Design §12.4's
+            // "merges to main require green checks" is about main, so ask for the run explicitly: a dispatch
+            // through the API is not subject to the guard. ci.yml's hourly schedule is the backstop if this
+            // fails, and ci.yml's `main-state` job is what reports the verdict.
+            const tip = (await github.rest.repos.getBranch({ owner, repo, branch: "main" })).data.commit.sha;
+            try {
+              await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "ci.yml", ref: "main" });
+              core.info(`merged ${merged.map((n) => `#${n}`).join(", ")}; dispatched ci on main, which was ${tip} when the dispatch was asked for`);
+            } catch (e) {
+              core.warning(`ci dispatch on main (${tip}) failed: ${e.message}. ci.yml's hourly schedule will pick it up.`);
             }

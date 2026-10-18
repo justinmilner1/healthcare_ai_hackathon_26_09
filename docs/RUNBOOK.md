@@ -52,7 +52,10 @@ Pushing the tag runs `.github/workflows/release.yml`, which:
 1. refuses anything that is not a `v*` tag;
 2. refuses a tag whose commit is not on `main` — a release is a merged commit, never a side branch;
 3. refuses a commit where `ci` ran and failed (a commit where `ci` never ran at all is a warning in the run's
-   summary, not a refusal: see T47. If you see that warning, look at the commit before you trust the release);
+   summary, not a refusal. Since T47 every commit on `main` is checked — `auto-merge` dispatches `ci` after it
+   merges, and an hourly sweep catches a dispatch that did not happen — so that warning now means something
+   went wrong with the dispatch, not that this is normal. If you see it, look at the commit before you trust
+   the release);
 4. points `release` at that commit.
 
 Amplify is watching `release`, so that push is the deploy. The build is the pre-deploy step: `npm ci`, this
