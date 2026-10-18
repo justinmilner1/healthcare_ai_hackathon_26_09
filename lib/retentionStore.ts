@@ -337,6 +337,9 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
     counts: EMPTY_PURGE,
     orphans: EMPTY_ORPHAN_SWEEP,
   };
+  /** Prefixes this run has already asked the object store about, so the ledger pass at the end does not ask
+   *  again about a visit it has just refused. */
+  const attempted: string[] = [];
   for (const practice of practices) {
     const cutoff = retentionCutoff(practice.retentionDays, now);
     const expired = await client.visit.findMany({
@@ -358,6 +361,7 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
       // No patient on the owner: the sweep is not deleting anybody, it is clearing an old visit's data, and
       // the `Visit` row stays. A prefix it cannot empty is still unreachable afterwards — `retentionSweptAt`
       // stops the next sweep considering the visit — so it goes on the ledger the same way (T70).
+      attempted.push(visitStoragePrefix(visit.id));
       const counts = await purgeVisitData(deps, visit.id, { practiceId: practice.id, patientId: null });
       // What is left is the appointment and its outcome: when it was, what type, who it was for, that it was
       // reviewed. `reason` goes with the rest — it is what the patient called in about, in their own words.
@@ -403,7 +407,10 @@ export async function sweepRetention(opts: RetentionDeps & { practiceId?: string
   // job, and a prefix the bucket refused is not waiting on anybody's retention window. Demo practices are
   // not excluded here the way their visits are (§13.4) — a patient somebody deleted from a demo practice is
   // as deleted as any other, and these bytes were supposed to be gone already.
-  report.orphans = await retryOrphans(deps, opts.practiceId ? { practiceId: opts.practiceId } : {}, { record: true });
+  report.orphans = await retryOrphans(deps, opts.practiceId ? { practiceId: opts.practiceId } : {}, {
+    skip: attempted,
+    record: true,
+  });
   return report;
 }
 

@@ -391,20 +391,36 @@ What then happens, in order:
    rows, summaries, the stored objects under `visits/<visitId>/`, and the patient's Dexcom tokens — then
    blanks the name, phone number and email, leaving a row that identifies nobody (§4.3: the audit record has
    to point at something, and a practice has to be able to answer "did you delete this person" a year later).
-4. One `patient.deleted` audit row is written, against the staff member who asked, carrying counts and
+4. Any prefix the object store refused is written to `StorageOrphan`, keyed by the prefix itself, before the
+   `Visit` rows that named it are deleted (T70). That row is what a later pass walks.
+5. One `patient.deleted` audit row is written, against the staff member who asked, carrying counts and
    nothing else (§10.2, `docs/AUDIT.md`).
-5. A deletion confirmation goes to the patient (§8.2), addressed from the contact details read just before
+6. A deletion confirmation goes to the patient (§8.2), addressed from the contact details read just before
    the purge removed them.
 
 **Confirm it finished.** `/provider/audit`, admin only, filtered to `patient.deleted`: one row, with
 `visits`, `uploads`, `turns`, `summaries` and `objects`. Two things to read twice:
 
 - **`orphans` above zero** means the rows are gone and some of the bytes are not: S3 refused that many
-  deletes (`objects.failed`, `lib/storage.ts`). Nothing comes back for them on its own — the purge walks the
-  patient's visits and those rows no longer exist, so neither a retry of the job nor pressing delete again
-  revisits the prefix, and the job counts the purge a success either way. **Delete the prefix by hand**, with
-  the commands below, and record that you did. Treat a non-zero `orphans` as an unfinished deletion request
-  until you have.
+  deletes (`objects.failed`, `lib/storage.ts`). **This is no longer yours to repair by hand** (T70). The
+  prefix is on `StorageOrphan` and two things come back to it: the nightly `retention.sweep`, and staff
+  pressing *Delete data* on the patient again — which now reaches the bucket even though the patient has no
+  visits left. When the bytes finally go, the trail says so: a `storage.orphans_purged` row against the
+  practice, with `prefixes`, `objects` and `orphans`.
+
+  What is still yours is noticing that it is not clearing. Treat a non-zero `orphans` as an unfinished
+  deletion request until a later row says otherwise, and look at the ledger directly if it is not moving:
+
+  ```sql
+  -- outstanding prefixes, worst first. attempts climbing with objects flat is a bucket saying no every night.
+  SELECT "prefix", "objects", "attempts", "createdAt", "lastTriedAt" FROM "StorageOrphan" ORDER BY "attempts" DESC;
+  ```
+
+  A row whose `attempts` keeps rising is a permissions or lifecycle problem on the bucket, not a flake: read
+  `object_delete_failed` in the logs for what S3 actually said, fix that, and the next sweep clears it. The
+  manual prefix delete below is still the last resort, and still the thing to do if the practice needs the
+  bytes gone tonight rather than after the next sweep; deleting them by hand also clears the ledger row, on
+  the next pass, because a prefix that comes back empty leaves it.
 - **No row at all** means the job has not run or has failed. Look for `job_failed` with
   `kind: patient.delete`; the three attempts and the error are in the queue. Staff can press delete again —
   the route deliberately allows it, the idempotency key releases once the job is not in flight, and the purge
@@ -420,8 +436,8 @@ What then happens, in order:
 | The audit record of the deletion | kept | on purpose (§2.8). It carries counts and no identity. |
 | Application logs | 30 days staging, 90 production | they hold opaque ids only, never a name, an address or message text (§10.3) |
 
-Deleting a prefix by hand — for the `orphans` case above, or when a request needs the object versions gone
-sooner than the lifecycle rule — is destructive and unversioned, so read the prefix back before and after:
+Deleting a prefix by hand — when a request needs the bytes or the object versions gone sooner than the next
+sweep or the lifecycle rule — is destructive and unversioned, so read the prefix back before and after:
 
 ```bash
 BUCKET=$(aws cloudformation describe-stacks --stack-name "SweetSpot-$STAGE" \
@@ -430,8 +446,9 @@ aws s3api list-object-versions --bucket "$BUCKET" --prefix "visits/<visitId>/" \
   --query '{Versions:Versions[].[Key,VersionId],Markers:DeleteMarkers[].[Key,VersionId]}'
 ```
 
-A patient's visit ids come from the audit trail, not from the patient row — by then there is nothing on it.
-Record what was done in the practice's own deletion log: this page does not keep one.
+A patient's visit ids come from the audit trail or from `StorageOrphan.prefix`, not from the patient row — by
+then there is nothing on it. Record what was done in the practice's own deletion log: this page does not keep
+one.
 
 ## What each alarm means
 

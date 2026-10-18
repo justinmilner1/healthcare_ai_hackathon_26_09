@@ -41,14 +41,21 @@ the patient's own say-so, so its detail is `rows`: how many sessions went with i
 `recordPatientConsent` (`lib/auditStore.ts`), like the verification above; before T51 this one route wrote
 straight to the table, and the result was a row the page could neither name nor filter.
 
-Deletions are three different events and each has its own action. `upload.deleted` and `summary.deleted` are
+Deletions are four different events and each has its own action. `upload.deleted` and `summary.deleted` are
 the patient withdrawing one upload from their own link. `patient.deleted` is §10.5's staff action — one row
 for the whole person, written against the staff member who asked for it even though a job carried it out,
 because somebody pressed it. `retention.swept` is §10.4's nightly job, one row per visit it cleared, with the
 job as the actor: nobody pressed anything. All three carry counts and nothing else (`visits`, `uploads`,
 `turns`, `summaries`, `objects`, `orphans`, `dexcom`, `days`), so the trail says how much went and never what
 it was. `orphans` above zero is the one to read twice: it means the rows are gone and some bytes were left in
-the object store.
+the object store, and the page shows it as a warning rather than one more count for exactly that reason.
+
+`storage.orphans_purged` is the fourth, and it is what closes an `orphans` row out (T70). A refused prefix
+goes on `StorageOrphan`, which outlives the `Visit` whose id it is built from; the nightly sweep and the next
+press of *Delete data* both walk it, and when the bytes finally go that is a deletion like any other. One row
+per practice per pass, against the job, carrying `prefixes`, `objects` and `orphans`. A pass that removed
+nothing writes nothing — the backlog not clearing is a log line (`storage_orphans_retried`) and an unmoving
+`StorageOrphan` row, not a deletion.
 
 ### What deliberately does not write a row
 

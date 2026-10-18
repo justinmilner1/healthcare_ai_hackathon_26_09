@@ -47,6 +47,9 @@ test("§10.2's four categories are all in the vocabulary", () => {
     // §10.4's nightly sweep and §10.5's staff action are deletions too, and the sentence says every one.
     "patient.deleted",
     "retention.swept",
+    // T70: a deletion the object store refused, finished by a later pass. The bytes going is the deletion;
+    // without a row for it the trail says the request was unfinished and never says it stopped being.
+    "storage.orphans_purged",
   ]) {
     assert.ok(AUDIT_ACTION_NAMES.includes(action as never), `${action} is missing`);
   }
@@ -67,6 +70,11 @@ test("§2.4's consent screen is in the vocabulary, both ways it can be answered 
   assert.deepEqual(auditDetail({ rows: 1 }), { rows: 1 });
   // The hand-rolled detail it used to carry is not representable: neither name is allow-listed.
   assert.deepEqual(auditDetail({ screen: "intake_consent", section: "2.4" }), { droppedFields: ["screen", "section"] });
+});
+
+test("§10.5's later pass can say how much of the backlog it walked (T70)", () => {
+  // The three counts a `storage.orphans_purged` row carries. All numbers, so §4.8's gate takes them whole.
+  assert.deepEqual(auditDetail({ prefixes: 2, objects: 5, orphans: 1 }), { prefixes: 2, objects: 5, orphans: 1 });
 });
 
 test("an action from a newer build is shown as stored rather than blank", () => {

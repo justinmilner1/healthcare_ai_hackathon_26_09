@@ -20,7 +20,14 @@ import { PrismaClient } from "@prisma/client";
 import type { AuditWrite } from "./auditStore";
 import { setLogSink } from "./log";
 import { DELETED_PATIENT_NAME } from "./retention";
-import { purgePatient, requestPatientDeletion, scheduleRetentionSweep, sweepRetention, SWEEP_INTERVAL_MS } from "./retentionStore";
+import {
+  purgePatient,
+  requestPatientDeletion,
+  scheduleRetentionSweep,
+  sweepRetention,
+  sweepStorageOrphans,
+  SWEEP_INTERVAL_MS,
+} from "./retentionStore";
 
 const SERVER_URL = process.env.DATABASE_URL;
 const schema = `retentiontest_${randomBytes(4).toString("hex")}`;
@@ -88,6 +95,8 @@ describe("retention and deletion", { skip: SERVER_URL ? false : "DATABASE_URL is
     rows = [];
     await db.job.deleteMany({});
     await db.auditLog.deleteMany({});
+    // No foreign keys on purpose (T70), so nothing cascades this one away with the practice below.
+    await db.storageOrphan.deleteMany({});
     await db.patient.deleteMany({});
     await db.user.deleteMany({});
     await db.practice.deleteMany({});
@@ -418,6 +427,147 @@ describe("retention and deletion", { skip: SERVER_URL ? false : "DATABASE_URL is
       const result = await purgePatient({ ...deps(), patientId: "nobody", requestedBy: providerId });
       assert.deepEqual(result, { counts: { visits: 0, uploads: 0, turns: 0, summaries: 0, objects: 0, orphans: 0 }, dexcom: false, found: false });
       assert.deepEqual(rows, []);
+    });
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // §10.5 The prefixes the object store would not empty (T70)
+
+  describe("the orphan ledger", () => {
+    it("writes a refused prefix down, and a second purge of the same patient asks the bucket again", async () => {
+      const { patientId, visitId } = await seedVisit({ name: "Refused Bytes", scheduledAt: daysAgo(10) });
+      const prefix = `visits/${visitId}/`;
+      refuse.add(prefix);
+
+      const first = await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      assert.equal(first.counts.orphans, 1);
+      assert.equal(first.counts.objects, 0);
+      assert.equal(await db.visit.count({ where: { patientId } }), 0, "the rows go either way");
+      // The prefix is derived from a visit id that no longer exists, so this row is the only thing that
+      // still knows it. That is the bug: before T70 nothing wrote it down.
+      const row = await db.storageOrphan.findUniqueOrThrow({ where: { prefix } });
+      assert.equal(row.patientId, patientId);
+      assert.equal(row.practiceId, practiceId);
+      assert.equal(row.objects, 1);
+      assert.equal(row.attempts, 1);
+
+      // Staff press *Delete data* again. `patient.visits` is empty by now; the ledger is what it walks.
+      removed = [];
+      const second = await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      assert.deepEqual(removed, [prefix], "a second deletion reaches the object store, with no Visit rows left");
+      assert.equal(second.counts.orphans, 1, "still refused, so still outstanding");
+      assert.equal((await db.storageOrphan.findUniqueOrThrow({ where: { prefix } })).attempts, 2);
+
+      // And once the backend accepts it, the ledger is empty and the deletion is finished.
+      refuse.delete(prefix);
+      removed = [];
+      const third = await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      assert.deepEqual(removed, [prefix]);
+      assert.equal(third.counts.orphans, 0);
+      assert.equal(third.counts.objects, 0, "the fixture's uploads are long gone; the prefix is simply empty now");
+      assert.equal(await db.storageOrphan.count({}), 0, "a prefix that came back empty leaves the ledger");
+    });
+
+    it("records an unfinished deletion on the trail every time, so /provider/audit can show it", async () => {
+      const { patientId, visitId } = await seedVisit({ name: "Unfinished", scheduledAt: daysAgo(10) });
+      refuse.add(`visits/${visitId}/`);
+      await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].action, "patient.deleted");
+      assert.deepEqual(rows[0].detail, { visits: 1, uploads: 2, turns: 2, summaries: 2, objects: 0, orphans: 1, dexcom: false });
+
+      // The second attempt removes nothing and would once have been silent — property 3 reads a run that
+      // removed nothing as nothing happening. A deletion the bucket refused is not nothing.
+      rows = [];
+      await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      assert.equal(rows.length, 1, "an attempt that left bytes outstanding is still on the trail");
+      assert.deepEqual(rows[0].detail, { visits: 0, uploads: 0, turns: 0, summaries: 0, objects: 0, orphans: 1, dexcom: false });
+    });
+
+    it("asks about each prefix once per run: the ledger pass skips what the purge has just tried", async () => {
+      const { patientId, visitId } = await seedVisit({ name: "Once Per Run", scheduledAt: daysAgo(10) });
+      refuse.add(`visits/${visitId}/`);
+      await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      assert.deepEqual(removed, [`visits/${visitId}/`], "the visit walk tried it; the ledger pass did not try it again");
+    });
+
+    it("comes back to it on the nightly sweep, and records what it removed (§10.2)", async () => {
+      const { patientId, visitId } = await seedVisit({ name: "Nightly Retry", scheduledAt: daysAgo(10) });
+      const prefix = `visits/${visitId}/`;
+      refuse.add(prefix);
+      await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      rows = [];
+      removed = [];
+
+      // Nothing is left for the sweep to clear — the patient's visits are gone — but the prefix is on the
+      // ledger, and this is the one nightly clock the app has. The backend takes it this time, and the two
+      // objects it reports are the ones it refused before: the `Upload` rows that named them went with the
+      // first purge, which is why the pass goes by prefix.
+      const report = await sweepRetention({
+        ...deps(),
+        removePrefix: async (asked: string) => {
+          removed.push(asked);
+          return { deleted: 2, failed: 0 };
+        },
+      });
+      assert.equal(report.visits, 0);
+      assert.deepEqual(removed, [prefix]);
+      assert.deepEqual(report.orphans, { prefixes: 1, objects: 2, orphans: 0, cleared: 1 });
+      assert.equal(await db.storageOrphan.count({}), 0);
+      assert.deepEqual(rows, [
+        {
+          practiceId,
+          actorType: "system",
+          action: "storage.orphans_purged",
+          entityType: "practice",
+          entityId: practiceId,
+          detail: { prefixes: 1, objects: 2, orphans: 0 },
+        },
+      ]);
+    });
+
+    it("writes no row for a prefix that was already empty by the time the pass reached it", async () => {
+      const { patientId, visitId } = await seedVisit({ name: "Cleaned By Hand", scheduledAt: daysAgo(10) });
+      refuse.add(`visits/${visitId}/`);
+      await purgePatient({ ...deps(), patientId, requestedBy: providerId });
+      rows = [];
+      // An operator removed the prefix with the runbook's commands, so the backend has nothing to report.
+      refuse.delete(`visits/${visitId}/`);
+      const pass = await sweepStorageOrphans(deps());
+      assert.deepEqual(pass, { prefixes: 1, objects: 0, orphans: 0, cleared: 1 });
+      assert.equal(await db.storageOrphan.count({}), 0, "the ledger is still cleared");
+      assert.deepEqual(rows, [], "but nothing was deleted, so there is no deletion to record");
+    });
+
+    it("keeps a sweep's own refusal too, because retentionSweptAt stops the visit being considered again", async () => {
+      const { visitId } = await seedVisit({ name: "Swept And Refused", scheduledAt: daysAgo(400) });
+      const prefix = `visits/${visitId}/`;
+      refuse.add(prefix);
+      await sweepRetention(deps());
+      const row = await db.storageOrphan.findUniqueOrThrow({ where: { prefix } });
+      assert.equal(row.patientId, null, "nobody is being deleted: the Visit row stays (§10.4)");
+      assert.equal(row.practiceId, practiceId);
+
+      // The next night is what comes back to it, now that the backend will take it.
+      refuse.delete(prefix);
+      removed = [];
+      const report = await sweepRetention(deps());
+      assert.equal(report.visits, 0, "retentionSweptAt still holds");
+      assert.deepEqual(removed, [prefix], "and the bytes are chased anyway");
+      assert.equal(await db.storageOrphan.count({}), 0);
+    });
+
+    it("says nothing on a pass that chased a prefix and still could not empty it", async () => {
+      const { visitId } = await seedVisit({ name: "Still Refused", scheduledAt: daysAgo(400) });
+      refuse.add(`visits/${visitId}/`);
+      await sweepRetention(deps());
+      rows = [];
+      const pass = await sweepStorageOrphans(deps());
+      assert.equal(pass.prefixes, 1);
+      assert.equal(pass.orphans, 1);
+      assert.equal(pass.cleared, 0);
+      assert.deepEqual(rows, [], "a pass that removed nothing is not a deletion (property 3)");
+      assert.equal((await db.storageOrphan.findUniqueOrThrow({ where: { prefix: `visits/${visitId}/` } })).attempts, 2);
     });
   });
 

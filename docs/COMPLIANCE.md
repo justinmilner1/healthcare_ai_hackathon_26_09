@@ -102,7 +102,7 @@ health information". §10.2 names what has to be recorded and `docs/AUDIT.md` is
 | Reads of a visit | One row per part read — `intake`, `messages`, `summary`, `uploads` — with the actor, so "who saw the transcript" is a query | `lib/auditLog.ts`, `lib/auditStore.ts` | T12 | `in place` | `compliance` |
 | Patient link verification | `patient.verified`, with the method and not the code | `lib/patientSession.ts` | T08, T12 | `in place` | `compliance` |
 | Every send | `invite.sent`, `code.sent`, `summary.sent`, `deletion.sent`, and what the provider said about delivery | `lib/notifyStore.ts` | T19, T12 | `in place` | `compliance` |
-| Every deletion | `patient.deleted` for the staff action, one `retention.swept` row per visit the nightly job clears | `lib/retention.ts` | T14 | `in place` | `compliance` |
+| Every deletion | `patient.deleted` for the staff action, one `retention.swept` row per visit the nightly job clears, and `storage.orphans_purged` when a later pass empties a prefix the object store had refused | `lib/retention.ts`, `lib/retentionStore.ts` | T14, T70 | `in place` | `compliance` |
 | Clinical sign-off | `summary.reviewed`, and `summary.question` for each follow-up put to the model | `lib/review.ts`, `lib/followUps.ts` | T16, T18 | `in place` | `sour` |
 | No PHI in the record | `detail` goes through an allow-list, and `lib/auditLog.test.ts` feeds it every shape PHI arrives in and reads the JSON back | `lib/auditLog.ts` | T12 | `in place` | `compliance` |
 | Readable by the practice | `app/provider/audit`, admin-only, filterable by action, actor, visit, upload and date range | `app/provider/audit` | T12 | `in place` | `compliance` |

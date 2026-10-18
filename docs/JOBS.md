@@ -11,7 +11,7 @@ deletion.
 | `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
 | `patient.delete` | the Delete data button on the dashboard (`/api/deletion`) | §10.5: one patient's data end to end — every visit, the stored objects behind their uploads, their Dexcom tokens, and their own name and contact details. Payload `{ patientId, requestedBy }`, and the audit row names the person who asked |
-| `retention.sweep` | the runner itself, once in twenty hours (`scheduleRetentionSweep`) | §10.4: every practice's visits past its own `retentionDays` lose their intake, notes, messages, uploads and summaries. The `Visit` row stays, marked `retentionSweptAt`. Payload is empty, or `{ practiceId }` to sweep one practice |
+| `retention.sweep` | the runner itself, once in twenty hours (`scheduleRetentionSweep`) | §10.4: every practice's visits past its own `retentionDays` lose their intake, notes, messages, uploads and summaries. The `Visit` row stays, marked `retentionSweptAt`. Then §10.5's leftovers: every prefix on `StorageOrphan` is asked about again (T70). Payload is empty, or `{ practiceId }` to sweep one practice |
 
 Why a table and not an awaited call: two model calls and an SES round trip made a patient or a clinician wait
 for something they were not reading, and a crash or a redeploy mid-request lost the work with nothing left to
@@ -35,6 +35,14 @@ three times: the sweep skips what it has marked, and the purge works from whatev
 nothing when there is nothing left. Stored objects are deleted by prefix (`visits/<visitId>/`) rather than by
 the keys on the `Upload` rows, because an object whose row a half-finished earlier attempt already removed
 would otherwise be invisible and stay for ever.
+
+**A prefix the store refuses is written down, because the rows that named it are about to go.** `purgePatient`
+deletes the `Visit` seconds after its objects, and `visits/<visitId>/` is built from that id — so a refusal
+that was only counted was a prefix nothing could name again, and the job finished successfully with bytes
+still in the bucket. Every refusal now lands on `StorageOrphan` before the rows do, keyed by the prefix.
+`retention.sweep` walks that ledger nightly and `patient.delete` walks the patient's own part of it, which is
+what makes a second press of *Delete data* reach the object store with no visits left. A prefix that comes
+back empty leaves the ledger; one refused again stays with `attempts` one higher (`docs/RUNBOOK.md`).
 
 ## Who drains the queue
 
