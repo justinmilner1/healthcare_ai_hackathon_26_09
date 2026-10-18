@@ -205,6 +205,54 @@ test("the connect-your-data screen fits a 375px phone on every step", async ({ p
   await shot(page, "375-connect-done", SCREEN);
 });
 
+/**
+ * T73 (design §6.5, §2.5, §6.4): the caveat is in the footer, and the footer is where a narrow viewport
+ * used to lose it. All three footers were a two-span flex row with `span:last-child { display: none }`
+ * below 680px, and on all three the second span is the caveat — so the phone, which §2.3 makes the device
+ * a patient's link is opened on, was the one width that never said "Not medical advice".
+ *
+ * Asserted rather than left to the screenshots: the bug survived T23's mobile pass and T37's rewording of
+ * that very span because nothing measured it, and only a PNG showed it. `toBeVisible` is the right
+ * assertion for exactly that reason — the text was in the document the whole time.
+ */
+test("the three footers keep their caveat at 375px", async ({ page }) => {
+  // Each shot is a screenful with the footer scrolled into it, rather than a whole page: the footer is the
+  // subject, and the three pages it sits on are the landing page, the dashboard (as tall as the practice's
+  // visit list) and the intake card. The whole-page shots of those screens are taken elsewhere.
+  const footerShot = (name: string, selector: string) => shot(page, name, { scrollTo: selector, animations: "disabled" });
+
+  // The landing page, which is public and is where a curious patient arrives first.
+  await page.goto("/");
+  const homeFooter = page.locator(".home-footer");
+  await expect(homeFooter).toContainText("Sweet Spot · Diabetes visit preparation", LOADED);
+  await expect(homeFooter.getByText("Not medical advice")).toBeVisible();
+  await expectNoHorizontalScroll(page, "the landing page footer");
+  await footerShot("375-footer-landing", ".home-footer");
+
+  // The provider dashboard, whose caveat is the instruction a clinician is being held to (§2.6).
+  await signInAsDemo(page);
+  await page.goto("/provider");
+  const providerFooter = page.locator(".provider-footer");
+  await expect(providerFooter).toContainText("Sweet Spot · Provider workspace", LOADED);
+  await expect(providerFooter.getByText("Verify all AI-generated summaries")).toBeVisible();
+  await expectNoHorizontalScroll(page, "the provider dashboard footer");
+  await footerShot("375-footer-provider", ".provider-footer");
+  await signOutOfBrowser(page);
+
+  // And the patient's own intake page, the one §6.5 names and the one this mattered most on.
+  const { token, email } = await book(page, "E2E Mobile Caveat");
+  await page.goto(`/s/${token}`);
+  await enterCode(page, email);
+  await acceptConsent(page);
+  await page.goto(`/s/${token}/intake`);
+  await expect(page.getByRole("button", { name: /Let's get started/i })).toBeVisible(LOADED);
+  const intakeFooter = page.locator("footer", { hasText: "not replace" });
+  await expect(intakeFooter).toContainText("Sweet Spot is designed to support", LOADED);
+  await expect(intakeFooter.getByText("Not medical advice")).toBeVisible();
+  await expectNoHorizontalScroll(page, "the patient intake page footer");
+  await footerShot("375-footer-intake", "footer");
+});
+
 test("the patient summary fits a 375px phone, empty and full", async ({ page }) => {
   const { token, email } = await book(page, "E2E Mobile Summary");
 
