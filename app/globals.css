@@ -706,9 +706,12 @@ textarea.ss-input {
   left: -55px;
 }
 
+/* The two captions are the only thing that says which character is which, so they sit clear of the
+   handoff pill in the middle rather than under it (T52): Sweetie's above it, Sour's below it, so the eye
+   reads name → handoff → name down the same diagonal the two circles already draw. */
 .home-character-sweetie figcaption {
+  top: 22px;
   right: -5px;
-  bottom: 24px;
 }
 
 .home-character-sour {
@@ -718,7 +721,7 @@ textarea.ss-input {
 }
 
 .home-character-sour figcaption {
-  top: 32px;
+  bottom: 24px;
   left: 3px;
 }
 
