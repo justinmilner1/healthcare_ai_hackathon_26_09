@@ -3,34 +3,24 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-/** The one wiring in this repo whose failure is silence. Design §12.4 asks for green checks on merges to
- *  main, and for three merges nothing ran on main at all (T47): GitHub starts no workflow run from a push the
- *  repository's own `GITHUB_TOKEN` made, so the squash merges `auto-merge` performs are invisible to the
- *  `push` trigger. Nothing goes red when this wiring is dropped — the runs simply stop happening — so these
- *  assertions stand in for the alarm the Actions tab does not raise. docs/ROUTINES.md, "The state of main",
- *  is the prose version. */
+/** The one wiring in this repo whose failure is silence. Design §12.4 asks for a check on main after every
+ *  commit, and for three merges nothing ran on main at all (T47). Nothing goes red when this wiring is
+ *  dropped — the runs simply stop happening — so these assertions stand in for the alarm the Actions tab does
+ *  not raise. Since 2026-10-18 the routines push to main directly and the sandbox check is the gate; ci.yml
+ *  is the second opinion, and this keeps its triggers and its main-red reporting in place. docs/ROUTINES.md,
+ *  "The state of main", is the prose version. */
 const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 
-test("ci runs on main after a merge, and not only before one", () => {
+test("ci runs on main after every push, on demand, and on a schedule", () => {
   const ci = read(".github/workflows/ci.yml");
   assert.match(ci, /^on:$/m);
-  assert.match(ci, /^\s{2}workflow_dispatch:$/m, "ci.yml must be dispatchable: auto-merge asks for the run on main by hand");
+  assert.match(ci, /^\s{2}workflow_dispatch:$/m, "ci.yml must be dispatchable, so a run on main can be asked for by hand");
   assert.match(ci, /^\s{2}schedule:$/m, "ci.yml needs the scheduled backstop for a dispatch that never happened");
   assert.match(ci, /^\s{4}- cron: /m);
-  assert.match(ci, /^\s{2}push:\n\s{4}branches: \[main\]$/m, "a human push to main is still checked");
+  assert.match(ci, /^\s{2}push:\n\s{4}branches: \[main\]$/m, "every push to main is checked");
   // Fail open. An errored lookup in `sweep` leaves the output empty, and the job that exists to catch a
   // check that did not happen must not answer that by not happening.
   assert.match(ci, /needs\.sweep\.outputs\.unchecked != 'false'/, "the scheduled check runs unless sweep positively said main is covered");
-});
-
-test("auto-merge asks for the run that checks the merge result", () => {
-  const merge = read(".github/workflows/auto-merge.yml");
-  assert.match(merge, /actions: write/, "createWorkflowDispatch needs actions: write, not read");
-  assert.match(
-    merge,
-    /createWorkflowDispatch\(\{ owner, repo, workflow_id: "ci\.yml", ref: "main" \}\)/,
-    "the merge is only half of it: ci has to be dispatched on main afterwards",
-  );
 });
 
 test("a red main reports itself", () => {

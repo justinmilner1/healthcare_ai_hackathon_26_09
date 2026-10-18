@@ -17,7 +17,7 @@ Three documents are the authority, in this order:
 |---|---|
 | [`docs/PRODUCTION_DESIGN.md`](docs/PRODUCTION_DESIGN.md) | The product and the architecture. Every ticket cites its sections; every reviewer checks against them. Numbered sections are stable — add subsections, never renumber. |
 | [`docs/AGENT_ARCHITECTURE.md`](docs/AGENT_ARCHITECTURE.md) | How Sweetie and Sour are built: code decides, models write. |
-| [`docs/ROUTINES.md`](docs/ROUTINES.md) | How work arrives: `T<nn>` issues, labels, one ticket per branch and pull request, and the REST-only GitHub calls that work from the sandbox. |
+| [`docs/ROUTINES.md`](docs/ROUTINES.md) | How work arrives: `T<nn>` issues, labels, one ticket per run of commits on `main`, and the REST-only GitHub calls that work from the sandbox. |
 
 Read the design sections a ticket cites before you write anything. If the design and the code disagree, say so
 on the issue rather than guessing which one is wrong.
@@ -56,7 +56,7 @@ npm run agent:check      # all of the above in one command — this is the gate
 
 `scripts/agent-check.sh` (`npm run agent:check`) is what both routines and CI run: install, dependency audit,
 a throwaway `sweetspot_e2e` database, seed, config check, typecheck, lint, unit tests with coverage, the
-`/infra` check, the Playwright suite, and the §11.4 restore drill. It must pass before a pull request goes up.
+`/infra` check, the Playwright suite, and the §11.4 restore drill. It must pass before anything is pushed to `main`.
 Two things it cannot use in the sandbox: the Docker daemon (absent) and the Playwright CDN (blocked, a
 pre-installed Chromium stands in). Don't add a step that needs either.
 
@@ -188,10 +188,11 @@ closest.
 
 ## Conventions
 
-- One ticket, one branch `t<nn>-<slug>`, one pull request. Never push to `main`; never force-push a shared
-  branch. Small commits whose messages say why.
-- Don't touch files the ticket is not about. The pull request body cites the design sections, the commands run
-  and the screenshots committed under `docs/screenshots/tickets/t<nn>/` (§12.3).
+- One ticket, landed on `main` as a run of small commits whose messages start `T<nn>:` and say why. Push only a
+  tree `npm run agent:check` has just passed on; never force-push. Unfinished work goes to a `t<nn>-wip` branch,
+  not to `main`.
+- Don't touch files the ticket is not about. The comment that hands the ticket to review cites the design
+  sections, the commands run and the screenshots committed under `docs/screenshots/tickets/t<nn>/` (§12.3).
 - No new dependencies without a one-line reason in the commit message. A dependency advisory at high or above
   either gets fixed or gets a dated, owned entry in `security/audit-exceptions.json` (`docs/SECURITY.md`).
 - Client code that changes something calls `apiFetch` from `lib/csrf.ts`, never bare `fetch`: middleware
@@ -214,5 +215,5 @@ closest.
 ## Done means
 
 The ticket's acceptance criteria are all met, `npm run agent:check` passes, the screenshots of the screens the
-ticket touched are committed under `docs/screenshots/tickets/t<nn>/` and look right, and the pull request body
-says which design sections were fulfilled and how it was verified.
+ticket touched are committed under `docs/screenshots/tickets/t<nn>/` and look right, and the hand-off comment
+on the issue says which design sections were fulfilled and how it was verified.

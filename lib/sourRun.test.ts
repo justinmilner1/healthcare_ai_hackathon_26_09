@@ -331,11 +331,11 @@ describe("runSour", { skip: SKIP_WITHOUT_DB }, () => {
       };
     };
 
-    it("saves the numbers with a retryable note, and no fingerprint, when a configured gateway is down", async () => {
+    it("saves the numbers, marks the narrative unavailable, and keeps no fingerprint when a configured gateway is down", async () => {
       const result = await sourRun.runSour(ids.visit, { narrate: await unavailable() });
       assert.equal(result.provider.questions.length, 0);
-      assert.equal(result.provider.patterns.length, 1);
-      assert.match(result.provider.patterns[0], /unavailable/i, "it says which of the two outages this is");
+      assert.deepEqual(result.provider.patterns, [], "no pattern is rendered: a pattern cites data (§7, T63)");
+      assert.equal(result.provider.narrativeMissing, "unavailable", "it says which of the two outages this is");
       assert.ok(result.provider.avgGlucose > 0, "the numbers above the note are complete");
 
       // Null fingerprint, so the next run really runs rather than handing the clinician "retry in a minute"
@@ -346,10 +346,11 @@ describe("runSour", { skip: SKIP_WITHOUT_DB }, () => {
       assert.deepEqual(again.provider.patterns, narrative.patterns);
     });
 
-    it("says the other thing, and does save a fingerprint, when no model is configured at all", async () => {
+    it("marks the narrative unconfigured, and does save a fingerprint, when no model is configured at all", async () => {
       delete process.env.OPENAI_API_KEY;
       const result = await sourRun.runSour(ids.visit, { narrate: await unavailable() });
-      assert.match(result.provider.patterns[0], /not configured/i);
+      assert.equal(result.provider.narrativeMissing, "unconfigured");
+      assert.equal(result.patient.narrativeMissing, undefined, "the patient's copy carries no deployment state (§10.6)");
       // Deterministic and the whole of what this deployment can produce, so it is worth reusing — and its
       // fingerprint says `unconfigured`, so setting a key invalidates it.
       const saved = await rows();

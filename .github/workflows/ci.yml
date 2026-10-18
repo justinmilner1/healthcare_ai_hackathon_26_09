@@ -1,21 +1,18 @@
 name: ci
 # Design §12.4: typecheck, lint, unit tests, e2e against Postgres in a service container and a dependency
-# audit on every pull request, and "merges to main require green checks" — which is a claim about the state of
-# main, not only about a branch before it merges. Two branches that each passed on their own can still break
-# each other once combined (T46), so main gets a run of its own after every merge. Four triggers carry that:
+# audit, run on GitHub's runners. The gate for a commit is scripts/agent-check.sh in the sandbox of the routine
+# that pushes it (docs/ROUTINES.md); this is the second opinion from a fresh checkout on a different machine,
+# and it needs Actions billing on the account to run at all (T75). Triggers:
 #
-#   - `pull_request`: the pre-merge check. auto-merge waits for it.
-#   - `push` to main: a human (or anything not using the repository's own token) landing a commit.
-#   - `workflow_dispatch`: what auto-merge calls right after it squash-merges. A push made with the
-#     repository's GITHUB_TOKEN starts no workflow run — GitHub's recursion guard — so an auto-merged commit
-#     would otherwise land on main silently, which is how main sat red for three merges (T47). An explicit
-#     dispatch through the API is not subject to that guard.
-#   - `schedule`: the backstop, hourly, in case a dispatch never happened. The `sweep` job first asks whether
-#     main's tip already has a ci run of its own and skips the rest of the hour when it does, so this costs a
-#     few seconds unless something actually went unchecked.
+#   - `push` to main: every landed commit, from a routine or a human.
+#   - `pull_request`: a branch a human opens a pull request from; the routines do not open them.
+#   - `workflow_dispatch`: a run on demand.
+#   - `schedule`: the backstop, hourly. The `sweep` job first asks whether main's tip already has a ci run of
+#     its own and skips the rest of the hour when it does, so this costs a few seconds unless something
+#     actually went unchecked.
 #
-# `main-state` is what makes a red main visible without a human or a reviewer run finding it by hand: it opens
-# one `main-red` issue when the check fails on main, and closes it when main comes back green.
+# `main-state` is what makes a red main visible without a reviewer run finding it by hand: it opens one
+# `main-red` issue when the check fails on main, and closes it when main comes back green.
 on:
   pull_request:
   push:

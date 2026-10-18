@@ -127,7 +127,7 @@ Decisions already made:
 12.1 Unit tests (`node --test` via tsx) for every module in `lib/`: parsers, spike detection, matching, Sweetie state transitions and safety scan, Sour brief building and flags, notification templates.
 12.2 End-to-end tests with Playwright covering both flows against a seeded database: staff creates a visit, patient verifies and completes intake in scripted mode, Sour summary appears, clinician marks reviewed.
 12.3 Screenshots: the e2e run writes screenshots of every screen to `e2e/screenshots/`; builders commit the relevant ones under `docs/screenshots/tickets/<ticket>/` with each pull request.
-12.4 GitHub Actions on every pull request: typecheck, lint, unit, e2e against Postgres in a service container, dependency audit. Merges to main require green checks.
+12.4 `scripts/agent-check.sh` is the gate: typecheck, lint, unit, e2e against Postgres, dependency audit, run by whoever pushes, on the tree they push. GitHub Actions runs the same check on every push to main as a second opinion.
 12.5 Accessibility checks with axe in the e2e suite on the patient pages.
 
 ## 13. Environments and operations
@@ -145,6 +145,6 @@ EHR integration, insurance or billing, scheduling, server-side speech, multi-lan
 ## 15. Ticket conventions
 
 - Tickets are GitHub issues titled `T<nn>: <imperative summary>`, numbered in dependency order. Each cites the sections it fulfills and lists acceptance criteria.
-- Labels carry state: `ready`, `in-progress`, `review`, `changes-requested`, `blocked`. A merged pull request closes the issue.
-- One ticket is one pull request. If a ticket turns out to need two, the builder splits it and files the second.
-- Every pull request includes: what changed, how it was verified (commands run), screenshots of affected screens, and the design sections it fulfills.
+- Labels carry state: `ready`, `in-progress`, `review`, `changes-requested`, `blocked`. The reviewer closes the issue once what landed on `main` meets it.
+- One ticket is one run of `T<nn>:` commits on `main`. If a ticket turns out to need two, the builder splits it and files the second.
+- Every hand-off to review includes: what changed, the commit range, how it was verified (commands run), screenshots of affected screens, and the design sections it fulfills.

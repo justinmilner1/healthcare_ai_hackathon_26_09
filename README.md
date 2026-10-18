@@ -448,7 +448,7 @@ data/                           synthetic 7-day exports (see data/README.md)
 data/fixtures/                  what the unit tests parse (§9.4)
 data/uploads/                   where uploaded files land when no bucket is configured (gitignored)
 security/audit-exceptions.json  dated, owned exceptions to the dependency audit (§10.8)
-.github/workflows/              ci.yml on every pull request and on main after a merge, auto-merge, release.yml on a v* tag (§12.4, §13.3)
+.github/workflows/              ci.yml on every push to main (and any human pull request), release.yml on a v* tag (§12.4, §13.3)
 ```
 
 Everything runs end to end with scripted agent replies when no model key is configured — which is how the
@@ -475,8 +475,9 @@ With `npm run seed` done and `npm run dev` running:
 
 ## Working on this
 
-Work arrives as `T<nn>` issues, one ticket to a branch and a pull request, with the design sections it
-fulfills named in the body. Two scheduled agents — a builder and a reviewer — move that stack along, and
+Work arrives as `T<nn>` issues, with the design sections each fulfills named in the body. One ticket lands on
+`main` as a run of `T<nn>:` commits once the check below has passed; the reviewer then reads what landed and
+closes the ticket. Two scheduled agents — a builder and a reviewer — move that stack along, and
 [docs/ROUTINES.md](docs/ROUTINES.md) is how they do it and how to work alongside them.
 [AGENTS.md](AGENTS.md) is the rules for the code itself: the shapes that may not drift, the one model
 gateway, the logger, `apiFetch`, and the one command that has to pass before anything goes up:
