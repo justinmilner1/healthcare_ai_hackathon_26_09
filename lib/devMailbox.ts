@@ -55,19 +55,90 @@ export function writeDevMail(mail: DevMail, dir = devMailDir(), now = new Date()
   return file;
 }
 
+/**
+ * One message's raw text, or null when the file has gone between a listing and this read.
+ *
+ * A mailbox is shared and something in it moves: e2e/auth.ts renames the sign-in mail a test claims, so two
+ * tests cannot redeem one single-use magic link (design §5.1). Every other walker of the same directory can
+ * therefore list a name whose file is already `.claimed` by the time it reads it, and an unguarded
+ * `readFileSync` throws ENOENT over a message it did not even want (T65).
+ *
+ * Only ENOENT, though. A mailbox hands out credentials — `npm run mail` prints a sign-in link — so a message
+ * that is there but unreadable (a permission change, a bad disk) must not read as one that was claimed: that
+ * would quietly answer with an older link, or with no mail at all, and leave a caller to time out against a
+ * mailbox nobody can open. The disappearance is the one expected failure; everything else is news.
+ */
+export function readDevMailFile(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+/** Gone, as opposed to unreadable — the one failure a shared mailbox produces on its own. */
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
+}
+
+/**
+ * The newest message in these mailboxes addressed to `to` that `pick` makes something of, or null.
+ *
+ * One walk for every reader of a mailbox, so the guard above is in one place rather than in each of them.
+ * The order is newest first, across all the directories at once: a mailbox file is named for the time it was
+ * written (devMailFilename), so one sort over the names interleaves several boxes correctly. A directory no
+ * server has written to yet simply is not there, which is an empty mailbox rather than a failure.
+ *
+ * `pick` is handed the message text and its path, and answers what the caller wanted out of it or null to
+ * keep looking. Returning null is also how a claim that lost a race declines a message: `pick` may rename
+ * the file it is offered, and answer null when the rename fails because someone else got there first.
+ */
+export function findDevMail<T>(dirs: string[], to: string, pick: (raw: string, path: string) => T | null): T | null {
+  const files: { name: string; path: string }[] = [];
+  for (const dir of new Set(dirs)) {
+    try {
+      for (const name of readdirSync(dir)) {
+        if (name.endsWith(".txt")) files.push({ name, path: join(dir, name) });
+      }
+    } catch (error) {
+      // A mailbox a server has not written to yet simply is not there. One that is there and will not open
+      // is not an empty mailbox, and saying it is would lose every message in it in silence.
+      if (!isMissing(error)) throw error;
+    }
+  }
+  files.sort((a, b) => b.name.localeCompare(a.name));
+  // An address is not a pattern: `nurse+demo@...` would otherwise match half the mailbox.
+  const addressed = `To: ${to}`;
+  for (const file of files) {
+    const raw = readDevMailFile(file.path);
+    if (raw === null) continue; // claimed and renamed between the listing and the read
+    if (!raw.split("\n").includes(addressed)) continue;
+    const found = pick(raw, file.path);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
 /** The messages in the mailbox, oldest first. Missing directory means an empty mailbox, not an error. */
 export function readDevMail(dir = devMailDir()): StoredDevMail[] {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".txt")).sort();
-  } catch {
+  } catch (error) {
+    if (!isMissing(error)) throw error;
     return [];
   }
-  return names.map((name) => {
+  const mail: StoredDevMail[] = [];
+  for (const name of names) {
     const file = join(dir, name);
-    const raw = readFileSync(file, "utf8");
-    return { file, at: header(raw, "Date"), to: header(raw, "To"), subject: header(raw, "Subject"), text: raw.split("\n\n").slice(1).join("\n\n") };
-  });
+    // `npm run mail` reads this while the e2e suite is claiming links out of the same directory, so a listed
+    // name can be gone already (readDevMailFile). One message short beats the whole mailbox throwing.
+    const raw = readDevMailFile(file);
+    if (raw === null) continue;
+    mail.push({ file, at: header(raw, "Date"), to: header(raw, "To"), subject: header(raw, "Subject"), text: raw.split("\n\n").slice(1).join("\n\n") });
+  }
+  return mail;
 }
 
 function header(raw: string, name: string): string {

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { readDevMailFile } from "../lib/devMailbox";
 import { csrfToken, postJson } from "./api";
 import { MAIL_DIR, signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
@@ -25,15 +26,23 @@ const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clar
 
 const QUESTION = "Which of the overnight highs followed a late dinner out?";
 
-/** Every message the local mailer has "sent" (design §5.1, lib/mailer.ts), as one blob. */
+/**
+ * Every message the local mailer has "sent" (design §5.1, lib/mailer.ts), as one blob.
+ *
+ * This is the shared mailbox e2e/auth.ts claims sign-in links out of by renaming them, so a name this
+ * listing just saw can be gone by the time it is read: readDevMailFile skips that file instead of taking the
+ * spec down with an ENOENT over somebody else's mail (T65). Skipping is safe for what this is asked — the
+ * assertion below is that the question appears in *no* message, and a message that was claimed mid-walk was
+ * a sign-in link, not the follow-up email this spec is proving never gets sent.
+ */
 function mailbox(dir = MAIL_DIR): string {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".txt"));
   } catch {
-    return "";
+    return ""; // a mailbox no server has written to yet is an empty one
   }
-  return names.map((n) => readFileSync(join(dir, n), "utf8")).join("\n");
+  return names.map((n) => readDevMailFile(join(dir, n)) ?? "").join("\n");
 }
 
 test("a follow-up question is logged with the clinician and the time, survives a reload, and is never emailed", async ({ page, request }) => {
