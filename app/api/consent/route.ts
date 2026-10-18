@@ -11,10 +11,14 @@
 // every patient session for the visit is revoked and the cookie is cleared, so the pages behind the gate
 // close immediately and so do the API routes that check the same session. The visit itself is left alone —
 // the appointment still stands, and staff see an unanswered intake.
+//
+// Either answer is a row in the audit trail (§10.2's "every patient-side decision"), written through
+// lib/auditStore.ts like the verification before it, so it speaks the vocabulary the admin page filters on
+// and its detail goes through §4.8's gate (T51).
 
 import { NextResponse } from "next/server";
+import { recordPatientConsent } from "@/lib/auditStore";
 import { needsConsent, recordConsent } from "@/lib/consent";
-import { db } from "@/lib/db";
 import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
 import { PATIENT_SESSION_COOKIE, revokeSessions } from "@/lib/patientSession";
@@ -36,14 +40,16 @@ async function postHandler(req: Request) {
     // Already past the screen: say so and keep the original time rather than writing a second consent.
     const first = needsConsent(visit);
     await recordConsent(visit.id, true);
-    if (first) await record(visit, true);
+    if (first) await recordPatientConsent(visit, true);
     log.info("patient_consent_accepted", { visitId: visit.id });
     return NextResponse.json({ accepted: true });
   }
 
   await recordConsent(visit.id, false);
-  await record(visit, false);
+  // After the revoke rather than before it, so the row can say how many sessions the decline closed: that is
+  // the half of §2.4 this route performs, and `rows` is the field the gate allows it under (§4.8).
   const revoked = await revokeSessions(visit.id);
+  await recordPatientConsent(visit, false, { rows: revoked });
   log.info("patient_consent_declined", { visitId: visit.id, count: revoked });
 
   const res = NextResponse.json({ accepted: false });
@@ -51,21 +57,6 @@ async function postHandler(req: Request) {
   // cookie would be sent through the code screen with it still attached. Clearing it is one less thing.
   res.cookies.set(PATIENT_SESSION_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
   return res;
-}
-
-/** §10.2 wants every patient-side decision in the audit log. The detail is the answer, never the words. */
-function record(visit: { id: string; patient: { practiceId: string } }, accepted: boolean) {
-  return db.auditLog.create({
-    data: {
-      practiceId: visit.patient.practiceId,
-      actorType: "patient",
-      actorId: visit.id,
-      action: accepted ? "patient.consent_accepted" : "patient.consent_declined",
-      entityType: "Visit",
-      entityId: visit.id,
-      detail: JSON.stringify({ screen: "intake_consent", section: "2.4" }),
-    },
-  });
 }
 
 export const POST = withRoute("POST /api/consent", postHandler);
