@@ -84,7 +84,13 @@ const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.e
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  // Per test. Like the build budget below, this is a ceiling for a test that has hung, not an estimate of a
+  // healthy one — and 60s was being spent as if it were an estimate. On the reviewer's sandbox of 2026-10-18,
+  // where a build measured 547s against the ~63s the environment probe documents, tests that normally finish
+  // in seconds ran out of it in specs with nothing in common (`deletion`, `flows`, `durability`), each dying
+  // on a bare timeout that names the test rather than the clock (T89). The two specs that already ask for
+  // more (`flows.spec.ts:319`, `journey.spec.ts:77`) keep their own explicit numbers.
+  timeout: Number(process.env.E2E_TEST_TIMEOUT_MS ?? 180_000),
   retries: 0,
   // The §12.3 size gate (T61): after the last spec, every screenshot this run wrote is measured and one
   // taller than a reviewer can open fails the suite. e2e/screenshotSize.ts says what the limit is and why.
