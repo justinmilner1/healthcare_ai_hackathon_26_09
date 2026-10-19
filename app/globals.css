@@ -5412,6 +5412,21 @@ button.sweetie-agent-badge {
     margin-bottom: 7px;
   }
 
+  /* T83, design §6.5, §13.4: the demo-mode card is a fixed row inside a 100svh page, and at 375px its
+     sentence wrapped to three lines — 138 of the 667 pixels the screen has, spent on a card that only a
+     sandbox deployment draws at all. The button stays, with its own words for what it does, and so does the
+     error a failed demo puts under it; the sentence is the part a phone does without. 150px of this page's
+     height became 71px, and the transcript got the difference. The card is unchanged above 680px, where
+     there is room for the whole of it. */
+  .sweetie-sandbox-note {
+    margin-top: 7px;
+    padding: 9px 10px;
+  }
+
+  .sweetie-sandbox-note > p:not([role="alert"]) {
+    display: none;
+  }
+
   .sweetie-chat-topbar .persona-avatar {
     width: 36px;
     height: 36px;
@@ -5433,6 +5448,14 @@ button.sweetie-agent-badge {
     grid-template-columns: 1fr;
     gap: 7px;
     padding: 9px;
+  }
+
+  /* And the nudge under it goes too (T83). The strip is one column at this width, so this paragraph is a
+     row of its own — 38 pixels to say what Sweetie's own first message says in the transcript directly
+     below it ("Tell me more about that, and what you'd like to get out of this visit"). The skip *link*
+     that replaces it once there is something to skip is an action and stays. */
+  .sweetie-skip-hint {
+    display: none;
   }
 
   .sweetie-progress-card {
@@ -5466,9 +5489,16 @@ button.sweetie-agent-badge {
     display: none;
   }
 
+  /* One line of header, not two (T83). The second line is a greeting the transcript gives better: her own
+     first message introduces her by name in the same words. Her name stays, because the top bar above says
+     "Sweet Spot" rather than "Sweetie" and this is the only place on the phone that names who is asking. */
   .sweetie-conversation-head {
-    min-height: 54px;
-    padding: 9px 14px;
+    min-height: 0;
+    padding: 7px 14px;
+  }
+
+  .sweetie-conversation-head small {
+    display: none;
   }
 
   .sweetie-private {

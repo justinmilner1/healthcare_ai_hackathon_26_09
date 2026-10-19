@@ -22,7 +22,10 @@ export default function DexcomDemoLink({ token, disabled = false, compact = fals
     }
   }
   return (
-    <div className={compact ? "text-sm" : "mt-3 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"}>
+    // The full card carries a class of its own as well as its utilities, because app/globals.css has to be
+    // able to reach it: on the Sweetie chat page it is a fixed row inside a 100svh layout, and at 375px the
+    // sentence below is three lines the transcript cannot spare (T83, design §6.5).
+    <div className={compact ? "text-sm" : "sweetie-sandbox-note mt-3 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"}>
       {!compact && <p>Explore with synthetic glucose readings in a separate demo session. Your patient record and uploads will not change.</p>}
       <button type="button" disabled={disabled || busy} onClick={start} className={buttonClassName ?? "min-h-11 rounded-lg border border-amber-700 px-3 py-2 font-semibold disabled:opacity-50"}>
         {busy ? "Opening demo…" : compact ? "Connect Dexcom · Demo" : "Try Dexcom sandbox"}
