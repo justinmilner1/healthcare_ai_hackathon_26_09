@@ -53,9 +53,11 @@ const DEMO_PORT = PORT + 4;
  * they share is a request context reused across an idle gap, which is usually a screenshot or a run of page
  * assertions.
  *
- * Five minutes is longer than the longest test in the suite — `e2e/journey.spec.ts` sets 240s, everything else
- * gets the 60s `timeout` below — and a request context lives at most one test, so no socket can sit idle in a
- * live context for long enough to be retired. The server therefore never closes an idle connection during a
+ * Five minutes is longer than any test in the suite spends in one request context — `e2e/journey.spec.ts`
+ * sets 240s and `timeout` below is the ceiling for the rest — and a request context lives at most one test,
+ * so no socket can sit idle in a live context for long enough to be retired. Both of those are ceilings for
+ * a hung test rather than estimates of a healthy one, and a test that actually ran for minutes on end would
+ * have the slow box the timings table names (T89), not a retired socket, as its problem. The server therefore never closes an idle connection during a
  * run and the client is always the side that does, and a close the client initiated is not a reset it has to
  * read. The cost is a handful of sockets held open for the length of a run. The alternative fixes are worse: a
  * `retries` bump would hide real failures in the other 190 tests, and a retry wrapper in `e2e/api.ts` would
@@ -115,7 +117,13 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `npm run build && ${nextStart(PORT)}`,
+      // Through scripts/timed.sh, so the build's wall time is in the run's log and in the table
+      // scripts/agent-check.sh prints at the end (T89). The build is the slowest stage of the whole check
+      // and the one whose budget a slow box blows, and it is the only one that does not run in the check
+      // script itself — without this the table would be missing the line a reader needs most. The wrapper
+      // writes its line to stderr because that is the stream Playwright pipes from a web server; it passes
+      // the build's exit status through untouched, so a failing build still fails the run here.
+      command: `bash scripts/timed.sh build npm run build && ${nextStart(PORT)}`,
       url: `http://localhost:${PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
       // The build is nearly all of this. How long it takes is a property of the box, not of the tree: the
