@@ -4,7 +4,7 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { expectNoHorizontalScroll } from "./mobile";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png. e2e/shot.ts decides how much of the
@@ -87,9 +87,10 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // The dashboard fills in from a client fetch of GET /api/provider. Wait for the seeded patient, or the
   // screenshot catches an empty workspace and shows nothing about the data behind it.
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
-  // The row this test is about, centred in the shot: on a phone the dashboard is as tall as the
-  // practice's visit list, and one screenful of somebody else's rows answers nothing (T57).
+  // The row this test is about, centred in the shot: the dashboard is as tall as the practice's visit
+  // list, and one screenful of somebody else's rows answers nothing (T57, T81).
   await shot(page, "provider-dashboard", {
+    ...SCREENFUL,
     scrollTo: '.provider-table tbody tr:has-text("Sam Sample")',
     block: "center",
   });
@@ -145,7 +146,7 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   const seededRow = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" }).first();
   await expect(seededRow).toContainText("Follow-up");
   await expect(seededRow).toContainText("going high overnight");
-  await shot(page, "provider-dashboard-booked", { scrollTo: bookedRow, block: "center" });
+  await shot(page, "provider-dashboard-booked", { ...SCREENFUL, scrollTo: bookedRow, block: "center" });
 
   // ?visit=<id> is the deep link in the summary email (design §4.4). Open the seeded visit that way, and wait
   // for the one-pager itself: the page auto-generates on first open, and until it has, this is an empty shell.

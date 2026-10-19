@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
-import { MODAL, shot } from "./shot";
+import { MODAL, SCREENFUL, shot } from "./shot";
 
 // T07 (design §2.2, §4.4, §8.3): the two ways a practice creates visits, driven through the screens staff
 // actually use. One at a time in the wizard, with the contact channel and the recorded consent §2.2 asks for;
@@ -105,8 +105,9 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   await page.reload();
   await expect(row).toContainText("Consent: Over the phone", LOADED);
 // The cell this test asserts on, not just the row: the table is wider than a phone, so Stage,
-  // Messages and Actions are off to the right until the shot asks for them (T57).
+  // Messages and Actions are off to the right until the shot asks for them (T57, T81).
   await shot(page, "provider-dashboard-visit-statuses", {
+    ...SCREENFUL,
     scrollTo: row.locator(".provider-invite"),
     block: "center",
     inline: "center",

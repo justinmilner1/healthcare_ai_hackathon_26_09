@@ -13,7 +13,8 @@ import { test, type Locator, type Page } from "@playwright/test";
 // of a table and the whole page is worth having, and the phone shoots its viewport, where it is not. A spec
 // that wants something else says so — `{ fullPage: true }` for a phone shot of a whole page (the patient
 // screens in e2e/mobile.spec.ts are exactly that), `MODAL` for a dialog, which is one viewport's worth of
-// subject at either width.
+// subject at either width, and `SCREENFUL` for a page whose height is the practice's own data, which the
+// desktop default turned out to be wrong about too (T81).
 //
 // Transitions are frozen for every shot, which is the other half of the same promise (T77). `page.screenshot`
 // leaves CSS running unless it is passed `animations: "disabled"`, and the cards come in over 480ms: without
@@ -74,6 +75,23 @@ export const MODAL: ShotOptions = { fullPage: false };
  * clinician's brief is the same unreadable picture the dashboard was, only shorter.
  */
 export const WHOLE_PAGE: ShotOptions = { fullPage: true };
+
+/**
+ * One screenful with the subject scrolled into it, at either width.
+ *
+ * For a page whose height is the practice's own data rather than its own design. The provider dashboard is
+ * the only one of those in the product, and T57 left the desktop shooting the whole document of it on the
+ * grounds that a desktop row is one line of a table rather than five stacked ones — true of the row, and
+ * wrong about the page, because the list grows a row with every visit the suite books. By the time
+ * `e2e/visits.spec.ts` took its shot the document was 7,015 pixels, and the §12.3 size gate was excusing
+ * four desktop dashboard shots by name (T81, e2e/screenshot-exceptions.json).
+ *
+ * Every one of those shots was taken to show one row — a stage pill, an invite, a delivery tooltip, an
+ * absence — and says so in `scrollTo`. Nothing else in a list of other specs' patients is evidence about
+ * the ticket that shot it, so the shot is one screenful of the subject on both projects, and stays the same
+ * size however many visits the suite goes on to book.
+ */
+export const SCREENFUL: ShotOptions = { fullPage: false };
 
 /**
  * Write `e2e/screenshots/<project>-<name>.png`, the filename §12.3 and every

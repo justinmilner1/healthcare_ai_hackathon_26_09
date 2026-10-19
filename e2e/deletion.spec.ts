@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
-import { MODAL, shot } from "./shot";
+import { MODAL, SCREENFUL, shot } from "./shot";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 
 // T14 (design §2.8, §10.4, §10.5): the deletion a patient asks for, driven through the screen staff use.
@@ -85,9 +85,9 @@ test("a deletion request removes everything the patient gave us, and leaves a re
     .toBe(false);
   await page.reload();
   await expect(page.locator(".provider-table")).not.toContainText(patient.name, LOADED);
-  // The table is what this shot is about, and on a phone it is below a screen of hero and metrics, so the
-  // helper scrolls the card to the top of the viewport first (e2e/shot.ts).
-  await shot(page, "provider-dashboard-after-deletion", { scrollTo: ".provider-table-card" });
+  // The table is what this shot is about, and it sits below a screen of hero and metrics, so the helper
+  // scrolls the card to the top of the viewport first and takes a screenful of it (e2e/shot.ts, T81).
+  await shot(page, "provider-dashboard-after-deletion", { ...SCREENFUL, scrollTo: ".provider-table-card" });
 
   // Gone for the clinician: the visit is not a visit any more, which is the same 404 as one that never was.
   expect((await page.request.get(`/api/patient/${booked.visitId}`)).status()).toBe(404);

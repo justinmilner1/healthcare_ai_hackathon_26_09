@@ -3,7 +3,7 @@ import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
-import { shot } from "./shot";
+import { SCREENFUL, shot } from "./shot";
 
 // Design §10.8: security headers on every response, and CSRF protection on the routes that change
 // something. Both claims are checked against the running build, not against the source that sets them.
@@ -102,8 +102,9 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
     if (screen.reveal) await page.getByRole("button", { name: screen.reveal }).click();
     await expect(page.locator("body"), screen.name).toContainText(screen.loaded, { timeout: 30_000 });
     // The dashboard is the one screen in this walk whose height is the practice's visit list, so it gets a
-    // screenful with the table scrolled into it; the rest are their own page (T57).
-    await shot(page, `security-${screen.name}`, screen.name === "provider-dashboard" ? { scrollTo: ".provider-table-card" } : {});
+    // screenful with the table scrolled into it, on either project; the rest are their own page (T57, T81).
+    const framing = screen.name === "provider-dashboard" ? { ...SCREENFUL, scrollTo: ".provider-table-card" } : {};
+    await shot(page, `security-${screen.name}`, framing);
     expect(violations, `${screen.name}: ${violations.join("\n")}`).toEqual([]);
   }
 });

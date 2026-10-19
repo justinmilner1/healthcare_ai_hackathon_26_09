@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { signInAsDemo } from "./auth";
-import { shot } from "./shot";
+import { SCREENFUL, shot } from "./shot";
 import { E2E_TOPIC_ARN } from "../playwright.config";
 
 // T19 (design §8.1, §8.3): the webhook SES and SNS report through, and what staff then see.
@@ -102,9 +102,10 @@ test("the dashboard shows what each message did, and why a channel is closed", a
     expect(title, "a delivery tooltip names no variable, credential or backend (T74, §8.3)").not.toMatch(CONFIGURATION);
   }
 
-  // The Messages cell on Dana's row is what this is about, and on a phone it is both a screen down and a
-  // column to the right of what the dashboard opens on (T57).
+  // The Messages cell on Dana's row is what this is about, and it is both a screen down and a column to
+  // the right of what the dashboard opens on (T57, T81).
   await shot(page, "provider-dashboard-deliveries", {
+    ...SCREENFUL,
     scrollTo: dana.locator(".provider-invite"),
     block: "center",
     inline: "center",

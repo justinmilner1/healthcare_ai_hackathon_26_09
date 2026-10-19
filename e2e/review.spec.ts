@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { patientEmail, verifyByApi } from "./patient";
-import { shot } from "./shot";
+import { SCREENFUL, shot } from "./shot";
 
 // T16 (design §2.6, §7.3): "they see the one-pager, ask follow-ups, print, and mark it reviewed; reviewer and
 // time are recorded", and the dashboard shows it. Driven through the screen a clinician uses, so the button,
@@ -86,8 +86,9 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   await expect(row).toContainText("Reviewed", LOADED);
   await expect(row.locator(".provider-reviewed-by")).toContainText("Dr. Demo Endo");
 // The cell this test asserts on, not just the row: the table is wider than a phone, so Stage,
-  // Messages and Actions are off to the right until the shot asks for them (T57).
+  // Messages and Actions are off to the right until the shot asks for them (T57, T81).
   await shot(page, "provider-dashboard-reviewed", {
+    ...SCREENFUL,
     scrollTo: row.locator(".provider-stage-cell"),
     block: "center",
     inline: "center",
