@@ -81,16 +81,24 @@ test("a demo practice does not message a number that could be somebody's", async
   const attempted = invitePill(reservedPhone);
   await expect(attempted).toBeVisible(LOADED);
   await expect(rowFor(reservedPhone)).not.toContainText(/Demo practice:/i);
-  const attemptedTitle = await attempted.getAttribute("title");
-  expect(attemptedTitle ?? "", `the reserved number is not refused by §13.4 (title: ${attemptedTitle})`).not.toMatch(/demo practice/i);
 
-  // T74 (§8.3) But whatever it ran into, what staff are told about it is theirs to act on. This pill is the
+  // T74 (§8.3) And whatever it ran into, what staff are told about it is theirs to act on. This pill is the
   // suite's one send that really tried and really did not arrive — no sender can deliver to a number in the
   // fictitious range, so it fails in every environment — and its tooltip used to carry "SMS not configured
   // (set Twilio or AWS keys)" from lib/sms.ts, or SNS's own words about an invalid security token.
-  expect(attemptedTitle ?? "", `the tooltip is written for staff (title: ${attemptedTitle})`).toMatch(
-    /Sweet Spot cannot send texts yet|The text did not go out/,
-  );
+  //
+  // Reloaded until the send has been reported on, because the invite is a job (§3.4) and a job that fails is
+  // retried: the dashboard reads `GET /api/provider` once per load, so the first one can honestly show the
+  // `…` of a message nobody has come back about yet.
+  let attemptedTitle: string | null = null;
+  await expect(async () => {
+    await page.reload();
+    attemptedTitle = await invitePill(reservedPhone).getAttribute("title");
+    expect(attemptedTitle ?? "", `the tooltip is written for staff (title: ${attemptedTitle})`).toMatch(
+      /Sweet Spot cannot send texts yet|The text did not go out/,
+    );
+  }).toPass(LOADED);
+  expect(attemptedTitle ?? "", `the reserved number is not refused by §13.4 (title: ${attemptedTitle})`).not.toMatch(/demo practice/i);
   expect(attemptedTitle ?? "", "no variable, credential or backend on a practice's screen").not.toMatch(CONFIGURATION);
   // And in words under the pill, for the same reason the demo line above is in words: this dashboard is
   // tested at 375px (§6.5), where there is no hover and so no tooltip at all.

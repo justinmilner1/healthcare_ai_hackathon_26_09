@@ -26,7 +26,7 @@
 // Pure, no database and no Prisma types: lib/delivery.test.ts states the rule once and the dashboard applies
 // it.
 
-import { DEMO_BLOCKED, isDemoBlocked } from "./demo";
+import { DEMO_BLOCKED } from "./demo";
 import { SUPPRESSED_REASONS } from "./suppression";
 
 /** The columns this reads. Structural rather than `DeliveryRow` from lib/visitStore.ts, so a test can pass
@@ -94,7 +94,7 @@ export function deliveryFault(d: DeliveryFacts): string | null {
   // The provider reporting back on a message that left. §8.1 keeps those words: "Permanent/General" is SES's
   // own phrase for it, it names nobody, and it is what a support request quotes alongside the message id.
   if (d.status === "bounced" || d.status === "complained") return null;
-  if (STAFF_REASONS.has(error) || isDemoBlocked(error)) return null;
+  if (STAFF_REASONS.has(error)) return null;
   return (d.providerName ? BACKEND_REFUSED : NOTHING_CONFIGURED)[channelKey(d.channel)];
 }
 
