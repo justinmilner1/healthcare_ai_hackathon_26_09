@@ -22,7 +22,7 @@ import { expect, test } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 /** Past the five-second default, and past the 6.0s at which this build was measured to send FIN without the
- *  flag. Short enough to stay well inside the 60s test timeout. */
+ *  flag. Short enough to stay well inside the per-test ceiling, whatever it is set to. */
 const IDLE_MS = 10_000;
 
 /** Resolve once `done()` is true, or fail the wait after `within` ms. */

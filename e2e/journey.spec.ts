@@ -73,8 +73,9 @@ const asRendered = (page: Page, iso: string, call: "date" | "dateTime", options:
 
 test("the whole journey: staff books, the patient checks in, the clinician signs it off and prints it", async ({ page }) => {
   // Eleven screens across three identities and two flows, each sign-in waiting on a mailbox. The per-test
-  // default of 60s is for a test that drives one of them; this one needs the budget of the journey it is.
-  test.setTimeout(240_000);
+  // ceiling is for a test that drives one of them; this one needs the budget of the journey it is. The
+  // suite's keep-alive is derived from this floor being the largest one (playwright.config.ts).
+  test.setTimeout(Math.max(240_000, test.info().timeout));
 
   // ---- The practice, as an admin sets it up (§2.1, §5.2) ------------------------------------------------
   // A fresh address signs in and gets a practice of its own, as its admin. The colleagues below are invited

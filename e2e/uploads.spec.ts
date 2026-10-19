@@ -129,8 +129,9 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
 // is asserted where a narrator can be injected (lib/sourRun.test.ts, "queues the two links"). What was
 // missing, and what this test is about, is the run.
 test("a Dexcom export shared after intake wrapped queues the summary run", async ({ page, request }) => {
-  // Two sign-ins, a verification and a drained queue, all behind one patient's export.
-  test.setTimeout(120_000);
+  // Two sign-ins, a verification and a drained queue, all behind one patient's export — so a floor under the
+  // per-test ceiling, not a flat number the ceiling can overtake (playwright.config.ts, TEST_TIMEOUT_MS).
+  test.setTimeout(Math.max(120_000, test.info().timeout));
   const { token, visitId, email } = await bookVisit(page, "E2E Late Export");
   // The patient's half of this test is the request context (§5.3); the clinician's is the browser.
   await verifyByApi(request, token, email);

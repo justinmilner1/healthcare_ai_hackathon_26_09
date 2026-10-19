@@ -314,9 +314,9 @@ const VISIT_TYPE_LABELS = [
 ];
 
 test("patient summary names the visit type in words, for every visit type", async ({ page }) => {
-  // Six patient journeys in one test — book, verify, read the chip — so the default 60s is not the budget
-  // this needs. e2e/journey.spec.ts raises its own for the same reason.
-  test.setTimeout(180_000);
+  // Six patient journeys in one test — book, verify, read the chip — so the per-test ceiling is the floor
+  // here rather than the budget. e2e/journey.spec.ts raises its own for the same reason.
+  test.setTimeout(Math.max(180_000, test.info().timeout));
 
   // Booking is staff's job and needs their session (§5.2); the summaries below are opened as the patient.
   await signInAsDemo(page);

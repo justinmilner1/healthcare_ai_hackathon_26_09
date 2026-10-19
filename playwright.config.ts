@@ -37,6 +37,20 @@ const DEXCOM_PORT = PORT + 3;
 // `/demo` offers the sign-in form with the address filled in, which e2e/signin.spec.ts asserts — so the
 // shortcut needs a server of its own to be seen at all. e2e/demo.spec.ts is the only spec that uses it.
 const DEMO_PORT = PORT + 4;
+
+/**
+ * A millisecond budget from the environment, or `fallback` when it is absent, empty or not a positive number.
+ *
+ * `Number(process.env.X ?? d)` is not enough now that docs/ROUTINES.md tells a routine on a slow box to set
+ * these (T89): `Number("")` is 0 and `Number("3min")` is NaN, and `??` catches neither, so one malformed
+ * value would silently become a budget of zero or of nothing at all rather than the documented default.
+ */
+const envMs = (name: string, fallback: number): number => {
+  const raw = process.env[name]?.trim();
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 /**
  * How long one test may run before Playwright calls it hung, in milliseconds.
  *
@@ -44,10 +58,17 @@ const DEMO_PORT = PORT + 4;
  * estimate of a healthy one — and 60s was being spent as if it were an estimate. On the reviewer's sandbox of
  * 2026-10-18, where a build measured 547s against the ~63s the environment probe documents, tests that
  * normally finish in seconds ran out of it in specs with nothing in common (`deletion`, `flows`,
- * `durability`), each dying on a bare timeout that names the test rather than the clock (T89). The two specs
- * that already ask for more (`flows.spec.ts:319`, `journey.spec.ts:77`) keep their own explicit numbers.
+ * `durability`), each dying on a bare timeout that names the test rather than the clock (T89).
+ *
+ * A spec that needs more than this says so with `test.setTimeout(Math.max(<its own>, test.info().timeout))`,
+ * never a bare number: this ceiling can overtake one. When it went 60s to 180s, `uploads.spec.ts`'s flat
+ * 120s turned from twice an ordinary test's budget into two thirds of it, so the test with the most to do
+ * (two sign-ins, a verification and a drained queue) had the least headroom on exactly the slow box the
+ * ceiling was raised for. The three specs that ask for more are `flows.spec.ts`, `journey.spec.ts` and
+ * `uploads.spec.ts` — named without line numbers, which this comment has no way of keeping true; the largest
+ * of their floors is what KEEP_ALIVE_MS below has to outlast.
  */
-const TEST_TIMEOUT_MS = Number(process.env.E2E_TEST_TIMEOUT_MS ?? 180_000);
+const TEST_TIMEOUT_MS = envMs("E2E_TEST_TIMEOUT_MS", 180_000);
 
 /**
  * How long each server below holds an idle keep-alive socket open, in milliseconds (T59).
@@ -75,6 +96,11 @@ const TEST_TIMEOUT_MS = Number(process.env.E2E_TEST_TIMEOUT_MS ?? 180_000);
  * of a run. The alternative fixes are worse: a `retries` bump would hide real failures in the other 190
  * tests, and a retry wrapper in `e2e/api.ts` would have to decide which of 60-odd `page.request` calls are
  * safe to send twice.
+ *
+ * The floor is what keeps that true of the specs that set their own: each is written as a floor under
+ * `TEST_TIMEOUT_MS` rather than a flat number, so the largest of them is `max(240_000, TEST_TIMEOUT_MS)` —
+ * exactly a minute inside this, at every value of `TEST_TIMEOUT_MS`. A per-spec floor above 240s would break
+ * that and belongs here, not in a spec.
  *
  * This is the suite's number only. `npm start` keeps Node's default, which is what a deployment behind a load
  * balancer wants.
@@ -140,7 +166,7 @@ export default defineConfig({
       // config.webServer`, which names the server rather than the clock (T89). So the budget carries enough
       // headroom for a box several times slower than the probe, and `E2E_WEBSERVER_TIMEOUT_MS` overrides it
       // where a caller knows better. It is a ceiling for a hung build, not an estimate of a healthy one.
-      timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 1_800_000),
+      timeout: envMs("E2E_WEBSERVER_TIMEOUT_MS", 1_800_000),
       // DEV_MAIL_DIR: with no email provider configured, lib/mailer.ts writes the sign-in links here instead
       // of sending them (design §5.1), and e2e/auth.ts reads them. scripts/agent-check.sh empties it first.
       // SNS_TOPIC_ARNS: §8.1's webhook trusts nothing until a topic is configured, and answers 503 while
