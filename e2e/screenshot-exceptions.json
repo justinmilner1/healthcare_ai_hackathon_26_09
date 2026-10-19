@@ -1,24 +1,14 @@
 {
   "$comment": "Screenshots allowed to stay taller than MAX_HEIGHT in e2e/screenshotSize.ts, which is the design 12.3 size gate. Same bargain as security/audit-exceptions.json: every entry names a reason, an owner and an expiry, the gate fails once an expiry passes, and it fails again once a listed shot comes in comfortably under the limit -- so an entry cannot outlive the fix it was waiting for, and nothing lives here by being forgotten. A shot that is simply too tall belongs in the spec that takes it, not here.",
+  "$comment2": "T81 (#148) emptied the list of shots that were waiting for a fix. What is left is the one entry that is not waiting for anything: a page worth a whole-page shot, at a height a reviewer can still open. It keeps an expiry all the same, because the judgement is worth making again rather than inheriting -- and if a second page ever earns its way in here, raise MAX_HEIGHT instead of growing the list.",
   "exceptions": [
     {
       "shots": [
         "mobile-375-patient-summary-full.png"
       ],
-      "reason": "A deliberate whole-page phone shot of the patient summary (e2e/mobile.spec.ts asks for WHOLE_PAGE): the page is long by design, not by data, and the point of the shot is the whole of it. T57 (#87) landed the per-project default and left this one as the exception it is.",
-      "owner": "#87",
-      "expires": "2027-01-09"
-    },
-    {
-      "shots": [
-        "desktop-provider-dashboard-deliveries.png",
-        "desktop-provider-dashboard-reviewed.png",
-        "desktop-provider-dashboard-visit-statuses.png",
-        "desktop-security-provider-dashboard.png"
-      ],
-      "reason": "Desktop shots of the provider dashboard, where T57 (#87) shoots the whole document on purpose: a desktop row is one line of a table, so the page is worth having whole, but the list grows a row per visit every other spec books and these land between 4,000 and 6,200 pixels by the time they are taken. The phone equivalents are now one screenful each and no longer need excusing.",
-      "owner": "#87",
-      "expires": "2027-01-09"
+      "reason": "Not a shot waiting to be fixed: the patient summary really is worth a whole-page phone shot, which is what e2e/mobile.spec.ts asks for with WHOLE_PAGE. Design 6.5 is about the whole of a patient screen at 375px, and this is the longest of them. Its height is the page's own design and not the practice's data -- the hero, the range card, the stat tiles, two charts, the spike table (which lib/types.ts caps at three to five), at most three patterns and at most three questions -- so it comes in at about 6,200 pixels on every run and cannot grow with the stack. That is about three and a half phone screens: longer than MAX_HEIGHT allows, far short of the 80,000-pixel file that made the gate necessary, and legible end to end at any size a reviewer can open. T81 (#148) re-judged it after T57 (#87) landed the per-project default and left it as the one standing exception.",
+      "owner": "#148",
+      "expires": "2027-10-19"
     }
   ]
 }
