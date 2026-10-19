@@ -307,6 +307,10 @@ export default function SweetieIntakePage({
     : Object.values(connections).filter(
         (connection) => connection.state === "connected",
       ).length;
+  // T84 (§2.4, §2.5): the setup-complete card reports what was shared, so the row that says nothing was
+  // has to look different from the row that says something was. The green tick means CONNECTED everywhere
+  // else in this flow, one step earlier included, so it cannot also decorate "No data connected yet".
+  const hasConnections = connectedCount > 0;
   const isUploading = removing !== null || Object.values(connections).some(
     (connection) => connection.state === "uploading",
   );
@@ -681,12 +685,17 @@ export default function SweetieIntakePage({
 
                 <div className={styles.readyCard}>
                   <div className={styles.readyRow}>
-                    <span className={styles.readyCheck}>
-                      <CheckIcon />
+                    <span
+                      className={`${styles.readyMark} ${
+                        hasConnections ? styles.readyMarkDone : styles.readyMarkNone
+                      }`}
+                      data-mark={hasConnections ? "connected" : "none"}
+                    >
+                      {hasConnections ? <CheckIcon /> : <InfoIcon />}
                     </span>
                     <span>
                       <strong>
-                        {connectedCount > 0
+                        {hasConnections
                           ? `${connectedCount} data ${
                               connectedCount === 1 ? "source" : "sources"
                             } connected`
@@ -699,7 +708,7 @@ export default function SweetieIntakePage({
                   </div>
                   <div className={styles.readyDivider} />
                   <div className={styles.readyRow}>
-                    <span className={styles.readyCheck}>
+                    <span className={`${styles.readyMark} ${styles.readyMarkDone}`}>
                       <LockIcon />
                     </span>
                     <span>
@@ -837,10 +846,24 @@ function SourceIcon({ kind }: { kind: DataKind }) {
   );
 }
 
+// `data-icon` on these two is how e2e/connections.spec.ts tells the setup-complete row's two states apart
+// (T84). It sits on the glyph rather than on the element around it so that the attribute and the shape can
+// never drift from each other: putting back the tick puts back `data-icon="check"` with it.
 function CheckIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="check">
       <path d="m5 12.5 4.2 4.2L19 7" />
+    </svg>
+  );
+}
+
+/** Neutral, for a row stating a fact rather than reporting something finished. */
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="info">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11.5v4.5" />
+      <path d="M12 8.2h.01" />
     </svg>
   );
 }
