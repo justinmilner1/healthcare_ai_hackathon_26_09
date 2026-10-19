@@ -181,8 +181,8 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
     fit.cut,
     `the flagged card (${fit.card}px) does not fit the transcript (${fit.region}px) at 375px, so the patient has to scroll for the instruction`,
   ).toBe(0);
-  // The third state of this screen, and the one with the least room in it: the fourth step pill wraps the
-  // stepper onto a second line. Measured here too so the T83 floor is held where the chrome is widest.
+  // The third state of this screen: the skip link is gone, the stepper has a fourth pill, and the card the
+  // patient has to act on is the newest thing in the transcript. Measured here too for the T83 floor.
   await expectTranscriptUncut(page, "Sweetie with a flagged answer");
 
   await shot(page, "375-sweetie-flagged", SCREEN);

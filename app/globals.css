@@ -5435,6 +5435,12 @@ button.sweetie-agent-badge {
     display: none;
   }
 
+  /* With the sentence gone the card is a band with one action in it, so the action is the band: a button
+     sitting in the left third of an otherwise empty amber box reads as something that failed to load. */
+  .sweetie-sandbox-note > button {
+    width: 100%;
+  }
+
   .sweetie-chat-topbar .persona-avatar {
     width: 36px;
     height: 36px;
