@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 # although it runs inside Playwright's first web server rather than here: that child inherits CHECK_TIMINGS
 # and appends to the same file, which is the only reason the slowest stage of all can appear in the table.
 CHECK_STARTED=$(date +%s)
-CHECK_TIMINGS="$(mktemp -t sweetspot-check-timings.XXXXXX)"
+CHECK_TIMINGS="$(mktemp "${TMPDIR:-/tmp}/sweetspot-check-timings.XXXXXX")"
 export CHECK_TIMINGS
 timings_report() {
   # Save the verdict before anything else can overwrite it, and hand it back at the end: this trap reports,
@@ -100,8 +100,8 @@ echo "== config"
 # The §3.7 gate as a command, judged by production rules because that is what the two Playwright servers are:
 # both are `next start` on a production build. Running it here is the same check instrumentation.ts runs when
 # they boot, before the slow stages rather than minutes into them, and with a readable message instead of a
-# webServer timeout. It passes in this sandbox and in CI: the only required variables are DATABASE_URL, set just above,
-# and APP_URL, which is localhost here and exempt from the https rule.
+# webServer timeout. It passes in this sandbox and in CI: the only required variables are DATABASE_URL, set
+# just above, and APP_URL, which is localhost here and exempt from the https rule.
 npm run config:check -- --production
 
 echo "== typecheck"; bash scripts/timed.sh typecheck npm run typecheck

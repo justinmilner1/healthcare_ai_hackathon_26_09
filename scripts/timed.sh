@@ -25,16 +25,17 @@ label="${1:?usage: timed.sh <label> <command> [args...]}"
 shift
 
 # Whole seconds. Nothing here is measuring anything short enough for a millisecond to matter, and `date +%s`
-# is in every shell this runs in, where bash's own $EPOCHREALTIME is 5.0-only.
+# is in every shell this runs in, where bash's own $EPOCHREALTIME wants 5.0.
 start=$(date +%s)
 "$@"
 status=$?
 elapsed=$(( $(date +%s) - start ))
 
-# "9m7s" past a minute, "47s" below it: a reader comparing against a documented "about 40s" should not have
-# to divide 547 by 60 to see that the box is the problem.
+# "9m07s" past a minute, "47s" below it: a reader comparing against a documented "about 40s" should not have
+# to divide 547 by 60 to see that the box is the problem. Padded to agree, digit for digit, with the table
+# agent-check.sh prints from the same numbers at the end — the same stage read twice should not look like two.
 if [ "$elapsed" -ge 60 ]; then
-  human="$((elapsed / 60))m$((elapsed % 60))s"
+  human="$(printf '%dm%02ds' "$((elapsed / 60))" "$((elapsed % 60))")"
 else
   human="${elapsed}s"
 fi
