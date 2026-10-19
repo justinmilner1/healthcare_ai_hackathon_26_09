@@ -9,6 +9,28 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 });
 
+// Cookie hygiene in the suite (T69). `clearCookies()` with no filter takes `ss_csrf` with it, and any page
+// still open then mints a second token into document.cookie the moment apiFetch finds the cookie gone
+// (lib/csrf.ts) — overwriting the one a request already read out of the jar, which middleware answers with a
+// 403 `csrf_failed` that looks like anything but a cookie problem. Sign out through signOutOfBrowser in
+// e2e/auth.ts, which drops the credentials and leaves the token alone; the filtered call it makes is the one
+// clearCookies this suite needs, and the filter is what this rule looks for.
+const noBareClearCookies = {
+  selector: "CallExpression[callee.property.name='clearCookies'][arguments.length=0]",
+  message: "clearCookies() with no filter drops ss_csrf too (T69): sign out with signOutOfBrowser from e2e/auth.ts.",
+};
+
+// Screenshots go through shot() in e2e/shot.ts and nowhere else (T57, T77). The helper is the only place that
+// knows how much of the page this project wants in the image, and the only place that passes
+// `animations: "disabled"` — without which the shutter can open part-way through a 480ms card fade or a 500ms
+// progress-bar transition, and the committed PNG shows a state the product is never in. Both routines read
+// those PNGs as their evidence about what was built (design §12.3), so freezing the page cannot be something
+// each new spec has to remember.
+const noBareScreenshot = {
+  selector: "CallExpression[callee.property.name='screenshot']",
+  message: "Take screenshots with shot() from e2e/shot.ts (T57, T77): it decides fullPage per project and freezes transitions.",
+};
+
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
@@ -21,22 +43,16 @@ const eslintConfig = [
     rules: { "no-console": "error" },
   },
   {
-    // Cookie hygiene in the suite (T69). `clearCookies()` with no filter takes `ss_csrf` with it, and any
-    // page still open then mints a second token into document.cookie the moment apiFetch finds the cookie
-    // gone (lib/csrf.ts) — overwriting the one a request already read out of the jar, which middleware
-    // answers with a 403 `csrf_failed` that looks like anything but a cookie problem. Sign out through
-    // signOutOfBrowser in e2e/auth.ts, which drops the credentials and leaves the token alone; the filtered
-    // call it makes is the one clearCookies this suite needs, and the filter is what this rule looks for.
+    // Two things the suite may not write by hand. They share one rule because `no-restricted-syntax` takes
+    // the whole list from the last config block that sets it: a second block for `e2e/**/*.ts` would not add
+    // a selector, it would replace the other one and switch it off everywhere.
     files: ["e2e/**/*.ts"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "CallExpression[callee.property.name='clearCookies'][arguments.length=0]",
-          message: "clearCookies() with no filter drops ss_csrf too (T69): sign out with signOutOfBrowser from e2e/auth.ts.",
-        },
-      ],
-    },
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot] },
+  },
+  {
+    // e2e/shot.ts is the helper the screenshot rule points at, so it is the one file allowed to take one.
+    files: ["e2e/shot.ts"],
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies] },
   },
   {
     ignores: [
