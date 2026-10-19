@@ -108,8 +108,9 @@ export default function AuditTrail({ meId }: { meId: string }) {
         <header className="ss-topbar">
           <PersonaBrand persona="sour" context="Audit trail" />
           <div className="provider-top-actions">
-            {/* First, because a phone hides the first button in this row (globals.css, under 680px) and the
-                way back to the dashboard is the one an admin on a phone needs. */}
+            {/* Settings and the audit trail are the admin's two screens; each links to the other (§10.2).
+                Nothing in this row is hidden on a phone: it wraps onto a line of its own instead
+                (globals.css, under 680px — T79), so the order here is the order an admin reads. */}
             <Link href="/provider/settings" className="ss-button">
               Settings
             </Link>

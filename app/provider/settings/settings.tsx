@@ -132,8 +132,7 @@ export default function PracticeSettings({ meId }: { meId: string }) {
             <Link href="/provider" className="ss-button">
               ← Dashboard
             </Link>
-            {/* Settings and the audit trail are the admin's two screens; each links to the other (§10.2).
-                Second, because a phone hides the first button in this row (globals.css, under 680px). */}
+            {/* Settings and the audit trail are the admin's two screens; each links to the other (§10.2). */}
             <Link href="/provider/audit" className="ss-button">
               Audit
             </Link>
