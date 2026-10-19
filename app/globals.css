@@ -3587,6 +3587,7 @@ textarea.ss-input {
 }
 
 .sweetie-messages {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
@@ -3596,6 +3597,13 @@ textarea.ss-input {
   overflow-y: auto;
   scroll-behavior: smooth;
 }
+
+/* `position: relative` above is not for a layer: it makes this the `offsetParent` of the messages inside it,
+   which is what lets the page scroll to the top of the newest one in layout coordinates (T83,
+   app/s/[token]/page.tsx). A message arrives under a 340ms entrance animation that translates it 8px, and
+   `getBoundingClientRect()` reads that transform — so geometry taken from the rect while the message is
+   still arriving is 8px out, and the transcript settled 8px past where it meant to. `offsetTop` is layout,
+   not paint: the transform and the glide in flight are both invisible to it. */
 
 .sweetie-message-row {
   display: flex;

@@ -91,10 +91,19 @@ async function recordScrolls(page: Page) {
   await page.addInitScript(() => {
     const seen: string[] = [];
     (window as unknown as { __scrollBehaviours: string[] }).__scrollBehaviours = seen;
-    const original = Element.prototype.scrollIntoView;
+    const intoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function (arg?: boolean | ScrollIntoViewOptions) {
       seen.push(typeof arg === "object" && arg?.behavior ? arg.behavior : "default");
-      return original.call(this, arg as ScrollIntoViewOptions);
+      return intoView.call(this, arg as ScrollIntoViewOptions);
+    };
+    // Both ways a page can move a scrolling region, because the Sweetie transcript changed from one to the
+    // other (T83): it now scrolls itself to the top of the newest message rather than to a sentinel at its
+    // end, and §6.4's claim is about the behaviour asked for, not about which call asks for it.
+    const scrollTo = Element.prototype.scrollTo;
+    Element.prototype.scrollTo = function (...args: [ScrollToOptions?] | [number, number]) {
+      const [first] = args;
+      seen.push(typeof first === "object" && first?.behavior ? first.behavior : "default");
+      return (scrollTo as (...rest: typeof args) => void).apply(this, args);
     };
   });
 }

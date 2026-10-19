@@ -73,7 +73,7 @@ export default function SweetiePage({
   const [micNote, setMicNote] = useState("");
   const [interim, setInterim] = useState("");
   const [support, setSupport] = useState({ listen: false, speak: false });
-  const bottom = useRef<HTMLDivElement>(null);
+  const transcript = useRef<HTMLDivElement>(null);
   const micOn = useRef(false);
   const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
@@ -161,10 +161,30 @@ export default function SweetiePage({
   }, [token]);
 
   useEffect(() => {
+    const region = transcript.current;
+    // The newest thing said, which is the last child of the transcript: a message row, the typing bubble,
+    // or the card that ends the check-in.
+    const newest = region?.lastElementChild as HTMLElement | null;
+    if (!region || !newest) return;
+    // Where the end of the transcript is, and where the top of the newest thing in it is. T83: scrolling to
+    // the end is right for a message that fits and wrong for one that does not — Sweetie's opening message
+    // is about 300 CSS pixels at 375px (she introduces herself, names the practice, asks for the exports and
+    // then asks the first question, all in one bubble), and a transcript shorter than that showed its *last*
+    // lines with the first one cut through the middle of the glyphs. That reads as a rendering fault rather
+    // than as "there is more above", and the words it hid were the ones that introduce her. So the region
+    // lands on the top of the newest message instead, and the clamp makes the two the same thing whenever
+    // the message fits: `end` is the smaller number then, so a short reply still settles at the bottom of
+    // the transcript the way it always did (design §6.5, §2.5).
+    const end = region.scrollHeight - region.clientHeight;
+    // In layout coordinates, not painted ones: the region is the `offsetParent` of what is in it
+    // (globals.css), and `offsetTop` is blind both to the 340ms entrance animation's 8px translate and to a
+    // glide still in flight. Taking the same number off a rect read either of those as position.
+    const padding = Number.parseFloat(getComputedStyle(region).paddingTop) || 0;
+    const top = newest.offsetTop - padding;
     // A smooth scroll is motion the `prefers-reduced-motion` block in globals.css cannot reach: the browser
     // takes the behaviour from this argument, not from the stylesheet. So the page asks the media query
     // itself and jumps instead of gliding when the patient has asked for less movement (design §6.4).
-    bottom.current?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth" });
+    region.scrollTo({ top: Math.max(0, Math.min(top, end)), behavior: reducedMotion() ? "auto" : "smooth" });
   }, [messages, interim, busy]);
 
   const applyReply = useCallback(
@@ -553,7 +573,7 @@ export default function SweetiePage({
                 finding (§6.4, §12.5): on a phone it is the taller half of the screen and the only way to
                 read back what was said. tabIndex makes it a tab stop, which is what gives arrow keys and
                 Page Up something to act on; the label is what a screen reader announces on arriving. */}
-            <div className="sweetie-messages" aria-live="polite" tabIndex={0} role="log" aria-label="Your conversation with Sweetie">
+            <div ref={transcript} className="sweetie-messages" aria-live="polite" tabIndex={0} role="log" aria-label="Your conversation with Sweetie">
               {messages.map((message, index) => (
                 <div
                   key={`${message.createdAt ?? "message"}-${index}`}
@@ -628,7 +648,6 @@ export default function SweetiePage({
                   <b aria-hidden="true">→</b>
                 </a>
               )}
-              <div ref={bottom} />
             </div>
 
             <form
