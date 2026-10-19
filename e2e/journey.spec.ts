@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
+import { expectTranscriptUncut } from "./mobile";
 import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
 import { MODAL, shot as rawShot, type ShotOptions } from "./shot";
 
@@ -223,6 +224,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // The transcript scrolls itself as messages land, and the card is the last thing in it; without this the
   // committed screenshot is of the middle of the conversation and shows nothing about the end of it.
   await doneCard.scrollIntoViewIfNeeded();
+  // The same frame T83's second criterion names, in the spec that writes it (§6.5).
+  await expectTranscriptUncut(page, "the end of the check-in");
   await shot(page, "09-sweetie-complete");
 
   // §2.7's patient view of the same week.

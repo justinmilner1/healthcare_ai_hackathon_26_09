@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
-import { expectNoHorizontalScroll } from "./mobile";
+import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
 
@@ -284,6 +284,9 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   const doneCard = page.locator(".sweetie-done-card");
   await expect(doneCard).toContainText(/check-in is complete/i, LOADED);
   await expect(doneCard).toBeInViewport();
+  // The card that ends the check-in is the last thing in the transcript, so it is the message T83's second
+  // criterion is about: on the phone this shot was of a completion card with its first line sliced off.
+  await expectTranscriptUncut(page, "the end of the check-in");
   await shot(page, "sweetie-done", WHOLE_PAGE);
 
   // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).

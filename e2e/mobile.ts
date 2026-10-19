@@ -211,6 +211,99 @@ export async function expectTapTargets(page: Page, screen: string): Promise<void
   ).toEqual([]);
 }
 
+/**
+ * The least room design §6.5 leaves Sweetie's transcript on a phone, in CSS pixels.
+ *
+ * Not a design figure — a regression gate. The page is `height: 100svh` with `overflow: hidden` above it, so
+ * every fixed row on it (the top bar, the demo-mode card, the progress strip, the stepper, the composer, the
+ * caption) is spent out of the same 667 pixels, and the transcript is the one element that takes what is
+ * left. Nothing stopped that remainder reaching zero: it was 103 pixels when T83 was written, less than a
+ * third of Sweetie's opening message, and the three mobile shots of her in that run were all of a greeting
+ * cut through the middle of a line. A row added to this page without a cut somewhere else now fails here
+ * rather than in a screenshot nobody measures.
+ *
+ * The number is the floor for the *worst* state of the screen rather than for its first one, because the
+ * page's own chrome grows as the check-in goes on. Measured on the tree that fixed T83: 251px on the
+ * opening screen and 200px once the patient has answered and "Skip the rest and view my week" has taken a
+ * 44px row of the strip. A safety flag is the third state — it drops the skip link but wraps the stepper
+ * onto a second line for its fourth pill — and e2e/mobile.spec.ts measures all three. 190 clears them and
+ * still fails on anything that takes another row.
+ */
+export const TRANSCRIPT_ROOM = 190;
+
+/**
+ * The newest thing Sweetie or the patient said is not cut off at the top of the transcript (T83, §6.5).
+ *
+ * The transcript is its own scrolling region and moves itself to the newest message, so what it is showing
+ * is a layout question and not only a CSS one. Two things are asked of it. The first line of the newest
+ * message is on screen — a message taller than the region shows its beginning, which is where the patient
+ * starts reading, rather than its end over a first line sliced through the glyphs. And a message that fits
+ * the region is in it whole, which is the same statement as "the region scrolled to its end" for anything
+ * short enough.
+ *
+ * Both are measured against the region's own box rather than the viewport's, because the region is what
+ * scrolls: an older message half out of the top of it is the patient having read on, not a defect.
+ *
+ * The room check is the phone's alone — a desktop transcript is half the window — but the two fit checks
+ * hold at any width, which is why the specs that drive the whole conversation call this too.
+ */
+export async function expectTranscriptUncut(page: Page, screen: string): Promise<void> {
+  const transcript = page.locator(".sweetie-messages");
+  await expect(transcript, `${screen}: no transcript on the page`).toBeVisible();
+  const measure = () =>
+    transcript.evaluate((element) => {
+      const newest = element.lastElementChild;
+      if (!newest) return null;
+      const region = element.getBoundingClientRect();
+      const box = newest.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const top = Number.parseFloat(style.paddingTop);
+      const padding = top + Number.parseFloat(style.paddingBottom);
+      const fits = box.height + padding <= element.clientHeight + 1;
+      const below = Math.round(Math.max(0, box.bottom - region.bottom));
+      const above = Math.round(Math.max(0, region.top - box.top));
+      return {
+        above,
+        below,
+        fits,
+        // Zero once the region has stopped moving: a message that fits is in the region whole, and one that
+        // does not sits with its first line at the top of it. Anything else is a glide still in flight,
+        // which is what the poll below waits out.
+        settling: fits
+          ? above + below
+          : Math.round(Math.abs((newest as HTMLElement).offsetTop - top - element.scrollTop)),
+        newest: Math.round(box.height),
+        region: Math.round(region.height),
+        text: (newest.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40),
+      };
+    });
+  // The region glides rather than jumps (§6.4), so the first read can be of a scroll still in flight — and
+  // `above` is zero throughout a downward glide, which makes it useless as the thing to wait on.
+  await expect
+    .poll(async () => (await measure())?.settling, {
+      message: `${screen}: the transcript never settled on the newest message`,
+    })
+    .toBeLessThanOrEqual(1);
+  const fit = await measure();
+  if (!fit) throw new Error(`${screen}: the transcript is empty, so there is nothing to measure`);
+  expect(
+    fit.above,
+    `${screen}: "${fit.text}…" is cut off at the top of the transcript, ${fit.above}px of it above the region (T83, design §6.5)`,
+  ).toBe(0);
+  if (fit.fits) {
+    expect(
+      fit.below,
+      `${screen}: "${fit.text}…" (${fit.newest}px) fits the transcript (${fit.region}px) and is still cut off at the bottom of it`,
+    ).toBe(0);
+  }
+  if (test.info().project.name === "mobile") {
+    expect(
+      fit.region,
+      `${screen}: the transcript is ${fit.region}px of the 375x667 screen, under the ${TRANSCRIPT_ROOM}px design §6.5 leaves it (T83)`,
+    ).toBeGreaterThanOrEqual(TRANSCRIPT_ROOM);
+  }
+}
+
 /** The four checks together, which is what every screen in e2e/mobile.spec.ts wants. */
 export async function expectMobileReady(page: Page, screen: string, stepper?: string): Promise<void> {
   await expectNoHorizontalScroll(page, screen);

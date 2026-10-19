@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
-import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets } from "./mobile";
+import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut } from "./mobile";
 import { shot, WHOLE_PAGE } from "./shot";
 
 // T23, design §6.5: every screen a patient sees, at the 375px width the section names. One spec rather than
@@ -82,6 +82,11 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
   await expect(page.locator(".sweetie-field-progress")).toBeVisible(LOADED);
   await expectMobileReady(page, "Sweetie's first question", ".sweetie-field-progress");
+  // T83: the screen a patient sees first, with one message in it. The transcript was 103px of this phone
+  // and the greeting about 300, so what they met was Sweetie's own introduction cut through the middle of a
+  // line of it — in this shot, in mobile-sweetie-done.png and in mobile-journey-09-sweetie-complete.png,
+  // and invisible to the gate because everything measured here measures width.
+  await expectTranscriptUncut(page, "Sweetie's first question");
 
   // The three upload chips share one row of the sidebar, so 375px is where their names run out of chip.
   // Nothing above catches it: the chips clip rather than widen the page, which is why this asks each name
@@ -103,6 +108,8 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expect(page.locator(".sweetie-messages")).toContainText(/Exhausted for six weeks/, LOADED);
   await expect(page.locator(".sweetie-field-done, .sweetie-field-current")).not.toHaveCount(0, LOADED);
   await expectMobileReady(page, "Sweetie mid-conversation", ".sweetie-field-progress");
+  // And once the patient's own words and Sweetie's next question are both in it (T83).
+  await expectTranscriptUncut(page, "Sweetie mid-conversation");
   await shot(page, "375-sweetie-answered", SCREEN);
 
   // The widest the bar ever gets: a red flag adds a fourth pill whose label is a phrase, on top of the
@@ -174,6 +181,9 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
     fit.cut,
     `the flagged card (${fit.card}px) does not fit the transcript (${fit.region}px) at 375px, so the patient has to scroll for the instruction`,
   ).toBe(0);
+  // The third state of this screen, and the one with the least room in it: the fourth step pill wraps the
+  // stepper onto a second line. Measured here too so the T83 floor is held where the chrome is widest.
+  await expectTranscriptUncut(page, "Sweetie with a flagged answer");
 
   await shot(page, "375-sweetie-flagged", SCREEN);
 });
