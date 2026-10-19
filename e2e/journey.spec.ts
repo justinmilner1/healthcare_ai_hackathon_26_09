@@ -296,6 +296,13 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  // T82 (§2.7, §7): the same week, the same five unplaced rises, and the other half of the rule. The
+  // patient's page drops the column; the clinician's keeps it and says "no matching visit", which is a true
+  // and useful thing to tell a reader who knows what lib/match.ts does. This is the handover asserted from
+  // the other end — the two pages read the same spikes and are deliberately not written alike.
+  const places = page.locator(".sour-card", { has: page.getByRole("heading", { name: "Spikes linked to places" }) });
+  await expect(places.getByRole("columnheader")).toHaveText(["When", "Rise", "Place"]);
+  await expect(places).toContainText("no matching visit");
   await shot(page, "12-sour-brief");
 
   // §7.3: the sign-off, by the clinician who read it.
