@@ -13,7 +13,9 @@ import {
   normalizeEmail,
   normalizePhone,
   smsKeyword,
+  SUPPRESSED_REASONS,
   suppressedReason,
+  SUPPRESSION_CODES,
   suppressionLabel,
   suppressionOn,
   suppressions,
@@ -67,6 +69,17 @@ describe("suppressions", () => {
     }
     assert.equal(suppressedReason({}, "email"), null);
     assert.match(suppressedReason({ emailUndeliverableAt: AT, emailUndeliverableReason: "complaint" }, "email")!, /spam/);
+  });
+
+  it("enumerates every reason it can give, so lib/delivery.ts can recognise one of ours (T74)", () => {
+    // The list is derived from the codes rather than copied, which is the whole point: a reason missing from
+    // it reads on the dashboard as a backend's own words and gets mapped away.
+    for (const code of SUPPRESSION_CODES) {
+      const facts = code === "stop" ? { smsOptOutAt: AT } : { emailUndeliverableAt: AT, emailUndeliverableReason: code };
+      const reason = suppressedReason(facts, code === "stop" ? "sms" : "email")!;
+      assert.ok(SUPPRESSED_REASONS.includes(reason), `${code}: ${reason}`);
+    }
+    assert.equal(SUPPRESSED_REASONS.length, new Set(SUPPRESSED_REASONS).size, "no duplicates to dedupe on screen");
   });
 
   it("labels a closed channel short enough for a dashboard cell", () => {

@@ -1576,6 +1576,13 @@ textarea.ss-input {
   white-space: normal;
 }
 
+/* T74 The one line under a pill that *is* about something broken: a message that did not go out because
+   this deployment cannot send on that channel. So it takes the failure red of the pill it sits under rather
+   than the amber above, which means "a provider told us something and staff need to read it". */
+.provider-delivery-fault {
+  color: #8c3b33;
+}
+
 .provider-stage-cancelled {
   color: #8a8781;
   background: #eeece6;

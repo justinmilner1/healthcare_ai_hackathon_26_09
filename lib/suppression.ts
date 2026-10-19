@@ -75,11 +75,23 @@ export function allowedChannels(channels: readonly NotifyChannel[], facts: Suppr
  */
 export function suppressedReason(facts: SuppressionFacts | null | undefined, channel: NotifyChannel): string | null {
   const hit = suppressionOn(facts, channel);
-  if (!hit) return null;
-  if (hit.code === "stop") return "the patient texted STOP, so texts are off (design §8.1)";
-  if (hit.code === "complaint") return "the address was reported as spam, so email is off (design §8.1)";
+  return hit ? reasonForCode(hit.code) : null;
+}
+
+/** The sentence for one code, split out so the list below can be the whole set rather than a copy of it. */
+function reasonForCode(code: SuppressionCode): string {
+  if (code === "stop") return "the patient texted STOP, so texts are off (design §8.1)";
+  if (code === "complaint") return "the address was reported as spam, so email is off (design §8.1)";
   return "the address bounced, so email is off (design §8.1)";
 }
+
+/** Every code there is, so a caller can enumerate the rule rather than restate it. */
+export const SUPPRESSION_CODES: readonly SuppressionCode[] = ["bounce", "complaint", "undeliverable", "stop"];
+
+/** Every sentence `suppressedReason` can produce. lib/delivery.ts recognises one of these on a delivery row
+ *  and passes it through to staff untouched; anything it does not recognise is a backend's own words and is
+ *  mapped (T74). Derived from the codes, so adding a code adds its reason here too. */
+export const SUPPRESSED_REASONS: readonly string[] = [...new Set(SUPPRESSION_CODES.map(reasonForCode))];
 
 /** How a closed channel reads on the dashboard (§8.3 "shown to staff"). Short: it sits under a status pill. */
 export function suppressionLabel(s: Suppression): string {

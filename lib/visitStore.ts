@@ -187,6 +187,10 @@ export type DeliveryRow = {
   kind: string;
   audience: string;
   status: string;
+  /** Which backend took the message — `ses`, `sns`, `resend`, `twilio` — or null when there was none to
+   *  take it. Not shown to staff: it is how lib/delivery.ts tells "a sender refused this" from "there is no
+   *  sender configured", which are different sentences on the dashboard (T74). */
+  providerName: string | null;
   providerMessageId: string | null;
   error: string | null;
   at: string;
@@ -205,6 +209,7 @@ export async function deliveriesByVisit(visitIds: string[]): Promise<Record<stri
       kind: r.kind,
       audience: r.audience,
       status: r.status,
+      providerName: r.providerName,
       providerMessageId: r.providerMessageId,
       error: r.error,
       at: r.at.toISOString(),

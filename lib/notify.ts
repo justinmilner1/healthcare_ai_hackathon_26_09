@@ -3,6 +3,13 @@
 // Each channel fails soft; the caller decides whether to show the link on screen.
 
 import { appUrl } from "./config";
+import {
+  DELIVERY_NOT_CHOSEN,
+  DELIVERY_NO_EMAIL,
+  DELIVERY_NO_PATIENT_EMAIL,
+  DELIVERY_NO_PHONE,
+  DELIVERY_NO_PROVIDER_EMAIL,
+} from "./delivery";
 import { demoBlockReason } from "./demo";
 import { sendEmail, type SendResult } from "./email";
 import { log } from "./log";
@@ -146,9 +153,9 @@ export async function sendVerificationCode(p: {
   const t = codeTemplates(p);
 
   const [sms, email] = await Promise.all([
-    blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: DELIVERY_NO_PHONE })),
     blockedBy(p, "email", p.email) ??
-      (p.email ? sendOrMailbox(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
+      (p.email ? sendOrMailbox(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: DELIVERY_NO_EMAIL })),
   ]);
 
   // The code itself is never a field: logSend records the channel and whether it left, nothing more.
@@ -177,16 +184,16 @@ export async function sendIntakeInvite(p: {
 }): Promise<InviteResult> {
   const t = inviteTemplates(p);
   const wanted = (channel: "sms" | "email") => !p.channels || p.channels.includes(channel);
-  const notChosen = { sent: false, error: "not a channel this patient consented to" };
+  const notChosen = { sent: false, error: DELIVERY_NOT_CHOSEN };
 
   const [sms, email] = await Promise.all([
     !wanted("sms")
       ? Promise.resolve(notChosen)
-      : blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+      : blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: DELIVERY_NO_PHONE })),
     !wanted("email")
       ? Promise.resolve(notChosen)
       : blockedBy(p, "email", p.email) ??
-        (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
+        (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: DELIVERY_NO_EMAIL })),
   ]);
 
   logSend("invite_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });
@@ -270,11 +277,11 @@ export async function sendSummaryEmails(p: {
     blockedBy({ demo: p.demo }, "email", p.provider.email) ??
       (p.provider.email
         ? sendEmail(p.provider.email, t.provider.subject, t.provider.text)
-        : Promise.resolve({ sent: false, error: "provider has no email" })),
+        : Promise.resolve({ sent: false, error: DELIVERY_NO_PROVIDER_EMAIL })),
     blockedBy({ demo: p.demo, suppression: p.patient }, "email", p.patient.email) ??
       (p.patient.email
         ? sendEmail(p.patient.email, t.patient.subject, t.patient.text)
-        : Promise.resolve({ sent: false, error: "patient has no email" })),
+        : Promise.resolve({ sent: false, error: DELIVERY_NO_PATIENT_EMAIL })),
   ]);
   logSend("summary_notified", { visitId: p.visit.id, patientId: p.patient.id }, { provider, patient });
   return { provider, patient };
@@ -337,9 +344,9 @@ export async function sendDeletionConfirmation(p: {
   const t = deletionTemplates(p);
 
   const [sms, email] = await Promise.all([
-    blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: "no phone on file" })),
+    blockedBy(p, "sms", p.phone) ?? (p.phone ? sendSms(p.phone, t.sms) : Promise.resolve({ sent: false, error: DELIVERY_NO_PHONE })),
     blockedBy(p, "email", p.email) ??
-      (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: "no email on file" })),
+      (p.email ? sendEmail(p.email, t.email.subject, t.email.text) : Promise.resolve({ sent: false, error: DELIVERY_NO_EMAIL })),
   ]);
 
   // No visitId: the visits are gone, which is the point. The patient id still resolves — §4.3 keeps the

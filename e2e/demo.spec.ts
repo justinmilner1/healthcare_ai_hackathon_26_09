@@ -18,6 +18,12 @@ import { shot } from "./shot";
 
 const LOADED = { timeout: 30_000 };
 
+/** T74 What a delivery tooltip must never contain: a variable name, a credential, the deployment's own
+ *  to-do list. Narrower than the guard in lib/delivery.test.ts, which has the senders' real strings behind
+ *  it: a tooltip here also carries the provider's message id (§8.3), which is opaque and may spell anything,
+ *  so the vendors' own names are left to the unit test. */
+const CONFIGURATION = /[A-Z][A-Z0-9]*_[A-Z0-9_]+|api[ _-]?key|credential|verified identity|not configured/i;
+
 test("the seeded practice says it is a demo, on the screen that explains what that changes", async ({ page }) => {
   await signInAsDemo(page);
   await page.goto("/provider/settings");
@@ -77,6 +83,18 @@ test("a demo practice does not message a number that could be somebody's", async
   await expect(rowFor(reservedPhone)).not.toContainText(/Demo practice:/i);
   const attemptedTitle = await attempted.getAttribute("title");
   expect(attemptedTitle ?? "", `the reserved number is not refused by §13.4 (title: ${attemptedTitle})`).not.toMatch(/demo practice/i);
+
+  // T74 (§8.3) But whatever it ran into, what staff are told about it is theirs to act on. This pill is the
+  // suite's one send that really tried and really did not arrive — no sender can deliver to a number in the
+  // fictitious range, so it fails in every environment — and its tooltip used to carry "SMS not configured
+  // (set Twilio or AWS keys)" from lib/sms.ts, or SNS's own words about an invalid security token.
+  expect(attemptedTitle ?? "", `the tooltip is written for staff (title: ${attemptedTitle})`).toMatch(
+    /Sweet Spot cannot send texts yet|The text did not go out/,
+  );
+  expect(attemptedTitle ?? "", "no variable, credential or backend on a practice's screen").not.toMatch(CONFIGURATION);
+  // And in words under the pill, for the same reason the demo line above is in words: this dashboard is
+  // tested at 375px (§6.5), where there is no hover and so no tooltip at all.
+  await expect(rowFor(reservedPhone).locator(".provider-delivery-fault")).toContainText(/ask whoever set/i);
 
   // One screenful at either width, with the row this test booked centred in it: the dashboard is as tall
   // as the practice's visit list and the Messages column on one row is all this is about (T57).

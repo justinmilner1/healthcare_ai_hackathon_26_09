@@ -17,6 +17,12 @@ import { E2E_TOPIC_ARN } from "../playwright.config";
 
 const LOADED = { timeout: 30_000 };
 
+/** T74 What a delivery tooltip must never contain: a variable name, a credential, the deployment's own
+ *  to-do list. Narrower than the guard in lib/delivery.test.ts, which has the senders' real strings behind
+ *  it: a tooltip here also carries the provider's message id (§8.3), which is opaque and may spell anything,
+ *  so the vendors' own names are left to the unit test. */
+const CONFIGURATION = /[A-Z][A-Z0-9]*_[A-Z0-9_]+|api[ _-]?key|credential|verified identity|not configured/i;
+
 const envelope = (over: Record<string, unknown> = {}) => ({
   Type: "Notification",
   MessageId: "22b480bf-3f2b-5b0c-a0a1-9d4f1f8d0b3a",
@@ -80,6 +86,19 @@ test("the dashboard shows what each message did, and why a channel is closed", a
   // Sam Sample's row is the control: nothing has gone wrong, so no suppression line and no bounce.
   const sam = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" });
   await expect(sam.locator(".provider-suppressed")).toHaveCount(0);
+
+  // T74 The tooltip is the one place a backend's own message reached a practice's screen, and it is in the
+  // DOM rather than in any screenshot, which is how "EMAIL_FROM must be a verified SES identity" sat beside
+  // a patient's name through twenty reviewed tickets. So every pill on this dashboard is read, not only the
+  // seeded ones: what has to hold is an absence, and the rows other specs booked are the ones whose sends
+  // really ran into this environment's missing senders (lib/delivery.ts maps them).
+  const titles = await page
+    .locator(".provider-table tbody .provider-data-pill")
+    .evaluateAll((pills) => pills.map((pill) => pill.getAttribute("title") ?? ""));
+  expect(titles.length, "there are delivery pills to read").toBeGreaterThan(0);
+  for (const title of titles) {
+    expect(title, "a delivery tooltip names no variable, credential or backend (T74, §8.3)").not.toMatch(CONFIGURATION);
+  }
 
   // The Messages cell on Dana's row is what this is about, and on a phone it is both a screen down and a
   // column to the right of what the dashboard opens on (T57).

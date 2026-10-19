@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
+import { deliveryFaults, deliveryTooltip } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { confirmsDeletion } from "@/lib/retention";
 import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
@@ -46,7 +47,7 @@ type Row = {
   consentRecordedBy: string | null;
   /** §8.3 What each message to this visit did, per kind, channel and audience. Empty until a notify job
    *  has run. `bounced` and `complained` arrive later, from SES's topic (lib/notifyStore.ts). */
-  deliveries: { channel: string; kind: string; audience: string; status: string; providerMessageId: string | null; error: string | null; at: string }[];
+  deliveries: { channel: string; kind: string; audience: string; status: string; providerName: string | null; providerMessageId: string | null; error: string | null; at: string }[];
   /** §8.1 The channels a provider has told us are closed, and why (lib/suppression.ts). */
   suppression: SuppressionFacts;
   token: string;
@@ -841,15 +842,13 @@ function Stage({ visit }: { visit: Row }) {
  *  "we sent it and it came back" is a different thing for staff to act on than "it never went". */
 const DELIVERY_MARK: Record<string, string> = { sent: "✓", failed: "✕", bounced: "↩", complained: "⚑", skipped: "–" };
 
-/** The tooltip on a pill: the provider's own reason, and its message id, which is what a support request to
- *  AWS quotes. Neither is an address or a body (§10.3), so both are safe on the screen. */
-const deliveryTitle = (d: Row["deliveries"][number] | undefined): string | undefined =>
-  d ? [d.error, d.providerMessageId].filter(Boolean).join(" · ") || undefined : undefined;
-
+/** The tooltip on a pill (lib/delivery.ts): the reason this message is where it is, written for staff, and
+ *  the message id a support request to AWS quotes (§8.3). Neither is an address or a body (§10.3), so both
+ *  are safe on a practice's screen — which is the whole of what the mapping is for (T74). */
 function DeliveryPill({ label, delivery }: { label: string; delivery: Row["deliveries"][number] | undefined }) {
   const status = delivery?.status ?? "queued";
   return (
-    <span className={`provider-data-pill provider-delivery-${status}`} title={deliveryTitle(delivery)}>
+    <span className={`provider-data-pill provider-delivery-${status}`} title={deliveryTooltip(delivery)}>
       {label} {DELIVERY_MARK[status] ?? "…"}
     </span>
   );
@@ -874,6 +873,11 @@ function Messages({ visit }: { visit: Row }) {
   // in the app rather than the one rule the demo is there to show off. One line however many channels it
   // was, because the answer is about the practice and not about this patient.
   const demoBlocked = visit.deliveries.some((d) => isDemoBlocked(d.error));
+  // T74 A send this deployment could not make: no email or SMS backend configured, or one that refused the
+  // message. The tooltip carries it too, but there is no hover on the 375px phone these pages are tested at
+  // (§6.5), and a red pill with no sentence beside it reads as a bug in the app — the same reason the two
+  // lines below exist. Deduplicated, so two channels failing the same way is one line.
+  const faults = deliveryFaults(visit.deliveries);
 
   return (
     <div className="provider-invite">
@@ -896,6 +900,11 @@ function Messages({ visit }: { visit: Row }) {
         </div>
       )}
       {demoBlocked && <small className="provider-suppressed">{DEMO_BLOCKED_LABEL}</small>}
+      {faults.map((text) => (
+        <small key={text} className="provider-suppressed provider-delivery-fault">
+          {text}
+        </small>
+      ))}
       {closed.map((s) => (
         // Why the pill above says what it says. Without this line a skipped invite looks like a bug in the
         // app rather than the provider telling us the address is dead or the patient asking us to stop.
