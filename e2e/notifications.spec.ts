@@ -78,8 +78,10 @@ test("the dashboard shows what each message did, and why a channel is closed", a
   await expect(dana.locator(".provider-delivery-sent")).toContainText("Text");
   const bounced = dana.locator(".provider-delivery-bounced");
   await expect(bounced).toContainText("Email");
-  // The provider's own words, on the pill rather than in a log: SES's subtype and its message id.
-  await expect(bounced).toHaveAttribute("title", /Permanent\/General/);
+  // The provider's own words, on the pill rather than in a log: SES's subtype and its message id. Both of
+  // them, exactly — §8.1 keeps a bounce's own wording where T74 maps a backend's refusal away, and §8.3 asks
+  // for the id a support request to AWS quotes.
+  await expect(bounced).toHaveAttribute("title", "Permanent/General · demo-ses-message-id");
   // §8.1 And the line that stops a skipped channel reading like a bug in the app.
   await expect(dana.locator(".provider-suppressed")).toContainText("Email bounced");
 
