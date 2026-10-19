@@ -38,6 +38,18 @@ const DEXCOM_PORT = PORT + 3;
 // shortcut needs a server of its own to be seen at all. e2e/demo.spec.ts is the only spec that uses it.
 const DEMO_PORT = PORT + 4;
 /**
+ * How long one test may run before Playwright calls it hung, in milliseconds.
+ *
+ * Like the build budget further down, this is a ceiling for a test that has stopped making progress, not an
+ * estimate of a healthy one — and 60s was being spent as if it were an estimate. On the reviewer's sandbox of
+ * 2026-10-18, where a build measured 547s against the ~63s the environment probe documents, tests that
+ * normally finish in seconds ran out of it in specs with nothing in common (`deletion`, `flows`,
+ * `durability`), each dying on a bare timeout that names the test rather than the clock (T89). The two specs
+ * that already ask for more (`flows.spec.ts:319`, `journey.spec.ts:77`) keep their own explicit numbers.
+ */
+const TEST_TIMEOUT_MS = Number(process.env.E2E_TEST_TIMEOUT_MS ?? 180_000);
+
+/**
  * How long each server below holds an idle keep-alive socket open, in milliseconds (T59).
  *
  * `next start` leaves Node's `server.keepAliveTimeout` at its five-second default, so the server retires an
@@ -53,20 +65,21 @@ const DEMO_PORT = PORT + 4;
  * they share is a request context reused across an idle gap, which is usually a screenshot or a run of page
  * assertions.
  *
- * Five minutes is longer than any test in the suite spends in one request context — `e2e/journey.spec.ts`
- * sets 240s and `timeout` below is the ceiling for the rest — and a request context lives at most one test,
- * so no socket can sit idle in a live context for long enough to be retired. Both of those are ceilings for
- * a hung test rather than estimates of a healthy one, and a test that actually ran for minutes on end would
- * have the slow box the timings table names (T89), not a retired socket, as its problem. The server therefore never closes an idle connection during a
- * run and the client is always the side that does, and a close the client initiated is not a reset it has to
- * read. The cost is a handful of sockets held open for the length of a run. The alternative fixes are worse: a
- * `retries` bump would hide real failures in the other 190 tests, and a retry wrapper in `e2e/api.ts` would
- * have to decide which of 60-odd `page.request` calls are safe to send twice.
+ * It has to outlast any test in the suite, because a request context lives at most one test: while that holds,
+ * no socket can sit idle in a live context for long enough to be retired, the server never closes an idle
+ * connection during a run, and the client is always the side that does — and a close the client initiated is
+ * not a reset it has to read. Five minutes was longer than the longest test when the longest was
+ * `e2e/journey.spec.ts` at 240s. It is derived now rather than flat, because `E2E_TEST_TIMEOUT_MS` is the
+ * override a routine on a slow box is told to reach for (T89): raising the per-test ceiling past a flat five
+ * minutes would have quietly handed this bug back. The cost is a handful of sockets held open for the length
+ * of a run. The alternative fixes are worse: a `retries` bump would hide real failures in the other 190
+ * tests, and a retry wrapper in `e2e/api.ts` would have to decide which of 60-odd `page.request` calls are
+ * safe to send twice.
  *
  * This is the suite's number only. `npm start` keeps Node's default, which is what a deployment behind a load
  * balancer wants.
  */
-const KEEP_ALIVE_MS = 300_000;
+const KEEP_ALIVE_MS = Math.max(300_000, TEST_TIMEOUT_MS + 60_000);
 
 /** `next start` for one of the servers below, on a port, with the keep-alive above. */
 const nextStart = (port: number) => `npx next start -p ${port} --keepAliveTimeout ${KEEP_ALIVE_MS}`;
@@ -86,13 +99,7 @@ const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.e
 
 export default defineConfig({
   testDir: "./e2e",
-  // Per test. Like the build budget below, this is a ceiling for a test that has hung, not an estimate of a
-  // healthy one — and 60s was being spent as if it were an estimate. On the reviewer's sandbox of 2026-10-18,
-  // where a build measured 547s against the ~63s the environment probe documents, tests that normally finish
-  // in seconds ran out of it in specs with nothing in common (`deletion`, `flows`, `durability`), each dying
-  // on a bare timeout that names the test rather than the clock (T89). The two specs that already ask for
-  // more (`flows.spec.ts:319`, `journey.spec.ts:77`) keep their own explicit numbers.
-  timeout: Number(process.env.E2E_TEST_TIMEOUT_MS ?? 180_000),
+  timeout: TEST_TIMEOUT_MS, // see TEST_TIMEOUT_MS above: a ceiling for a hung test, not an estimate
   retries: 0,
   // The §12.3 size gate (T61): after the last spec, every screenshot this run wrote is measured and one
   // taller than a reviewer can open fails the suite. e2e/screenshotSize.ts says what the limit is and why.
