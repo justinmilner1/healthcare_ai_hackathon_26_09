@@ -160,7 +160,7 @@ name a stack the branch cannot build. Quote it as evidence; it is about this tre
 expected it, the step failed: an assembly with no stack, or one naming a template that is not on disk, is now
 `infra-check: ...` on stderr and a non-zero exit rather than a confident line.
 
-### What is in a screenshot (T57)
+### What is in a screenshot (T57, T77)
 
 Every spec takes its shots through `shot()` in `e2e/shot.ts`, which decides how much of the page is in the
 image: the desktop project shoots the whole document, where a table row is one line of it, and the mobile
@@ -169,7 +169,14 @@ tall as the practice's visit list and came out 20,000 pixels of three-pixel rows
 where the subject asks for it: `WHOLE_PAGE` for a page bounded by its own content (a patient screen, the
 landing page, the printed sheet), `MODAL` for a dialog, which is one viewport's worth of subject at either
 width, and `scrollTo` to put the table card or one booked row in the shot before it is taken. Add a shot by
-calling the helper; a new `page.screenshot` call is the thing this replaced.
+calling the helper; a new `page.screenshot` call is the thing this replaced, and `npm run lint` now says so.
+
+The helper also freezes the page's transitions, for every shot (T77). `page.screenshot` leaves CSS running
+unless it is passed `animations: "disabled"`, so the shutter could open part-way through one and write a state
+the product is never in: the Sweetie progress bar (`transition: width 500ms`) gave both routines a
+`journey-09` labelled 100% over a bar filled 53% of the way, and a reviewer had to spend time working out
+that the bug was in the picture and not in the product. Read a PNG as the finished frame of whatever it is
+showing. A spec whose subject is a transition can pass `animations: "allow"`, and none does.
 
 The suite runs two app servers (T20). Port 3100 is the usual one, with no model key, and port 3101 is the same
 build with a key set and `OPENAI_BASE_URL` pointing at a closed loopback port, so `e2e/degraded.spec.ts` can see
