@@ -343,6 +343,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".sour-print-header")).toContainText(
     await asRendered(page, appt.iso, "dateTime", { weekday: "long", month: "short", day: "numeric" }),
   );
+  // T86 (§7.4, §7.3): the wizard never asked for a clinician (§2.2), so this sheet is the unassigned one —
+  // and it still names a clinician of this practice rather than "your care team", the words the patient's own
+  // pages use. The banner above names the colleague who signed it off; the header may not answer "nobody" to
+  // the same question (lib/visit.ts clinicianLine).
+  await expect(page.locator(".sour-print-clinician")).toHaveText(clinicianName);
+  await expect(page.locator(".sour-print-header"), "the patient's words on the clinician's document").not.toContainText(/your care team/i);
   await expect(page.locator(".sour-print-sheet")).toContainText("new job in August");
   await expect(page.locator(".sour-print-numbers")).toContainText("Time in range");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);

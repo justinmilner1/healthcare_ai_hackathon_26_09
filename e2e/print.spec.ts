@@ -120,6 +120,34 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   }
 });
 
+test("a visit with nobody assigned prints the practice's words for that, not the patient's", async ({ page }) => {
+  // T86 (§7.4, §2.2). Staff are never asked for a clinician when they book — POST /api/book takes
+  // `providerId` as optional and the wizard does not send one — so this is the ordinary sheet, not an edge
+  // case. The patient's own pages call that practice "your care team" (lib/visit.ts CARE_TEAM) and are right
+  // to; a one-pager that goes in a chart is read by the practice, and the practice is not the patient.
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Unassigned");
+  const booked = (await (
+    await postJson(page.request, "/api/book", { name: "E2E Unassigned", email, visitType: "follow_up", reason: "no clinician on the booking", channel: "none" })
+  ).json()) as { visitId: string };
+  expect(booked.visitId).toBeTruthy();
+
+  const opened = await page.goto(`/provider/visit/${booked.visitId}/print`);
+  expect(opened?.status()).toBe(200);
+  await expect(page.getByRole("heading", { level: 1, name: "E2E Unassigned" })).toBeVisible(LOADED);
+  await expect(page.locator(".sour-print-clinician")).toHaveText("No clinician assigned");
+  const header = page.locator(".sour-print-header");
+  await expect(header, "the patient's words on the clinician's document").not.toContainText(/your care team/i);
+  await expect(header, "and nothing else on the header addresses the reader as the patient").not.toContainText(/\byour\b/i);
+  // Still §7.4's sheet: the practice above the line, the print stamp below it, and no navigation anywhere.
+  await expect(page.locator(".sour-print-meta strong")).toHaveText("Sweet Spot Endocrinology");
+  await expect(page.locator(".sour-print-meta time")).toBeVisible();
+  for (const gone of [".sour-summary-sidebar", ".sour-patient-list", ".persona-brand", ".sour-brief-actions"]) {
+    await expect(page.locator(gone), `${gone} does not belong on the sheet`).toHaveCount(0);
+  }
+  await shot(page, "provider-print-unassigned");
+});
+
 test("the sheet is a clinician's: signed out, staff, and another practice all get the answer the API gives", async ({ page }) => {
   // Another practice's visit is a 404 and not a 403, because a 403 would confirm it exists (§5.2).
   await signInAsDemo(page);

@@ -8,6 +8,10 @@ import { markDemoPractice } from "./log";
 /** The care team name shown to a patient when the provider row has no name yet (Auth.js, §5.1). */
 export const CARE_TEAM = "your care team";
 
+/** And what the practice's own documents call the same visit: the words a clinician reads about their own
+ *  practice, never the patient's (§7.4, T86). `clinicianLine` below is what chooses between them. */
+export const NO_CLINICIAN = "No clinician assigned";
+
 const WITH_CONTEXT = {
   patient: { include: { practice: true } },
   providerUser: true,
@@ -48,6 +52,25 @@ export async function visitByToken(token: string | null | undefined) {
 
 export type VisitWithContext = NonNullable<Awaited<ReturnType<typeof findVisit>>>;
 
-/** Who the patient thinks they are talking to. */
+/** Who the patient thinks they are talking to. Patient-facing only, because the fallback is: a provider's
+ *  own document asks `clinicianLine` below instead (T86). */
 export const providerName = (visit: { providerUser: { name: string | null } | null }) =>
   visit.providerUser?.name ?? CARE_TEAM;
+
+/**
+ * The clinician named on a document the practice reads — §7.4's printed one-pager.
+ *
+ * Not `providerName`: its fallback addresses the reader as the patient, and the reader of a sheet that goes
+ * in a chart is the practice. §2.2 does not ask staff for a clinician when they book a visit, and the wizard
+ * never sends one, so an unassigned visit is the ordinary case and this is the ordinary line.
+ *
+ * `reviewedBy` is §7.3's sign-off, and it is an argument here so that two lines of the same sheet cannot
+ * disagree about whether anyone at the practice is attached to this visit: a page whose banner reads
+ * "Reviewed by Dr. Okafor" must not also say that nobody is. Whoever signed a summary off is a clinician of
+ * this practice holding this visit, so they are whose sheet it is when nobody has been assigned.
+ *
+ * `||` rather than `??` at both steps: a provider row whose name is blank or whitespace is as unnamed as one
+ * with no name at all, and printing it would leave the slot empty rather than say what it means.
+ */
+export const clinicianLine = (visit: { providerUser: { name: string | null } | null }, reviewedBy?: string | null) =>
+  visit.providerUser?.name?.trim() || reviewedBy?.trim() || NO_CLINICIAN;

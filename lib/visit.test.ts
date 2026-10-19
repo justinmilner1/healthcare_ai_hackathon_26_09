@@ -114,6 +114,45 @@ describe("lib/visit.ts", { skip: SKIP_WITHOUT_DB }, () => {
     });
   });
 
+  // T86 (§7.4, §7.3): the other audience. The printed one-pager goes in a chart, so the line under the
+  // practice name is read by the practice — and §2.2 never asks staff for a clinician, so the unassigned
+  // visit is the ordinary one and this is the ordinary line.
+  describe("clinicianLine", () => {
+    it("names the clinician the practice has attached to the visit", () => {
+      assert.equal(visit.clinicianLine({ providerUser: { name: "Dr. Named" } }), "Dr. Named");
+      // The sign-off does not displace an assignment, even when it is someone else's.
+      assert.equal(visit.clinicianLine({ providerUser: { name: "Dr. Named" } }, "Dr. Covering"), "Dr. Named");
+    });
+
+    it("says in the practice's own words that nobody is assigned, never the patient's (§5.1)", () => {
+      for (const given of [{ providerUser: null }, { providerUser: { name: null } }]) {
+        assert.equal(visit.clinicianLine(given), visit.NO_CLINICIAN);
+      }
+      assert.equal(visit.NO_CLINICIAN, "No clinician assigned");
+      assert.notEqual(visit.NO_CLINICIAN, visit.CARE_TEAM);
+      assert.doesNotMatch(visit.NO_CLINICIAN, /\byour\b/i, "'your ...' addresses the reader as the patient");
+    });
+
+    it("names whoever signed the summary off when nobody is assigned (§7.3)", () => {
+      // The sheet's banner reads "Reviewed by Dr. Okafor" four lines below this one; the header may not
+      // answer "nobody" to the same question.
+      assert.equal(visit.clinicianLine({ providerUser: null }, "Dr. Okafor"), "Dr. Okafor");
+      assert.equal(visit.clinicianLine({ providerUser: { name: null } }, "Dr. Okafor"), "Dr. Okafor");
+    });
+
+    it("treats a blank or whitespace name as no name, so the slot is never empty", () => {
+      assert.equal(visit.clinicianLine({ providerUser: { name: "   " } }), visit.NO_CLINICIAN);
+      assert.equal(visit.clinicianLine({ providerUser: { name: "" } }, " "), visit.NO_CLINICIAN);
+      assert.equal(visit.clinicianLine({ providerUser: { name: " " } }, "Dr. Okafor"), "Dr. Okafor");
+      assert.equal(visit.clinicianLine({ providerUser: { name: " Dr. Padded " } }), "Dr. Padded");
+    });
+
+    it("reads a visit the gate resolved, the one the print page holds", async () => {
+      assert.equal(visit.clinicianLine((await visit.findVisit(ids.nameless))!), visit.NO_CLINICIAN);
+      assert.equal(visit.clinicianLine((await visit.findVisit(ids.open))!), "Dr. Named");
+    });
+  });
+
   describe("the demo label (§13.4)", () => {
     /** Resolve a visit inside a request context and report whether the lines that request writes are labelled. */
     const labelAfterResolving = async (visitId: string) => {

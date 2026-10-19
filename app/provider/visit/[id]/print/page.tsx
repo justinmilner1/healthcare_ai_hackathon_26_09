@@ -30,7 +30,7 @@ import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
 import { countOf } from "@/lib/plural";
 import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
-import { findVisit } from "@/lib/visit";
+import { clinicianLine, findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
 import PrintControls from "./controls";
 import LocalTime from "./localTime";
@@ -96,7 +96,11 @@ export default async function PrintPage({
           </div>
           <div className="sour-print-meta">
             <strong>{bundle.patient.provider.practice ?? "Sweet Spot"}</strong>
-            <span>{bundle.patient.provider.name}</span>
+            {/* Not `bundle.patient.provider.name`, which is `providerName` and falls back to the words the
+                patient reads — "your care team" on a sheet the practice files is the patient addressing
+                themselves (T86). `clinicianLine` takes §7.3's sign-off as well, so this line and the
+                reviewed banner a few lines down cannot disagree about whether anyone here holds this visit. */}
+            <span className="sour-print-clinician">{clinicianLine(visit, review?.byName)}</span>
             <span>
               Printed <LocalTime iso={printedAt} options={STAMP} />
             </span>
