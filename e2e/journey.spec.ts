@@ -248,6 +248,19 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".patient-summary-content")).not.toContainText(/OPENAI|API_KEY/i);
   await expect(page.getByRole("heading", { name: "What your week showed" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Things you might ask your doctor" })).toHaveCount(0);
+
+  // T82 (§2.5, §2.7): this patient shared Dexcom and WHOOP and never a Timeline, which §2.5 allows and
+  // Sweetie stops asking about once declined. So there is no place to report against any of their rises,
+  // and the page says nothing about places rather than printing the matcher's "no matching visit" down a
+  // column that cannot ever say anything else. Asserted on the whole page, not just the table: the glucose
+  // card's caption promised "where you had just been" over the same absence.
+  const rises = page.locator(".patient-spikes");
+  await expect(rises, "the rises this patient did have").toContainText(/\d+ → \d+/);
+  await expect(rises.getByRole("columnheader"), "When and Rise, with no Where to draw").toHaveText(["When", "Rise"]);
+  await expect(page.locator(".patient-summary-content"), "the matcher's vocabulary on the patient's page")
+    .not.toContainText(/no matching visit/i);
+  await expect(page.locator(".patient-summary-content"), "a caption promising a column that is not there")
+    .not.toContainText(/where you had just been/i);
   await shot(page, "10-patient-summary");
 
   // ---- The clinician reads it, signs it off, prints it (§7.2, §7.3, §7.4) ------------------------------

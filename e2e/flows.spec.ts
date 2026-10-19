@@ -465,3 +465,73 @@ test("a file arriving after a summary makes it out of date, and regenerating wri
   expect(second.summaryStale).toBe(false);
   expect(second.providerSummaryAt).not.toBe(first.providerSummaryAt);
 });
+
+// T82 (design §2.5, §2.7): the other shape of the patient's "Where" column — this patient did share a
+// Timeline export, so some of their rises have a place against them and some do not.
+//
+// The no-place shape is asserted in e2e/journey.spec.ts, on the §12.2 patient who declines the Timeline.
+// Here the column is drawn, because it has something to say; what it must not say in the rows it cannot
+// place is "no matching visit", which is lib/match.ts's word for it and not the patient's. Runs in both
+// projects, so §6.5's width gets the mixed table too — the phone is where a third column has least room.
+test("patient summary: a rise with no place says it in the patient's words, not the matcher's", async ({ page }) => {
+  // Booking is staff's job and needs their session (§5.2); the summary below is read as the patient.
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Places");
+  const booked = await (
+    await postJson(page.request, "/api/book", {
+      name: "E2E Places",
+      email,
+      visitType: "follow_up",
+      reason: "some rises away from home",
+      channel: "none",
+    })
+  ).json();
+  expect(booked.token, `booking the mixed-places visit: ${booked.error ?? ""}`).toBeTruthy();
+
+  // Through the API for the same reason as the sweep above: page.request shares the browser's cookie jar,
+  // so the patient session lands where the goto needs it (§5.3).
+  await verifyByApi(page.request, booked.token, email);
+
+  // The week's readings and the Timeline that names a few of the places behind them. These are the same two
+  // samples e2e/mobile.spec.ts shares with its own patient, and matchSpikesToVisits places three of the five
+  // rises in them (§lib/match.ts: a visit that ended within 30 minutes before the rise, or overlaps it).
+  for (const [kind, path, name, type] of [
+    ["dexcom", "data/dexcom_clarity_sample.csv", "clarity.csv", "text/csv"],
+    ["timeline", "data/timeline_sample.json", "timeline.json", "application/json"],
+  ] as const) {
+    // Multipart, so postJson does not fit; the CSRF header is the one it would have added (§10.8).
+    const uploaded = await page.request.post("/api/upload", {
+      headers: { "x-csrf-token": await csrfToken(page.request) },
+      multipart: { token: booked.token, kind, file: { name, mimeType: type, buffer: readFileSync(path) } },
+    });
+    expect(uploaded.ok(), `${kind} upload: ${await uploaded.text()}`).toBeTruthy();
+  }
+
+  await page.goto(`/patient/${booked.token}`);
+  await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+
+  // The bundle first, so the test knows which shape it is asserting rather than hoping: this is the mixed
+  // case only while the matcher places some of the rises and not all of them. If the samples ever drift so
+  // that every rise has a place, this says so here instead of failing further down on a missing word.
+  const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
+  const placed = bundle.spikes.filter((s: { visit?: unknown }) => s.visit).length;
+  expect(placed, "some rises are placed").toBeGreaterThan(0);
+  expect(placed, "and some are not — this is the mixed shape").toBeLessThan(bundle.spikes.length);
+
+  // So the column is drawn, with its heading, and the caption above the chart may promise places again.
+  const rises = page.locator(".patient-spikes");
+  await expect(rises.getByRole("columnheader")).toHaveText(["When", "Rise", "Where"]);
+  await expect(page.locator(".patient-summary-content")).toContainText(/where you had just been/i);
+
+  // And the rows it cannot place answer in the patient's own words. "visit" is barred outright: on §2.7's
+  // page that word is the appointment they are preparing for (§4.4), never a place they went.
+  await expect(rises).toContainText("not sure");
+  await expect(rises, "the matcher's vocabulary").not.toContainText(/no matching visit/i);
+  await expect(rises, "the one word that means something else here").not.toContainText(/visit/i);
+
+  if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, mixed places");
+
+  // The spike card is well below a 375px fold, and it is the subject — the per-project default gets the
+  // desktop its document and scrolls the phone to the card rather than shooting the hero again.
+  await shot(page, "patient-summary-places", { scrollTo: ".patient-spikes" });
+});
