@@ -5022,6 +5022,36 @@ button.sweetie-agent-badge {
     margin-bottom: 16px;
   }
 
+  /* An admin's bar does not fit one line at this width, and §5.2 is the reason: they are the role that
+     manages the practice, so Settings and Audit sit here beside Add patient and Sign out, and 375px has
+     room for the wordmark and about two of them. `.ss-page` is `overflow: hidden`, so what did not fit was
+     cut off rather than scrolled to — the wordmark under "Add patient" and "Sign out" halved at the right
+     edge, with `document.scrollWidth` never moving (T79, §6.5). So the row wraps: the actions take a line
+     of their own, and wrap among themselves on it, when they cannot share one with the brand.
+
+     Width decides it, not the role, which is what keeps the other two bars as they were: staff have two
+     actions here and a clinician one, both of which still fit beside the wordmark, so flex never starts a
+     second line for them. Scoped to the provider screens (dashboard, settings, audit) because only they
+     carry a row of actions; the patient and landing bars are left alone. */
+  .provider-dashboard .ss-topbar {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  /* Still right-aligned, so a wrapped bar reads as the same bar one line lower rather than as a new block,
+     and tighter between its lines than the 20px that separates the brand from the actions beside it. The
+     grow is what makes that true on the line below: without it the row is only as wide as its buttons, and
+     a bar whose actions fit a line on their own — settings and the audit trail, three apiece — would hang
+     off the left edge while the dashboard's four, which have to fill the line, hang off the right. On the
+     brand's own line it changes nothing: there is one item to the right of the brand either way, and
+     flex-end leaves its buttons where space-between had already put them. */
+  .provider-dashboard .provider-top-actions {
+    flex-grow: 1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 8px;
+  }
+
   .persona-brand small {
     display: none;
   }
