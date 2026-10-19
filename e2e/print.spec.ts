@@ -120,32 +120,36 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   }
 });
 
-test("a visit with nobody assigned prints the practice's words for that, not the patient's", async ({ page }) => {
-  // T86 (§7.4, §2.2). Staff are never asked for a clinician when they book — POST /api/book takes
-  // `providerId` as optional and the wizard does not send one — so this is the ordinary sheet, not an edge
-  // case. The patient's own pages call that practice "your care team" (lib/visit.ts CARE_TEAM) and are right
-  // to; a one-pager that goes in a chart is read by the practice, and the practice is not the patient.
-  await signInAsDemo(page);
-  const email = patientEmail("E2E Unassigned");
+test("a visit with no clinician's name on it prints the practice's words for that, not the patient's", async ({ page }) => {
+  // T86 (§7.4, §5.1). The ordinary sheet, not an edge case: §2.2 never asks the wizard for a clinician, so
+  // `POST /api/book` puts the account that booked on the visit, and an account signed in by magic link has
+  // no name on its row until someone gives it one (lib/authAdapter.ts) — which is what the front desk an
+  // admin invites by email looks like (e2e/journey.spec.ts books through exactly that account, and its
+  // printed sheet is where this was found). The patient's own pages call the practice "your care team" in
+  // that state (lib/visit.ts CARE_TEAM) and are right to; a one-pager that goes in a chart is read by the
+  // practice, and the practice is not the patient.
+  const me = await signInAs(page, freshEmail("print-nameless", "nameless-print.com"));
+  expect(me.name, "a magic-link account starts with no name of its own (§5.1)").toBeFalsy();
+  const email = patientEmail("E2E Nameless Booking");
   const booked = (await (
-    await postJson(page.request, "/api/book", { name: "E2E Unassigned", email, visitType: "follow_up", reason: "no clinician on the booking", channel: "none" })
+    await postJson(page.request, "/api/book", { name: "E2E Nameless Booking", email, visitType: "follow_up", reason: "booked by an account with no name", channel: "none" })
   ).json()) as { visitId: string };
   expect(booked.visitId).toBeTruthy();
 
   const opened = await page.goto(`/provider/visit/${booked.visitId}/print`);
   expect(opened?.status()).toBe(200);
-  await expect(page.getByRole("heading", { level: 1, name: "E2E Unassigned" })).toBeVisible(LOADED);
-  await expect(page.locator(".sour-print-clinician")).toHaveText("No clinician assigned");
+  await expect(page.getByRole("heading", { level: 1, name: "E2E Nameless Booking" })).toBeVisible(LOADED);
+  await expect(page.locator(".sour-print-clinician")).toHaveText("No clinician recorded");
   const header = page.locator(".sour-print-header");
   await expect(header, "the patient's words on the clinician's document").not.toContainText(/your care team/i);
   await expect(header, "and nothing else on the header addresses the reader as the patient").not.toContainText(/\byour\b/i);
   // Still §7.4's sheet: the practice above the line, the print stamp below it, and no navigation anywhere.
-  await expect(page.locator(".sour-print-meta strong")).toHaveText("Sweet Spot Endocrinology");
+  await expect(page.locator(".sour-print-meta strong")).toHaveText(me.practice!);
   await expect(page.locator(".sour-print-meta time")).toBeVisible();
   for (const gone of [".sour-summary-sidebar", ".sour-patient-list", ".persona-brand", ".sour-brief-actions"]) {
     await expect(page.locator(gone), `${gone} does not belong on the sheet`).toHaveCount(0);
   }
-  await shot(page, "provider-print-unassigned");
+  await shot(page, "provider-print-no-clinician");
 });
 
 test("the sheet is a clinician's: signed out, staff, and another practice all get the answer the API gives", async ({ page }) => {

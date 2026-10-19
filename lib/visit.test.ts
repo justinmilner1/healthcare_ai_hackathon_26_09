@@ -115,25 +115,26 @@ describe("lib/visit.ts", { skip: SKIP_WITHOUT_DB }, () => {
   });
 
   // T86 (§7.4, §7.3): the other audience. The printed one-pager goes in a chart, so the line under the
-  // practice name is read by the practice — and §2.2 never asks staff for a clinician, so the unassigned
-  // visit is the ordinary one and this is the ordinary line.
+  // practice name is read by the practice — and the fallback is the ordinary case, not an edge one: §2.2
+  // never asks the wizard for a clinician, so the visit carries whoever booked it, and an invited colleague
+  // has no name on their row until they give one (§5.1). `ids.nameless` is that row.
   describe("clinicianLine", () => {
-    it("names the clinician the practice has attached to the visit", () => {
+    it("names the clinician the practice has put on the visit", () => {
       assert.equal(visit.clinicianLine({ providerUser: { name: "Dr. Named" } }), "Dr. Named");
       // The sign-off does not displace an assignment, even when it is someone else's.
       assert.equal(visit.clinicianLine({ providerUser: { name: "Dr. Named" } }, "Dr. Covering"), "Dr. Named");
     });
 
-    it("says in the practice's own words that nobody is assigned, never the patient's (§5.1)", () => {
+    it("says in the practice's own words that nobody is on record, never the patient's (§5.1)", () => {
       for (const given of [{ providerUser: null }, { providerUser: { name: null } }]) {
         assert.equal(visit.clinicianLine(given), visit.NO_CLINICIAN);
       }
-      assert.equal(visit.NO_CLINICIAN, "No clinician assigned");
+      assert.equal(visit.NO_CLINICIAN, "No clinician recorded");
       assert.notEqual(visit.NO_CLINICIAN, visit.CARE_TEAM);
       assert.doesNotMatch(visit.NO_CLINICIAN, /\byour\b/i, "'your ...' addresses the reader as the patient");
     });
 
-    it("names whoever signed the summary off when nobody is assigned (§7.3)", () => {
+    it("names whoever signed the summary off when no name is on the visit (§7.3)", () => {
       // The sheet's banner reads "Reviewed by Dr. Okafor" four lines below this one; the header may not
       // answer "nobody" to the same question.
       assert.equal(visit.clinicianLine({ providerUser: null }, "Dr. Okafor"), "Dr. Okafor");

@@ -8,9 +8,17 @@ import { markDemoPractice } from "./log";
 /** The care team name shown to a patient when the provider row has no name yet (Auth.js, §5.1). */
 export const CARE_TEAM = "your care team";
 
-/** And what the practice's own documents call the same visit: the words a clinician reads about their own
- *  practice, never the patient's (§7.4, T86). `clinicianLine` below is what chooses between them. */
-export const NO_CLINICIAN = "No clinician assigned";
+/**
+ * And what the practice's own documents call the same visit: the words a clinician reads about their own
+ * practice, never the patient's (§7.4, T86). `clinicianLine` below is what chooses between them.
+ *
+ * "recorded" rather than "assigned", because there usually *is* a row — §2.2 never asks the wizard for a
+ * clinician, so `POST /api/book` puts the account that booked on the visit, which is the front desk. What is
+ * missing is a name: the colleague an admin invited by email has none until they give one (§5.1,
+ * lib/authAdapter.ts), and that is the state this line is for. Saying nobody is assigned would be a claim
+ * about the row; saying nobody is recorded is a claim about the sheet, which is the true one.
+ */
+export const NO_CLINICIAN = "No clinician recorded";
 
 const WITH_CONTEXT = {
   patient: { include: { practice: true } },
@@ -61,8 +69,9 @@ export const providerName = (visit: { providerUser: { name: string | null } | nu
  * The clinician named on a document the practice reads — §7.4's printed one-pager.
  *
  * Not `providerName`: its fallback addresses the reader as the patient, and the reader of a sheet that goes
- * in a chart is the practice. §2.2 does not ask staff for a clinician when they book a visit, and the wizard
- * never sends one, so an unassigned visit is the ordinary case and this is the ordinary line.
+ * in a chart is the practice. Nor is that fallback rare. §2.2 never asks the wizard for a clinician, so the
+ * visit carries whoever booked it — the front desk — and an invited colleague has no name on their row until
+ * they give one (§5.1). So the ordinary sheet went out with the patient's words on it.
  *
  * `reviewedBy` is §7.3's sign-off, and it is an argument here so that two lines of the same sheet cannot
  * disagree about whether anyone at the practice is attached to this visit: a page whose banner reads
