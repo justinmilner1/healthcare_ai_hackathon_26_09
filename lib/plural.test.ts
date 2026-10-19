@@ -8,6 +8,9 @@ test("one is singular, zero and many are plural", () => {
   assert.equal(countOf(2, "spike"), "2 spikes");
   assert.equal(countOf(1, "day"), "1 day");
   assert.equal(countOf(7, "day"), "7 days");
+  // T80: the two counts the patient summary prints, which is the other side of T60's handover.
+  assert.equal(countOf(1, "reading"), "1 reading");
+  assert.equal(countOf(1, "day"), "1 day");
 });
 
 test("the count is grouped, because a week of readings passes a thousand", () => {

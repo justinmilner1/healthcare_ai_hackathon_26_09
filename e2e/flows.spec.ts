@@ -355,6 +355,63 @@ test("patient summary names the visit type in words, for every visit type", asyn
   }
 });
 
+// T80 (design §2.7, and the rule T60 put in lib/plural.ts): the patient's own summary counts things, so its
+// nouns have to agree with its numbers. The single-day case is the one nothing exercised — every other
+// patient-summary test here uploads the seven-day sample and takes the plural path — and it is the common
+// case rather than an edge one: lib/bundle.ts floors `days` at 1, so a patient who uploads the day before
+// their visit, which is when they are told to, lands on it every time.
+test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", async ({ page }) => {
+  // Booking is staff's job and needs their session (§5.2); the summary below is read as the patient.
+  await signInAsDemo(page);
+  const email = patientEmail("E2E One Day");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E One Day", email, visitType: "follow_up", reason: "a single day of data", channel: "none" })
+  ).json();
+  expect(booked.token, `booking the single-day visit: ${booked.error ?? ""}`).toBeTruthy();
+
+  // Verified through the API for the same reason as the sweep above: page.request shares the browser's
+  // cookie jar, so the patient session lands where the goto needs it (§5.3).
+  await verifyByApi(page.request, booked.token, email);
+
+  // clarity_window.csv is 84 readings inside one day — the fixture e2e/review.spec.ts uses to assert the
+  // provider half of this same rule. Multipart, so postJson does not fit; the header is the one it would
+  // have added (§10.8).
+  const uploaded = await page.request.post("/api/upload", {
+    headers: { "x-csrf-token": await csrfToken(page.request) },
+    multipart: {
+      token: booked.token,
+      kind: "dexcom",
+      file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: readFileSync("data/fixtures/clarity_window.csv") },
+    },
+  });
+  expect(uploaded.ok(), `POST /api/upload: ${await uploaded.text()}`).toBeTruthy();
+
+  await page.goto(`/patient/${booked.token}`);
+  await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+
+  // The "Week at a glance" tile. MiniStat renders the number and its noun as two elements, so they are
+  // asserted as two: `detail` is the whole of the last line, and it read the literal "days" before T80.
+  const history = page.locator(".patient-mini-stat", { hasText: "History" });
+  await expect(history.locator("strong"), "the history count").toHaveText("1", LOADED);
+  await expect(history.locator("small"), "the history noun").toHaveText("day");
+
+  // And the glucose card's pill, the other site — one text node, so the count and its noun are asserted
+  // together, grouped the way lib/plural.ts groups them.
+  const glucoseCard = page.locator(".patient-report-card", { hasText: "Your glucose" }).first();
+  await expect(glucoseCard.locator(".patient-card-heading span")).toHaveText("84 readings");
+
+  // The negative half, like e2e/review.spec.ts's on the provider side, so the defect cannot come back by
+  // another route: nowhere in the patient's own report does a 1 carry a plural. The single-*reading* case
+  // is the same call to countOf in the same line, and lib/plural.test.ts is what owns it.
+  await expect(page.locator(".patient-summary-content"), "a count agrees with its noun").not.toContainText(/\b1 (days|readings)\b/);
+
+  // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
+  // phone gets one screenful with the stat row scrolled to the top of it — the tile this ticket is about is
+  // well below a 375px fold, and a whole-page phone shot of this screen is the one §12.3 size gate already
+  // has an exception open for.
+  await shot(page, "patient-summary-single-day", { scrollTo: ".patient-mini-stats" });
+});
+
 // T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
 // it was made from, so a file arriving afterwards has to be visible as such — the chip says the summary is
 // out of date, and Regenerate really writes a new one rather than handing back the saved pair.
