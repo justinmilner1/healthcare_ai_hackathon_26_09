@@ -86,6 +86,9 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await page.getByRole("button", { name: /Skip connections/i }).click();
   await expect(page.getByRole("heading", { name: /You.re all set/i })).toBeVisible(LOADED);
   await expect(page.getByText("No data connected yet")).toBeVisible();
+  // The sentence under it follows the state too: "add more data" under "No data connected yet" offered to
+  // add to nothing, which is the mark's own confusion in words.
+  await expect(page.getByText("You can return to connections to add your data.")).toBeVisible();
   await expect(dataMark(page)).toHaveAttribute("data-mark", "none");
   // The glyph, not just the state: the tick is what the step before this one uses for CONNECTED, so the row
   // reporting that nothing arrived must not be drawing it.
@@ -106,6 +109,7 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: /You.re all set/i })).toBeVisible(LOADED);
   await expect(page.getByText("1 data source connected")).toBeVisible();
+  await expect(page.getByText("You can return to connections to add more data.")).toBeVisible();
   await expect(dataMark(page)).toHaveAttribute("data-mark", "connected");
   await expect(dataMark(page).locator('svg[data-icon="check"]')).toHaveCount(1);
   expect(

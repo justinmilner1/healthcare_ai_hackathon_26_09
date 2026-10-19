@@ -696,14 +696,18 @@ export default function SweetieIntakePage({
                     <span>
                       <strong>
                         {hasConnections
-                          ? `${connectedCount} data ${
-                              connectedCount === 1 ? "source" : "sources"
-                            } connected`
+                          ? `${countOf(connectedCount, "data source")} connected`
                           : dexcomStatus?.sandboxPatient
                             ? "You can connect the sandbox later"
                             : "No data connected yet"}
                       </strong>
-                      <small>You can return to connections to add more data.</small>
+                      {/* "more" only once there is some: the row under "No data connected yet" was offering
+                          to add to nothing, which is the same confusion between the two states the mark had. */}
+                      <small>
+                        {hasConnections
+                          ? "You can return to connections to add more data."
+                          : "You can return to connections to add your data."}
+                      </small>
                     </span>
                   </div>
                   <div className={styles.readyDivider} />
