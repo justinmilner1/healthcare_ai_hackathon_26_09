@@ -160,7 +160,7 @@ name a stack the branch cannot build. Quote it as evidence; it is about this tre
 expected it, the step failed: an assembly with no stack, or one naming a template that is not on disk, is now
 `infra-check: ...` on stderr and a non-zero exit rather than a confident line.
 
-### What is in a screenshot (T57, T77)
+### What is in a screenshot (T57, T77, T81)
 
 Every spec takes its shots through `shot()` in `e2e/shot.ts`, which decides how much of the page is in the
 image: the desktop project shoots the whole document, where a table row is one line of it, and the mobile
@@ -168,8 +168,17 @@ project shoots its 375px viewport, where it is not — a full-page phone shot of
 tall as the practice's visit list and came out 20,000 pixels of three-pixel rows. A spec overrides that
 where the subject asks for it: `WHOLE_PAGE` for a page bounded by its own content (a patient screen, the
 landing page, the printed sheet), `MODAL` for a dialog, which is one viewport's worth of subject at either
-width, and `scrollTo` to put the table card or one booked row in the shot before it is taken. Add a shot by
+width, `SCREENFUL` for the provider dashboard, whose height is the practice's visit list on either project,
+and `scrollTo` to put the table card or one booked row in the shot before it is taken. Add a shot by
 calling the helper; a new `page.screenshot` call is the thing this replaced, and `npm run lint` now says so.
+
+The desktop default was wrong about the dashboard too (T81). A desktop row is one line of a table, but the
+list still grows a row with every visit the suite books, so the whole document of it reached 7,015 pixels
+and the §12.3 size gate was excusing four desktop dashboard shots by name. Each of those shots was taken to
+show one row and already said which one in `scrollTo`, so all seven dashboard shots now take `SCREENFUL`
+and stay the same size however much the stack grows. `e2e/screenshot-exceptions.json` is down to the one
+entry that is not waiting for a fix: `mobile-375-patient-summary-full.png`, a page that is long by its own
+design and worth having whole.
 
 The helper also freezes the page's transitions, for every shot (T77). `page.screenshot` leaves CSS running
 unless it is passed `animations: "disabled"`, so the shutter could open part-way through one and write a state
