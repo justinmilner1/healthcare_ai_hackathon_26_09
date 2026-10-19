@@ -10,6 +10,7 @@ import styles from "./intake.module.css";
 import { apiFetch, CSRF_PARAM, ensureCsrfToken } from "@/lib/csrf";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
 import { dexcomCardHint } from "@/lib/dexcomHint";
+import { countOf } from "@/lib/plural";
 
 type DexcomStatus = {
   /** Which Dexcom this deployment talks to (design §9.2). The sandbox answers with synthetic readings, so
@@ -234,12 +235,14 @@ export default function SweetieIntakePage({
         throw new Error(asSentence(result.error ?? "That file could not be connected."));
       }
 
-      const label = result.count === 1 ? "record" : "records";
       setConnections((current) => ({
         ...current,
         [kind]: {
           state: "connected",
-          detail: `${result.count ?? 0} ${label} securely added`,
+          // The same counting rule as the brief and the patient summary, from the same helper (T60, T80).
+          // Grouped as well as agreeing: a week of Dexcom readings is "2,016 records", which is how the
+          // Sour brief and /patient/[id] both name this very upload.
+          detail: `${countOf(result.count ?? 0, "record")} securely added`,
         },
       }));
     } catch (error) {

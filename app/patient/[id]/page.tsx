@@ -12,6 +12,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
+import { countOf, plural } from "@/lib/plural";
 import type { PatientBundle } from "@/lib/types";
 import { visitLabel } from "@/lib/visits";
 
@@ -145,7 +146,15 @@ export default function PatientPage({
                 </article>
 
                 <div className="patient-mini-stats" aria-label="Week at a glance">
-                  <MiniStat label="History" value={`${stats.days}`} detail="days" />
+                  {/* MiniStat prints the value and its noun on two lines, so the noun comes from
+                      `plural` rather than `countOf` — the rule is lib/plural.ts's either way (T60, T80).
+                      lib/bundle.ts floors `days` at 1, so a patient who uploaded the day before their
+                      visit is the common case here and not an edge one. */}
+                  <MiniStat
+                    label="History"
+                    value={`${stats.days}`}
+                    detail={plural(stats.days, "day")}
+                  />
                   <MiniStat
                     label="Average"
                     value={`${stats.avg}`}
@@ -176,7 +185,7 @@ export default function PatientPage({
                       been, when available.
                     </p>
                   </div>
-                  <span>{stats.readings.toLocaleString()} readings</span>
+                  <span>{countOf(stats.readings, "reading")}</span>
                 </div>
                 <div className="patient-chart-wrap">
                   <GlucoseChart
