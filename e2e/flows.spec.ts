@@ -396,9 +396,13 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   await expect(history.locator("small"), "the history noun").toHaveText("day");
 
   // And the glucose card's pill, the other site — one text node, so the count and its noun are asserted
-  // together, grouped the way lib/plural.ts groups them.
-  const glucoseCard = page.locator(".patient-report-card", { hasText: "Your glucose" }).first();
-  await expect(glucoseCard.locator(".patient-card-heading span")).toHaveText("84 readings");
+  // together, grouped the way lib/plural.ts groups them. The card is found by its heading and not by
+  // `hasText`: the time-in-range card above it opens "Your glucose was between 70 and 180 for ...", so a
+  // text filter matches that one first and it has no pill to read.
+  const glucoseCard = page.locator(".patient-report-card", {
+    has: page.getByRole("heading", { name: "Your glucose", exact: true }),
+  });
+  await expect(glucoseCard.locator(".patient-card-heading > span")).toHaveText("84 readings");
 
   // The negative half, like e2e/review.spec.ts's on the provider side, so the defect cannot come back by
   // another route: nowhere in the patient's own report does a 1 carry a plural. The single-*reading* case
