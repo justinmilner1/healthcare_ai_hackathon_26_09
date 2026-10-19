@@ -67,6 +67,64 @@ export async function expectNothingScrollsSideways(page: Page, screen: string): 
 }
 
 /**
+ * A row nobody loses the end of: every control inside `selector` is whole, and none sits on another.
+ *
+ * expectNoHorizontalScroll cannot see this, by its own design above. `.ss-page` is `overflow: hidden`, so a
+ * row wider than the screen is clipped rather than scrolled and `document.scrollWidth` never moves — an
+ * admin's top bar ran past the right edge with the "Sour" wordmark under "Add patient" and "Sign out" cut in
+ * half, and §6.5's measurement passed on it for two months (T79). So this measures the controls instead, and
+ * asks the two questions a clipped row makes it impossible to answer from the document: is any of them over
+ * the edge, and is any of them hidden behind another.
+ *
+ * Overlap is judged between the leaves — the links and buttons a person actually presses — because the
+ * containers around them hold each other by design. Half a pixel of slack on both, for the same reason
+ * expectTapTargets takes it: these boxes are fractional and two that merely touch are not overlapping.
+ */
+export async function expectRowIntact(page: Page, selector: string, screen: string): Promise<void> {
+  const row = page.locator(selector).first();
+  await expect(row, `${screen}: no row matched ${selector}`).toBeVisible();
+  const measured = await row.evaluate((element) => {
+    const limit = document.documentElement.clientWidth;
+    const name = (node: Element): string => {
+      const text = (node.getAttribute("aria-label") ?? node.textContent ?? "").trim().replace(/\s+/g, " ");
+      return `${node.tagName.toLowerCase()} "${text.slice(0, 28)}"`;
+    };
+    const shown = [element, ...Array.from(element.querySelectorAll<HTMLElement>("a[href], button"))].filter(
+      (node) => {
+        const box = node.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      },
+    );
+    const clipped = shown
+      .filter((node) => {
+        const box = node.getBoundingClientRect();
+        return box.left < -0.5 || box.right > limit + 0.5;
+      })
+      .map((node) => {
+        const box = node.getBoundingClientRect();
+        return `${name(node)} [${Math.round(box.left)}…${Math.round(box.right)}]`;
+      });
+    const leaves = shown.filter((node) => node !== element && !node.querySelector("a[href], button"));
+    const stacked: string[] = [];
+    for (let i = 0; i < leaves.length; i += 1) {
+      for (let j = i + 1; j < leaves.length; j += 1) {
+        const a = leaves[i].getBoundingClientRect();
+        const b = leaves[j].getBoundingClientRect();
+        if (a.right > b.left + 0.5 && a.left + 0.5 < b.right && a.bottom > b.top + 0.5 && a.top + 0.5 < b.bottom) {
+          stacked.push(`${name(leaves[i])} over ${name(leaves[j])}`);
+        }
+      }
+    }
+    return { clipped, stacked, limit };
+  });
+  expect(
+    measured.clipped,
+    `${screen}: cut off at the ${measured.limit}px edge, where \`.ss-page\`'s overflow: hidden hides it (T79, design §6.5)`,
+  ).toEqual([]);
+  expect(measured.stacked, `${screen}: controls on top of one another (T79, design §6.5)`).toEqual([]);
+}
+
+/**
  * A stepper that fits: the element is no wider than its own scroll box.
  *
  * The steppers are `overflow-x: auto`, so a stepper that does not fit hides its later steps behind a scroll

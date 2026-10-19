@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
-import { expectNoHorizontalScroll } from "./mobile";
+import { expectNoHorizontalScroll, expectRowIntact } from "./mobile";
 import { shot } from "./shot";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
@@ -102,6 +102,12 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // admin reads where a `ready > 0` clinician gets the "Open Sour summaries" button.
   await expect(page.locator(".provider-hero-hint")).toHaveText(/Sour will light up/);
   await expectHintClearOfMascot(page, "clinician");
+  // §5.2 gives an admin the most crowded top bar in the product — Add patient, Audit, Settings, Sign out —
+  // and at 375px that is more than fits beside the wordmark. Measured on the bar rather than on the document
+  // because `.ss-page` is `overflow: hidden`: the row was clipped rather than scrolled, so §6.5's
+  // expectNoHorizontalScroll passed while "Sign out" was cut in half and the wordmark sat under a button
+  // (T79). Run at both widths, so the desktop bar is held to the same thing.
+  await expectRowIntact(page, ".ss-topbar", "the admin top bar on the dashboard");
   await shot(page, "provider-dashboard-nothing-ready");
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(/\/provider\/settings/);
@@ -119,6 +125,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.getByText(new RegExp(`Invited ${staffEmail.replace("+", "\\+")}`))).toBeVisible(LOADED);
   await expect(page.locator(".provider-table")).toContainText(staffEmail);
   await expect(page.locator(".provider-table")).toContainText("Invited");
+  await expectRowIntact(page, ".ss-topbar", "the admin top bar on practice settings");
   await shot(page, "provider-settings");
 
   // A retention window outside the bounds never leaves the browser — the input carries min and max, so the
@@ -132,6 +139,15 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // And the name cannot be blanked by a rename.
   expect((await patchJson(page.request, "/api/practice", { name: "   " })).status()).toBe(400);
   expect((await (await page.request.get("/api/practice")).json()).practice).toMatchObject({ name: "Northstar Roles", retentionDays: 90 });
+
+  // The third bar an admin has, and the third one that did not fit: the audit trail's (§10.2) carries
+  // Settings, a way back and Sign out. Nothing here reads the log — e2e/audit.spec.ts does that — this is
+  // the bar at 375px (T79).
+  await page.goto("/provider/audit");
+  await expect(page.getByRole("heading", { name: "Who touched what." })).toBeVisible(LOADED);
+  await expectRowIntact(page, ".ss-topbar", "the admin top bar on the audit trail");
+  await page.goto("/provider");
+  await expect(page.locator(".provider-hero-hint")).toBeVisible(LOADED);
 
   // The admin books a visit, so the practice has one for the colleague to find.
   const booked = await (
@@ -174,6 +190,21 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.getByRole("link", { name: /Open in Sour|Summarize/ })).toHaveCount(0);
 
   await expectHintClearOfMascot(page, "staff");
+  // The bar that already fitted, held to the same measurement: whatever makes room for the admin's four
+  // actions must leave these two where they were (T79).
+  await expectRowIntact(page, ".ss-topbar", "the staff top bar on the dashboard");
+  // And "where they were" is beside the wordmark. The room for an admin comes from letting this row wrap
+  // (globals.css, under 680px), and flex wraps on width, so a bar that fits must not have moved: staff have
+  // Add patient and Sign out, which do fit, and the bar is still the one row `.ss-topbar`'s min-height is.
+  // Measured here rather than eyeballed in the shot below, which is scrolled to the table's Actions column.
+  const staffBar = await page
+    .locator(".ss-topbar")
+    .first()
+    .evaluate((bar) => Math.round(bar.getBoundingClientRect().height));
+  expect(staffBar, "the staff top bar is still a single row (T79)").toBeLessThanOrEqual(56);
+  // One screenful from the top, so the bar an admin's fix had to leave alone is a picture as well as a
+  // number. The shot below is scrolled to the far right of the table and cannot show it (T57).
+  await shot(page, "provider-dashboard-staff-topbar", { fullPage: false });
   // What staff do not get is the point, and it is the Actions column that does not have it — the far right
   // of a table wider than a phone (T57).
   await shot(page, "provider-dashboard-staff", {
