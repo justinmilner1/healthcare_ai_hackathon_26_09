@@ -31,8 +31,8 @@ const LOADED = { timeout: 30_000 };
 // the practice's visit list, so the shots have a fixed height (T57). Nine of the ten are a screenful or two;
 // `375-patient-summary-full` is a patient's whole week and comes out around 6,000 pixels, which is the one
 // shot in the suite deliberately over the height T57 holds the rest to — scrolling a legible page is the
-// point of it. The cards fade in over 480ms; a shot taken mid-fade shows nothing about the layout underneath.
-const SCREEN = { ...WHOLE_PAGE, animations: "disabled" } as const;
+// point of it. The 480ms card fade is e2e/shot.ts's job, for every shot in the suite (T77).
+const SCREEN = WHOLE_PAGE;
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */
@@ -219,7 +219,7 @@ test("the three footers keep their caveat at 375px", async ({ page }) => {
   // Each shot is a screenful with the footer scrolled into it, rather than a whole page: the footer is the
   // subject, and the three pages it sits on are the landing page, the dashboard (as tall as the practice's
   // visit list) and the intake card. The whole-page shots of those screens are taken elsewhere.
-  const footerShot = (name: string, selector: string) => shot(page, name, { scrollTo: selector, animations: "disabled" });
+  const footerShot = (name: string, selector: string) => shot(page, name, { scrollTo: selector });
 
   // The landing page, which is public and is where a curious patient arrives first.
   await page.goto("/");

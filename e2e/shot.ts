@@ -14,6 +14,16 @@ import { test, type Locator, type Page } from "@playwright/test";
 // that wants something else says so — `{ fullPage: true }` for a phone shot of a whole page (the patient
 // screens in e2e/mobile.spec.ts are exactly that), `MODAL` for a dialog, which is one viewport's worth of
 // subject at either width.
+//
+// Transitions are frozen for every shot, which is the other half of the same promise (T77). `page.screenshot`
+// leaves CSS running unless it is passed `animations: "disabled"`, and the cards come in over 480ms: without
+// it the committed screenshot is a half-faded card, which says nothing about the contrast or the weight of
+// the type it was taken to show. Three specs had each found that and passed the option locally; the other
+// twenty did not, so most of the PNGs both routines read could be a frame part-way through a transition —
+// a state the product is never actually in. The Sweetie progress bar is the clearest of them
+// (`transition: width 500ms` in app/globals.css): `desktop-journey-09-sweetie-complete.png` said 100% over a
+// bar filled 53% of the way, and a reviewer had to spend time deciding whether that was a bug in the
+// product. It was a bug in the picture. So the shutter waits for the animation here, once, for every shot.
 
 /** The default for this project: the document on the desktop, one screenful on the phone. */
 export const fullPageByDefault = (): boolean => test.info().project.name === "desktop";
@@ -43,7 +53,11 @@ export type ShotOptions = {
    * than the row as `scrollTo`, with `inline: "center"`, brings that column into the shot.
    */
   inline?: "start" | "center" | "end" | "nearest";
-  /** Freeze the 480ms card fade, so the committed shot is the layout and not a half-faded card. */
+  /**
+   * Whether CSS transitions and animations keep running while the shutter is open. The default is
+   * `"disabled"` and there is no good reason for a spec to pass `"allow"`; it exists so that a spec whose
+   * subject *is* a transition can say so in one word rather than reaching past this helper.
+   */
   animations?: "disabled" | "allow";
 };
 
@@ -66,7 +80,13 @@ export const WHOLE_PAGE: ShotOptions = { fullPage: true };
  * `docs/screenshots/tickets/*` reference depend on.
  */
 export async function shot(page: Page, name: string, options: ShotOptions = {}): Promise<void> {
-  const { fullPage = fullPageByDefault(), scrollTo, block = "start", inline = "nearest", animations } = options;
+  const {
+    fullPage = fullPageByDefault(),
+    scrollTo,
+    block = "start",
+    inline = "nearest",
+    animations = "disabled",
+  } = options;
   if (scrollTo) {
     const target = typeof scrollTo === "string" ? page.locator(scrollTo) : scrollTo;
     await target.first().evaluate((element, position) => {
@@ -76,6 +96,6 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
   await page.screenshot({
     path: `e2e/screenshots/${test.info().project.name}-${name}.png`,
     fullPage,
-    ...(animations ? { animations } : {}),
+    animations,
   });
 }

@@ -19,11 +19,6 @@ import { shot } from "./shot";
 
 const LOADED = { timeout: 30_000 };
 
-// How much of the page is in the shot is e2e/shot.ts's decision; what these need on top of it is the fade.
-// The cards come in over 480ms, and without `animations` the committed screenshot is a half-faded card,
-// which says nothing about the contrast or the weight of the type it was taken to show.
-const SCREEN = { animations: "disabled" } as const;
-
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */
 async function book(page: Page, name: string) {
@@ -124,7 +119,7 @@ test("the code screen: axe, a labelled field, and focus that starts in it", asyn
   await expect(field).toHaveAttribute("aria-describedby", "verify-note");
 
   await expectNoSeriousA11yViolations(page, "patient code screen");
-  await shot(page, "a11y-code", SCREEN);
+  await shot(page, "a11y-code");
 });
 
 test("the consent screen: axe, both answers reachable by keyboard, and focus follows the decline", async ({ page }) => {
@@ -136,7 +131,7 @@ test("the consent screen: axe, both answers reachable by keyboard, and focus fol
   await expect(card).toBeVisible(LOADED);
 
   await expectNoSeriousA11yViolations(page, "patient consent screen");
-  await shot(page, "a11y-consent", SCREEN);
+  await shot(page, "a11y-consent");
 
   // Focus order (§6.4): agree comes before decline in the tab order, and neither needs a mouse.
   await page.locator("body").press("Tab");
@@ -174,7 +169,7 @@ test("Sweetie: axe, a keyboard-operable mic, live regions, and reduced motion re
   await expect(messages).toContainText(/Hi E2E/, LOADED);
 
   await expectNoSeriousA11yViolations(page, "Sweetie intake");
-  await shot(page, "a11y-sweetie", SCREEN);
+  await shot(page, "a11y-sweetie");
 
   // Live region (§6.4): the transcript grows without a navigation, so it announces itself, and so does the
   // step list that tracks it and the line on each upload card that carries that card's state.
@@ -244,7 +239,7 @@ test("the intake page passes axe and labels every file picker", async ({ page })
   }
 
   await expectNoSeriousA11yViolations(page, "patient intake");
-  await shot(page, "a11y-intake", SCREEN);
+  await shot(page, "a11y-intake");
 });
 
 test("the patient summary passes axe, empty and full", async ({ page }) => {
@@ -261,7 +256,7 @@ test("the patient summary passes axe, empty and full", async ({ page }) => {
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   await expect(page.locator(".patient-report-empty")).toBeVisible(LOADED);
   await expectNoSeriousA11yViolations(page, "patient summary, nothing connected");
-  await shot(page, "a11y-summary-empty", SCREEN);
+  await shot(page, "a11y-summary-empty");
 
   // And the page the ticket is really about: charts, the spike table, the sleep panel, the week's numbers.
   // Uploaded through the real route, as the intake screen does, so what axe reads is the rendered data.
@@ -286,5 +281,5 @@ test("the patient summary passes axe, empty and full", async ({ page }) => {
   await expect(page.locator(".patient-range-card")).toBeVisible(LOADED);
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await expectNoSeriousA11yViolations(page, "patient summary");
-  await shot(page, "a11y-summary", SCREEN);
+  await shot(page, "a11y-summary");
 });

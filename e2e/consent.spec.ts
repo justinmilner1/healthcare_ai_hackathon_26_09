@@ -47,9 +47,8 @@ test("the consent screen is what a verified link opens, and one tap goes through
   await expect(card).toContainText(/Sweet Spot Endocrinology/);
   // Sweetie is behind it: the chat is not in the page until consent is given.
   await expect(page.locator(".sweetie-messages")).toHaveCount(0);
-  // `animations: "disabled"` finishes the card's 480ms entrance before the shutter: without it the committed
-  // screenshot is a half-faded card and says nothing about the contrast or the weight of the type.
-  await shot(page, "consent", { ...WHOLE_PAGE, animations: "disabled" });
+  // The card's 480ms entrance is finished before the shutter by e2e/shot.ts, for every shot (T77).
+  await shot(page, "consent", WHOLE_PAGE);
 
   // One tap to continue (§2.4).
   await page.getByRole("button", { name: AGREE }).click();
@@ -92,7 +91,7 @@ test("declining ends the session politely, and the pages behind it close", async
   await expect(card).toContainText(/Nothing has been collected/i);
   await expect(card).toContainText(/appointment goes ahead/i);
   await expect(page.getByRole("button", { name: AGREE })).toHaveCount(0);
-  await shot(page, "consent-declined", { ...WHOLE_PAGE, animations: "disabled" });
+  await shot(page, "consent-declined", WHOLE_PAGE);
 
   // And ended: the session that was verified a moment ago is gone, so the API refuses this browser and the
   // pages behind the gate are back to asking for a code.
