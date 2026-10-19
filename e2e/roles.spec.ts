@@ -240,6 +240,12 @@ test("a practice cannot be left without an admin", async ({ page }) => {
   expect((await patchJson(page.request, `/api/practice/users/${me.id}`, { role: "clinician" })).ok()).toBeTruthy();
   expect((await page.request.get("/api/practice")).status()).toBe(403);
 
+  // The third role's top bar, so §6.5 is measured on all of them: a clinician books nothing and manages
+  // nothing, so Sign out is the whole of it (T79).
+  await page.goto("/provider");
+  await expect(page.locator(".provider-hero-hint")).toBeVisible(LOADED);
+  await expectRowIntact(page, ".ss-topbar", "the clinician top bar on the dashboard");
+
   // A clinician reads summaries, which is the half of §5.2 staff does not have.
   const booked = await (await postJson(page.request, "/api/book", { name: "Clinician Patient", channel: "none" })).json();
   expect(booked.error, "a clinician does not book visits").toMatch(/cannot do this/i);

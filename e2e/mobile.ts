@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // The three measurements design §6.5 asks of the patient pages, written once so every screen is judged the
 // same way (T23). playwright.config.ts pins the mobile project's viewport to 375px, which is the width the
@@ -79,11 +79,16 @@ export async function expectNothingScrollsSideways(page: Page, screen: string): 
  * Overlap is judged between the leaves — the links and buttons a person actually presses — because the
  * containers around them hold each other by design. Half a pixel of slack on both, for the same reason
  * expectTapTargets takes it: these boxes are fractional and two that merely touch are not overlapping.
+ *
+ * On a phone those same leaves are measured against TAP as well, which is the other half of the question a
+ * crowded row asks: the cheap way to make four actions fit 375px is to shrink them below a thumb, and that
+ * trades one §6.5 failure for another. Desktop is exempt, like every other width rule here — the buttons
+ * are smaller there on purpose and §6.5 is about the phone.
  */
 export async function expectRowIntact(page: Page, selector: string, screen: string): Promise<void> {
   const row = page.locator(selector).first();
   await expect(row, `${screen}: no row matched ${selector}`).toBeVisible();
-  const measured = await row.evaluate((element) => {
+  const measured = await row.evaluate((element, min) => {
     const limit = document.documentElement.clientWidth;
     const name = (node: Element): string => {
       const text = (node.getAttribute("aria-label") ?? node.textContent ?? "").trim().replace(/\s+/g, " ");
@@ -115,13 +120,25 @@ export async function expectRowIntact(page: Page, selector: string, screen: stri
         }
       }
     }
-    return { clipped, stacked, limit };
-  });
+    const small = leaves
+      .filter((node) => {
+        const box = node.getBoundingClientRect();
+        return box.width + 0.5 < min || box.height + 0.5 < min;
+      })
+      .map((node) => {
+        const box = node.getBoundingClientRect();
+        return `${name(node)} ${Math.round(box.width)}×${Math.round(box.height)}`;
+      });
+    return { clipped, stacked, small, limit };
+  }, TAP);
   expect(
     measured.clipped,
     `${screen}: cut off at the ${measured.limit}px edge, where \`.ss-page\`'s overflow: hidden hides it (T79, design §6.5)`,
   ).toEqual([]);
   expect(measured.stacked, `${screen}: controls on top of one another (T79, design §6.5)`).toEqual([]);
+  if (test.info().project.name === "mobile") {
+    expect(measured.small, `${screen}: controls under ${TAP}px (T79, design §6.5)`).toEqual([]);
+  }
 }
 
 /**
