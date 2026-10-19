@@ -13,6 +13,7 @@ import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import { countOf, plural } from "@/lib/plural";
+import { patientChartCaption } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
 import { visitLabel } from "@/lib/visits";
 
@@ -180,9 +181,12 @@ export default function PatientPage({
                 <div className="patient-card-heading">
                   <div>
                     <h2>Your glucose</h2>
+                    {/* T82 (§2.5, §2.7): the half-sentence about places is only true when a place is
+                        known. The patient's Where column and this caption read one predicate in
+                        lib/spikePlaces.ts, so a patient who never shared a Timeline is not promised a
+                        column that is not there. */}
                     <p className="patient-report-subtitle">
-                      Markers show your biggest rises and where you had just
-                      been, when available.
+                      {patientChartCaption(bundle.spikes)}
                     </p>
                   </div>
                   <span>{countOf(stats.readings, "reading")}</span>
@@ -202,7 +206,7 @@ export default function PatientPage({
                   <p className="patient-report-subtitle">
                     A simple timeline to help you remember what was happening.
                   </p>
-                  <SpikeTable spikes={bundle.spikes} compact />
+                  <SpikeTable spikes={bundle.spikes} compact patient />
                 </section>
               )}
 
