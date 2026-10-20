@@ -88,6 +88,14 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(page.getByRole("heading", { name: "Patterns" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ask the patient" })).toBeVisible();
   await expect(page.locator(".sour-print-questions li").first()).toBeVisible();
+  // T96 (§6.3, §7.4): the sheet carries the same sentence as the screen, out of lib/sourState.ts — and this
+  // suite runs with no model key, so this is the one it carries. It says the state and names the person who
+  // can act on it; it does not send the clinician holding the paper to a practice setting that is not there.
+  const narrativeNote = page.locator(".sour-print-narrative-note");
+  await expect(narrativeNote).toContainText(/Assistant not configured/i);
+  await expect(narrativeNote).toContainText(/the numbers are complete/i);
+  await expect(narrativeNote).toContainText(/ask whoever set Sweet Spot up for your office/i);
+  await expect(narrativeNote).not.toContainText(/administrator|turn it on/i);
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
   // T62: this visit has a Timeline export and no hand-labelled place list beside it, which is all a patient

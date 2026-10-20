@@ -179,9 +179,13 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // the note under the chip is the part only a saved summary puts there. This suite runs with no model key,
   // so Sour saves the numbers with both narrative sections empty and the reason as page state (T63, §6.3,
   // §11.3) — so the note's arrival is the queue having worked.
-  await expect(page.locator(".sour-degraded-note")).toContainText(/not enabled for this practice/i, LOADED);
-  // §2.7, §10.6: what the clinician is told is "ask your administrator", never the name of a variable, and
-  // the patient reads a version of this screen.
+  const note = page.locator(".sour-degraded-note");
+  await expect(note).toContainText(/Assistant not configured/i, LOADED);
+  // §2.7, §10.6: what the clinician is told is who to ask, never the name of a variable, and the patient
+  // reads a version of this screen. T96: nor a practice role — `Practice` has no assistant to enable, so a
+  // note pointing at Settings or at the practice admin points at nothing (lib/sourState.ts).
+  await expect(note).toContainText(/ask whoever set Sweet Spot up for your office/i);
+  await expect(note).not.toContainText(/administrator|turn it on/i);
   await expect(page.locator(".sour-brief")).not.toContainText(/OPENAI|API_KEY/i);
   await expect(page.locator(".sour-brief")).not.toContainText(/Sour is reading the data/i);
   // T15 (§7.2): the job's own state, not an inference from the summary's timestamp. Once the queue has run,

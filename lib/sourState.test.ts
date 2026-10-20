@@ -137,7 +137,22 @@ describe("narrativeNote", () => {
   it("tells a configured-but-unreachable gateway apart from a deployment with no model", () => {
     assert.match(narrativeNote("unavailable")!, /retry in a minute/i);
     assert.doesNotMatch(narrativeNote("unconfigured")!, /retry/i, "nobody at the practice can retry their way to a key");
-    assert.match(narrativeNote("unconfigured")!, /administrator/i, "who to ask is the actionable part");
+    assert.match(narrativeNote("unconfigured")!, /not configured/i, "the state is the point: no model was asked");
+  });
+
+  // T96: T63 swapped a variable name for a person and went one step too far, inventing the control that
+  // person would use. `Practice` has three settable fields and none of them is an assistant, so a note
+  // pointing at a practice role sends the clinician to Settings for something that is not there and the
+  // admin to a switch that exists nowhere in the product.
+  it("offers no practice-level remedy for a model the practice cannot configure", () => {
+    const note = narrativeNote("unconfigured")!;
+    assert.doesNotMatch(note, /administrator|\badmin\b/i, `names a practice role: ${note}`);
+    assert.doesNotMatch(note, /turn it on|enable|enabled|switch it on/i, `invents a control: ${note}`);
+    assert.doesNotMatch(note, /for this practice|your practice/i, `makes it the practice's setting: ${note}`);
+    // The one person who can actually act, in the words lib/delivery.ts already uses for a sender nobody
+    // has configured — so staff read the same phrase whichever thing the deployment is missing.
+    assert.match(note, /ask whoever set Sweet Spot up for your office/, note);
+    assert.match(note, /no practice setting/i, "and says outright that Settings is not where to look");
   });
 
   it("never names a variable, a key, or whoever deploys the app", () => {

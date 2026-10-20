@@ -97,8 +97,17 @@ export function summaryState({ job, hasSummary, stale, summaryAt }: SummaryState
  *
  * Neither sentence names an environment variable or tells anyone to go and set one: the patient reads a
  * version of this screen (§2.7) and a clinician cannot fix a deployment from the exam room. What the
- * clinician gets is which of the two it is — one clears on its own, the other needs someone at the practice
- * — and the assurance that the numbers are complete, because they are: lib/sour.ts computes them.
+ * clinician gets is which of the two it is — one clears on its own, the other does not clear from inside
+ * the product at all — and the assurance that the numbers are complete, because they are: lib/sour.ts
+ * computes them.
+ *
+ * Nor does either sentence promise a remedy nobody has (T96). `Practice` is `name`, `retentionDays` and
+ * `isDemo` (prisma/schema.prisma) and the settings page offers the first two, so there is no assistant to
+ * enable for a practice and no administrator who can enable one: whether a narrative is written is
+ * `OPENAI_API_KEY` and `BEDROCK_OPENAI_MODEL_ID`, which §3.7 and §10.6 make the deployment's and SSM
+ * Parameter Store's. The person to name is therefore the one lib/delivery.ts names for a sender nobody has
+ * configured — whoever set Sweet Spot up for the office — and the note says outright that no practice
+ * setting is the answer, so a clinician does not go looking for one in Settings.
  */
 export function narrativeNote(missing: NarrativeMissing | undefined): string | null {
   if (missing === "unavailable") {
@@ -106,7 +115,9 @@ export function narrativeNote(missing: NarrativeMissing | undefined): string | n
     return "Model gateway unavailable: the numbers are complete; patterns and questions were not generated. Retry in a minute.";
   }
   if (missing === "unconfigured") {
-    return "The assistant is not enabled for this practice, so the numbers are complete but no patterns or questions were written. Your practice administrator can turn it on.";
+    // T96: the state, and then the one true thing a reader can do about it — shaped like the sibling above,
+    // because §6.3 asks for a note that says what the state is and not one that invents a control.
+    return "Assistant not configured: the numbers are complete; patterns and questions were not generated. No practice setting turns this on — ask whoever set Sweet Spot up for your office.";
   }
   return null;
 }
