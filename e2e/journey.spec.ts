@@ -5,7 +5,8 @@ import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { expectTranscriptUncut } from "./mobile";
 import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
-import { MODAL, shot as rawShot, type ShotOptions } from "./shot";
+import { expectChartTooltipsLabelled } from "./charts";
+import { MODAL, SCREENFUL, shot as rawShot, type ShotOptions } from "./shot";
 
 // T26 (design §12.2): "both flows against a seeded database: staff creates a visit, patient verifies and
 // completes intake in scripted mode, Sour summary appears, clinician marks reviewed" — as one journey,
@@ -265,6 +266,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".patient-summary-content"), "a caption promising a column that is not there")
     .not.toContainText(/where you had just been/i);
   await shot(page, "10-patient-summary");
+  // T87 (§2.7): the charts on this page are read by hovering them, and until this ticket every tooltip
+  // read "Glucose : 118 mg/dL" — Recharts' default separator, on a page written in plain English.
+  await expectChartTooltipsLabelled(page, "the patient's own summary", () =>
+    shot(page, "10-patient-summary-tooltip", SCREENFUL),
+  );
 
   // ---- The clinician reads it, signs it off, prints it (§7.2, §7.3, §7.4) ------------------------------
   await signOutOfBrowser(page);
@@ -307,6 +313,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(places.getByRole("columnheader")).toHaveText(["When", "Rise", "Place"]);
   await expect(places).toContainText("no matching visit");
   await shot(page, "12-sour-brief");
+  // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
+  await expectChartTooltipsLabelled(page, "the clinician's brief", () =>
+    shot(page, "12-sour-brief-tooltip", SCREENFUL),
+  );
 
   // §7.3: the sign-off, by the clinician who read it.
   await page.getByRole("button", { name: "Mark reviewed" }).click();
@@ -353,6 +363,9 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".sour-print-numbers")).toContainText("Time in range");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await shot(page, "15-print-sheet");
+  // And the third (§7.4). The sheet is read on screen before it is sent to paper, so its charts have
+  // tooltips like the other two; nothing here is about what the printer puts on the page.
+  await expectChartTooltipsLabelled(page, "the printed sheet");
 
   // One last look at the state behind all of it: the visit is reviewed, the sign-off names the clinician and
   // not the staff account that booked it, and the intake is recorded as complete.
