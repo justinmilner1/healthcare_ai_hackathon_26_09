@@ -518,7 +518,9 @@ export default function SweetieIntakePage({
                   </h1>
                   <p className={styles.lede}>
                     {dexcomStatus?.sandboxPatient
-                      ? "Demo mode: connect Dexcom to explore synthetic readings. Other sources are available in your regular intake."
+                      ? offersDexcomConnection
+                        ? "Demo mode: connect Dexcom to explore synthetic readings. Other sources are available in your regular intake."
+                        : "Demo mode: synthetic readings only. Other sources are available in your regular intake."
                       : offersDexcomConnection
                         ? "Connect Dexcom or upload a file. Add sleep and location for more context."
                         : "Upload your Dexcom export. Add sleep and location for more context."}
