@@ -52,6 +52,8 @@ test.describe("DEXCOM_ENV=production", () => {
     const connect = page.getByRole("button", { name: "Connect Dexcom", exact: true });
     await expect(connect).toBeVisible(LOADED);
     await expect(connect).toBeEnabled();
+    // The lede promises the connection this screen has (T91).
+    await expect(page.getByText(/Connect Dexcom or upload a file/)).toBeVisible();
     await expect(page.getByRole("button", { name: /Connect Dexcom · Demo/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
     // Nothing on the card may describe the import as synthetic, or as a demonstration session: these are
@@ -74,6 +76,10 @@ test.describe("DEXCOM_ENV=production", () => {
     await expect(page.getByRole("button", { name: /Connect Dexcom · Demo/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Connect Dexcom", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
+    // And the lede over the cards does not promise one either: it offered "Connect Dexcom or upload a
+    // file" above a panel whose only control is the upload.
+    await expect(page.getByText(/Connect Dexcom or upload a file/)).toHaveCount(0);
+    await expect(page.getByText(/Upload your Dexcom export/)).toBeVisible();
     // Nor does anything on the card explain the absence in the deployment's words (§2.5, the T71 rule).
     const sandboxCard = page.locator("section, div").filter({ hasText: /Glucose trends/ }).last();
     await expect(sandboxCard).toContainText(/Upload your Clarity CSV export/);

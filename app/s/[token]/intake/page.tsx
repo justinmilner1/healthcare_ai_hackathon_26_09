@@ -307,6 +307,17 @@ export default function SweetieIntakePage({
     : Object.values(connections).filter(
         (connection) => connection.state === "connected",
       ).length;
+  // Whether there is a Dexcom connection to offer at all, which the lede below promises before any card is
+  // on the screen (T91). False while the status is still on the wire, so the promise appears with the
+  // control rather than the other way round.
+  const offersDexcomConnection = dexcomStatus
+    ? dexcomConnectControl({
+        env: dexcomStatus.env,
+        configured: dexcomStatus.configured,
+        canConnect: dexcomStatus.canConnect,
+        sandboxPatient: dexcomStatus.sandboxPatient,
+      }) !== "none"
+    : false;
   // T84 (§2.4, §2.5): the setup-complete card reports what was shared, so the row that says nothing was
   // has to look different from the row that says something was. The green tick means CONNECTED everywhere
   // else in this flow, one step earlier included, so it cannot also decorate "No data connected yet".
@@ -508,7 +519,9 @@ export default function SweetieIntakePage({
                   <p className={styles.lede}>
                     {dexcomStatus?.sandboxPatient
                       ? "Demo mode: connect Dexcom to explore synthetic readings. Other sources are available in your regular intake."
-                      : "Connect Dexcom or upload a file. Add sleep and location for more context."}
+                      : offersDexcomConnection
+                        ? "Connect Dexcom or upload a file. Add sleep and location for more context."
+                        : "Upload your Dexcom export. Add sleep and location for more context."}
                   </p>
                 </div>
 
