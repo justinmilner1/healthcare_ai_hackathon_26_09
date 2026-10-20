@@ -30,6 +30,7 @@ import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
 import { countOf } from "@/lib/plural";
 import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
+import { clinicianChartCaption } from "@/lib/spikePlaces";
 import { clinicianLine, findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
 import PrintControls from "./controls";
@@ -244,9 +245,7 @@ export default async function PrintPage({
             {bundle.status.hasDexcom && (
               <section className="sour-card">
                 <h2>Glucose, last {countOf(st?.days ?? 7, "day")}</h2>
-                <p className="text-xs text-[var(--viz-muted)]">
-                  Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.
-                </p>
+                <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes)}</p>
                 <div className="mt-2">
                   <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} height={220} />
                 </div>

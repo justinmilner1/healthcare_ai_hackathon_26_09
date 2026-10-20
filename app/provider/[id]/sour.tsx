@@ -26,6 +26,7 @@ import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { countOf } from "@/lib/plural";
 import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
+import { clinicianChartCaption } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
@@ -499,7 +500,7 @@ export default function SourView({ id }: { id: string }) {
                 {bundle.status.hasDexcom && (
                 <section className="sour-card sour-chart-card">
                   <h3 className="text-sm font-semibold">Glucose, last {countOf(st?.days ?? 7, "day")}</h3>
-                  <p className="text-xs text-[var(--viz-muted)]">Shaded band is 70–180 mg/dL. Red markers are spikes, labeled with the place the patient had just left.</p>
+                  <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes)}</p>
                   <div className="mt-2">
                     <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
                   </div>
