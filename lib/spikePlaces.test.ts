@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { anyPlaceKnown, patientChartCaption, UNKNOWN_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, clinicianChartCaption, patientChartCaption, UNKNOWN_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -61,4 +61,47 @@ test("the caption and the column agree, because both read one predicate", () => 
   for (const spikes of [[], [spike()], [spike(somewhere("Noe Cafe"))], [spike(), spike(somewhere("Home"))]]) {
     assert.equal(/where you had just been/.test(patientChartCaption(spikes)), anyPlaceKnown(spikes));
   }
+});
+
+// T99 (§2.6, §7.4): the same question on the clinician's two surfaces, where the caption used to call
+// every marker a place and the markers were peak mg/dL.
+
+test("the clinician's caption calls the labels what they are when no place matched (T99)", () => {
+  // The §12.2 journey visit: Dexcom and WHOOP, no Timeline, five spikes labeled 206, 202, 214, 210, 194.
+  const caption = clinicianChartCaption([spike(), spike(), spike(), spike(), spike()]);
+  assert.match(caption, /peak mg\/dL/);
+  assert.doesNotMatch(caption, /the place the patient had just left/);
+  // And it agrees with the "Spikes linked to places" card beside it, which reads 0 on this visit.
+  assert.match(caption, /no place matched/);
+});
+
+test("and names the place where one matched, with the number as the other case (T99)", () => {
+  const caption = clinicianChartCaption([spike(somewhere("Noe Cafe")), spike()]);
+  assert.match(caption, /the place the patient had just left/);
+  assert.match(caption, /peak mg\/dL/);
+});
+
+test("neither shape promises that every marker is labeled (T99)", () => {
+  // GlucoseChart keeps the marker and drops the label when two would collide, so "labeled with ..." of the
+  // markers as a set was never true, even on a visit full of places.
+  for (const spikes of [[], [spike()], [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))]]) {
+    const caption = clinicianChartCaption(spikes);
+    assert.match(caption, /Labels, where they fit,/);
+    assert.doesNotMatch(caption, /Red markers are spikes, labeled with/);
+  }
+});
+
+test("the band sentence is the same on the brief and on the printed sheet (T99)", () => {
+  // One function is what keeps the two strings in step; both surfaces call it with the same spikes.
+  for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
+    assert.match(clinicianChartCaption(spikes), /^Shaded band is 70\u2013180 mg\/dL\. /);
+  }
+});
+
+test("the clinician's caption keeps the clinician's register, not the patient's (T99)", () => {
+  for (const spikes of [[], [spike(somewhere("Home"))]]) {
+    assert.doesNotMatch(clinicianChartCaption(spikes), /\byour\b|\byou\b/i);
+  }
+  // And the patient's page is unchanged by this ticket.
+  assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
 });

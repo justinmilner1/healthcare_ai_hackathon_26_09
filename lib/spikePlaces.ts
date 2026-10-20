@@ -1,4 +1,5 @@
-// What the patient's own "biggest rises" table says about where they were (design §2.5, §2.7). Owner: sour.
+// What a page may say about where the patient was when a rise started (design §2.5, §2.6, §2.7, §7.4).
+// Owner: sour. The patient's "biggest rises" table and the chart caption on all three surfaces read it.
 //
 // The place on a Spike comes from the Timeline export, which §2.5 makes optional and Sweetie's `nextTarget`
 // stops offering once the patient declines it. So a patient who shared only Dexcom has a spike table whose
@@ -46,4 +47,28 @@ export function patientChartCaption(spikes: Spike[]): string {
   return anyPlaceKnown(spikes)
     ? "Markers show your biggest rises and where you had just been, when available."
     : "Markers show your biggest rises.";
+}
+
+/** The one sentence about the target band, identical on the brief and on the printed sheet. */
+const TARGET_BAND = "Shaded band is 70–180 mg/dL.";
+
+/**
+ * The caption under the glucose chart on the two clinician surfaces: the brief (§2.6) and the printed
+ * one-pager (§7.4). One function, so the two strings cannot drift apart (T99).
+ *
+ * It used to promise, on both, that the red markers were "labeled with the place the patient had just
+ * left". They are labeled with the place when one matched and with the peak mg/dL when none did
+ * (components/GlucoseChart.tsx), and §2.5 makes the Timeline export optional — so on the ordinary
+ * Dexcom-only visit every label was a number the caption called a place, beside a Spikes card already
+ * reading "0 linked to a place".
+ *
+ * Two things it therefore does not say. Not that a label is a place, unless one is: with no place known
+ * anywhere the caption names the peak reading and says outright that nothing matched, which is what the
+ * card beside it says. And not that every marker carries a label: GlucoseChart drops a label that would
+ * collide with the one before it, keeping the marker, so the labels are the ones that fit.
+ */
+export function clinicianChartCaption(spikes: Spike[]): string {
+  return anyPlaceKnown(spikes)
+    ? `${TARGET_BAND} Red markers are spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.`
+    : `${TARGET_BAND} Red markers are spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.`;
 }
