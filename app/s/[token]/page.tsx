@@ -58,6 +58,10 @@ export default function SweetiePage({
   const [sandboxPatient, setSandboxPatient] = useState<boolean | null>(null);
   // Which Dexcom this deployment talks to (design §9.2): the demo below only exists for the sandbox.
   const [dexcomEnv, setDexcomEnv] = useState<DexcomEnv | null>(null);
+  // And whether an operator has given this deployment Dexcom credentials. Never said to the patient — it
+  // decides whether the demo card below is on the screen at all, because without them the demo route
+  // answers 503 and the card is a button that cannot work (T91, §2.5).
+  const [dexcomConfigured, setDexcomConfigured] = useState(false);
   const [dexcomStatusError, setDexcomStatusError] = useState(false);
   const [intake, setIntake] = useState<IntakeState | null>(null);
   const [fields, setFields] = useState<IntakeFieldDef[]>([]);
@@ -86,6 +90,7 @@ export default function SweetiePage({
     const controller = new AbortController();
     setSandboxPatient(null);
     setDexcomEnv(null);
+    setDexcomConfigured(false);
     setDexcomStatusError(false);
     fetch(`/api/dexcom/status?token=${encodeURIComponent(token)}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
@@ -95,6 +100,7 @@ export default function SweetiePage({
         if (!controller.signal.aborted) {
           setSandboxPatient(data.sandboxPatient);
           setDexcomEnv(data.env);
+          setDexcomConfigured(data.configured === true);
         }
       })
       .catch(() => {
@@ -435,9 +441,13 @@ export default function SweetiePage({
           )}
         </header>
 
-        {/* A synthetic demonstration is something to offer while this deployment is still on the sandbox.
-            Once it talks to production, the real Connect Dexcom button on the intake page is the only one. */}
-        {dexcomEnv === "sandbox" && sandboxPatient === false && <DexcomDemoLink token={token} disabled={busy || Boolean(uploading) || skipping} />}
+        {/* A synthetic demonstration is something to offer while this deployment is still on the sandbox and
+            has the credentials to reach it — POST /api/dexcom/demo answers 503 without them, so offering it
+            there is a card whose only button fails (T91). Once this deployment talks to production, the real
+            Connect Dexcom button on the intake page is the only one. */}
+        {dexcomEnv === "sandbox" && sandboxPatient === false && dexcomConfigured && (
+          <DexcomDemoLink token={token} disabled={busy || Boolean(uploading) || skipping} />
+        )}
         {dexcomEnv === "sandbox" && sandboxPatient === true && (
           <p className="mb-4 text-sm">
             <a href={`/s/${token}/intake`} className="underline">Connect Dexcom sandbox</a>
