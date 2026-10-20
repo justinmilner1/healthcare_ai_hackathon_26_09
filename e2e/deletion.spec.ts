@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
+import { DRAINED, LOADED } from "./budget";
 import { patientEmail, verifyByApi } from "./patient";
 import { MODAL, SCREENFUL, shot } from "./shot";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
@@ -20,8 +21,6 @@ import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 // asserting on it would be asserting on which other spec drained the queue first. Its behaviour is in
 // lib/retentionStore.test.ts against a real database, visit by visit; what this file checks is the wiring
 // that gets it queued at all.
-
-const LOADED = { timeout: 30_000 };
 
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 
@@ -50,7 +49,7 @@ test("a deletion request removes everything the patient gave us, and leaves a re
   // And a summary written from it, so the deletion has every kind of row to remove (§7.1).
   expect((await postJson(page.request, "/api/sour", { visitId: booked.visitId })).ok()).toBeTruthy();
   await expect
-    .poll(async () => (await (await page.request.get(`/api/patient/${booked.visitId}`)).json()).providerSummary !== null, { timeout: 60_000 })
+    .poll(async () => (await (await page.request.get(`/api/patient/${booked.visitId}`)).json()).providerSummary !== null, DRAINED)
     .toBe(true);
 
   // §10.5's staff action, from the row it belongs to.
@@ -80,7 +79,7 @@ test("a deletion request removes everything the patient gave us, and leaves a re
         const data = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
         return data.visits.some((v) => v.name === patient.name);
       },
-      { timeout: 60_000 },
+      DRAINED,
     )
     .toBe(false);
   await page.reload();

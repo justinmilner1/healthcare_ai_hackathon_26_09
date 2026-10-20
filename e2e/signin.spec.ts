@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { DEMO_EMAIL, latestSignInLink, signInAsDemo } from "./auth";
+import { LOADED } from "./budget";
 import { shot, WHOLE_PAGE } from "./shot";
 
 // Provider sign-in end to end (design §5.1): the guard on /provider, the form, the "check your email" screen,
@@ -51,19 +52,19 @@ test("signing up creates the practice and then asks for the same link", async ({
   await page.getByRole("button", { name: /Continue/i }).click();
   await page.getByLabel("Practice name").fill("Northstar Endocrinology");
   await page.getByRole("button", { name: /Create workspace/i }).click();
-  await expect(page.locator("body")).toContainText(/emailed you a link/i, { timeout: 30_000 });
+  await expect(page.locator("body")).toContainText(/emailed you a link/i, LOADED);
 
   const link = latestSignInLink(email);
   expect(link, "the sign-in link for a new practice").toBeTruthy();
   await page.goto(link!);
-  await expect(page.locator("body")).toContainText(/Good to see you/i, { timeout: 30_000 });
+  await expect(page.locator("body")).toContainText(/Good to see you/i, LOADED);
   await expect(page.locator("body")).toContainText("Northstar Endocrinology");
 });
 
 test("the emailed link signs the provider in, and signing out ends it", async ({ page }) => {
   const demo = await signInAsDemo(page);
   expect(demo.id).toBeTruthy();
-  await expect(page.locator("body")).toContainText(/Good to see you/i, { timeout: 30_000 });
+  await expect(page.locator("body")).toContainText(/Good to see you/i, LOADED);
 
   // The session is a cookie-bound database row, so the API answers for them without an id in the query.
   const mine = await page.request.get("/api/provider");

@@ -31,6 +31,17 @@ const noBareScreenshot = {
   message: "Take screenshots with shot() from e2e/shot.ts (T57, T77): it decides fullPage per project and freezes transitions.",
 };
 
+// The suite's budgets come from e2e/budget.ts and nowhere else (T89, T95). A flat `timeout: 30_000` in a
+// spec cannot be raised for a run on a slow box, and the overrides docs/ROUTINES.md tells a routine to reach
+// for cannot see it: a 30s `expect` wait fails inside a 180s test and reports the assertion with the last
+// value it saw — `data-phase` is `"none"`, the transcript is `""` — which names the product for something
+// that was only the clock. Import `LOADED`, or `DRAINED`/`loadedAtLeast()` for a wait that needs longer; a
+// flat number the shared budget can overtake is the thing those replaced.
+const noFlatTimeout = {
+  selector: "Property[key.name='timeout'][value.type='Literal']",
+  message: "Budgets come from e2e/budget.ts (T95): use LOADED, DRAINED or loadedAtLeast(), not a flat timeout.",
+};
+
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
@@ -43,16 +54,22 @@ const eslintConfig = [
     rules: { "no-console": "error" },
   },
   {
-    // Two things the suite may not write by hand. They share one rule because `no-restricted-syntax` takes
+    // Three things the suite may not write by hand. They share one rule because `no-restricted-syntax` takes
     // the whole list from the last config block that sets it: a second block for `e2e/**/*.ts` would not add
     // a selector, it would replace the other one and switch it off everywhere.
     files: ["e2e/**/*.ts"],
-    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot] },
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot, noFlatTimeout] },
   },
   {
     // e2e/shot.ts is the helper the screenshot rule points at, so it is the one file allowed to take one.
     files: ["e2e/shot.ts"],
-    rules: { "no-restricted-syntax": ["error", noBareClearCookies] },
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noFlatTimeout] },
+  },
+  {
+    // e2e/budget.ts is the helper the budget rule points at, so it is the one file allowed to write the
+    // defaults down. playwright.config.ts is outside e2e/ and takes them from it.
+    files: ["e2e/budget.ts"],
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot] },
   },
   {
     ignores: [

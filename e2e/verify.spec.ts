@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { acceptConsent, latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -9,8 +10,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 // Nothing here is stubbed. The code really is minted by the `notify.code` job and really is "sent" — with no
 // SMS or email backend configured, lib/mailer.ts writes it to the mailbox the suite reads (e2e/patient.ts),
 // which is the console mailer the ticket asks these to be driven through.
-
-const LOADED = { timeout: 30_000 };
 
 /**
  * A patient with an address to send a code to. Booking is staff's job and needs their session (T06, §5.2), so

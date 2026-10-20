@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -19,7 +20,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 // `data-icon` off the glyph itself rather than the class around it, since the class is a hashed CSS module
 // name and the thing that regressed is which shape the row draws.
 
-const LOADED = { timeout: 30_000 };
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"));
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,

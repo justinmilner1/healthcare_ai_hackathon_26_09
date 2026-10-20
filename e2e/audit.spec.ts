@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyByApi } from "./patient";
 import { shot } from "./shot";
 
@@ -17,8 +18,6 @@ import { shot } from "./shot";
 // The last assertions are §4.8's promise, checked against the real table rather than against the allow-list
 // that produces it: every piece of this patient's data that the app holds, looked for in the export and in the
 // JSON the page reads, and found in neither.
-
-const LOADED = { timeout: 30_000 };
 
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 

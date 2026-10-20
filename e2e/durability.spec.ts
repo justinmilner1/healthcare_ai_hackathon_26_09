@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -13,7 +14,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 // Nothing here is stubbed except the one thing a test cannot otherwise cause: a reply that is thrown away
 // before it reaches the browser, which is what a closed tab or a dropped connection does to a turn.
 
-const LOADED = { timeout: 30_000 };
 /** Only the real bubbles: the typing dots and the voice interim share the class and are not transcript. */
 const BUBBLES = ".sweetie-messages .sweetie-message:not(.sweetie-typing):not(.sweetie-interim)";
 

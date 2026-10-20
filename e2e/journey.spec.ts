@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
+import { DRAINED, LOADED } from "./budget";
 import { expectTranscriptUncut } from "./mobile";
 import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
 import { expectChartTooltipsLabelled } from "./charts";
@@ -39,9 +40,6 @@ import { MODAL, SCREENFUL, shot as rawShot, type ShotOptions } from "./shot";
 const shot = async (page: Page, name: string, options: ShotOptions = {}) => {
   await rawShot(page, `journey-${name}`, options);
 };
-
-// Waits for a client fetch to paint, not for app logic: these pages render a shell and fill it in after.
-const LOADED = { timeout: 30_000 };
 
 /** The patient's week, as a patient would have it: files picked on the intake screen (§3.3, §9.1). */
 const sample = (name: string) => readFileSync(join(process.cwd(), "data", name));
@@ -237,7 +235,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // two narrative sections the way it does for any empty pair, rather than rendering the reason as a pattern,
   // and nothing on it names a variable or is addressed to whoever deploys the app.
   await expect
-    .poll(async () => (await (await page.request.get(`/api/patient/${token}`)).json()).patientSummary !== null, { timeout: 60_000 })
+    .poll(async () => (await (await page.request.get(`/api/patient/${token}`)).json()).patientSummary !== null, DRAINED)
     .toBe(true);
   // And the response itself, not just the page: a patient's token gets their own summary and none of the
   // clinician's half of the bundle (§5.2, §10.6, lib/bundle.ts `patientView`). The clinician's copy of this

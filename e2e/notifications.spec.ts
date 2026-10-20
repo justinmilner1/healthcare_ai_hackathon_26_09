@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { signInAsDemo } from "./auth";
+import { LOADED } from "./budget";
 import { SCREENFUL, shot } from "./shot";
 import { E2E_TOPIC_ARN } from "../playwright.config";
 
@@ -14,8 +15,6 @@ import { E2E_TOPIC_ARN } from "../playwright.config";
 //
 // The second half is §8.3's "shown to staff": the seeded Dana Demo visit carries the delivery rows SES's
 // topic would have written — the text arrived, the email came back — and the dashboard has to say so.
-
-const LOADED = { timeout: 30_000 };
 
 /** T74 What a delivery tooltip must never contain: a variable name, a credential, the deployment's own
  *  to-do list. Narrower than the guard in lib/delivery.test.ts, which has the senders' real strings behind

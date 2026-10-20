@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
 import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut } from "./mobile";
 import { shot, WHOLE_PAGE } from "./shot";
@@ -16,8 +17,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 test.beforeEach(async ({}, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "design §6.5 is about the phone");
 });
-
-const LOADED = { timeout: 30_000 };
 
 /**
  * Mobile screenshots of every patient screen (design §12.3): e2e/screenshots/mobile-375-<name>.png.

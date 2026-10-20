@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyByApi } from "./patient";
 import { SCREENFUL, shot } from "./shot";
 
@@ -18,7 +19,6 @@ import { SCREENFUL, shot } from "./shot";
 // verified session the six-digit code leaves behind (§5.3), and keeping them in separate contexts means the
 // provider session stays signed in for the half of the test that is the clinician's.
 
-const LOADED = { timeout: 30_000 };
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 
 test("a clinician marks a summary reviewed: the record is on the one-pager and the status on the dashboard", async ({ page, request }) => {

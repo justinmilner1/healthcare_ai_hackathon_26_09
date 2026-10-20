@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { DEMO_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { DEMO_EMAIL, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { shot } from "./shot";
 
 // Demo practices (T32, design §13.4): "a flag on a practice that marks it synthetic; demo practices are
@@ -15,8 +16,6 @@ import { shot } from "./shot";
 // `/demo` gets a server of its own (port+4, playwright.config.ts): DEMO_SIGN_IN is what turns the shortcut
 // on, and the main server deliberately leaves it off so e2e/signin.spec.ts can see the default — the sign-in
 // form with the address filled in.
-
-const LOADED = { timeout: 30_000 };
 
 /** T74 What a delivery tooltip must never contain: a variable name, a credential, the deployment's own
  *  to-do list. Narrower than the guard in lib/delivery.test.ts, which has the senders' real strings behind

@@ -1,6 +1,7 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -14,8 +15,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 //
 // Nothing is stubbed. The limits are the shipped ones; what the test does is ask for more codes than any
 // patient would.
-
-const LOADED = { timeout: 30_000 };
 
 /** Booking is staff's job and needs their session (T06, §5.2): someone signs in, books, and signs out, which
  *  leaves the browser as a patient's — which is the only side these tests are about. */

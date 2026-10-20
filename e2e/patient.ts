@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { findDevMail } from "../lib/devMailbox";
 import { postJson } from "./api";
 import { MAIL_DIR } from "./auth";
+import { LOADED, LOADED_TIMEOUT_MS } from "./budget";
 
 // Verifying a patient link the way a patient does (design §2.3, §5.3): open the link, read the six-digit
 // code out of the message that was "sent", type it in. Nothing is stubbed — with no SMS or email backend
@@ -61,12 +62,15 @@ export function latestCode(email: string, dir = MAIL_DIR): string | null {
  * patient with its own address, which is what keeps "the newest code for this address" unambiguous.
  */
 export async function waitForCode(email: string, dir = MAIL_DIR, notBefore: string | null = null): Promise<string> {
-  for (let attempt = 0; attempt < 60; attempt++) {
+  // A deadline off the suite's shared budget rather than a count of attempts (T95, e2e/budget.ts): sixty of
+  // them was fifteen seconds of a wait on the `notify.code` job draining, with no way of being raised.
+  const deadline = Date.now() + LOADED_TIMEOUT_MS;
+  for (;;) {
     const code = latestCode(email, dir);
     if (code && code !== notBefore) return code;
+    if (Date.now() >= deadline) throw new Error(`no verification code arrived for ${email} in ${dir} within ${LOADED_TIMEOUT_MS}ms`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`no verification code arrived for ${email} in ${dir}`);
 }
 
 /**
@@ -78,12 +82,12 @@ export async function waitForCode(email: string, dir = MAIL_DIR, notBefore: stri
  */
 export async function enterCode(page: Page, email: string, dir = MAIL_DIR, notBefore: string | null = null): Promise<string> {
   const field = page.getByLabel("6-digit code");
-  await expect(field).toBeVisible({ timeout: 30_000 });
+  await expect(field).toBeVisible(LOADED);
   const code = await waitForCode(email, dir, notBefore);
   await field.fill(code);
   await page.getByRole("button", { name: /Continue/i }).click();
   // The gate is a server component, so a verified link is a navigation away from the code screen.
-  await expect(field).toBeHidden({ timeout: 30_000 });
+  await expect(field).toBeHidden(LOADED);
   return code;
 }
 
@@ -97,11 +101,17 @@ export const AGREE = /I agree/i;
  *
  * The screen is server-rendered by the gate, so it is in the document the moment the code screen goes: the
  * short wait is for the parse of that document, not for app logic.
+ *
+ * The one wait in the suite that does not take the shared budget (T95, e2e/budget.ts), because expiring is
+ * one of its two answers rather than a failure: the caller before this line has already awaited
+ * `domcontentloaded`, so the button is in the parsed document or it is not, and nothing asynchronous is on
+ * its way. Taking 30s here would add 30s to every verification of a visit that is already past consent.
  */
 export async function acceptConsent(page: Page): Promise<boolean> {
   const agree = page.getByRole("button", { name: AGREE });
   await page.waitForLoadState("domcontentloaded");
   try {
+    // eslint-disable-next-line no-restricted-syntax -- see above: expiring here is an answer, not a slow box
     await agree.waitFor({ state: "visible", timeout: 3_000 });
   } catch {
     return false;
@@ -111,7 +121,7 @@ export async function acceptConsent(page: Page): Promise<boolean> {
   // POST is in flight, so a locator that matches it by name stops matching before the navigation has even
   // started — and the spec's next goto then cancels the reload, which Playwright reports as ERR_ABORTED on
   // that goto, several lines from the cause.
-  const navigated = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame(), timeout: 30_000 });
+  const navigated = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame(), ...LOADED });
   await agree.click();
   await navigated;
   await page.waitForLoadState("load");

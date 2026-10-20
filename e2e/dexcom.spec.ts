@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -18,7 +19,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const DEXCOM_MAIL_DIR = `${MAIL_DIR}-dexcom`;
-const LOADED = { timeout: 30_000 };
 
 test.describe("DEXCOM_ENV=production", () => {
   test.use({ baseURL: `http://localhost:${PORT + 3}` });

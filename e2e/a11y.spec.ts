@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { expectNoSeriousA11yViolations } from "./a11y";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { AGREE, acceptConsent, enterCode, patientEmail } from "./patient";
 import { shot } from "./shot";
 
@@ -16,8 +17,6 @@ import { shot } from "./shot";
 // button Sweetie only renders when the browser can both listen and speak is not in the page at all here;
 // `withVoice` puts a do-nothing recognizer on the window so the control exists to be driven from the
 // keyboard. What is being tested is the control, not the engine (§6.6 keeps voice browser-native).
-
-const LOADED = { timeout: 30_000 };
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { DRAINED, LOADED } from "./budget";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -10,7 +11,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 // patient picks is checked for size and shape before any parser sees it, the bytes go to the storage
 // adapter, and the row keeps the key — so these drive the intake screen rather than calling lib/ directly.
 
-const LOADED = { timeout: 30_000 };
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
 const timeline = () => readFileSync(join(process.cwd(), "data", "fixtures", "timeline_android.json"), "utf8");
@@ -173,13 +173,13 @@ test("a Dexcom export shared after intake wrapped queues the summary run", async
   // on its way back, and the inline runner may already have taken it — queued, running or done all say the
   // import queued one, and "no job at all" is the bug.
   await expect
-    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", { timeout: 30_000 })
+    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", LOADED)
     .toMatch(/^(queued|running|done)$/);
 
   // And the run finishes on its own, with nobody having opened the brief: a saved pair, the visit moved on,
   // and the job reporting done (§3.4, §4.4, §7.2).
   await expect
-    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", { timeout: 60_000 })
+    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", DRAINED)
     .toBe("done");
   const ran = await (await page.request.get(`/api/patient/${visitId}`)).json();
   expect(ran.providerSummary, "the brief the clinician's link opens").toBeTruthy();

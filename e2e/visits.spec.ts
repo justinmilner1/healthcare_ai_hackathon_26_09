@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { MODAL, SCREENFUL, shot } from "./shot";
 
 // T07 (design §2.2, §4.4, §8.3): the two ways a practice creates visits, driven through the screens staff
@@ -10,10 +11,6 @@ import { MODAL, SCREENFUL, shot } from "./shot";
 //
 // Nothing here stubs a session: each identity signs in by its own magic link (§5.1, e2e/auth.ts). Every
 // state-changing API call goes through postJson, which echoes the CSRF cookie the way the pages do (§10.8).
-
-// The dashboard paints its shell and fills in from GET /api/provider; a slow runner takes longer than the 5s
-// default to come back, so the waits for that data get their own budget.
-const LOADED = { timeout: 30_000 };
 
 /** A name nothing else in the run will use: two Playwright projects share one database. */
 const uniqueName = (prefix: string) => `${prefix} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -83,7 +80,7 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
           .map((d) => d.channel)
           .sort();
       },
-      { timeout: 30_000 },
+      LOADED,
     )
     .toEqual(["email", "sms"]);
 

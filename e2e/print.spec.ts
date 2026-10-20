@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyByApi } from "./patient";
 import { shot } from "./shot";
 
@@ -21,8 +22,6 @@ import { shot } from "./shot";
 // The uploads go through `request` rather than `page.request`: the patient's credential is the token plus
 // the verified session the six-digit code leaves behind (§5.3), and keeping the two contexts apart means the
 // provider stays signed in for the half of the test that is the clinician's.
-
-const LOADED = { timeout: 30_000 };
 
 test("the Print button opens a sheet: the summary, with no navigation on it, on one printed page", async ({ page, request }) => {
   const demo = await signInAsDemo(page);

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { AGREE, enterCode, patientEmail } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -10,8 +11,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 //
 // Nothing here is stubbed: these open a real link, read the real code out of the mailbox the suite reads
 // (e2e/patient.ts), and the consent they give or refuse is the row the gate reads on the next request.
-
-const LOADED = { timeout: 30_000 };
 
 /** A booked visit with an address to send the code to. Booking is staff's job and needs their session
  *  (§5.2), so someone signs in, books, and signs out, leaving the browser as a patient's. */

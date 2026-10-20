@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
@@ -10,10 +11,6 @@ import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png. e2e/shot.ts decides how much of the
 // page each one gets: the patient screens are the page, the dashboard is one screenful with its table in it.. e2e/shot.ts decides how much of the
 // page each one gets: the patient screens are the page, the dashboard is one screenful with its table in it.
-
-// Waits for a client fetch to paint, not for app logic: the page renders its shell first and fills in after. A
-// slow runner can take longer than the 5s default to come back, so these get their own budget.
-const LOADED = { timeout: 30_000 };
 
 /**
  * The hero illustration names the two agents, and nothing in it may cover those names (T52, design §2, §6.5).
@@ -225,7 +222,7 @@ test("summary generation goes through the job queue", async ({ page, request }) 
     .poll(async () => {
       after = await read();
       return after.sourJob?.id === queued.jobId ? after.sourJob.status : null;
-    }, { message: "the run reported back", timeout: 20_000 })
+    }, { message: "the run reported back", ...LOADED })
     .toBe("done");
   expect(after.providerSummaryAt, "the saved pair came back rather than a third one being written").toBe(before.providerSummaryAt);
   expect(after.patientSummaryAt).toBe(before.patientSummaryAt);

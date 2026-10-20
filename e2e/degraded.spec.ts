@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { DEGRADED_MAIL_DIR, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { patientEmail, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -14,7 +15,6 @@ import { shot, WHOLE_PAGE } from "./shot";
 // demo gets the "Demo mode" badge; only a real outage gets the note.
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
-const LOADED = { timeout: 30_000 };
 
 /** The scripted second question, from UPDATE.default.fallbackQuestion in lib/sweetie.ts. */
 const SCRIPTED_FOLLOW_UP = /Since you last saw the doctor/;

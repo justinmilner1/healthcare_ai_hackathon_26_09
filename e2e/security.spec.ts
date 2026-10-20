@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { RUNNER_PORT, RUNNER_SECRET } from "../playwright.config";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
+import { LOADED } from "./budget";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
 import { SCREENFUL, shot } from "./shot";
 
@@ -54,7 +55,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // form post and the callback (T05, §5.1), which is now the only way into the app. The screenshot is taken
   // before signing in, because afterwards that URL is a redirect to the dashboard.
   await page.goto("/provider/signin");
-  await expect(page.getByRole("button", { name: /Email me a link/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: /Email me a link/i })).toBeVisible(LOADED);
   await shot(page, "security-provider-signin");
 
   const demo = await signInAsDemo(page);
@@ -70,7 +71,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // and the only one whose client JavaScript posts before anything has been clicked. The provider session and
   // the patient's are different cookies, so the walk holds both and no sign-out is needed in between.
   await page.goto(`/s/${booked.token}`);
-  await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByLabel("6-digit code")).toBeVisible(LOADED);
   await shot(page, "security-verify");
   expect(violations, `verify: ${violations.join("\n")}`).toEqual([]);
   await enterCode(page, email);
@@ -78,7 +79,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   // T09 (§2.4): the consent screen is what the code screen leads to on a first open, and it belongs on this
   // walk for the same reason as the code screen — its own client JavaScript posts the answer. The one tap is
   // what opens everything below.
-  await expect(page.getByRole("heading", { name: /Before we start/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: /Before we start/i })).toBeVisible(LOADED);
   await shot(page, "security-consent");
   expect(violations, `consent: ${violations.join("\n")}`).toEqual([]);
   expect(await acceptConsent(page), "the consent screen was up").toBe(true);
@@ -100,7 +101,7 @@ test("every page hydrates under the nonce policy, with no CSP violation", async 
   for (const screen of screens) {
     await page.goto(screen.path);
     if (screen.reveal) await page.getByRole("button", { name: screen.reveal }).click();
-    await expect(page.locator("body"), screen.name).toContainText(screen.loaded, { timeout: 30_000 });
+    await expect(page.locator("body"), screen.name).toContainText(screen.loaded, LOADED);
     // The dashboard is the one screen in this walk whose height is the practice's visit list, so it gets a
     // screenful with the table scrolled into it, on either project; the rest are their own page (T57, T81).
     const framing = screen.name === "provider-dashboard" ? { ...SCREENFUL, scrollTo: ".provider-table-card" } : {};

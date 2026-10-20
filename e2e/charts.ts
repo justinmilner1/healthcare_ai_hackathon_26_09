@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { LOADED } from "./budget";
 
 // T87 (design §2.6, §2.7, §7.4): what a chart tooltip reads, on each of the three surfaces a chart appears on.
 //
@@ -7,8 +8,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // components/chartTooltip.ts now, and this is what stops it drifting back: a default nobody chose is exactly
 // the kind of thing that returns when a fourth chart is added.
 
-/** Recharts draws after it has measured itself, like everywhere else in this suite. */
-const DRAWN = { timeout: 30_000 };
+/** Recharts draws after it has measured itself, so this is the suite's wait on asynchronous work under the
+ *  name this helper is about (e2e/budget.ts, T95). */
+const DRAWN = LOADED;
 
 /** The glucose line's tooltip row, in full: our separator, and the word and unit its formatter chooses. */
 const GLUCOSE = /^Glucose: \d+ mg\/dL$/;

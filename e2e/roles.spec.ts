@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
+import { LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectRowIntact } from "./mobile";
 import { shot } from "./shot";
 
@@ -16,8 +17,6 @@ import { shot } from "./shot";
 //   1. "a user never sees another practice's data" — and sees a 404, not a 403, so the refusal does not tell
 //      them the visit exists.
 //   2. the role a colleague was invited with is what they can do, in the API and on the screen.
-
-const LOADED = { timeout: 30_000 };
 
 /**
  * The hero hint does not sit on the mascot (T56, design §6.5).

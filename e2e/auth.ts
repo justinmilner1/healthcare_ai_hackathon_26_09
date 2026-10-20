@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { renameSync } from "node:fs";
 import { CSRF_COOKIE } from "../lib/csrf";
 import { findDevMail } from "../lib/devMailbox";
+import { LOADED, LOADED_TIMEOUT_MS } from "./budget";
 
 // Signing in the way a provider does (design §5.1): type the address, read the link out of the mail that was
 // "sent", open it. Nothing is stubbed — the only concession to a test is that with no email provider
@@ -69,14 +70,19 @@ function claimSignInLink(email: string, dir: string): string | null {
 }
 
 /** Wait for a link to claim rather than sleeping: the send happens inside the POST, but the file write
- *  races it, and another test may be holding the only one that has arrived so far. */
+ *  races it, and another test may be holding the only one that has arrived so far.
+ *
+ *  A deadline off the suite's shared budget rather than a count of attempts (T95, e2e/budget.ts): forty of
+ *  them was ten seconds, which is a wait on asynchronous work like any other and had no way of being
+ *  raised on a box where the send takes longer. */
 async function waitForSignInLink(email: string, dir: string): Promise<string> {
-  for (let attempt = 0; attempt < 40; attempt++) {
+  const deadline = Date.now() + LOADED_TIMEOUT_MS;
+  for (;;) {
     const link = claimSignInLink(email, dir);
     if (link) return link;
+    if (Date.now() >= deadline) throw new Error(`no sign-in link arrived for ${email} in ${dir} within ${LOADED_TIMEOUT_MS}ms`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`no sign-in link arrived for ${email} in ${dir}`);
 }
 
 /**
@@ -95,14 +101,14 @@ export async function signInAs(page: Page, email: string, opts: SignInOptions = 
   await page.goto("/provider/signin");
   await page.getByLabel("Work email").fill(email);
   await page.getByRole("button", { name: /Email me a link/i }).click();
-  await expect(page.locator("body")).toContainText(/emailed you a link/i, { timeout: 30_000 });
+  await expect(page.locator("body")).toContainText(/emailed you a link/i, LOADED);
 
   // Claimed, so this token is this test's alone and no other test can spend it first.
   const link = await waitForSignInLink(email, dir);
 
   // The link is absolute and built from the request, so it already points at the right port.
   await page.goto(link);
-  await expect(page).toHaveURL(/\/provider(\?|$|\/)/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/provider(\?|$|\/)/, LOADED);
   // Auth.js sends a refused link back to /provider/signin?error=Verification, which the pattern above matches
   // too — so without this a spent link read as a successful sign-in and failed later as a puzzling 401.
   await expect(page, "the link should sign in, not bounce back to the form").not.toHaveURL(/\/provider\/signin/);
