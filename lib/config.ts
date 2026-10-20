@@ -390,14 +390,14 @@ export const SPEC: readonly VarSpec[] = [
     name: "SMS_PROVIDER",
     group: "SMS",
     requirement: "optional",
-    summary: "Force a backend instead of auto-detecting: twilio or sns.",
+    summary: "Force a backend instead of taking it from the settings each one needs: twilio or sns.",
     check: oneOf("twilio", "sns"),
   },
   {
     name: "TWILIO_ACCOUNT_SID",
     group: "SMS",
     requirement: "optional",
-    summary: "Set this to send through Twilio instead of SNS.",
+    summary: "Set this to send through Twilio instead of SNS; needs TWILIO_AUTH_TOKEN and TWILIO_FROM too.",
     check: (value) => (/^AC[0-9a-f]{32}$/i.test(value) ? undefined : "must be a Twilio account SID, which starts with AC"),
   },
   {
@@ -424,7 +424,7 @@ export const SPEC: readonly VarSpec[] = [
     name: "SNS_ORIGINATION_NUMBER",
     group: "SMS",
     requirement: "optional",
-    summary: "Registered origination number. US destinations will not deliver without one.",
+    summary: "Registered origination number, and what selects the SNS backend. US destinations will not deliver without one.",
     check: senderNumber,
   },
 
@@ -626,6 +626,10 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   if (v("EMAIL_PROVIDER") === "resend") companions("EMAIL_PROVIDER", ["RESEND_API_KEY"], "the Resend backend was selected");
   if (v("EMAIL_PROVIDER") === "ses") companions("EMAIL_PROVIDER", ["EMAIL_FROM"], "SES rejects an unverified sender");
   if (v("SMS_PROVIDER") === "twilio") companions("SMS_PROVIDER", ["TWILIO_ACCOUNT_SID"], "the Twilio backend was selected");
+  // §8.1 SNS sends through a registered origination number, and since T94 that number is also what selects
+  // the backend (lib/sms.ts). Forcing `sns` without it is the one way left to ask for a backend that cannot
+  // send: lib/sms.ts reports itself unconfigured rather than publishing, so say which setting is missing.
+  if (v("SMS_PROVIDER") === "sns") companions("SMS_PROVIDER", ["SNS_ORIGINATION_NUMBER"], "the SNS backend was selected and it sends through a registered origination number");
   // Asking for S3 with no bucket is not a degraded path: lib/storage.ts has nowhere to put the file, so every
   // upload fails at the moment a patient tries one.
   if (v("STORAGE_BACKEND") === "s3") companions("STORAGE_BACKEND", ["UPLOADS_BUCKET"], "lib/storage.ts has no bucket to write to");
@@ -729,7 +733,9 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
 
   if (production) {
     const email = Boolean(v("RESEND_API_KEY") || v("AWS_ACCESS_KEY_ID") || v("EMAIL_PROVIDER"));
-    const sms = Boolean(v("TWILIO_ACCOUNT_SID") || v("AWS_ACCESS_KEY_ID") || v("SMS_PROVIDER"));
+    // The same question lib/sms.ts answers, and not AWS_ACCESS_KEY_ID: a credential is not an SMS backend
+    // (T94). An origination number is, because that is the setting SNS cannot text anybody without.
+    const sms = Boolean(v("TWILIO_ACCOUNT_SID") || v("SNS_ORIGINATION_NUMBER") || v("SMS_PROVIDER"));
     if (!email && !sms) {
       out.push({
         level: "warning",

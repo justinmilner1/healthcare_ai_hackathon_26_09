@@ -150,6 +150,17 @@ test("Twilio without its token and sender is reported, not left to fail at send 
   );
 });
 
+test("SNS forced without its origination number is reported, because it cannot text anybody (T94)", () => {
+  // §8.1 sends through a registered number, and since T94 that number is also what selects the backend
+  // (lib/sms.ts) — so forcing `sns` is the one way left to ask for a backend with nothing to send through.
+  const forced = errors({ ...good(), SMS_PROVIDER: "sns" });
+  assert.equal(forced.length, 1);
+  assert.match(forced[0].message, /SNS_ORIGINATION_NUMBER is required when SMS_PROVIDER is set/);
+  assert.deepEqual(errors({ ...good(), SMS_PROVIDER: "sns", SNS_ORIGINATION_NUMBER: "+15551234567" }), []);
+  // And an AWS credential is not that setting: the pair below configures SES, not SMS.
+  assert.match(errors({ ...good(), SMS_PROVIDER: "sns", AWS_ACCESS_KEY_ID: "AKIA-not-real", AWS_SECRET_ACCESS_KEY: "not-real" })[0].message, /SNS_ORIGINATION_NUMBER/);
+});
+
 test("a jobs runner set to scheduled with no secret is the queue nothing drains", () => {
   // Either variable alone looks fine: the route refuses every call and the inline path is off, so every
   // summary and notification sits in Job forever.
