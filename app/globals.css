@@ -3933,6 +3933,9 @@ textarea.ss-input {
   padding: 11px 14px;
   color: #8f4524;
   text-align: center;
+  /* The space `.sweetie-composer-note` held: it goes with the composer, and without this the box sits on
+     the rounded bottom edge of the card. */
+  margin-bottom: 26px;
 }
 
 .sweetie-composer-stopped strong {

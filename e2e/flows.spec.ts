@@ -351,6 +351,13 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   await expect(stoppedNote).toContainText(/call .+'s office today/i);
   await expect(page.locator(".sweetie-done-card")).toHaveCount(0);
 
+  // The transcript glides to the newest message rather than jumping (§6.4), so the card being in the
+  // document is not the same moment as all of it being on screen: the first desktop shot of this screen
+  // caught the glide in flight and cut the instruction off at the bottom of the region. This waits the
+  // glide out and fails if the card does not fit whole (T83), so the committed PNG is evidence about the
+  // card and not about the scroll.
+  await expectTranscriptUncut(page, "the stopped check-in");
+
   await shot(page, "sweetie-flagged-stopped", WHOLE_PAGE);
 
   // And the transport, which is what a patient's own voice path, a second tab or anything else that posts
