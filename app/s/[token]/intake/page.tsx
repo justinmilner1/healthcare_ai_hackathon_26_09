@@ -9,7 +9,7 @@ import { asSentence } from "@/lib/uploads";
 import styles from "./intake.module.css";
 import { apiFetch, CSRF_PARAM, ensureCsrfToken } from "@/lib/csrf";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
-import { dexcomCardHint } from "@/lib/dexcomHint";
+import { dexcomCardHint, dexcomConnectControl } from "@/lib/dexcomHint";
 import { countOf } from "@/lib/plural";
 
 type DexcomStatus = {
@@ -520,6 +520,16 @@ export default function SweetieIntakePage({
                     const connection: Connection = sandbox
                       ? { state: source.kind === "dexcom" && dexcomStatus.connected ? "connected" : "idle" }
                       : connections[source.kind];
+                    // §2.5 Every control on this card is one the patient can use. Which connect control
+                    // there is, if any, is lib/dexcomHint.ts's to decide, and "none" means render nothing
+                    // rather than a greyed-out button the patient cannot press (T91).
+                    const connectControl = source.kind === "dexcom"
+                      ? dexcomConnectControl({ env: dexcomStatus.env, configured: dexcomStatus.configured, canConnect: dexcomStatus.canConnect, sandboxPatient: sandbox })
+                      : "none";
+                    // The same rule for the upload: a synthetic visit's uploads are refused (§13.4), and
+                    // its cards already say so in words — the lede above and each card's own line — so
+                    // there is no disabled button whose `title` a touch device never shows (T91).
+                    const canUpload = !sandbox;
                     return (
                       <div
                         key={source.kind}
@@ -554,26 +564,26 @@ export default function SweetieIntakePage({
                             {unavailable ? "File uploads are unavailable in demo mode" : sandbox ? (dexcomStatus.connected ? `${dexcomStatus.count.toLocaleString()} demo readings imported` : "Dexcom account · Synthetic demo data") : connection.detail ?? source.format}
                           </span>
                         </span>
+                        {(canUpload || connectControl !== "none") && (
                         <div className={styles.sourceActions}>
                           {/* The OAuth button where this visit may connect (§9.2): a synthetic visit to the
                               sandbox, a real one to production. Where it may not, and the sandbox is what
                               this deployment talks to, a real patient is offered the separate demo visit
-                              instead — which is nothing to offer once production is live. */}
-                          {source.kind === "dexcom" && (dexcomStatus.canConnect ? (
+                              instead — which is nothing to offer once production is live, or where this
+                              deployment has no Dexcom credentials at all. */}
+                          {connectControl === "oauth" ? (
                             <form action={`/api/dexcom/connect?${CSRF_PARAM}=${encodeURIComponent(csrfToken)}`} method="POST">
                               <input type="hidden" name="token" value={token} />
-                              <button type="submit" className={styles.accountConnect} disabled={!dexcomStatus.configured || isFinishing || !csrfToken}>
+                              <button type="submit" className={styles.accountConnect} disabled={isFinishing || !csrfToken}>
                                 {dexcomStatus.env === "production"
                                   ? dexcomStatus.connected ? "Reconnect Dexcom" : "Connect Dexcom"
                                   : dexcomStatus.connected ? "Reconnect Dexcom · Demo" : "Connect Dexcom · Demo"}
                               </button>
                             </form>
-                          ) : dexcomStatus.env === "sandbox" && !sandbox ? (
-                            <DexcomDemoLink token={token} compact buttonClassName={styles.accountConnect} disabled={!dexcomStatus.configured || isUploading || isFinishing} />
-                          ) : null)}
-                          {sandbox ? (
-                            <button type="button" className={styles.sourceAction} disabled title="Use your regular patient intake for real uploads">{source.kind === "timeline" ? "Upload JSON" : "Upload CSV"}</button>
-                          ) : <>
+                          ) : connectControl === "demo" ? (
+                            <DexcomDemoLink token={token} compact buttonClassName={styles.accountConnect} disabled={isUploading || isFinishing} />
+                          ) : null}
+                          {canUpload && <>
                           <label className={styles.sourceAction}>
                             {connection.state === "uploading"
                               ? "Adding…"
@@ -604,6 +614,7 @@ export default function SweetieIntakePage({
                           )}
                           </>}
                         </div>
+                        )}
                         {source.kind === "dexcom" && (
                           <p className={styles.connectionHint}>
                             {dexcomCardHint({
