@@ -4405,6 +4405,9 @@ button.sweetie-agent-badge {
   border-top: 1px solid #eadfe4;
 }
 
+/* The summary page's loading card and nothing else now (app/patient/[id]/page.tsx): the caption-sized
+   sentence below is right for "Sweetie is getting your week ready…" and was wrong for the two dead ends the
+   gate used to borrow it for (T98, `.patient-notice-card` above). */
 .patient-page-state {
   display: grid;
   min-height: 100svh;
@@ -4519,6 +4522,51 @@ button.sweetie-agent-badge {
   .patient-verify-input {
     font-size: 21px;
     letter-spacing: 0.24em;
+  }
+}
+
+/* The two dead ends in front of a patient link (T98, design §2.3, §6.4, components/PatientNotice.tsx): a
+   link we do not know, and a visit with nothing to send a code to. Neither can be worked around from inside
+   the app, so each gets the code screen's column rather than `.patient-state-card` below, which is a loading
+   placeholder and sets its only sentence in the 11px muted caption size. Same width, same avatar, same
+   heading and lede, so the three screens a patient can land on first read as one product. */
+.patient-notice-page {
+  display: grid;
+  place-items: center;
+}
+
+.patient-notice-card {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 34px 30px 30px;
+  text-align: center;
+}
+
+.patient-notice-card img {
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 16px;
+  border-radius: 26px;
+  background: var(--sweetie-soft);
+  object-fit: cover;
+}
+
+.patient-notice-card .ss-eyebrow {
+  margin-bottom: 8px;
+}
+
+.patient-notice-card .ss-title {
+  margin: 0 0 10px;
+}
+
+.patient-notice-card .ss-lede {
+  margin: 0 auto;
+  max-width: 36ch;
+}
+
+@media (max-width: 560px) {
+  .patient-notice-card {
+    padding: 26px 20px 24px;
   }
 }
 

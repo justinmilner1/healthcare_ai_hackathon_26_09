@@ -10,9 +10,9 @@
 // page the link lands on. Accepting is what opens them all; until then there is nothing else to see.
 
 import { cookies } from "next/headers";
-import Image from "next/image";
 import type { ReactNode } from "react";
 import ConsentScreen from "@/components/ConsentScreen";
+import PatientNotice from "@/components/PatientNotice";
 import VerifyScreen from "@/components/VerifyScreen";
 import { consentPoints, needsConsent } from "@/lib/consent";
 import { channelsFor, CODE_TTL_MS, needsVerification, PATIENT_SESSION_COOKIE, verifiedSession } from "@/lib/patientSession";
@@ -21,7 +21,14 @@ import { providerName, visitByToken } from "@/lib/visit";
 export default async function VerifyGate({ token, children }: { token: string; children: ReactNode }) {
   const visit = await visitByToken(token);
   if (!visit) {
-    return <PatientNotice message="We couldn't find that link. Check the text or email from your doctor's office." />;
+    // Nothing is known here, and nothing is said: a made-up token and a link the practice has replaced get
+    // the same screen, with no practice on it (§2.3, components/PatientNotice.tsx).
+    return (
+      <PatientNotice
+        title="This link didn't work."
+        message="We couldn't find that link. Check the text or email from your doctor's office, or call them and ask for a new one."
+      />
+    );
   }
 
   if (needsVerification(visit)) {
@@ -31,9 +38,15 @@ export default async function VerifyGate({ token, children }: { token: string; c
       const channels = channelsFor(visit.patient);
       if (channels.length === 0) {
         // §2.2 has staff record a phone or an email with the visit. Without one there is nowhere to send a
-        // code, so there is no way in from here and saying so beats a screen that cannot work.
+        // code, so there is no way in from here and saying so beats a screen that cannot work. The practice
+        // is named, twice: "call the office" is only actionable if the page says which office, and this is
+        // the one patient screen whose next step happens on a telephone.
         return (
-          <PatientNotice message="This link has no phone number or email address on file, so we can't send you a code. Please call your doctor's office." />
+          <PatientNotice
+            practiceName={visit.patient.practice.name}
+            title="We can't send you a code."
+            message={`This link has no phone number or email address on file, so there is nowhere to send your 6-digit code. Please call ${visit.patient.practice.name} and they can help.`}
+          />
         );
       }
       return (
@@ -55,16 +68,4 @@ export default async function VerifyGate({ token, children }: { token: string; c
   }
 
   return <>{children}</>;
-}
-
-/** The same card the summary page uses while it loads, for the two things that are nobody's fault. */
-function PatientNotice({ message }: { message: string }) {
-  return (
-    <main className="ss-page sweetie-theme patient-page-state">
-      <div className="ss-card patient-state-card">
-        <Image src="/assets/sweetie/sweetie.png" alt="Sweetie" width={76} height={76} priority />
-        <p>{message}</p>
-      </div>
-    </main>
-  );
 }
