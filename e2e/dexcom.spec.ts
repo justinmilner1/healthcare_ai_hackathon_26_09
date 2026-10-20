@@ -11,8 +11,10 @@ import { shot, WHOLE_PAGE } from "./shot";
 //   port    no Dexcom configured at all, which is how the rest of the suite and the demo run
 //
 // What a patient sees is the point of having both. In production a real visit gets the real OAuth button;
-// on the sandbox the same visit is offered a separate synthetic demonstration instead, because the sandbox
-// answers with invented readings and those have no business on a real patient's record.
+// on the sandbox the same visit would be offered a separate synthetic demonstration instead, because the
+// sandbox answers with invented readings and those have no business on a real patient's record — except
+// that the second server has no credentials for either Dexcom, so there is nothing to offer and the card
+// offers the patient nothing: §2.5's panel never carries a control the patient cannot press (T91).
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const DEXCOM_MAIL_DIR = `${MAIL_DIR}-dexcom`;
@@ -59,20 +61,38 @@ test.describe("DEXCOM_ENV=production", () => {
     await expect(dexcomCard).not.toContainText(/synthetic/i);
     await shot(page, "dexcom-production-connect", WHOLE_PAGE);
 
-    // The same patient, the same browser, against the server that has no Dexcom configured — which is why
-    // the demo button there is the disabled one, and why this half is about which button is offered rather
-    // than about what it does — a cookie is
-    // scoped to the host and not the port, so the verified session (§5.3) carries over to the other server
-    // and the only thing that differs is the switch. An absolute URL because baseURL is this describe's.
+    // The same patient, the same browser, against the server that has no Dexcom configured at all — the
+    // mode the rest of the suite, the README and the demo run in. A cookie is scoped to the host and not
+    // the port, so the verified session (§5.3) carries over to the other server and the only thing that
+    // differs is the switch. An absolute URL because baseURL is this describe's.
     await page.goto(`http://localhost:${PORT}/s/${booked.token}/intake`);
     await page.getByRole("button", { name: /Let.s get started/i }).click();
-    const demoButton = page.getByRole("button", { name: /Connect Dexcom · Demo/ });
-    await expect(demoButton).toBeVisible(LOADED);
+    // T91: neither connect control is rendered — not rendered, not merely disabled. The patient is left the
+    // one thing that works without credentials, which is their own Clarity export.
+    const upload = page.getByLabel(/Upload Dexcom file/i);
+    await expect(upload).toBeAttached(LOADED);
+    await expect(page.getByRole("button", { name: /Connect Dexcom · Demo/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Connect Dexcom", exact: true })).toHaveCount(0);
-    await shot(page, "dexcom-sandbox-connect", WHOLE_PAGE);
+    await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
+    // Nor does anything on the card explain the absence in the deployment's words (§2.5, the T71 rule).
+    const sandboxCard = page.locator("section, div").filter({ hasText: /Glucose trends/ }).last();
+    await expect(sandboxCard).toContainText(/Upload your Clarity CSV export/);
+    await expect(sandboxCard).not.toContainText(/not configured|demo mode|credential/i);
+    // And no control anywhere on the panel is a dead one: a disabled button is the shape of this bug, so
+    // the whole step is held to it rather than the Dexcom card alone.
+    await expect(page.locator("[class*='connectStep']").locator("button:disabled, input:disabled")).toHaveCount(0);
+    await shot(page, "dexcom-unconfigured-connect", WHOLE_PAGE);
 
     const sandboxStatus = await (await page.request.get(`http://localhost:${PORT}/api/dexcom/status?token=${booked.token}`)).json();
     expect(sandboxStatus.env).toBe("sandbox");
     expect(sandboxStatus.canConnect).toBe(false);
+    expect(sandboxStatus.configured).toBe(false);
+
+    // The same deployment's Sweetie page carried the other half of the offer: an amber card headed "Try
+    // Dexcom sandbox", which POST /api/dexcom/demo answers 503 to without credentials (T91).
+    await page.goto(`http://localhost:${PORT}/s/${booked.token}`);
+    await expect(page.getByRole("button", { name: "Send message" })).toBeVisible(LOADED);
+    await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
+    expect((await postJson(page.request, `http://localhost:${PORT}/api/dexcom/demo`, { token: booked.token })).status()).toBe(503);
   });
 });
