@@ -163,12 +163,33 @@ test("regenerating a link invalidates the old one and the session on it (§5.5)"
   await next.close();
 });
 
-test("a link with no phone or email on file says so instead of showing a code screen", async ({ page, request }) => {
+test("a link with no phone or email on file says so, and says which practice to call", async ({ page, request }) => {
   // §2.2 has staff record a contact method with the visit. Until one is there a code has nowhere to go, and
   // the honest answer is to send the patient to the office rather than to a screen that cannot work.
   const { token } = await book(page, "E2E No Contact", false);
   await page.goto(`/s/${token}`);
-  await expect(page.locator(".patient-state-card")).toContainText(/no phone number or email address on file/i, LOADED);
+  const card = page.locator(".patient-notice-card");
+  await expect(card).toContainText(/no phone number or email address on file/i, LOADED);
+  // The screen's next step happens on a telephone, so the page says which number to look up (T98): the
+  // practice is on it as the eyebrow the code screen uses, and again inside the sentence that asks for the
+  // call. Read as `textContent`, because the eyebrow is uppercased in CSS and the sentence is not.
+  const practice = ((await card.locator(".ss-eyebrow").textContent()) ?? "").trim();
+  expect(practice, "the practice named above the heading").not.toBe("");
+  await expect(card.locator(".ss-lede")).toContainText(practice);
   expect((await postJson(request, "/api/verify", { token })).status()).toBe(422);
   await shot(page, "verify-no-contact", WHOLE_PAGE);
+});
+
+test("a link we do not know says so and reveals nothing about it (§2.3)", async ({ page }) => {
+  // The other dead end (T98). A made-up token gets the same screen as a link the practice has replaced —
+  // which the regenerate test above drives — and neither can be told from the other here:
+  // no practice, no patient, nothing about the token that was tried.
+  await page.goto("/s/not-a-real-token");
+  const card = page.locator(".patient-notice-card");
+  await expect(card).toContainText(/couldn't find that link/i, LOADED);
+  await expect(card.locator(".ss-eyebrow")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("not-a-real-token");
+  // No code was sent and nothing is on offer: the way back in is the practice, not this page.
+  await expect(page.getByLabel("6-digit code")).toHaveCount(0);
+  await shot(page, "verify-not-found", WHOLE_PAGE);
 });

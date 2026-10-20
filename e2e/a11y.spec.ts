@@ -6,12 +6,12 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { AGREE, acceptConsent, enterCode, patientEmail } from "./patient";
-import { shot } from "./shot";
+import { shot, WHOLE_PAGE } from "./shot";
 
-// T22, design §6.4 and §12.5: the four screens a patient sees — the code screen, consent, Sweetie, and the
-// summary — judged by axe against WCAG 2.1 AA, plus the six things §6.4 names by hand because no automated
-// rule can see them: labels, focus order, contrast, reduced motion, a keyboard-operable mic, and a live
-// region for state changes.
+// T22, design §6.4 and §12.5: every screen a patient can land on — the code screen, the two dead ends in
+// front of it (T98), consent, Sweetie, the intake sources and the summary — judged by axe against WCAG 2.1
+// AA, plus the six things §6.4 names by hand because no automated rule can see them: labels, focus order,
+// contrast, reduced motion, a keyboard-operable mic, and a live region for state changes.
 //
 // Nothing is stubbed except the speech engine. Headless Chromium ships no SpeechRecognition, so the mic
 // button Sweetie only renders when the browser can both listen and speak is not in the page at all here;
@@ -19,14 +19,15 @@ import { shot } from "./shot";
 // keyboard. What is being tested is the control, not the engine (§6.6 keeps voice browser-native).
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
- *  books, and signs out, leaving the browser as a patient's. */
-async function book(page: Page, name: string) {
+ *  books, and signs out, leaving the browser as a patient's. `contact: false` books a visit with nothing to
+ *  send a code to, which is one of the two dead ends below. */
+async function book(page: Page, name: string, contact = true) {
   const email = patientEmail(name);
   await signInAsDemo(page);
   const booked = await (
     await postJson(page.request, "/api/book", {
       name,
-      email,
+      ...(contact ? { email } : {}),
       visitType: "follow_up",
       reason: "mornings running high",
       channel: "none",
@@ -128,6 +129,43 @@ test("the code screen: axe, a labelled field, and focus that starts in it", asyn
 
   await expectNoSeriousA11yViolations(page, "patient code screen");
   await shot(page, "a11y-code");
+});
+
+test("a link we do not know: axe, and a heading that says what happened", async ({ page }) => {
+  // The first of the two dead ends in front of the code screen (T98). Both used to render the summary
+  // page's loading card, whose whole content is one <p>, so there was no `h1` for axe's heading rules — or
+  // for a screen reader — to read, and §12.5's pass had never visited either of them.
+  await page.goto("/s/not-a-real-token");
+  const card = page.locator(".patient-notice-card");
+  await expect(card).toBeVisible(LOADED);
+
+  await expect(card.getByRole("heading", { level: 1 })).toHaveText(/didn't work/i);
+  // The instruction is the lede the rest of the patient flow reads at, not the 11px caption it used to be.
+  await expect(card.locator(".ss-lede")).toContainText(/couldn't find that link/i);
+  // And the patient can see which product is talking to them: the wordmark is in the topbar, as on the code
+  // screen next door.
+  await expect(page.locator(".ss-topbar .persona-brand")).toContainText("Sweet Spot");
+
+  await expectNoSeriousA11yViolations(page, "patient link not found");
+  await shot(page, "a11y-notice-not-found", WHOLE_PAGE);
+});
+
+test("a link with nothing to send a code to: axe, a heading, and the practice named", async ({ page }) => {
+  // The other one. This is the screen that asks the patient to make a telephone call, so the practice is on
+  // it (§2.3 allows it: the code screen already carries the practice for a link that resolves).
+  const { token } = await book(page, "E2E A11y No Contact", false);
+
+  await page.goto(`/s/${token}`);
+  const card = page.locator(".patient-notice-card");
+  await expect(card).toBeVisible(LOADED);
+
+  await expect(card.getByRole("heading", { level: 1 })).toHaveText(/can't send you a code/i);
+  await expect(card.locator(".ss-eyebrow")).not.toBeEmpty();
+  await expect(card.locator(".ss-lede")).toContainText(/no phone number or email address on file/i);
+  await expect(page.locator(".ss-topbar .persona-brand")).toContainText("Sweet Spot");
+
+  await expectNoSeriousA11yViolations(page, "patient link with no contact on file");
+  await shot(page, "a11y-notice-no-contact", WHOLE_PAGE);
 });
 
 test("the consent screen: axe, both answers reachable by keyboard, and focus follows the decline", async ({ page }) => {
