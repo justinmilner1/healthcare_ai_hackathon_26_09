@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { envMs } from "./e2e/budget";
 
 // E2E runs against a production build on port 3100 with a throwaway Postgres database and the model disabled
 // (scripted mode), so results are deterministic. scripts/agent-check.sh sets the environment and seeds data first.
@@ -39,19 +40,6 @@ const DEXCOM_PORT = PORT + 3;
 const DEMO_PORT = PORT + 4;
 
 /**
- * A millisecond budget from the environment, or `fallback` when it is absent, empty or not a positive number.
- *
- * `Number(process.env.X ?? d)` is not enough now that docs/ROUTINES.md tells a routine on a slow box to set
- * these (T89): `Number("")` is 0 and `Number("3min")` is NaN, and `??` catches neither, so one malformed
- * value would silently become a budget of zero or of nothing at all rather than the documented default.
- */
-const envMs = (name: string, fallback: number): number => {
-  const raw = process.env[name]?.trim();
-  const parsed = raw ? Number(raw) : Number.NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-/**
  * How long one test may run before Playwright calls it hung, in milliseconds.
  *
  * Like the build budget further down, this is a ceiling for a test that has stopped making progress, not an
@@ -67,6 +55,11 @@ const envMs = (name: string, fallback: number): number => {
  * ceiling was raised for. The three specs that ask for more are `flows.spec.ts`, `journey.spec.ts` and
  * `uploads.spec.ts` — named without line numbers, which this comment has no way of keeping true; the largest
  * of their floors is what KEEP_ALIVE_MS below has to outlast.
+ *
+ * It is one of three budgets of this shape, and the only one that lives here: `envMs` above and the suite's
+ * "waiting for asynchronous work" budget (`E2E_LOADED_TIMEOUT_MS`) are in e2e/budget.ts, where a spec can
+ * import them. Raising this one does not reach that one — a 30s `expect` wait fails inside a 180s test and
+ * reports an assertion rather than a clock — so a slow box needs both (T95).
  */
 const TEST_TIMEOUT_MS = envMs("E2E_TEST_TIMEOUT_MS", 180_000);
 
