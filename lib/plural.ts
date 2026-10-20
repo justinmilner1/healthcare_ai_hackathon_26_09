@@ -24,5 +24,10 @@ export function countOf(n: number, singular: string, pluralForm?: string): strin
  * agree with the `History` tile beside it rather than calling one day "the week".
  */
 export function daySpan(days: number): string {
-  return days === 7 ? "the week" : `the ${countOf(days, "day")} you shared`;
+  if (days === 7) return "the week";
+  // The count is dropped at one — "the day you shared", not "the 1 day you shared" — because the numeral
+  // reads wrong inside a sentence and the `History` tile beside it prints the number anyway. The noun comes
+  // from here on both branches, so the sentence and the tile cannot disagree about it.
+  const span = days === 1 ? plural(days, "day") : countOf(days, "day");
+  return `the ${span} you shared`;
 }

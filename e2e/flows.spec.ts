@@ -511,7 +511,7 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   // from coming back: on one day of readings, nothing in this card calls the span a week.
   const range = page.locator(".patient-range-copy");
   await expect(range, "the time-in-range sentence names the span it was computed over").toContainText(
-    /% of the 1 day you shared/,
+    /% of the day you shared/,
   );
   await expect(range, "one day of data is never \"the week\"").not.toContainText(/the week/i);
 
