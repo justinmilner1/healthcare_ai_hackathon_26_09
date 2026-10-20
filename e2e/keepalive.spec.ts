@@ -1,6 +1,7 @@
 import net from "node:net";
 
 import { expect, test } from "@playwright/test";
+import { LOADED_TIMEOUT_MS } from "./budget";
 
 // T59 — the gate's own transport, not a feature. Design §12.2 and §12.4: the suite is the gate on every merge,
 // so a test that fails for a reason that is not the code under test costs a full rerun and, worse, makes a red
@@ -25,7 +26,17 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
  *  flag. Short enough to stay well inside the per-test ceiling, whatever it is set to. */
 const IDLE_MS = 10_000;
 
-/** Resolve once `done()` is true, or fail the wait after `within` ms. */
+/** Resolve once `done()` is true, or fail the wait after `within` ms.
+ *
+ *  Callers below pass the suite's shared budget rather than a number of their own (T95, e2e/budget.ts):
+ *  connecting a socket and having a request answered are waits on asynchronous work like any other, and the
+ *  flat 10s and 20s here were the last of them that `E2E_LOADED_TIMEOUT_MS` could not reach. This wait is the
+ *  one the reviewer run of 2026-10-19 watched miss by **8 milliseconds** — `1792392813593` against
+ *  `< 1792392813585` — which is a box under load and nothing else. `IDLE_MS` above is not one of these: it is
+ *  a property of the server being tested, so it stays where it is.
+ *
+ *  The `no-restricted-syntax` rule cannot catch these, because `within` is a positional argument rather than
+ *  a `timeout:` property — so the comment is what keeps the next one honest. */
 async function until(done: () => boolean, within: number, what: string) {
   const deadline = Date.now() + within;
   while (!done()) {
@@ -65,9 +76,9 @@ test("the server holds an idle keep-alive socket, so a reused connection is neve
   const answers = () => received.match(/HTTP\/1\.1 200/g)?.length ?? 0;
 
   try {
-    await until(() => socket.readyState === "open", 10_000, "the socket should connect");
+    await until(() => socket.readyState === "open", LOADED_TIMEOUT_MS, "the socket should connect");
     get();
-    await until(() => answers() >= 1, 20_000, "the server should answer the first request");
+    await until(() => answers() >= 1, LOADED_TIMEOUT_MS, "the server should answer the first request");
     expect(received, "liveness should answer 200, and keep the connection").toContain("HTTP/1.1 200");
 
     // The gap. Without the flag in playwright.config.ts the server sends FIN in the middle of this.
@@ -79,7 +90,7 @@ test("the server holds an idle keep-alive socket, so a reused connection is neve
 
     // And the connection is not merely open but still serving, which is what the suite's pooled contexts need.
     get();
-    await until(() => answers() >= 2 || closedBy.length > 0, 20_000, "the reused connection should answer");
+    await until(() => answers() >= 2 || closedBy.length > 0, LOADED_TIMEOUT_MS, "the reused connection should answer");
     expect(closedBy, "the server hung up on the reused connection rather than answering it").toEqual([]);
     expect(answers(), "the second request, on the same socket as the first, should answer 200 too").toBeGreaterThanOrEqual(2);
   } finally {
