@@ -12,7 +12,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
-import { countOf, plural } from "@/lib/plural";
+import { countOf, daySpan, plural } from "@/lib/plural";
 import { patientChartCaption } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
 import { visitLabel } from "@/lib/visits";
@@ -134,9 +134,13 @@ export default function PatientPage({
                     <small>Time in range</small>
                   </div>
                   <div className="patient-range-copy">
+                    {/* The span comes from the data, not from the brand (T100): `daySpan` says "the
+                        week" only when stats.days really is seven, so a single-day upload no longer reads
+                        "of the week" beside a History tile saying 1 day. */}
                     <p>
-                      Your glucose was between 70 and 180 for {tirPct}% of the
-                      week{tirPct >= 70 ? " — where most people aim." : "."}
+                      Your glucose was between 70 and 180 for {tirPct}% of{" "}
+                      {daySpan(stats.days)}
+                      {tirPct >= 70 ? " — where most people aim." : "."}
                     </p>
                     <RangeBar
                       tbr={stats.tbr}

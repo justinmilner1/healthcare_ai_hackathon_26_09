@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { countOf, plural } from "./plural";
+import { countOf, daySpan, plural } from "./plural";
 
 test("one is singular, zero and many are plural", () => {
   assert.equal(countOf(0, "spike"), "0 spikes");
@@ -28,4 +28,12 @@ test("plural returns the noun alone, and treats -1 as singular", () => {
   assert.equal(plural(1, "day"), "day");
   assert.equal(plural(5, "day"), "days");
   assert.equal(plural(-1, "day"), "day");
+});
+
+// T100 (design §2.7): the patient summary's time-in-range sentence names the span it was computed over.
+test("daySpan names the week only when the data is a week", () => {
+  assert.equal(daySpan(7), "the week");
+  assert.equal(daySpan(1), "the 1 day you shared");
+  assert.equal(daySpan(3), "the 3 days you shared");
+  assert.equal(daySpan(14), "the 14 days you shared");
 });

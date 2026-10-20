@@ -505,6 +505,16 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   // is the same call to countOf in the same line, and lib/plural.test.ts is what owns it.
   await expect(page.locator(".patient-summary-content"), "a count agrees with its noun").not.toContainText(/\b1 (days|readings)\b/);
 
+  // T100 (§2.7): and the sentence above that tile names the same span the tile does. It read "for 76% of
+  // the week" on this very summary — a claim about the data, next to a History tile saying 1 day — until
+  // daySpan() in lib/plural.ts took the span from stats.days. The negative half is what keeps the literal
+  // from coming back: on one day of readings, nothing in this card calls the span a week.
+  const range = page.locator(".patient-range-copy");
+  await expect(range, "the time-in-range sentence names the span it was computed over").toContainText(
+    /% of the 1 day you shared/,
+  );
+  await expect(range, "one day of data is never \"the week\"").not.toContainText(/the week/i);
+
   // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
   // phone gets one screenful with the stat row scrolled to the top of it — the tile this ticket is about is
   // well below a 375px fold, and a whole-page phone shot of this screen is the one §12.3 size gate already
@@ -626,6 +636,13 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
   // And the caption over the chart does not promise the column that is not there. Both read one predicate
   // in lib/spikePlaces.ts, so they cannot drift apart.
   await expect(page.locator(".patient-summary-content")).not.toContainText(/where you had just been/i);
+
+  // T100 (§2.7): the other side of the single-day assertion above. dexcom_clarity_sample.csv really is
+  // seven days, so here the sentence keeps the wording the page was written with, and the figure and its
+  // span still agree — daySpan() branches on seven rather than defaulting to it.
+  await expect(page.locator(".patient-range-copy"), "seven days of readings are \"the week\"").toContainText(
+    /% of the week/,
+  );
 
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, no places");
   await shot(page, "patient-summary-no-places", { scrollTo: ".patient-spikes" });

@@ -15,3 +15,14 @@ export function plural(n: number, singular: string, pluralForm = `${singular}s`)
 export function countOf(n: number, singular: string, pluralForm?: string): string {
   return `${n.toLocaleString()} ${plural(n, singular, pluralForm)}`;
 }
+
+/**
+ * The span a share of readings was computed over, in the patient's own voice (design §2.7, T100). The
+ * patient summary states a time-in-range percentage and has to name the span it came from: "the week" when
+ * the data really is a week, and the days themselves when it is not. `lib/bundle.ts` floors `stats.days`
+ * at 1, so a patient who uploads the day before their visit is the common case, and the sentence has to
+ * agree with the `History` tile beside it rather than calling one day "the week".
+ */
+export function daySpan(days: number): string {
+  return days === 7 ? "the week" : `the ${countOf(days, "day")} you shared`;
+}
