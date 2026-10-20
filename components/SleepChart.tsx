@@ -4,6 +4,7 @@
 // the rest live in the tooltip and the table twin below the chart.
 
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
 import type { SleepNight } from "@/lib/types";
 
 const INK2 = "var(--viz-ink-2)";
@@ -38,6 +39,8 @@ export default function SleepChart({ nights, height = 200 }: { nights: SleepNigh
               // (3:1 is all WCAG asks of a graphic) and reads as 3.6:1 at 12px. Tooltip text is text (§6.4).
               itemStyle={{ color: INK2 }}
               labelStyle={{ color: INK2 }}
+              // Ours rather than Recharts' " : ", for the reason in GlucoseChart (T87, §2.6, §2.7, §7.4).
+              separator={TOOLTIP_SEPARATOR}
               formatter={(v, _n, item) => {
                 const rec = (item?.payload as SleepNight | undefined)?.recovery;
                 return [`${v} h${typeof rec === "number" ? ` · recovery ${rec}%` : ""}`, "Asleep"];

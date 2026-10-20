@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
 const INK2 = "var(--viz-ink-2)";
@@ -93,6 +94,11 @@ export default function GlucoseChart({ readings, spikes, height = 280 }: { readi
             // (3:1 is all WCAG asks of a graphic) and reads as 3.6:1 at 12px. Tooltip text is text (§6.4).
             itemStyle={{ color: INK2 }}
             labelStyle={{ color: INK2 }}
+            // The formatter below picks the word and the unit; Recharts picks what goes between them, and
+            // its default is " : " — "Glucose : 118 mg/dL" on the patient's page, the clinician's brief and
+            // the printed sheet (T87, §2.6, §2.7, §7.4). A space before a colon is not English typography,
+            // so the separator is ours too.
+            separator={TOOLTIP_SEPARATOR}
             labelFormatter={(v) => new Date(Number(v)).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}
             formatter={(v) => [`${v} mg/dL`, "Glucose"]}
           />
