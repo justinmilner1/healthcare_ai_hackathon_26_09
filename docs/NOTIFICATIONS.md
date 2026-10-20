@@ -138,7 +138,12 @@ for a cross-site page to ride, and challenging it would make every bounce notifi
 1. **Request a number.** AWS End User Messaging → *Phone numbers* → *Request originator*. A 10DLC long code
    or a toll-free number; both need registration, and US destinations will not deliver without one.
    Registration is where the practice's details and a sample message go, and it takes days, not minutes.
-2. **Set `SNS_ORIGINATION_NUMBER`** to it in E.164 (`+15551234567`).
+2. **Set `SNS_ORIGINATION_NUMBER`** to it in E.164 (`+15551234567`). This is also what tells the app to send
+   through SNS at all: a backend is chosen by the setting it cannot send without, and an AWS credential is
+   not one (T94). `lib/sms.ts` reports itself unconfigured until this is set — it never publishes on the
+   strength of an ambient `AWS_ACCESS_KEY_ID`, which is how the offline check run (§11.3) came to make 14
+   doomed SNS calls in one run. `SMS_PROVIDER=sns` forces the backend but does not stand in for the number;
+   `npm run config:check` says so.
 3. **Leave the SMS sandbox** (*Account settings* → production access). In the sandbox only verified
    destination numbers receive anything.
 4. **Turn on two-way SMS** on the number, with the destination set to an SNS topic, and add that topic's ARN
@@ -152,6 +157,9 @@ for a cross-site page to ride, and challenging it would make every bounce notifi
 
 Nothing above is needed. With no backend configured, mail goes to the console mailer
 (`DEV_MAIL_DIR`, `npm run mail`) and SMS reports itself unconfigured, so the invite link is shown on screen.
+That holds on a machine with AWS credentials in its environment too, which is what makes
+`scripts/agent-check.sh` reach no external service: the invite's SMS channel is `skipped`, with no backend
+named on the row and no attempt to retry.
 `npm run send:test` sends one real message once keys are set. The webhook has nothing to listen to and
 answers 503, which is the right answer for a machine that no topic is pointed at.
 

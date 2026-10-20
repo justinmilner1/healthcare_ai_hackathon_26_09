@@ -107,9 +107,18 @@ describe("handlers", { skip: SKIP_WITHOUT_DB }, () => {
   let lines: { event: string; [k: string]: unknown }[] = [];
 
   // These tests are about the handler's bookkeeping, not about a backend, and the sandbox this suite runs in
-  // has AWS keys in its environment — which lib/email.ts and lib/sms.ts read as "SES and SNS are configured".
-  // Unset them for the suite, so every channel lands on the deterministic "nothing to send" path.
-  const BACKEND_ENV = ["EMAIL_PROVIDER", "SMS_PROVIDER", "RESEND_API_KEY", "TWILIO_ACCOUNT_SID", "AWS_ACCESS_KEY_ID"] as const;
+  // has AWS keys in its environment — which lib/email.ts reads as "SES is configured". Unset every sender's
+  // settings for the suite, so every channel lands on the deterministic "nothing to send" path.
+  // SNS_ORIGINATION_NUMBER is in the list because since T94 it, and not an AWS credential, is what selects
+  // the SNS backend (lib/sms.ts).
+  const BACKEND_ENV = [
+    "EMAIL_PROVIDER",
+    "SMS_PROVIDER",
+    "RESEND_API_KEY",
+    "TWILIO_ACCOUNT_SID",
+    "AWS_ACCESS_KEY_ID",
+    "SNS_ORIGINATION_NUMBER",
+  ] as const;
   const savedEnv = new Map<string, string | undefined>();
 
   before(async () => {

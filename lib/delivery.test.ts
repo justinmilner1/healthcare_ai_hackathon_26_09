@@ -22,9 +22,9 @@ import { sendEmail } from "./email";
 import { sendSms } from "./sms";
 import { SUPPRESSED_REASONS, suppressedReason } from "./suppression";
 
-/** A sandbox with ambient AWS credentials auto-detects SES and SNS (lib/email.ts, lib/sms.ts), so the
- *  senders below are called with the environment emptied of every key: these tests are about the text a
- *  refusal carries, not about the network's opinion of it. */
+/** A sandbox with ambient AWS credentials auto-detects SES (lib/email.ts), and an origination number
+ *  selects SNS (lib/sms.ts, T94), so the senders below are called with the environment emptied of every
+ *  one: these tests are about the text a refusal carries, not about the network's opinion of it. */
 const SENDER_KEYS = [
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -37,6 +37,7 @@ const SENDER_KEYS = [
   "EMAIL_PROVIDER",
   "EMAIL_FROM",
   "SMS_PROVIDER",
+  "SNS_ORIGINATION_NUMBER",
 ];
 
 async function withEnv<T>(over: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
