@@ -268,8 +268,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await shot(page, "10-patient-summary");
   // T87 (§2.7): the charts on this page are read by hovering them, and until this ticket every tooltip
   // read "Glucose : 118 mg/dL" — Recharts' default separator, on a page written in plain English.
-  await expectChartTooltipsLabelled(page, "the patient's own summary", () =>
-    shot(page, "10-patient-summary-tooltip", SCREENFUL),
+  await expectChartTooltipsLabelled(page, "the patient's own summary", (chart) =>
+    shot(page, `10-patient-summary-tooltip-${chart}`, SCREENFUL),
   );
 
   // ---- The clinician reads it, signs it off, prints it (§7.2, §7.3, §7.4) ------------------------------
@@ -314,8 +314,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(places).toContainText("no matching visit");
   await shot(page, "12-sour-brief");
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
-  await expectChartTooltipsLabelled(page, "the clinician's brief", () =>
-    shot(page, "12-sour-brief-tooltip", SCREENFUL),
+  await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
+    shot(page, `12-sour-brief-tooltip-${chart}`, SCREENFUL),
   );
 
   // §7.3: the sign-off, by the clinician who read it.

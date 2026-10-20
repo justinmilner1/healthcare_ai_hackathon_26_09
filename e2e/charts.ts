@@ -12,8 +12,13 @@ const DRAWN = { timeout: 30_000 };
 
 /** The glucose line's tooltip row, in full: our separator, and the word and unit its formatter chooses. */
 const GLUCOSE = /^Glucose: \d+ mg\/dL$/;
-/** The sleep columns', with §2.7's optional recovery suffix, which this ticket leaves exactly as it was. */
-const ASLEEP = /^Asleep: \d+(\.\d+)? h( · recovery \d+%)?$/;
+/**
+ * The sleep columns'. The recovery suffix is required rather than optional, because it is the part of
+ * this string the ticket promised to leave alone: every night in both WHOOP samples the suite uploads
+ * carries a recovery score (data/whoop_sample.csv, data/fixtures/whoop_cycles.csv), so a tooltip here
+ * without one would mean the suffix had been lost rather than that the data never had it.
+ */
+const ASLEEP = /^Asleep: \d+(\.\d+)? h · recovery \d+%$/;
 
 /** The chart drawing a line, and the one drawing columns, whichever cards this page puts them in. */
 const lineChart = (page: Page): Locator =>
@@ -45,22 +50,22 @@ async function tooltipRow(page: Page, chart: Locator): Promise<string> {
  *
  * Desktop only. §6.5's 375px device has no pointer to hover with, so there is no tooltip there to read — the
  * same reason e2e/demo.spec.ts gives for not reading a `title` attribute at that width. `photograph` is run
- * with the glucose tooltip open, for the one screenshot per surface that has one in it (§12.3); it is not
- * run on the phone, where the state it would be photographing does not exist.
+ * once per chart with that chart's tooltip still open, for a caller that wants the picture as well as the
+ * assertion (§12.3); it is not run on the phone, where the state it would be photographing does not exist.
  */
 export async function expectChartTooltipsLabelled(
   page: Page,
   where: string,
-  photograph?: () => Promise<void>,
+  photograph?: (chart: "sleep" | "glucose") => Promise<void>,
 ): Promise<void> {
   if (test.info().project.name !== "desktop") return;
 
   const bars = barChart(page);
   if (await bars.count()) {
     expect(await tooltipRow(page, bars.first()), `${where}: the sleep tooltip`).toMatch(ASLEEP);
+    await photograph?.("sleep");
   }
-  // Glucose last, so the tooltip still open when this returns is the one worth photographing: it is the
-  // chart all three surfaces have, and the one the ticket was reported against.
+  // The chart all three surfaces have, and the one the ticket was reported against.
   expect(await tooltipRow(page, lineChart(page)), `${where}: the glucose tooltip`).toMatch(GLUCOSE);
-  await photograph?.();
+  await photograph?.("glucose");
 }
