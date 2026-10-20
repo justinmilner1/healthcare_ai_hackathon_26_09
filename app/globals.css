@@ -4555,13 +4555,18 @@ button.sweetie-agent-badge {
   margin-bottom: 8px;
 }
 
+/* Balanced, because these two headings are the only ones in the patient flow whose text is not chosen to
+   fit the column: "We can't send you a code." broke after "a" and left `code.` alone on the second line at
+   both widths. */
 .patient-notice-card .ss-title {
   margin: 0 0 10px;
+  text-wrap: balance;
 }
 
 .patient-notice-card .ss-lede {
   margin: 0 auto;
   max-width: 36ch;
+  text-wrap: pretty;
 }
 
 @media (max-width: 560px) {
