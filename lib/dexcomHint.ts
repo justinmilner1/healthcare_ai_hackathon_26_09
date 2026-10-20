@@ -7,7 +7,12 @@
 // the patient's record count on it (T71). A patient reads §2.5's panel, so the hint says what they have
 // shared and what they can do, in their words, and never what an operator has or has not set.
 //
-// Pure, and in lib/ rather than in the page, so both states can be held to that in a unit test (§12.1).
+// The same argument decides which control the card offers, which is why `dexcomConnectControl` is here
+// beside the sentence (T91): a deployment with no credentials cannot connect anything, so the card offered
+// the patient a greyed-out Connect Dexcom button with nothing saying why — the operator fact T71 took out
+// of the hint, put back as a dead control. A patient is offered what works and nothing else.
+//
+// Pure, and in lib/ rather than in the page, so every state can be held to that in a unit test (§12.1).
 
 import type { DexcomEnv } from "./dexcomEnv";
 
@@ -59,4 +64,34 @@ export function dexcomCardHint(hint: DexcomHint): string {
   return hint.sandboxPatient
     ? `${AUTHORIZE} Only synthetic readings are imported.`
     : `${AUTHORIZE} Your last 7 days of readings are imported.`;
+}
+
+/** Which connect control, if any, the Dexcom card puts in front of this patient. */
+export type DexcomConnectControl =
+  /** The OAuth button: this visit may connect to the Dexcom this deployment talks to. */
+  | "oauth"
+  /** The link to a separate synthetic demonstration, which is all the sandbox has for a real visit. */
+  | "demo"
+  /** Nothing to offer. The card's upload is then the only way in, and the hint above says so. */
+  | "none";
+
+/**
+ * The one control the Dexcom card renders, for whichever state this visit is in (§2.5, §9.2).
+ *
+ * `"none"` means render nothing — not a disabled button. The page used to decide this the other way round:
+ * it chose a control from `canConnect` and the environment and then disabled it when `configured` was
+ * false, so the default offline deployment (the README's, the check script's, the demo's) put a dead
+ * **Connect Dexcom · Demo** at the top of the panel on every single run (T91).
+ */
+export function dexcomConnectControl(
+  { env, configured, canConnect, sandboxPatient }: Pick<DexcomHint, "env" | "configured" | "canConnect" | "sandboxPatient">,
+): DexcomConnectControl {
+  // No credentials, nothing to connect — the demonstration included, since the sandbox needs the same
+  // client as production does (lib/dexcom.ts dexcomConfig).
+  if (!configured) return "none";
+  if (canConnect) return "oauth";
+  // A real visit on a sandbox deployment: its own readings are not on offer, a synthetic session is (§13.4).
+  if (env === "sandbox" && !sandboxPatient) return "demo";
+  // A demonstration visit on a production deployment has nothing to connect to at all.
+  return "none";
 }
