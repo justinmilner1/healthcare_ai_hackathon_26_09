@@ -104,6 +104,12 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   const sheet = page.locator(".sour-print-sheet");
   await expect(sheet, "a Google place id on the sheet a clinician holds").not.toContainText(/ChIJ/);
   await expect(sheet, "the 'Where' column names each place by its coordinates instead").toContainText(/-?\d+\.\d{3}, -?\d+\.\d{3}/);
+  // T99 (§7.4): this visit has a Timeline, so some rises are placed and some are not — and the caption says
+  // both, rather than calling every marker a place. It is the brief's own string (lib/spikePlaces.ts).
+  const caption = page.locator(".sour-chart-caption");
+  await expect(caption).toContainText("the place the patient had just left");
+  await expect(caption).toContainText("peak mg/dL");
+  await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await shot(page, "provider-print");

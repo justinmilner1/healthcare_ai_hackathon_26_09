@@ -310,6 +310,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const places = page.locator(".sour-card", { has: page.getByRole("heading", { name: "Spikes linked to places" }) });
   await expect(places.getByRole("columnheader")).toHaveText(["When", "Rise", "Place"]);
   await expect(places).toContainText("no matching visit");
+  // T99 (§2.6): and the chart beside that card says the same thing about the same five rises. The caption
+  // used to call every red marker a place; with no Timeline shared, every label on it is a peak mg/dL.
+  const caption = page.locator(".sour-chart-caption");
+  await expect(caption).toContainText("peak mg/dL");
+  await expect(caption).toContainText("no place matched");
+  await expect(caption, "a place promised over markers that are numbers").not.toContainText("the place the patient had just left");
   await shot(page, "12-sour-brief");
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
@@ -359,6 +365,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".sour-print-header"), "the patient's words on the clinician's document").not.toContainText(/your care team/i);
   await expect(page.locator(".sour-print-sheet")).toContainText("new job in August");
   await expect(page.locator(".sour-print-numbers")).toContainText("Time in range");
+  // T99 (§7.4): the sheet carries the screen's caption, out of lib/spikePlaces.ts, so the paper cannot
+  // promise a place the brief does not.
+  const printCaption = page.locator(".sour-chart-caption");
+  await expect(printCaption).toContainText("peak mg/dL");
+  await expect(printCaption).toContainText("no place matched");
+  await expect(printCaption).not.toContainText("the place the patient had just left");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await shot(page, "15-print-sheet");
   // And the third (§7.4). The sheet is read on screen before it is sent to paper, so its charts have

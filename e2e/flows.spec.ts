@@ -194,6 +194,15 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const chip = page.locator(".sour-job-state");
   await expect(chip).toHaveAttribute("data-phase", "ready", LOADED);
   await expect(chip).toContainText(/Ready/);
+  // T99 (§2.6): the seeded visit has a Timeline beside its Dexcom, so this is the brief's other shape — the
+  // caption may name a place, and still says what the unplaced markers carry. Read from the bundle rather
+  // than assumed, so a sample that drifts says so here instead of failing on a missing word.
+  const placed = ((await (await page.request.get(`/api/patient/${seeded.id}`)).json()) as { spikes: { visit?: unknown }[] }).spikes;
+  expect(placed.some((s) => s.visit), "the seeded week has a rise the matcher placed").toBeTruthy();
+  const caption = page.locator(".sour-chart-caption");
+  await expect(caption).toContainText("the place the patient had just left");
+  await expect(caption).toContainText("peak mg/dL");
+  await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
   await shot(page, "provider-sour-generated");
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
