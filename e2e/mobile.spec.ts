@@ -180,6 +180,24 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
     fit.cut,
     `the flagged card (${fit.card}px) does not fit the transcript (${fit.region}px) at 375px, so the patient has to scroll for the instruction`,
   ).toBe(0);
+  // T97, design §2.5: the flag stops the interview, so the composer stops with it. The screenshot was the
+  // only evidence about this corner of the screen before, and it showed a live input, a live mic and a live
+  // Send under "please call the office today" — the one screen in the flow where being asked another
+  // question reads as the instruction being withdrawn.
+  await expect(page.locator(".sweetie-composer input")).toHaveCount(0);
+  await expect(page.getByLabel("Reply to Sweetie")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Send message/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Talk to Sweetie|Stop voice/i })).toHaveCount(0);
+  // Replaced rather than hidden, and announced: a patient who meets a composer that has simply gone needs
+  // the reason on screen, and a screen reader needs to be told (§6.4).
+  const stopped = page.locator(".sweetie-composer-stopped");
+  await expect(stopped).toBeVisible();
+  await expect(stopped).toHaveAttribute("role", "status");
+  await expect(stopped).toContainText(/check-in has stopped/i);
+  await expect(stopped).toContainText(/call .+'s office today/i);
+  // Nothing operable is left behind in the tab order where the three controls were.
+  await expect(stopped.locator("input, button, a, [tabindex]")).toHaveCount(0);
+
   // The third state of this screen: the skip link is gone, the stepper has a fourth pill, and the card the
   // patient has to act on is the newest thing in the transcript. Measured here too for the T83 floor.
   await expectTranscriptUncut(page, "Sweetie with a flagged answer");

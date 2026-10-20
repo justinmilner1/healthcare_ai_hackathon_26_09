@@ -307,6 +307,81 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   await shot(page, "patient-summary", WHOLE_PAGE);
 });
 
+/**
+ * A check-in the safety scan stopped, and what happens to the message after it (T97, design §2.5, §6.2).
+ *
+ * §2.5 is one sentence: "a flag stops the interview and tells the patient to call the office or 911". The
+ * flag used to stop the *turn* it fired on and nothing more — the composer underneath the instruction was
+ * live, and anything typed into it ran a whole turn and came back with the next intake question. This test
+ * is both halves of the fix in one place: the screen stops inviting a reply, and the transport refuses to
+ * interview even when something posts anyway. It runs in both projects, so the flagged screen is shot at
+ * 1280px as well as at the 375px e2e/mobile.spec.ts measures.
+ */
+test("a flagged check-in stops: no composer, and a later message is not interviewed", async ({ page }) => {
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Flagged");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E Flagged", email, visitType: "follow_up", reason: "tired all the time", channel: "none" })
+  ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
+
+  await verifyLink(page, booked.token, email);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+
+  // One of lib/sweetie.ts's red flags, in a sentence a patient would actually write.
+  const input = page.getByLabel("Reply to Sweetie");
+  await input.fill("I had chest pain yesterday evening and it really scared me.");
+  await input.press("Enter");
+
+  // §2.5's instruction, as the card that ends the transcript (T66 built this part).
+  const flaggedCard = page.locator(".sweetie-flagged-card");
+  await expect(flaggedCard).toBeVisible(LOADED);
+  await expect(flaggedCard.locator("strong")).toContainText(/call .+'s office today/i);
+
+  // The composer is gone, and what stands in its place says why, in a live region rather than as a disabled
+  // control that announces nothing (§6.4). The mic and Send go with the input: all three or none.
+  await expect(page.getByLabel("Reply to Sweetie")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Send message/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Talk to Sweetie|Stop voice/i })).toHaveCount(0);
+  const stoppedNote = page.locator(".sweetie-composer-stopped");
+  await expect(stoppedNote).toBeVisible();
+  await expect(stoppedNote).toHaveAttribute("role", "status");
+  await expect(stoppedNote).toContainText(/check-in has stopped/i);
+  await expect(stoppedNote).toContainText(/call .+'s office today/i);
+  await expect(page.locator(".sweetie-done-card")).toHaveCount(0);
+
+  await shot(page, "sweetie-flagged-stopped", WHOLE_PAGE);
+
+  // And the transport, which is what a patient's own voice path, a second tab or anything else that posts
+  // would reach: the message is stored (§6.2 — what someone says after a flag is what the office wants to
+  // read), the answer repeats the instruction, and no new question is asked.
+  const said = await (
+    await postJson(page.request, "/api/sweetie", { token: booked.token, message: "ok thanks, should I still answer the questions?" })
+  ).json();
+  expect(said.reply, "Sweetie answered the message after the flag").toBeTruthy();
+  expect(said.reply).toMatch(/office today/i);
+  expect(said.reply).not.toMatch(/\?/);
+  expect(said.reply, "a stopped check-in is not a complete one").not.toMatch(/complete/i);
+  expect(said.intake.flagged, "the flag the office is being told about is unchanged").toBe("cardiac_or_breathing");
+
+  // The transcript holds what they said, and the stored intake has not reopened a question behind it.
+  const stored = await (await page.request.get(`/api/sweetie?token=${booked.token}`)).json();
+  expect(stored.messages.map((m: { content: string }) => m.content).join("\n")).toContain("should I still answer the questions?");
+  expect(stored.intake.flagged).toBe("cardiac_or_breathing");
+  expect(stored.intake.wrapped).toBe(true);
+  // §2.5 stopped the check-in where it stood; a later message does not move the visit on from that.
+  const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
+  expect(bundle.visitStatus, "a message after the flag must not advance the visit").toBe("intake_done");
+
+  // §2.5 also stops the interview on the *reload*, not just in the response: the page the patient comes
+  // back to must not hand them a composer again.
+  await page.reload();
+  await expect(page.locator(".sweetie-flagged-card")).toBeVisible(LOADED);
+  await expect(page.getByLabel("Reply to Sweetie")).toHaveCount(0);
+  await expect(page.locator(".sweetie-composer-stopped")).toBeVisible();
+});
+
 // T41 (design §2.7, §6): every visit type, not just the one the flow above books. The labels are written out
 // here rather than imported from lib/visits.ts on purpose — a test that reads the same table as the page
 // would still pass if the page printed the id, and would pass again if a label were quietly reworded.
