@@ -33,3 +33,18 @@ test("a red main reports itself", () => {
   assert.ok(!/labels: \[label, "bug", "area:quality", "ready"\]/.test(ci));
   assert.match(read("docs/ROUTINES.md"), /main-red/, "§12.4's post-merge check is written down for both routines");
 });
+
+test("the procedure cannot read a blocked Actions account as a red main (T92)", () => {
+  // A blocked account still schedules runs; they get no runner and fail in seconds with no steps, so
+  // `conclusion=failure` on its own says nothing about the tree. The one call that tells the two apart has
+  // to be in the doc, because a routine that reads the wall of red as a verdict reverts good work on main.
+  const routines = read("docs/ROUTINES.md");
+  assert.match(routines, /actions\/runs\/[^\s]*\/jobs/, "the jobs call that shows whether a run executed anything");
+  assert.match(routines, /steps\|length/, "and the step count it is read for");
+  assert.match(routines, /\*\*never\*\* grounds for a revert/, "a run that executed nothing is never grounds for a revert");
+  assert.match(
+    routines,
+    /no\n`main-red` issue can ever be opened/,
+    "main-state is an Actions job, so the label's absence is not a green main",
+  );
+});

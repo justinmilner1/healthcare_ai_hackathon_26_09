@@ -23,7 +23,7 @@ Issues titled `T<nn>: ...`, numbered in dependency order. State lives in labels:
 | `review` | The builder has landed it on `main` and it is waiting for the reviewer |
 | `changes-requested` | The reviewer found gaps; the builder fixes forward on `main` |
 | `blocked` | Waiting on a human (credentials, an account, a decision) |
-| `main-red` | Not a ticket: `ci` is failing on `main` right now. Opened and closed by `ci.yml` itself (T47) |
+| `main-red` | Not a ticket: `ci` is failing on `main` right now. Opened and closed by `ci.yml` itself (T47). `main-state` is an Actions job, so while Actions is blocked the label cannot appear at all, and its absence is not a green signal (T92) |
 
 The reviewer closes the issue once what landed meets the ticket. Bugs the reviewer finds become new issues labeled
 `ready` and `bug`.
@@ -93,9 +93,9 @@ Runs every three hours. Reviews the tickets labeled `review`, lowest number firs
 ## The state of `main`
 
 The gate is the check both routines run in the sandbox on the tree they are about to push. `main` therefore
-should never be red; when it is, that is the top priority for whichever routine notices: fix it on `main` if
-the cause is obvious and small (commit `Fix main: ...`, check, push), otherwise revert the commit that broke it
-and file the bug.
+should never be red; when it is — when `scripts/agent-check.sh` fails an assertion on `main` as it stands —
+that is the top priority for whichever routine notices: fix it on `main` if the cause is obvious and small
+(commit `Fix main: ...`, check, push), otherwise revert the commit that broke it and file the bug.
 
 A check that *ran out of time* rather than failing an assertion has not shown `main` to be anything. Read the
 timings table before you act on a failure: "When the box is the problem" below says how to tell the two apart
@@ -108,16 +108,61 @@ and `area:quality` when the check fails on `main`, comments on it once per furth
 the first green run. That issue has no `T<nn>` number and no `ready` label — it is for the reviewer sweep to
 read, diagnose and file as a numbered ticket, not for the builder to pick up blind.
 
-Actions needs billing on the account to run at all (T75); when it is not running there is simply no `main-red`
-issue and no `ci` run, and nothing else changes. Reading it from the sandbox:
+Actions needs billing on the account to run at all (T75), and a blocked account does not look like silence — it
+looks like a wall of red (T92). The runs are still created, on every push to `main` and on the hourly backstop;
+they are allocated no runner; and each one fails in two to three seconds with **zero steps recorded**. So the
+first snippet below reports `completed/failure` against commits whose diffs were never executed:
 
 ```bash
-# the ci runs on main, newest first: sha, what triggered it, verdict
+# the ci runs on main, newest first: run id, sha, what triggered it, verdict
 gh api "repos/$R/actions/workflows/ci.yml/runs?branch=main&per_page=10" \
-  --jq '.workflow_runs[] | "\(.head_sha[0:7]) \(.event) \(.status)/\(.conclusion // "pending") \(.created_at)"'
-# is anything tracking a red main right now?
+  --jq '.workflow_runs[] | "\(.id) \(.head_sha[0:7]) \(.event) \(.status)/\(.conclusion // "pending") \(.created_at)"'
+# 39372059111 81b5401 push     completed/failure 2026-10-20T04:54:39Z
+# 39360225788 5212272 push     completed/failure 2026-10-20T02:40:55Z
+# 39352149970 5f708ef schedule completed/failure 2026-10-20T01:12:39Z
+```
+
+**Never read a red `ci` run as a verdict on a tree before asking whether it ran anything.** That is one more
+call, on a run id the snippet above prints:
+
+```bash
+# did this run execute anything? a job with steps=0 and a sub-five-second duration did not
+gh api "repos/$R/actions/runs/39372059111/jobs" \
+  --jq '.jobs[] | "\(.name) \(.conclusion) steps=\(.steps|length) \(.started_at) \(.completed_at)"'
+# check      failure steps=0 2026-10-20T04:54:39Z 2026-10-20T04:54:42Z
+# sweep      skipped steps=0 2026-10-20T04:54:39Z 2026-10-20T04:54:39Z
+# main-state failure steps=0 2026-10-20T04:54:42Z 2026-10-20T04:54:45Z
+```
+
+That call separates the two cases the `conclusion` field cannot:
+
+- **`steps=0`, and the job started and completed within about five seconds** — the account is blocked. The job
+  was never given a runner, so it checked out nothing, installed nothing, built nothing and asserted nothing.
+  It is **never** grounds for a revert, not under the reviewer's step 5 and not under the "fix it on `main`
+  first" rule at the top of this section, and it says nothing at all about any commit the run names. Note it on
+  the ticket in hand if it is worth noting, and carry on.
+- **Steps recorded, one of them failed** — a real second opinion. Read that step's log and treat it as this
+  section's red `main`.
+
+So the Actions API has three things to say, not two, and only the third is a red tree: Actions cannot run,
+Actions ran and passed, Actions ran and failed.
+
+The `main-red` issue is no safeguard against the confusion, because Actions produces it too. `main-state` is a
+job in `ci.yml`, so while the account is blocked it fails in three seconds along with the rest, and **no
+`main-red` issue can ever be opened**:
+
+```bash
+# is anything tracking a red main right now? an empty answer means EITHER main is green OR Actions cannot run
 gh api "repos/$R/issues?labels=main-red&state=open" --jq '.[] | "\(.number) \(.title)"'
 ```
+
+Nothing has carried the label since it was introduced, which is what a blocked account looks like from that
+call: indistinguishable from a `main` that has never been red. Resolve it with the jobs call above rather than
+believing either reading.
+
+The only verdict on a tree is `bash scripts/agent-check.sh` passing in this working directory, on that tree.
+That is what design §12.4 makes the gate and what both routines run before they push, and while Actions is
+blocked it is the *only* evidence anyone has. Nothing in the Actions tab adds to it or overrides it.
 
 ## Running and viewing the app
 
