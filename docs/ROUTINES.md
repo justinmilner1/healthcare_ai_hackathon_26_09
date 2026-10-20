@@ -264,7 +264,16 @@ that died at `e2e` still prints what every stage before it cost — there is not
 A stage several times its usual length, with no failed assertion anywhere in the output, is a slow box. The
 failures it produces are all misleading in the same way: a Playwright per-test timeout names the test, and
 `Timed out waiting ...ms from config.webServer` names the server, when the only thing that ran out was the
-clock. When the timings say it was the box:
+clock.
+
+The worst of them do not look like clocks at all (T95). A wait on asynchronous work fails *inside* its test,
+so Playwright reports the assertion and the last value it saw: the reviewer run of 2026-10-19 read
+`data-phase` as `"none"` — which says the §7.1 enqueue path never queued the run — a summary as `"stale"` and
+a transcript as `""`, on a tree where every one of them passed when re-run serially. The same no-op
+`sour.run` measured 1.3s on an idle box and 27.0s under contention. A failure naming the product is therefore
+not by itself evidence against the tree either; read the timings table first, as below.
+
+When the timings say it was the box:
 
 - **Do not revert anything.** "The state of `main`" above is about a tree that is red; this is not evidence
   about any tree.
@@ -273,10 +282,17 @@ clock. When the timings say it was the box:
 - **Say so on the issue**, quoting the wall times out of the table and what they are being compared against.
   Leave the ticket `in-progress` so the next run continues it: a slow box needs no human, so it is not
   `blocked`.
-- The budgets are in `playwright.config.ts` and can be overridden for one run: `E2E_WEBSERVER_TIMEOUT_MS` for
-  the build behind the first web server, `E2E_TEST_TIMEOUT_MS` for a test. Raise them on a box slower than any
-  of the figures above. Never lower a per-test timeout to make a suite fit, and never skip or quarantine a test
-  to get past one.
+- The suite has three budgets, each overridable for one run by an environment variable:
+  `E2E_WEBSERVER_TIMEOUT_MS` for the build behind the first web server, `E2E_TEST_TIMEOUT_MS` for one test,
+  and `E2E_LOADED_TIMEOUT_MS` for one wait on asynchronous work — a client fetch painting, a `sour.run`
+  draining, a code arriving in the mailbox. The first two are in `playwright.config.ts`; all three are parsed
+  and defaulted in `e2e/budget.ts`, which is where the specs take theirs from. Raise them on a box slower
+  than any of the figures above, and raise the last two together: a wait cannot outlast the test holding it.
+  Never lower a budget to make a suite fit, and never skip or quarantine a test to get past one.
+- Nothing in a spec writes a budget by hand — `npm run lint` refuses a flat `timeout:` anywhere in `e2e/`,
+  which is what keeps a raised ceiling from being overtaken by a number in a spec. A wait that genuinely
+  needs longer than an ordinary one asks for `DRAINED` or `loadedAtLeast(ms)` from `e2e/budget.ts`, a floor
+  under the shared budget rather than a flat number beside it.
 
 ### The journey spec (T26)
 
