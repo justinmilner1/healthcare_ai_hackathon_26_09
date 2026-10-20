@@ -123,6 +123,22 @@ export function redFlagReply(firstName: string, providerName: string): string {
   return `${firstName}, that sounds like something a person should look at right now, not a form. If it's happening now, please call 911. Otherwise please call ${providerName}'s office today; if you can't reach them, go to urgent care. I've flagged this so the team sees it first. We can finish the rest another time.`;
 }
 
+/**
+ * What Sweetie says to anything that arrives *after* a flag has already stopped the check-in (§2.5, T97).
+ *
+ * The flag stops the interview, not merely the turn it fired on: a patient who has just been told to call
+ * someone and types "ok thanks" used to be asked the next intake question, which reads as the instruction
+ * being withdrawn. So this repeats the instruction instead, in `redFlagReply`'s own order and with the same
+ * name — call the office today, 911 if it is happening now, urgent care if nobody answers — and asks nothing.
+ * It never says the check-in is complete, because it is not: it stopped.
+ *
+ * Deterministic, like the scan itself: the model is never asked to decide whether to carry on interviewing
+ * (`docs/AGENT_ARCHITECTURE.md`, "code decides, models write").
+ */
+export function flaggedHoldReply(firstName: string, providerName: string): string {
+  return `${firstName}, your check-in is stopped here so the team sees this first — what you've written is saved for them. Please call ${providerName}'s office today, or 911 if it's happening now. If you can't reach them, go to urgent care.`;
+}
+
 // ---- Extraction ---------------------------------------------------------------------------------------
 
 type Extraction = {
@@ -188,6 +204,9 @@ export type Target =
   | { kind: "wrap" };
 
 export function nextTarget(state: IntakeState, defs: IntakeFieldDef[]): Target {
+  // A flagged check-in has stopped (§2.5). It is never aimed at another question again — not by the turn
+  // that fired, not by a later message, and not by a caller that recomputes the target from stored state.
+  if (state.flagged) return { kind: "wrap" };
   if (state.questionsSkipped) return { kind: "wrap" };
   for (const f of defs) if (f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium) return { kind: "field", def: f };
   for (const f of defs) if (!f.required && RANK[state.fields[f.id]?.confidence ?? "unfilled"] < RANK.medium && state.turns < 6) return { kind: "field", def: f };

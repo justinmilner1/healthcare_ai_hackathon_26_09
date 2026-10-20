@@ -3918,6 +3918,37 @@ textarea.ss-input {
   text-align: center;
 }
 
+/* What stands where the composer was once the safety scan stopped the check-in (T97, design §2.5). It keeps
+   the composer's box so the bottom of the page does not jump, and the flagged card's warning colours so the
+   two read as one state. There is nothing to focus inside it: the instruction is the card above, and this
+   says why the patient is no longer being asked anything. The composer's own `:focus-within` ring does not
+   apply, so it is a notice rather than a control that looks operable. */
+/* Two classes on purpose: the phone block further down re-pads `.sweetie-composer` for a row of 44px
+   controls, and this box has none of them to make room for. */
+.sweetie-composer.sweetie-composer-stopped {
+  display: block;
+  border-color: #efc2a9;
+  background: #fff4ed;
+  box-shadow: 0 8px 25px rgba(168, 82, 44, 0.1);
+  padding: 11px 14px;
+  color: #8f4524;
+  text-align: center;
+}
+
+.sweetie-composer-stopped strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.sweetie-composer-stopped span {
+  display: block;
+  margin-top: 3px;
+  color: #80442a;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .sweetie-agent-badge {
   display: inline-flex;
   align-items: center;

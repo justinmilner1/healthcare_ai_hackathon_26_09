@@ -44,6 +44,17 @@ const providerLabel = (provider: string | null) => provider ?? "your care team";
 const officeAction = (provider: string | null) =>
   `Please call ${providerLabel(provider)}'s office today — or 911 if it's happening now`;
 
+/** Whether the voice loop should stop asking for the next answer: the check-in has finished, or §2.5 has
+ *  stopped it. A flagged check-in asks nothing more (T97), so the mic must not reopen after Sweetie's
+ *  instruction and hand the patient a conversation that has ended. */
+const endsTheConversation = (data: {
+  status?: IntakeStatus | null;
+  intake?: IntakeState | null;
+}) =>
+  Boolean(
+    data.intake?.flagged || (data.status?.done && data.intake?.wrapped),
+  );
+
 export default function SweetiePage({
   params,
 }: {
@@ -152,7 +163,7 @@ export default function SweetiePage({
         setStatus(data.status ?? null);
         setIntake(data.intake ?? null);
         setFields(data.intakeFields ?? []);
-        done.current = Boolean(data.status?.done && data.intake?.wrapped);
+        done.current = endsTheConversation(data);
       })
       // An abort is the cleanup below, not a failure; a genuine network error leaves the greeting absent,
       // which a reload fixes and which the page already renders as an empty transcript.
@@ -213,7 +224,7 @@ export default function SweetiePage({
       if (data.intakeFields) setFields(data.intakeFields);
       if (data.agent) setAgent(data.agent);
       if (data.provider) setProvider(data.provider);
-      done.current = Boolean(data.status?.done && data.intake?.wrapped);
+      done.current = endsTheConversation(data);
       return data.reply ?? "";
     },
     [],
@@ -409,6 +420,10 @@ export default function SweetiePage({
   // answered is not a wrap because the patient described something urgent. Everything that congratulates the
   // patient asks this first: a flagged check-in stopped, it did not finish (T66).
   const flagged = Boolean(intake?.flagged);
+  // The interview is over and the patient has been sent to a person (§2.5): the same condition the card
+  // below is drawn from, because the card and the composer have to agree about whether anything is still
+  // being asked (T97).
+  const stopped = finished && flagged;
   const totalSteps = fields.length + 1;
   const completedSteps = completeFields + (finished && !flagged ? 1 : 0);
   const progress = totalSteps
@@ -660,53 +675,75 @@ export default function SweetiePage({
               )}
             </div>
 
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void send(text);
-              }}
-              className="sweetie-composer"
-            >
-              <input
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                placeholder={
-                  mic === "listening"
-                    ? interim
-                      ? ""
-                      : "Listening…"
-                    : "Type or tap the mic…"
-                }
-                disabled={busy}
-                aria-label="Reply to Sweetie"
-              />
-              {canVoice && (
-                <button
-                  type="button"
-                  onClick={toggleMic}
-                  aria-pressed={mic !== "off"}
-                  aria-label={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
-                  title={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
-                  className={`sweetie-mic-button sweetie-mic-${mic}`}
-                >
-                  {mic === "speaking" ? <SpeakerIcon /> : <MicIcon />}
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={busy || !text.trim()}
-                aria-label="Send message"
-                className="sweetie-send-button"
+            {/* §2.5 stops the interview, not just the turn the scan fired on, so the composer stops with
+                it (T97). A live input, mic and Send under "please call the office today" invite the patient
+                to carry on a check-in that has ended — and the one screen where that inference is dangerous
+                is this one. The controls are replaced rather than disabled: a disabled input is out of the
+                tab order and announces nothing, so what a keyboard or screen-reader user would meet is
+                silence. What stands in its place is a live region that says why (§6.4), and the only thing
+                left to do on the screen is the card above: call someone, or open what has been shared. */}
+            {stopped ? (
+              <div
+                className="sweetie-composer sweetie-composer-stopped"
+                role="status"
               >
-                <span>Send</span>
-                <b aria-hidden="true">↑</b>
-              </button>
-            </form>
-            <p className="sweetie-composer-note">
-              {micNote ||
-                micLabel ||
-                "Sweetie can prepare for your visit, but cannot give medical advice."}
-            </p>
+                <strong>This check-in has stopped</strong>
+                <span>
+                  Sweetie won&apos;t ask any more questions.{" "}
+                  {officeAction(provider)}.
+                </span>
+              </div>
+            ) : (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void send(text);
+                }}
+                className="sweetie-composer"
+              >
+                <input
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  placeholder={
+                    mic === "listening"
+                      ? interim
+                        ? ""
+                        : "Listening…"
+                      : "Type or tap the mic…"
+                  }
+                  disabled={busy}
+                  aria-label="Reply to Sweetie"
+                />
+                {canVoice && (
+                  <button
+                    type="button"
+                    onClick={toggleMic}
+                    aria-pressed={mic !== "off"}
+                    aria-label={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+                    title={mic === "off" ? "Talk to Sweetie" : "Stop voice"}
+                    className={`sweetie-mic-button sweetie-mic-${mic}`}
+                  >
+                    {mic === "speaking" ? <SpeakerIcon /> : <MicIcon />}
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={busy || !text.trim()}
+                  aria-label="Send message"
+                  className="sweetie-send-button"
+                >
+                  <span>Send</span>
+                  <b aria-hidden="true">↑</b>
+                </button>
+              </form>
+            )}
+            {!stopped && (
+              <p className="sweetie-composer-note">
+                {micNote ||
+                  micLabel ||
+                  "Sweetie can prepare for your visit, but cannot give medical advice."}
+              </p>
+            )}
           </div>
         </section>
       </div>

@@ -137,6 +137,60 @@ describe("the patient's message is stored first (§6.2)", () => {
     assert.equal(rows[0].role, "patient", "the patient's words are stored even on the turn that stops");
   });
 
+  it("does not interview a check-in the scan has already stopped, and asks the model nothing", async () => {
+    // T97, design §2.5: "a flag stops the interview". The turn that fires is above; this is the next
+    // message, which is where the interview used to start again. The patient has been told to call someone
+    // and says "ok thanks" — a run of the whole turn would consult `nextTarget`, land on the first unfilled
+    // field and ask it, which reads as the instruction being withdrawn.
+    const first = recordingStore();
+    const flagTurn = await runTurn(turn({ message: "I passed out this morning and I'm shaking badly." }), first.store, recordingModel(first.trace));
+    assert.equal(flagTurn.flagged, "loss_of_consciousness");
+
+    const stored = first.stored();
+    assert.ok(stored, "the flagged turn committed");
+    const { store, trace, rows, stored: storedAgain } = recordingStore();
+    const result = await runTurn(turn({ state: stored, message: "ok thanks" }), store, recordingModel(trace));
+
+    // Deterministic, like the scan itself: no `extract`, no `speak`, so a gateway that is down cannot turn
+    // a stopped check-in back into an interview either.
+    assert.deepEqual(trace, ["append:patient", "commit"]);
+    assert.equal(result.held, true, "the turn was held rather than run");
+    assert.equal(result.flagged, "loss_of_consciousness", "the first thing the scan caught is still the flag");
+    assert.deepEqual(result.target, { kind: "wrap" } satisfies Target, "never a field target on a flagged state");
+
+    // What the patient said is stored anyway (§6.2): it is what the office wants to read.
+    assert.deepEqual(rows[0], { role: "patient", content: "ok thanks" });
+    // And what Sweetie says repeats §2.5's instruction instead of asking anything.
+    assert.equal(rows[1].role, "sweetie");
+    assert.match(rows[1].content, /call Dr Chen's office today/);
+    assert.match(rows[1].content, /911/);
+    assert.doesNotMatch(rows[1].content, /\?/, "a held turn asks no question");
+    assert.doesNotMatch(rows[1].content, /complete/i, "a stopped check-in is not a complete one");
+
+    // The stored state is the flagged one it started from: still flagged, still wrapped, nothing reopened.
+    assert.equal(storedAgain()?.flagged, "loss_of_consciousness");
+    assert.equal(storedAgain()?.wrapped, true);
+    assert.deepEqual(storedAgain()?.fields, stored.fields, "no field was filled from a message after the flag");
+  });
+
+  it("holds every later turn, however many arrive, and however they arrive", async () => {
+    // Three more messages and an upload event: none of them reopens the interview, and the answer is the
+    // same instruction every time. The upload is the case the composer cannot cover — the page disables the
+    // composer, and the data panel beside it is still there.
+    let state: IntakeState = (await runTurn(turn({ message: "I had chest pain yesterday evening." }), recordingStore().store, recordingModel([]))).state;
+    const { store, trace, rows } = recordingStore();
+    for (const message of ["ok thanks", "I will call them", "should I still answer the questions?"]) {
+      state = (await runTurn(turn({ state, message }), store, recordingModel(trace))).state;
+    }
+    const upload = await runTurn(turn({ state, event: { kind: "dexcom", count: 2016, days: 7 } }), store, recordingModel(trace));
+
+    assert.equal(trace.filter((t) => t === "extract" || t === "speak").length, 0, "the model was never asked");
+    assert.equal(upload.held, true, "an upload event on a flagged check-in does not reopen it either");
+    const said = rows.filter((r) => r.role === "sweetie").map((r) => r.content);
+    assert.equal(said.length, 4);
+    for (const line of said) assert.match(line, /call Dr Chen's office today/);
+  });
+
   it("acknowledges an upload without inventing a patient message", async () => {
     const { store, trace, rows } = recordingStore();
     await runTurn(turn({ event: { kind: "dexcom", count: 2016, days: 7 } }), store, recordingModel(trace));

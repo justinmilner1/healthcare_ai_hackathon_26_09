@@ -16,7 +16,7 @@
 //      half-written turn — a question the patient can read with the state it came from missing, or an intake
 //      that has moved on with nothing on screen to show why — is what §6.2's "consistent" rules out.
 
-import { backstop, extract, merge, nextTarget, redFlagReply, scanRedFlags, scripted, speak, LLMUnavailable } from "./sweetie";
+import { backstop, extract, flaggedHoldReply, merge, nextTarget, redFlagReply, scanRedFlags, scripted, speak, LLMUnavailable } from "./sweetie";
 import type { Target, VisitContext } from "./sweetie";
 import type { ChatRole, IntakeFieldDef, IntakeState, IntakeStatus } from "./types";
 
@@ -72,6 +72,9 @@ export type TurnResult = {
   target: Target;
   /** The red-flag id, when the deterministic scan fired and the turn stopped there. */
   flagged: string | null;
+  /** True when this turn did nothing but repeat §2.5's instruction, because the check-in was already
+   *  flagged. The scan did not fire on this message; the interview was already over. */
+  held: boolean;
 };
 
 /**
@@ -98,8 +101,22 @@ export async function runTurn(input: TurnInput, store: TurnStore, model: TurnMod
       state = { ...state, flagged: flag, wrapped: true };
       const reply = redFlagReply(firstName, provider);
       await store.commit(reply, state);
-      return { state, reply, fellBack: false, fallbackAt: null, target: { kind: "wrap" }, flagged: flag };
+      return { state, reply, fellBack: false, fallbackAt: null, target: { kind: "wrap" }, flagged: flag, held: false };
     }
+  }
+
+  // 2b. §2.5 stops the *interview*, not just the turn the scan fired on (T97). The flag was only read on the
+  //     way out before, so the next message ran the whole turn again and `nextTarget` handed Sweetie the first
+  //     unfilled field — telling a patient who had been sent to the office that the form wanted them back.
+  //     Decided here, in code, before any model call, for the same reason the scan is: an interview that has
+  //     been stopped for safety must not depend on a gateway being up. The patient's message is already
+  //     stored above, which is the point — what someone says after a flag is what the office wants to read —
+  //     and the state is committed as it stands, so the visit's status cannot be advanced by it either.
+  //     The flag id is kept as it was: the first thing the scan caught is the one the team is being told about.
+  if (state.flagged) {
+    const reply = flaggedHoldReply(firstName, provider);
+    await store.commit(reply, state);
+    return { state, reply, fellBack: false, fallbackAt: null, target: { kind: "wrap" }, flagged: state.flagged, held: true };
   }
 
   const transcript = await store.transcript();
@@ -155,7 +172,7 @@ export async function runTurn(input: TurnInput, store: TurnStore, model: TurnMod
 
   // 7. One write, so there is no state in which the patient can read a question the intake has not caught up to.
   await store.commit(reply, state);
-  return { state, reply, fellBack: fallbackAt !== null, fallbackAt, target, flagged: state.flagged };
+  return { state, reply, fellBack: fallbackAt !== null, fallbackAt, target, flagged: state.flagged, held: false };
 }
 
 /** A "no" to the data offer counts even when the extractor missed it, or never ran. */

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { answeredCount, backstop, emptyIntake, fieldsFor, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, SANDBOX_CONNECT_HELP, scanRedFlags, scripted, skipQuestions, VISIT_TYPES } from "./sweetie";
+import { answeredCount, backstop, emptyIntake, fieldsFor, flaggedHoldReply, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, SANDBOX_CONNECT_HELP, scanRedFlags, scripted, skipQuestions, VISIT_TYPES } from "./sweetie";
 
 const visit = { visitType: "follow_up", reason: null };
 const defs = fieldsFor(visit.visitType, visit.reason);
@@ -137,6 +137,28 @@ test("the red-flag reply sends the patient to a person, not to the form", () => 
   assert.match(reply, /flagged this so the team sees it first/);
   // Nothing clinical is interpreted back at them.
   assert.doesNotMatch(reply, /mg\/dL|your (glucose|sugar) (is|was)/i);
+});
+
+test("what Sweetie says after the flag repeats the instruction and asks nothing (T97)", () => {
+  const reply = flaggedHoldReply("Sam", "Dr. Bell");
+  assert.match(reply, /^Sam,/);
+  assert.match(reply, /call Dr\. Bell's office today/);
+  assert.match(reply, /911/);
+  assert.match(reply, /urgent care/);
+  // §2.5 stopped the check-in; it did not finish it, and nothing here invites another answer.
+  assert.doesNotMatch(reply, /complete/i);
+  assert.doesNotMatch(reply, /\?/);
+  // Nothing clinical is interpreted back at them, as in redFlagReply above.
+  assert.doesNotMatch(reply, /mg\/dL|your (glucose|sugar) (is|was)/i);
+});
+
+test("a flagged intake is never aimed at another question (T97, §2.5)", () => {
+  // The scan stops the interview, so no caller that recomputes the target from stored state can reopen it —
+  // not with the template empty, which is where a flag usually fires, and not with it half filled.
+  const empty = { ...emptyIntake(defs), flagged: "cardiac_or_breathing", wrapped: true };
+  assert.deepEqual(nextTarget(empty, defs), { kind: "wrap" });
+  const partly = { ...backstop(emptyIntake(defs), defs[0].id, "Exhausted for six weeks, worse in the afternoons"), flagged: "severe_hypo", wrapped: true };
+  assert.deepEqual(nextTarget(partly, defs), { kind: "wrap" });
 });
 
 // ---- State transitions ------------------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import { llmStatus } from "@/lib/llm";
 import { requireVerifiedPatient } from "@/lib/guard";
 import { log, withRoute } from "@/lib/log";
 import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
-import { fieldsFor, greeting, parseIntake, renderNotes, skipQuestions } from "@/lib/sweetie";
+import { fieldsFor, flaggedHoldReply, greeting, parseIntake, renderNotes, skipQuestions } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import { queueSour } from "@/lib/sourQueue";
 import { runTurn } from "@/lib/sweetieTurn";
@@ -91,6 +91,14 @@ async function postHandler(req: Request) {
   const store = turnStore(visit.id, defs, context);
 
   if (skippingQuestions) {
+    // A flagged check-in has already stopped (§2.5, T97), so there are no remaining questions to skip and
+    // the goodbye below would replace the office instruction with "you can view your week now". The page
+    // hides the skip link once the intake is flagged; this is the same answer for anything that posts anyway.
+    if (state.flagged) {
+      const hold = flaggedHoldReply(firstName, providerName(visit));
+      await store.commit(hold, state);
+      return respond(visit.id, state, hold, wasWrapped);
+    }
     // Skipping is for a patient who has given us something. With nothing answered and nothing uploaded
     // there is no week to view, so steer back to the first question instead of wrapping an empty intake.
     const soFar = await loadBundle(visit.id);
