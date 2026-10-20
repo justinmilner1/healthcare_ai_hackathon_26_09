@@ -10,17 +10,34 @@ import { setLogSink } from "./log";
 
 type Reply = { status: number; body?: unknown; hang?: boolean };
 
+/** What an unscripted request is answered with: a status `lib/llm.ts` neither retries nor rethrows, so one
+ *  stray request stays one request, and a body that says where to look. The status matters less than the fact
+ *  that it is not a success — see `takeUnscripted`. */
+const UNSCRIPTED = 418;
+
 class FakeGateway {
   private server: Server | null = null;
   readonly requests: string[] = [];
   private replies: Reply[] = [];
-  private fallback: Reply = { status: 200, body: { output_text: "ok" } };
+  private fallback: Reply | null = null;
+  private unscripted: string[] = [];
 
   async start(): Promise<string> {
     this.server = createServer((req, res) => {
-      this.requests.push(`${req.method} ${req.url}`);
+      const label = `${req.method} ${req.url}`;
+      this.requests.push(label);
       req.resume();
       const reply = this.replies.shift() ?? this.fallback;
+      if (!reply) {
+        // Nothing scripted this request, so there is no answer to give it that means anything. This used to be
+        // a cheerful `200 OK {"output_text":"ok"}`, and that was the T88 bug: `lib/llm.ts` retries once, so on a
+        // loaded box a healthy call timed out, retried, and the retry was served from the fallback — `ask`
+        // returned `"ok"` and the assertion failed on the *value* rather than on the clock that was the cause.
+        this.unscripted.push(label);
+        res.writeHead(UNSCRIPTED, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: `FakeGateway: nothing scripted ${label} (see T88)` } }));
+        return;
+      }
       if (reply.hang) return; // never answers: the caller's timeout is the only way out
       res.writeHead(reply.status, { "content-type": "application/json" });
       res.end(JSON.stringify(reply.body ?? { error: { message: "fake gateway failure" } }));
@@ -29,10 +46,19 @@ class FakeGateway {
     return `http://127.0.0.1:${(this.server!.address() as AddressInfo).port}/openai/v1`;
   }
 
-  /** Queue one reply per request, in order; later requests get `always`. */
+  /** Queue one reply per request, in order; later requests get `always`, or the refusal above if there is no
+   *  `always`. Each call replaces both, so a test cannot inherit the previous one's standing reply. */
   script(replies: Reply[], always?: Reply) {
     this.replies = [...replies];
-    if (always) this.fallback = always;
+    this.fallback = always ?? null;
+  }
+
+  /** The requests nothing scripted, and a promise that they are accounted for: `afterEach` fails the test on
+   *  any left over, and the one test whose subject *is* an unscripted request claims them here. */
+  takeUnscripted(): string[] {
+    const taken = [...this.unscripted];
+    this.unscripted.length = 0;
+    return taken;
   }
 
   async stop() {
@@ -62,6 +88,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  const unscripted = gateway.takeUnscripted();
   await gateway.stop();
   setLogSink();
   for (const name of ["OPENAI_BASE_URL", "OPENAI_API_KEY", "BEDROCK_OPENAI_MODEL_ID", "LLM_TIMEOUT_MS", "LLM_CIRCUIT_THRESHOLD", "LLM_CIRCUIT_COOLDOWN_MS"]) {
@@ -69,6 +96,9 @@ afterEach(async () => {
     else process.env[name] = saved[name];
   }
   resetCircuit();
+  // Last, after the cleanup, so a stray request cannot also leak a server or an environment variable into the
+  // next test. A request nobody scripted is a test asserting against a reply it did not choose (T88).
+  assert.deepEqual(unscripted, [], `FakeGateway was asked ${unscripted.length} unscripted request(s): ${unscripted.join(", ")}`);
 });
 
 test("a healthy gateway answers in one request and leaves the circuit closed", async () => {
@@ -77,6 +107,18 @@ test("a healthy gateway answers in one request and leaves the circuit closed", a
   assert.equal(gateway.requests.length, 1);
   assert.equal(gatewayState(), "closed");
   assert.equal(llmStatus().degraded, false);
+});
+
+test("a request no test scripted is refused, so a retry can never pass for the scripted reply", async () => {
+  // The guard behind every assertion in this file. `FakeGateway` used to answer anything it had no script for
+  // with `200 OK {"output_text":"ok"}`, so the retry in `lib/llm.ts` could serve a timed-out healthy call a
+  // success: the test above then failed with `actual: 'ok'`, naming the model client for what was the clock
+  // (T88). An unscripted request is now a refusal the gateway also records, and `afterEach` fails any test
+  // that leaves one unclaimed.
+  gateway.script([]);
+  await assert.rejects(() => ask("be brief", "hi"), LLMUnavailable);
+  assert.equal(gateway.requests.length, 1, "the refusal is not transient, so it is not retried");
+  assert.deepEqual(gateway.takeUnscripted(), ["POST /openai/v1/responses"]);
 });
 
 test("a call that never answers times out and is retried once, then reports unavailable", async () => {
@@ -186,6 +228,7 @@ test("prose instead of JSON costs one more call, and that is not an outage", asy
 // ---- probeGateway: the §11.2 reachability check, not a model call --------------------------------------
 
 test("the health probe asks the gateway nothing: one bare GET, no key, no tokens", async () => {
+  gateway.script([{ status: 200, body: { object: "list", data: [] } }]);
   await probeGateway();
   assert.equal(gateway.requests.length, 1);
   assert.match(gateway.requests[0], /^GET \/openai\/v1/);
@@ -224,6 +267,9 @@ test("a successful probe does not close a circuit that real calls opened", async
   await assert.rejects(() => ask("be brief", "hi"), LLMUnavailable);
   await assert.rejects(() => ask("be brief", "hi"), LLMUnavailable);
   assert.equal(gatewayState(), "open");
+  // The probe's own request, scripted on purpose: the gateway answering a bare GET perfectly while every
+  // Responses call 500s is exactly the situation this test is about.
+  gateway.script([{ status: 200, body: { object: "list", data: [] } }]);
   await probeGateway();
   assert.equal(gatewayState(), "open", "a probe must not be able to close the circuit");
 });
