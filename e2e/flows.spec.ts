@@ -516,10 +516,11 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   await expect(range, "one day of data is never \"the week\"").not.toContainText(/the week/i);
 
   // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
-  // phone gets one screenful with the stat row scrolled to the top of it — the tile this ticket is about is
-  // well below a 375px fold, and a whole-page phone shot of this screen is the one §12.3 size gate already
-  // has an exception open for.
-  await shot(page, "patient-summary-single-day", { scrollTo: ".patient-mini-stats" });
+  // phone gets one screenful, with the overview scrolled to the top of it — a whole-page phone shot of this
+  // screen is the one §12.3 size gate already has an exception open for. The overview rather than the stat
+  // row alone (T100): the claim and the tile that contradicted it are the two halves of one bug, and on a
+  // 375px phone they stack, so a frame that starts at the stat row is a picture of the half that was right.
+  await shot(page, "patient-summary-single-day", { scrollTo: ".patient-overview" });
 });
 
 // T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
