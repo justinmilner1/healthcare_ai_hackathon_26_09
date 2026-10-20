@@ -237,15 +237,16 @@ completes on a visit whose intake is already done, or when the clinician presses
 picks it up (design §3.4, §7.1, and `docs/JOBS.md`, which is the list of who enqueues what). The first two are
 each other's mirror image, and `lib/sourQueue.ts` is where that is written down: a summary needs the intake and
 the readings, either can be the last to arrive, and whichever lands second queues the run — so a visit never
-waits for a clinician to open it, and never gets a brief written from half an interview. The import deletes the
-saved summary as well, so the clinician is not shown an older narrative while the fresh run is in flight.
-Neither the patient nor the clinician waits on the two model calls, and a crash between the
-request and the summary costs an attempt rather than the summary. The job is idempotent per visit and per
-input hash (`lib/sourInput.ts`): a second run over unchanged intake and uploads returns the saved pair rather
-than paying for it again, and a changed input is what makes the provider page offer a fresh run. What the
-clinician sees while they wait is the job itself — queued, running, or failed with the reason and a retry
-(§7.2, `lib/sourState.ts`, `SourJobState` in `lib/types.ts`). Its pipeline is deliberately split into
-deterministic analysis and model-written narrative.
+waits for a clinician to open it, and never gets a brief written from half an interview. The OAuth callback
+deletes the saved summary as well, so the clinician is not shown an older narrative while the fresh run is in
+flight. A Clarity upload deletes nothing: the saved pair stays on the page, `lib/bundle.ts` marks it
+`summaryStale` so it cannot be read as current, and the run it queued replaces it. Neither the patient nor
+the clinician waits on the two model calls, and a crash between the request and the summary costs an attempt
+rather than the summary. The job is idempotent per visit and per input hash (`lib/sourInput.ts`): a second
+run over unchanged intake and uploads returns the saved pair rather than paying for it again, and a changed
+input is what makes the provider page offer a fresh run. What the clinician sees while they wait is the job
+itself — queued, running, or failed with the reason and a retry (§7.2, `lib/sourState.ts`, `SourJobState` in
+`lib/types.ts`). Its pipeline is deliberately split into deterministic analysis and model-written narrative.
 
 ### Code calculates the clinical data
 

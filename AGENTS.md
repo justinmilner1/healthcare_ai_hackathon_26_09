@@ -166,9 +166,11 @@ closest.
 - Runs as a `sour.run` job, not inside a request: the three enqueuers are the turn that wraps intake, when the
   visit has Dexcom data, a completed Dexcom import — OAuth or a Clarity upload — when the intake is already
   done, and the provider page's Generate button (`docs/JOBS.md` is the list; `lib/sourQueue.ts` is the key and
-  the gate the two patient-side ones share). The import also deletes the saved summary, so a stale narrative
-  is off the screen while the fresh run is in flight. Idempotent per visit and input hash (§7.1), so a second
-  run with unchanged inputs returns the saved pair. The page shows the job's state and offers a retry (§7.2).
+  the gate the two patient-side ones share). The OAuth callback also deletes the saved summary, so a stale
+  narrative is off the screen while the fresh run is in flight; the Clarity upload path deletes nothing — the
+  saved pair stays up, `lib/bundle.ts` marks it `summaryStale` so it is never read as current, and the queued
+  run replaces it. Idempotent per visit and input hash (§7.1), so a second run with unchanged inputs returns
+  the saved pair. The page shows the job's state and offers a retry (§7.2).
 - Input: `GlucoseReading[]`, `Spike[]` with matched visits, `SleepNight[]`, patient notes — all computed in
   code. The model returns `patterns` and `questions` only; numbers and flags stay code-generated.
 - Patterns must cite data ("3 of 4 overnight highs followed dinners out after 8pm"). Questions must be

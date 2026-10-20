@@ -25,9 +25,12 @@ completed import queues one when the intake is already done. A summary needs bot
 the last to arrive, so whichever lands second is the one that queues — exactly once, with no trigger needing
 to know about the other. Data that arrives mid-intake queues nothing: summarizing there would write a brief
 from half an interview, move the visit to `summary_ready` while the patient is still answering, and email the
-clinician about a summary the wrapping turn is about to replace. An import also deletes the visit's saved
-summaries, which is a separate promise — never show an older narrative against newly imported readings — and
-the queued run is what puts a current one back without a clinician opening the page to pay for it.
+clinician about a summary the wrapping turn is about to replace. The OAuth callback also deletes the visit's
+saved summaries, which is a separate promise and one that path alone keeps — never serve an older narrative
+against newly imported readings — and the queued run is what puts a current one back without a clinician
+opening the page to pay for it. The Clarity upload path makes no such promise and deletes nothing: the saved
+pair stays on the provider page, `lib/bundle.ts` marks it `summaryStale` so neither the page nor a fresh run
+can read it as current, and the run that upload queued replaces it within seconds.
 
 **No payload holds PHI.** Every payload is `{ visitId }` — or, for `patient.delete`, a patient id and the
 opaque user id of whoever asked; the handler reads the rest back. The row outlives the request, so nothing in
