@@ -2,7 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
-import { expectMobileReady, expectNoHorizontalScroll, expectRowIntact, expectTextIntact } from "./mobile";
+import {
+  expectBlockOnScreen,
+  expectMobileReady,
+  expectNoHorizontalScroll,
+  expectRowIntact,
+  expectTextIntact,
+} from "./mobile";
 import { SCREENFUL, shot } from "./shot";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
@@ -126,6 +132,26 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // (T79). Run at both widths, so the desktop bar is held to the same thing.
   await expectRowIntact(page, ".ss-topbar", "the admin top bar on the dashboard");
   await shot(page, "provider-dashboard-nothing-ready");
+
+  // The other half of what a brand-new practice sees (§2.1, §2.2): nothing is booked, so the patient-flow
+  // card is its empty state — the mascot, "Your patient flow starts here.", what to do about it, and the
+  // button that does it. It used to be a `<td colSpan={7}>` of a table that is 1120px wide on purpose, so at
+  // 375px all four were centred at about x=560 and the card was a header row over 335px of blank cream,
+  // which is also what a table that failed to render looks like. Measured rather than eyeballed, and with
+  // boxes rather than `toBeVisible()`, which passes on every one of them (T102, design §6.5).
+  const empty = page.locator(".provider-empty");
+  await expect(empty).toContainText("Your patient flow starts here.");
+  await expect(empty).toContainText("Add the first booked visit");
+  await expect(empty.getByRole("button", { name: "+ Add first patient" })).toBeVisible();
+  await expectBlockOnScreen(page, ".provider-empty", "the empty dashboard's patient-flow card");
+  // And a picture of it at both widths. The only shot of an empty dashboard the suite had was `journey-02`,
+  // whose phone frame is one screenful from the top — the hero, not this card (T57).
+  await shot(page, "provider-dashboard-empty", {
+    ...SCREENFUL,
+    scrollTo: ".provider-table-card",
+    block: "center",
+  });
+
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(/\/provider\/settings/);
   await expect(page.getByRole("heading", { name: "Users and roles." })).toBeVisible(LOADED);

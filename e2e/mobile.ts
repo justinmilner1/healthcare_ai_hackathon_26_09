@@ -201,6 +201,59 @@ export async function expectTextIntact(page: Page, selector: string, screen: str
 }
 
 /**
+ * A block whose every part is on screen, not centred somewhere off to the right (T102, design §6.5).
+ *
+ * `toBeVisible()` cannot answer this. Playwright calls an element visible when it has a box and is not
+ * `display: none` — true of the dashboard's empty state at 375px, which was laid out as a `<td colSpan={7}>`
+ * of a table that is 1120px wide on purpose and so centred its mascot, its heading, its explanation and its
+ * "+ Add first patient" button at about x=560, past the right edge of the phone with the scroller sitting at
+ * `scrollLeft: 0`. The card looked like a table that had failed to render.
+ *
+ * So this measures boxes, the way expectRowIntact does, and asks it of every painted descendant rather than
+ * of the controls alone: on an empty state the heading and the one line of explanation are most of the
+ * point, and a check that looked only at `a[href], button` would have passed a practice whose clinician may
+ * not book (§5.2) — the branch that renders no button at all.
+ *
+ * Judged against the nearest clipping ancestor as well as the viewport, for the reason expectTextIntact is:
+ * content inside an `overflow-x: auto` card is hidden behind a scroll rather than pushed past the screen,
+ * and both are a reader not being shown it. Half a pixel of slack on each edge, as everywhere else here.
+ */
+export async function expectBlockOnScreen(page: Page, selector: string, screen: string): Promise<void> {
+  const block = page.locator(selector).first();
+  await expect(block, `${screen}: nothing matched ${selector}`).toBeVisible();
+  const offScreen: string[] = await block.evaluate((root) => {
+    const found: string[] = [];
+    const name = (node: Element): string => {
+      const text = (node.getAttribute("alt") ?? node.textContent ?? "").trim().replace(/\s+/g, " ");
+      return `${node.tagName.toLowerCase()}${text ? ` "${text.slice(0, 32)}"` : ""}`;
+    };
+    for (const node of [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))]) {
+      const box = node.getBoundingClientRect();
+      // A box a pixel or two each way is the visually-hidden pattern, not something anybody is looking at.
+      if (box.width < 2 || box.height < 2) continue;
+      let left = 0;
+      let right = document.documentElement.clientWidth;
+      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        if (getComputedStyle(parent).overflowX === "visible") continue;
+        const edge = parent.getBoundingClientRect();
+        left = Math.max(left, edge.left);
+        right = Math.min(right, edge.right);
+      }
+      if (box.left >= left - 0.5 && box.right <= right + 0.5) continue;
+      found.push(
+        `${name(node)} [${Math.round(box.left)}…${Math.round(box.right)}] outside [${Math.round(left)}…${Math.round(right)}]`,
+      );
+      if (found.length >= 8) break;
+    }
+    return found;
+  });
+  expect(
+    offScreen,
+    `${screen}: parts of it are off to one side, reachable only by scrolling sideways (T102, design §6.5)`,
+  ).toEqual([]);
+}
+
+/**
  * A stepper that fits: the element is no wider than its own scroll box.
  *
  * The steppers are `overflow-x: auto`, so a stepper that does not fit hides its later steps behind a scroll
