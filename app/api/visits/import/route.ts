@@ -3,7 +3,9 @@
 //
 // Two calls, one route, because the preview and the import have to agree about every row:
 //   commit false (the default)  -> { columns, ignored, rows: [{ line, name, visit?, errors }] , valid, invalid }
-//   commit true                 -> the same rows, plus `created` per row and the ids of what was written
+//   commit true                 -> the same rows, plus `created` per row, the ids of what was written, and
+//                                  `inviteFaults`: what staff read when the invites those rows asked for
+//                                  cannot be sent by this deployment at all (T111)
 // Staff paste or pick a file, read the preview, then press the button; nothing is written until they do.
 // §2.2's "per-row errors" is the whole point: one unreadable line out of 25 must not cost the other 24.
 //
@@ -17,6 +19,7 @@ import { after, NextResponse } from "next/server";
 import { requireCapability, requireMemberInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { withRoute } from "@/lib/log";
+import { inviteSendability } from "@/lib/notify";
 import { intakeLink } from "@/lib/sms";
 import { MAX_CSV_ROWS, parseVisitCsv, type VisitDraft } from "@/lib/visitIntake";
 import { importVisits } from "@/lib/visitStore";
@@ -58,9 +61,16 @@ async function postHandler(req: Request) {
   // One invite job per created visit that has consent, enqueued after the rows are in: the same job, the same
   // idempotency key and the same single drain as /api/book, so a 25-row import is 25 queued sends and not 25
   // SES round trips inside this request (§3.4).
+  //
+  // T111 And the same question /api/book asks, once per distinct answer rather than once per row: a file of
+  // 25 emailed invites in a deployment with no email backend is one fact about the deployment, not 25. The
+  // jobs are still queued, because they are what write the delivery rows §8.3's dashboard reads.
+  const inviteFaults = new Set<string>();
   for (const row of creatable) {
     const created = byLine.get(row.line)?.created;
     if (!created || row.draft.channel === "none") continue;
+    const reason = inviteSendability(row.draft.channel).reason;
+    if (reason) inviteFaults.add(reason);
     await enqueue({ kind: "notify.invite", payload: { visitId: created.visitId }, idempotencyKey: `notify.invite:${created.visitId}` });
   }
   nudge(after);
@@ -69,6 +79,7 @@ async function postHandler(req: Request) {
     ...preview,
     committed: true,
     created: outcomes.filter((o) => o.created).length,
+    inviteFaults: [...inviteFaults],
     rows: parse.rows.map((r) => {
       const outcome = byLine.get(r.line);
       return {

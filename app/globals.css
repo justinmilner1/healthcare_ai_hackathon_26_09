@@ -2336,6 +2336,15 @@ textarea.ss-input {
   color: var(--sour-ink);
 }
 
+/* T111 The rows went in; their invites did not go out. A block of its own under the tally rather than a
+   sentence trailing it, because it is the one line on this screen staff have to act on, and in the colour
+   the dashboard already uses for a delivery that reached nobody (.provider-delivery-fault). */
+.import-invite-fault {
+  display: block;
+  margin: 6px 0 0;
+  color: #8c3b33;
+}
+
 /* Tall enough for a day's rows at a glance, and never more than half the window: a long paste still scrolls
    in here rather than pushing the tally and the Create button out of reach. 260px was less than the height
    of the five rows e2e/visits.spec.ts previews, so whichever way the box was scrolled it cut one of them in

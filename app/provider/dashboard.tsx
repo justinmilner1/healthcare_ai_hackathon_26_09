@@ -177,10 +177,18 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
       // The invite is a `notify.invite` job (design §3.4): the response says it is queued, not that it
       // arrived, so the wizard says so and shows the link, which works regardless. Per-channel delivery
       // status lands on the visit and in this list in T19 (§8.3).
+      //
+      // T111 `queued` is the route's answer about this deployment and not about the queue, so the existing
+      // "No invite sent" branch is now what an unconfigured office reads — §8.1's fallback, with the link
+      // it asks for already in the card below. `data.channel` is the channels that can really send, which
+      // is why the sentence names it rather than `form.channel`: staff who chose "Text and email" in a
+      // deployment that can only text are told about the text.
       setResult({
         message: [
           data.patientReused ? "Visit added for a patient you already had." : "Patient added.",
-          data.queued ? `The invite is on its way by ${channelLabel(form.channel).toLowerCase()}.` : `No invite sent${data.reason ? `: ${data.reason}.` : "."} Share the link below.`,
+          data.queued
+            ? `The invite is on its way by ${channelLabel(data.channel ?? form.channel).toLowerCase()}.`
+            : `No invite sent${data.reason ? `: ${data.reason}.` : "."} Share the link below.`,
         ].join(" "),
         link: data.link,
       });
@@ -1272,6 +1280,10 @@ type Preview = {
   invalid: number;
   committed: boolean;
   created?: number;
+  /** T111 What staff read when the invites these rows asked for cannot be sent by this deployment at all
+   *  (lib/delivery.ts's words, via POST /api/visits/import). One line per distinct reason, however many rows
+   *  ran into it, the way `deliveryFaults` already reads under the pills on the dashboard. */
+  inviteFaults?: string[];
   rows: PreviewRow[];
 };
 
@@ -1384,6 +1396,15 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
                     </strong>
                   )}
                   {preview.ignored.length > 0 && <span> Columns ignored: {preview.ignored.join(", ")}.</span>}
+                  {/* T111 The rows were created; their invites were not sent, because there is nothing to
+                      send them with (§8.1). Said here rather than per row because it is one fact about the
+                      deployment, and it names what staff can do instead: every row is on the dashboard
+                      behind a "Copy intake" button. */}
+                  {preview.inviteFaults?.map((fault) => (
+                    <span className="import-invite-fault" key={fault}>
+                      No invites sent: {fault}. Copy each link from the dashboard instead.
+                    </span>
+                  ))}
                 </p>
               )}
               {preview.rows.length > 0 && (
