@@ -16,7 +16,7 @@ const PURPOSE: IntakeFieldDef = {
   id: "purpose",
   label: "Why you're here",
   goal: "Why they are coming in and what they most want out of the visit: the main concern in their words, since when, how much it bothers them",
-  fallbackQuestion: "Let's start with what matters most to you. What's bringing you in, and what would you like to get out of this visit?",
+  fallbackQuestion: "What's bringing you in, and what would you most like to get out of this visit?",
   required: true,
 };
 
@@ -64,7 +64,7 @@ export function fieldsFor(visitType: string | null | undefined, reason: string |
     ? {
         ...PURPOSE,
         goal: `More about what they called in about ("${reason.trim()}"): what is happening, since when, how much it bothers them, and what they want out of the visit`,
-        fallbackQuestion: `When you booked, you mentioned "${reason.trim()}". Tell me more about that, and what you'd like to get out of this visit.`,
+        fallbackQuestion: `You mentioned "${reason.trim()}" when you booked. Tell me more, and what you'd like from this visit?`,
       }
     : PURPOSE;
   return [first, UPDATE[visitType ?? ""] ?? UPDATE.default];
@@ -280,10 +280,24 @@ export function scripted(p: { isSandbox?: boolean; firstName: string; target: Ta
   return parts.join(" ");
 }
 
-/** The single opening message: who Sweetie is, a nudge to add health data, then the first history question.
- *  Everything a new patient needs to start is in this one bubble; there is no second prompt.
- *  The nudge names the upload control rather than placing it: §6.5 designs this page for 375px, where the
- *  three buttons sit above the conversation, not beside it. */
+/**
+ * The opening message: who Sweetie is, what she can use, that it is two questions, and the first of them.
+ *
+ * Still one bubble. That was a decision about her voice rather than about layout (§6.1,
+ * `docs/AGENT_ARCHITECTURE.md`), and one bubble is also the smallest the opening can be on the screen it has
+ * to fit: two would spend another 20px of bubble padding and another 10px of the transcript's gap on the
+ * same words. What changed is the length. Design §6.5 leaves this transcript 251px on a 375px phone and the
+ * opener was 302px of it (T105), so about three of its fourteen lines sat under the composer, mid-sentence,
+ * with nothing on the screen saying there was more — the first thing a patient ever reads of §2.5, cut off.
+ *
+ * It is now about nine lines in the cases the product actually ships (the seeded demo, a booked visit with a
+ * reason, a visit without one), which clears the region with room for a longer name than any of them. What
+ * §2.5 and §6.6 rest on is all still in it: the three optional exports, that sharing them is optional, that
+ * it is two questions, and that the patient can talk or type. The nudge names the upload controls rather
+ * than placing them — at 375px they sit above the conversation and beside it on a laptop. A reason long
+ * enough to overflow the region anyway is still possible, which is what the scroll cue on the transcript is
+ * for (app/s/[token]/page.tsx).
+ */
 export function greeting(firstName: string, providerName: string, visit: VisitContext, defs: IntakeFieldDef[], hasDexcom = false): string {
   const first = defs[0]?.fallbackQuestion ?? "What's bringing you in?";
   if (visit.isSandbox) {
@@ -291,8 +305,8 @@ export function greeting(firstName: string, providerName: string, visit: VisitCo
   }
   const data = hasDexcom
     ? "Your glucose data is already in, thank you."
-    : "If you can, add your Dexcom export with the Dexcom button, and your Google Maps Timeline or WHOOP data too if you have them. It gives your doctor the full picture.";
-  return `Hi ${firstName}, I'm Sweetie 🍬. I help ${providerName} get ready for your ${visitPhrase(visit.visitType)}, so the appointment starts with your story already told. ${data} Then it's just two quick questions, and you can talk or type. First: ${first}`;
+    : "The Dexcom, Timeline and WHOOP buttons are optional.";
+  return `Hi ${firstName}, I'm Sweetie 🍬, here for your ${visitPhrase(visit.visitType)} with ${providerName}. ${data} Two questions, and you can talk or type. First: ${first}`;
 }
 
 // ---- What Sour reads ------------------------------------------------------------------------------------

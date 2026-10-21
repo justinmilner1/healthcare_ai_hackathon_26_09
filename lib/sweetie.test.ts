@@ -36,19 +36,11 @@ test("skipping preserves existing answers, declined uploads, and safety flags", 
   assert.match(notes, /Breakfast at home/);
 });
 
-test("sandbox greeting preserves optional upload and first-question flow", () => {
-  const demo = { ...visit, isSandbox: true };
-  assert.match(greeting("Demo", "James", demo, defs, true), /readings are ready/);
-  assert.match(greeting("Demo", "James", demo, defs, false), /optionally.*Connect Dexcom sandbox/);
-  assert.match(greeting("Demo", "James", demo, defs, false), /fictional answers/);
-});
-
 test("the opening nudge names the upload button instead of placing it", () => {
   // §6.5: at 375px the Dexcom, Timeline and WHOOP controls sit above the conversation, so any opener that
   // says "on the left" points a phone patient at nothing.
   const opener = greeting("Ada", "James", visit, defs, false);
-  assert.match(opener, /add your Dexcom export with the Dexcom button/);
-  assert.match(opener, /Google Maps Timeline or WHOOP/);
+  assert.match(opener, /The Dexcom, Timeline and WHOOP buttons are optional/);
   for (const placement of [/on the left/, /to the left/, /on the right/, /below/, /above/]) {
     assert.doesNotMatch(opener, placement);
   }
@@ -58,6 +50,63 @@ test("the opening nudge names the upload button instead of placing it", () => {
   assert.doesNotMatch(withData, /button/);
   for (const text of [opener, withData]) {
     assert.match(text, /I'm Sweetie/);
+    assert.ok(text.endsWith(defs[0].fallbackQuestion));
+  }
+});
+
+test("the opening message carries everything §2.5 and §6.6 promise, in one bubble", () => {
+  // T105: the opener is the whole of what a patient is told before they say anything, so the four things
+  // §2.5 and §6.6 rest on are asserted rather than left to whoever next shortens it. The practice's name is
+  // here too: nothing else on this screen prints it (app/s/[token]/page.tsx), and it is the one thing in
+  // §2.3's invite that says who is asking.
+  const opener = greeting("Ada", "James", visit, defs, false);
+  for (const promise of [/Dexcom/, /Timeline/, /WHOOP/, /optional/, /Two questions/, /talk or type/, /James/]) {
+    assert.match(opener, promise);
+  }
+  assert.ok(opener.endsWith(defs[0].fallbackQuestion));
+});
+
+test("the opening message fits the 251px transcript §6.5 leaves it on a 375px phone", () => {
+  // T105, design §6.5. The gate the ticket was filed for lives in e2e/mobile.spec.ts, where the real
+  // transcript is measured in a real browser; this is the same budget in characters, so a rewrite that
+  // overflows it fails in a second here rather than in twenty minutes there.
+  //
+  // The arithmetic, all of it from app/globals.css's 375px block and the T105 measurement: the region is
+  // 251px with 15px of padding top and bottom, and a bubble is 9px of padding top and bottom, 1px of
+  // border, and 20.15px per line (13px at line-height 1.55). So the message has (251 - 30 - 20) / 20.15 =
+  // 10.9, say 10, lines. One line holds about 35 characters: the opener this replaced measured 302px, which
+  // is 14 lines, for 490 characters.
+  const LINES = 10;
+  const PER_LINE = 35;
+  const cases: [string, string][] = [
+    // The three shapes the product ships: the seeded demo's reason (scripts/seed.ts), a booked visit with a
+    // short reason (e2e/mobile.spec.ts), and a visit booked without one.
+    ["the seeded demo", "my numbers keep going high overnight and I don't know why"],
+    ["a short reason", "mornings running high"],
+    ["no reason", ""],
+  ];
+  for (const [name, reason] of cases) {
+    const fields = fieldsFor("follow_up", reason);
+    for (const hasDexcom of [false, true]) {
+      const text = greeting("Sam", "Dr. Demo Endo", { visitType: "follow_up", reason }, fields, hasDexcom);
+      const lines = Math.ceil(text.length / PER_LINE);
+      assert.ok(
+        lines <= LINES,
+        `the opener for ${name}${hasDexcom ? " with glucose in" : ""} is about ${lines} lines of a ${LINES}-line transcript (${text.length} characters): ${text}`,
+      );
+    }
+  }
+});
+
+test("the sandbox opener says what the demo can and cannot do, and asks the first question", () => {
+  const demo = { ...visit, isSandbox: true };
+  const ready = greeting("Demo", "James", demo, defs, true);
+  const empty = greeting("Demo", "James", demo, defs, false);
+  assert.match(ready, /readings are ready/);
+  assert.match(empty, /optionally.*Connect Dexcom sandbox/);
+  for (const text of [ready, empty]) {
+    assert.match(text, /No Timeline or WHOOP uploads are needed/);
+    assert.match(text, /fictional answers/);
     assert.ok(text.endsWith(defs[0].fallbackQuestion));
   }
 });
@@ -176,7 +225,7 @@ test("the template is two questions, shaped by the visit type and the stated rea
   assert.equal(fieldsFor("nonsense", null)[1].label, fieldsFor("follow_up", null)[1].label);
   // The reason the office recorded goes into the first question, quoted as theirs.
   const withReason = fieldsFor("follow_up", "  mornings running high  ");
-  assert.match(withReason[0].fallbackQuestion, /you mentioned "mornings running high"/);
+  assert.match(withReason[0].fallbackQuestion, /^You mentioned "mornings running high" when you booked/);
   assert.match(withReason[0].goal, /"mornings running high"/);
   assert.deepEqual(fieldsFor("follow_up", "   "), fieldsFor("follow_up", null));
   // Both questions are required, so neither gets skipped for being optional.
