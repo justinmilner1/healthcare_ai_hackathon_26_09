@@ -35,6 +35,25 @@ Two messages cannot simply fail: a provider's sign-in link and a patient's verif
 configured those go to the local mailbox instead (`lib/devMailbox.ts`, `npm run mail`), which is what makes
 both sign-ins walkable offline and is how the e2e suite reads a link. See docs/ROUTINES.md.
 
+### Asked before the send, not only after it (T111)
+
+Both columns of that table are answered by `smsConfig()` and `emailConfig()`, which resolve the backend and
+its settings with no client built and no network call. So a screen does not have to wait for the job to find
+out: `inviteSendability(channel)` in `lib/notify.ts` hands back the channels staff chose that have a backend
+behind them, and — when that set is empty — the sentence `cannotSendYet` owns in `lib/delivery.ts`, the same
+one the delivery row will carry minutes later.
+
+`POST /api/book` and `POST /api/visits/import` both ask it, which is why `queued` on a booking response is a
+claim about this deployment rather than about the `Job` table. The booking wizard used to read a queued row
+as "the invite is on its way by email" in an office with no email backend at all, while the dashboard cell
+for the same visit said email could not be sent. The jobs are still enqueued either way: they are what write
+the `skipped` delivery rows the **Messages** column reads, so the dashboard does not fall silent about a
+channel just because nothing could be sent on it.
+
+What this does *not* predict is arrival. A configured backend can still bounce, and §8.1's suppression and
+§13.4's demo rule close a channel on facts that live on the patient's row rather than in the environment.
+Those are the delivery row's to report.
+
 ## Delivery results (§8.3)
 
 A send writes a `VisitDelivery` row per message: `(visitId, kind, channel, audience)`, replaced by the next
