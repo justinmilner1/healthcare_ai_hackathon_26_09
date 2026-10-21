@@ -176,6 +176,13 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // first so it is the one a reader is handed. expectTextIntact runs at both widths — §6.5 is the phone's,
   // but a heading over its cell is wrong at any width, and desktop is where this page was already right.
   await expectTextIntact(page, ".settings-users tbody tr", "the users table on practice settings");
+  // And the card the invite was sent from, which was T101's bug one element over. The success notice reads
+  // the address back — "Invited <email>. They can sign in with that address now." — and an address is one
+  // unbreakable token, so with nothing bounding it the notice's min-content width became the card's: the
+  // form measured 384px against a 375px screen and `.ss-page`'s overflow: hidden cut the difference off in
+  // silence. Neither of this page's other width checks can see that, because the document never moves and
+  // the card is not a scroller; a box measured against the viewport can.
+  await expectBlockOnScreen(page, ".settings-grid", "the practice settings cards");
   await expectSettingsFitsAPhone(page);
   await shot(page, "provider-settings");
   // The table framed rather than wherever it happens to fall: on a phone the invite form above it is a

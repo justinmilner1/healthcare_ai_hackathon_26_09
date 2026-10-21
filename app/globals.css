@@ -506,6 +506,14 @@ textarea.ss-input {
 .ss-error,
 .ss-notice,
 .ss-success {
+  /* These notices quote back what the person just typed, and on practice settings that is an email address
+     (§2.1): "Invited <address>. They can sign in with that address now." An address is one unbreakable
+     token, so unbounded it set the notice's min-content width — and the card is a grid item, which cannot
+     shrink below it, so both settings cards were laid out 393px wide on a 375px screen and `.ss-page`'s
+     overflow: hidden cut the difference off with nothing to say so. `anywhere` rather than `break-word` for
+     the reason the row heading above takes it (T101): only `anywhere` lowers the box's own min-content
+     width, which is the measurement the card is laid out from. */
+  overflow-wrap: anywhere;
   padding: 11px 14px;
   border: 1px solid #f0bec9;
   border-radius: 12px;
