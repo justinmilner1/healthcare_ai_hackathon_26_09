@@ -35,6 +35,44 @@ const reducedMotion = () =>
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 type Mic = "off" | "listening" | "thinking" | "speaking" | "idle";
 
+/**
+ * Whether the newest thing in the transcript has a line of text the patient cannot read, given where the
+ * bottom edge of the region is (T105). In the region's own layout coordinates.
+ *
+ * Measured on the last *line box* rather than on the last row. A `.sweetie-message` keeps 9px of padding and
+ * a 1px border under its last line at 375px (app/globals.css), so a bubble whose every word is on the screen
+ * still hangs 10px past the fold — and a cue that counts those announces the bubble's own chrome. That is the
+ * cry-wolf the region's 15px of padding caused one level up, one box further in.
+ *
+ * What is left once the padding and the border come off is the bottom of the last line box: `line-height`
+ * tall, with the glyphs inside it and the leading and the descent space under them. Half a line box may
+ * therefore be under the fold with nothing readable lost, which is the slack here — and more than that is
+ * the bottom of a line of type under the composer, which is what the cue is for. `transcriptCue` in
+ * e2e/mobile.ts holds the two halves of that claim against the lines' own rects.
+ *
+ * The row's box, with the bubble's style: `.sweetie-message-row` carries the 340ms entrance animation, and
+ * Chromium makes an element that has been transformed the `offsetParent` of everything inside it — so the
+ * bubble's own `offsetTop` is 0 and says nothing about where it is in the region. The row is `align-items:
+ * end`, so the bubble's bottom edge *is* the row's, which makes the row the box to measure and the bubble
+ * the chrome to take off it.
+ *
+ * The two cards that end the check-in hold their text in children, so for them it is the card's own padding
+ * that comes off and `font-size` that stands in for a line; a cue a pixel eager about a card is the safe way
+ * round, and e2e/mobile.spec.ts measures both cards whole.
+ *
+ * `offsetTop`, like the scroll effect and for the same reason: a message arrives under a transform that
+ * `getBoundingClientRect` reads as position and layout does not.
+ */
+function hidesAnyText(last: HTMLElement, fold: number): boolean {
+  const text = last.querySelector<HTMLElement>(".sweetie-message") ?? last;
+  const style = getComputedStyle(text);
+  const px = (value: string) => Number.parseFloat(value) || 0;
+  const lastLine =
+    last.offsetTop + last.offsetHeight - px(style.paddingBottom) - px(style.borderBottomWidth);
+  return lastLine - fold > (px(style.lineHeight) || px(style.fontSize)) / 2;
+}
+
+
 /** Whose office this is, in Sweetie's words. The fallback is lib/visit.ts's CARE_TEAM, which the API has
  *  already applied; this one only shows if the opening fetch never answered. */
 const providerLabel = (provider: string | null) => provider ?? "your care team";
@@ -213,20 +251,22 @@ export default function SweetiePage({
     region.scrollTo({ top: Math.max(0, Math.min(top, end)), behavior: reducedMotion() ? "auto" : "smooth" });
   }, [messages, interim, busy]);
 
-  /** Whether any of the newest message is past the bottom of the region.
+  /** Whether any of the newest message's *words* are past the bottom of the region.
    *
-   *  Measured against the last thing in it rather than against `scrollHeight`, which counts the 15px
-   *  `.sweetie-messages` keeps under that message (app/globals.css): with that in it, a transcript showing
-   *  every word of every message still had 15px "below" and said so, which is a cue that cries wolf.
+   *  Asked of the last thing in it rather than of `scrollHeight`, which counts the 15px `.sweetie-messages`
+   *  keeps under that message (app/globals.css): with that in it, a transcript showing every word of every
+   *  message still had 15px "below" and said so. The bubble's own padding and border are the same mistake
+   *  one box further in, which is what `hidesAnyText` above takes off before it answers.
    *
-   *  In layout coordinates, like the scroll above and for the same reason: a message arrives under a 340ms
-   *  transform that `getBoundingClientRect` reads as position and `offsetTop` does not. A pixel of slack,
-   *  because a smooth scroll settles a fraction short of where it was sent. */
+   *  The cue takes a row out of the region while it is up, so the fold this is measured against is 24px
+   *  higher then than it was when the cue appeared. That cannot flicker: the shorter region leaves strictly
+   *  more under the fold, so the answer that put the cue there keeps it there, and it only goes once the
+   *  patient has scrolled far enough that nothing is hidden at the shorter height either. */
   const readMore = useCallback(() => {
     const region = transcript.current;
     const last = region?.lastElementChild as HTMLElement | null;
     if (!region || !last) return;
-    setMore(last.offsetTop + last.offsetHeight > region.scrollTop + region.clientHeight + 1);
+    setMore(hidesAnyText(last, region.scrollTop + region.clientHeight));
   }, []);
 
   // The region scrolls itself (the effect above) and the patient scrolls it; both arrive here as scroll
@@ -721,15 +761,20 @@ export default function SweetiePage({
                 )}
               </div>
               {/* The newest message runs past the bottom of the region (T105, design §6.5). Sweetie's
-                  opener fits the 251px a phone leaves it now, but nothing bounds what a patient types or
-                  how long a reason the office recorded, so a message taller than the region is still
-                  possible — and the region lands on the top of the newest one, which leaves the rest of it
-                  under the composer with the page otherwise still. This says so.
+                  opener fits the 251px a phone leaves it now, but nothing bounds what a patient types,
+                  what the model writes back or how long a reason the office recorded, so a message taller
+                  than the region is still possible — and the region lands on the top of the newest one,
+                  which leaves the rest of it under the composer with the page otherwise still. This says
+                  so, in a row of its own under the region rather than over the bottom of it: the first
+                  draft was a pill laid on that bottom edge, and the one state it ever appears in is the
+                  state where the edge is the middle of a line, so it covered the words it was talking
+                  about. A row costs the transcript ~20px, which is why it is here only while something is
+                  hidden — and the pixels come back the moment the patient has read to the end (§6.4).
                   `aria-hidden`, and not a live region: the transcript is a `role="log"` that announces
                   every message in full, so to a screen reader there is nothing out of sight to point at,
                   and a cue that spoke on every scroll would talk over the conversation (§6.4). Nothing in
                   it is a control, and `pointer-events: none` keeps it from taking a tap meant for the
-                  message underneath. */}
+                  composer or the transcript around it. */}
               {more && (
                 <p className="sweetie-more" aria-hidden="true">
                   More below ↓

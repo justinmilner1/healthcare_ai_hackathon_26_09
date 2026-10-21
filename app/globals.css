@@ -3613,34 +3613,40 @@ textarea.ss-input {
 }
 
 /* The transcript and the cue that says what it is not showing (T105). It is the transcript's own
-   `flex: 1` box moved out one level, so `.sweetie-messages` below still measures the same: design §6.5's
-   floor on the region (TRANSCRIPT_ROOM, e2e/mobile.ts) is read off that element. */
+   `flex: 1` box moved out one level, so this is the height the conversation holds on the screen and
+   `.sweetie-messages` inside it is what scrolls. Design §6.5's floor (TRANSCRIPT_ROOM, e2e/mobile.ts) is
+   read off this element for that reason: the cue below takes its row out of the scrolling region, and the
+   floor is about how much of a phone the conversation gets, not about which of the two boxes has it. */
 .sweetie-transcript {
-  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
 }
 
-/* A pill at the bottom edge of the region, over the message that runs past it. Against the right margin
-   rather than centred: the words it covers there are a line's ragged end, where a centred pill sat across
-   the middle of the last readable line and took a phrase with it. `pointer-events: none` because it is not
-   a control and sits over a message: a tap on it is a tap meant for the words underneath. */
+/* A band under the region, in the flow, for as long as the newest message has words the patient cannot see.
+   It was a pill laid over the bottom edge of the region instead, which cost the transcript nothing on the
+   screens with nothing hidden — but the only state the cue is ever in is the one where the region is parked
+   on the *top* of a message too tall for it, so that edge is the middle of a line, and the pill sat on the
+   words it was announcing ("what y|ou'd", mid-word, in T105's own evidence shot). Padding under the last
+   message does not reach that either: it is at the far end of the content, pixels nobody sees until they
+   have scrolled past everything the cue exists to point at.
+
+   So the cue takes a row, and takes it only while `more` is true (app/s/[token]/page.tsx) — about 20px off
+   a transcript that is already unreadable without scrolling, given back the moment it is read. More hidden
+   text cannot turn the cue off, so the two cannot flicker against each other: shrinking the region leaves
+   at least as much below the fold as before, and at the end of the content there is nothing below it at
+   either height. `pointer-events: none` because it is not a control, and a tap on it is a tap meant for the
+   composer or the transcript around it. */
 .sweetie-more {
-  position: absolute;
-  z-index: 2;
-  right: 8px;
-  bottom: 5px;
+  flex: 0 0 auto;
   margin: 0;
-  padding: 3px 10px;
-  border: 1px solid #f2dce3;
-  border-radius: 999px;
+  padding: 3px 14px 4px;
+  border-top: 1px solid #f4e2e8;
   color: #8a6d79;
   background: #fff7f9;
-  box-shadow: 0 4px 12px rgba(64, 38, 49, 0.14);
   font-size: 11px;
-  white-space: nowrap;
+  text-align: center;
   pointer-events: none;
 }
 
