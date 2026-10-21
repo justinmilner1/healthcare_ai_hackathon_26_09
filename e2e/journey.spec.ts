@@ -294,7 +294,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
     /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bAWS\b|credential|verified identity/,
   );
 
-  await shot(page, "11-clinician-dashboard", { scrollTo: clinicianRow, block: "center" });
+  // Anchored on the Messages cell rather than on the row: the table is `min-width: 1120px` inside an
+  // `overflow-x: auto` card, so at 375px a row anchored on itself shows PATIENT and VISIT and leaves this
+  // column — the one the step above is about — off the right-hand edge (e2e/shot.ts, `inline`). The desktop
+  // project shoots the whole document, so its frame is unchanged.
+  await shot(page, "11-clinician-dashboard", { scrollTo: clinicianRow.locator(".provider-invite"), block: "center", inline: "center" });
 
   // The row offers Sour because there is data and answers to summarize, and no summary yet. Clicking it is
   // what asks for one: the page queues a `sour.run` job and waits for it (§3.4, §7.2).
