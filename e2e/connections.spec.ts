@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expectNoSeriousA11yViolations } from "./a11y";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
@@ -44,20 +45,29 @@ async function book(page: Page, name: string) {
 /** The mark on the first row of the setup-complete card, whichever of the two it is drawing. */
 const dataMark = (page: Page) => page.locator("[data-mark]");
 
+/** The active step in the progress nav, whose filled disc carries the step number in 10px white (T104). */
+const activeStep = (page: Page) => page.locator('[aria-label="Onboarding progress"] [aria-current="step"] > span');
+
 /**
- * The contrast between the mark's glyph and the badge it sits in, as the browser paints them.
+ * The contrast between an element's own colour and its own background, as the browser paints them.
  *
- * Measured here rather than left to axe: the glyph is a stroked `<svg>`, and axe's `color-contrast` rule
- * judges text only, so the one thing §6.4 asks about the new mark is the one thing an axe pass would not
- * have looked at. The bar is WCAG 1.4.11's 3:1 for a graphical object, not 4.5:1, which is about text.
+ * Measured here rather than left to axe, for both of the things it is used on.
  *
- * There is no axe pass on this screen for a second reason: it has two serious `color-contrast` findings of
- * its own, both older than this ticket and neither about the mark — `.readyRow small` at #8f858b on #fffafb
- * (3.44:1 at 10px) and the "View my week" button, white on the `--pink` brand colour #f75d7c (3.08:1).
- * Filed as T104; the brand colour in particular is a product decision rather than this ticket's to make.
+ * The mark on the first row is a stroked `<svg>`, and axe's `color-contrast` rule judges text only, so the
+ * one thing §6.4 asks about the mark is the one thing an axe pass would not look at. Its bar is WCAG
+ * 1.4.11's 3:1 for a graphical object, not the 4.5:1 that is about text.
+ *
+ * The step number is text, and axe does not report it either — it comes back clean on the brand `--pink`
+ * it used to be filled with, which is 3.08:1 under white at 10px. So T104 darkened the disc to
+ * `--pink-dark` and this measures it, because the pass alone would not have noticed either way.
+ *
+ * Both sit alongside an axe pass rather than instead of one: T104 fixed the two serious `color-contrast`
+ * findings that kept axe off this screen — `.readyRow small` (#8f858b on #fffafb, 3.44:1) now takes
+ * `--muted`, and the "View my week" button rests on `--pink-dark` instead of `--pink` — so the test below
+ * scans both states of the step as well.
  */
-async function markContrast(page: Page): Promise<number> {
-  return dataMark(page).evaluate((span) => {
+async function contrastOf(target: Locator): Promise<number> {
+  return target.evaluate((span) => {
     const channel = (value: number) => {
       const unit = value / 255;
       return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
@@ -96,9 +106,18 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await expect(dataMark(page).locator('svg[data-icon="info"]')).toHaveCount(1);
   // §6.4: the neutral mark has to clear the same bar as the one it replaced.
   expect(
-    await markContrast(page),
+    await contrastOf(dataMark(page)),
     "§6.4, WCAG 1.4.11: the neutral mark against its badge",
   ).toBeGreaterThanOrEqual(3);
+  // T104: and the step number on the "Ready" disc, which is 10px of white on the flow's pink. Text, so
+  // WCAG 1.4.3's 4.5:1 — and asserted by hand because the axe pass above does not report this node.
+  expect(
+    await contrastOf(activeStep(page)),
+    "§6.4, WCAG 1.4.3: the active step number against its disc",
+  ).toBeGreaterThanOrEqual(4.5);
+  // T104 (§6.4, §12.5): the step itself, by the same helper every other patient screen is held to. Both of
+  // its states are scanned, because the two rows differ by glyph, by colour and by the sentence under them.
+  await expectNoSeriousA11yViolations(page, "patient setup complete, nothing shared");
   await shot(page, "connect-done-empty", WHOLE_PAGE);
 
   // One source shared: unchanged, tick and count, which is the half of the screen that was always right.
@@ -113,8 +132,9 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await expect(dataMark(page)).toHaveAttribute("data-mark", "connected");
   await expect(dataMark(page).locator('svg[data-icon="check"]')).toHaveCount(1);
   expect(
-    await markContrast(page),
+    await contrastOf(dataMark(page)),
     "§6.4, WCAG 1.4.11: the tick against its badge",
   ).toBeGreaterThanOrEqual(3);
+  await expectNoSeriousA11yViolations(page, "patient setup complete, one source shared");
   await shot(page, "connect-done-connected", WHOLE_PAGE);
 });
