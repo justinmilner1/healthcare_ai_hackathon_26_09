@@ -1400,6 +1400,14 @@ textarea.ss-input {
   color: var(--sour-ink);
   font-size: 11px;
   font-weight: 690;
+  /* An email address is one unbreakable token, and on practice settings it is the whole of this line until
+     the person first signs in (§2.1) — so it is the only thing telling two pending invites apart. Unbounded
+     it ran past its cell, past the card and off a 375px screen, clipped with no ellipsis and no scrollbar to
+     say characters were missing (T101, design §6.5). `anywhere` and not `break-word`: only `anywhere` lowers
+     the box's own min-content width, which is what lets the cell, and with it the stacked table, shrink to
+     the card. The sub line three rules below has had `text-overflow: ellipsis` all along; a heading wraps
+     instead, because §6.4 does not let the one field identifying a pending invite be dropped on a phone. */
+  overflow-wrap: anywhere;
 }
 
 .provider-patient small,
@@ -1823,7 +1831,12 @@ textarea.ss-input {
     display: none;
   }
 
-  .settings-users,
+  /* The table is spelled with both its classes, the rest with one: this page is a `.provider-dashboard` too,
+     and `.provider-dashboard .provider-table { min-width: 1120px }` higher up outranks a single class, so
+     `min-width: 0` never reached the table. The stacked rows were laid out 1120px wide inside a 351px card
+     and the whole of each one past the first third was behind a sideways scroll — which is half of T101,
+     the other half being the heading that was too wide for the cell in the first place. */
+  .provider-table.settings-users,
   .settings-users tbody,
   .settings-users tr,
   .settings-users td {
