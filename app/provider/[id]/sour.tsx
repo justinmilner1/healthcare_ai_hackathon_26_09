@@ -394,7 +394,7 @@ export default function SourView({ id }: { id: string }) {
               </p>
             )}
             {s?.flags && s.flags.length > 0 && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+              <div className="sour-glucose-flags rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
                 <div className="font-semibold">Glucose safety flags <span className="font-normal text-red-800/70">(computed from the readings, not by the model)</span></div>
                 <ul className="mt-1 list-disc space-y-0.5 pl-5">
                   {s.flags.map((f, i) => <li key={i}>{f}</li>)}
