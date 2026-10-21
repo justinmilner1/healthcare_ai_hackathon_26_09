@@ -96,6 +96,20 @@ test("the opening message fits the 251px transcript §6.5 leaves it on a 375px p
       );
     }
   }
+
+  // And the fourth shape, which is a different sentence and so a different length: the Dexcom sandbox
+  // demonstration (app/api/dexcom/demo/route.ts). Its visit has no type and `lib/bundle.ts` hands
+  // `fieldsFor` a null reason for it, so the first question is the short one — but the demo is also the
+  // screen that carries the sandbox card, which is the 251px this budget is written for.
+  const demoFields = fieldsFor(null, null);
+  for (const hasDexcom of [false, true]) {
+    const text = greeting("Dexcom", "Dr. Demo Endo", { visitType: null, reason: null, isSandbox: true }, demoFields, hasDexcom);
+    const lines = Math.ceil(text.length / PER_LINE);
+    assert.ok(
+      lines <= LINES,
+      `the sandbox opener${hasDexcom ? " with readings in" : ""} is about ${lines} lines of a ${LINES}-line transcript (${text.length} characters): ${text}`,
+    );
+  }
 });
 
 test("the sandbox opener says what the demo can and cannot do, and asks the first question", () => {

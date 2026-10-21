@@ -639,10 +639,10 @@ export default function SweetiePage({
                 finding (§6.4, §12.5): on a phone it is the taller half of the screen and the only way to
                 read back what was said. tabIndex makes it a tab stop, which is what gives arrow keys and
                 Page Up something to act on; the label is what a screen reader announces on arriving. */}
-            {/* The wrapper is what the two scroll cues below are positioned against: they sit over the
-                top and the bottom edge of the transcript, which is not the bottom of this column (the
-                composer is under it). It takes the transcript's `flex: 1` and passes it on, so the region
-                itself is the same box it was — the §6.5 gate in e2e/mobile.ts measures it. */}
+            {/* The wrapper is what the scroll cue below is positioned against: it sits over the bottom
+                edge of the transcript, which is not the bottom of this column (the composer is under it).
+                It takes the transcript's `flex: 1` and passes it on, so the region itself is the same box
+                it was — the §6.5 gate in e2e/mobile.ts measures it. */}
             <div className="sweetie-transcript">
               <div ref={transcript} className="sweetie-messages" aria-live="polite" tabIndex={0} role="log" aria-label="Your conversation with Sweetie">
                 {messages.map((message, index) => (

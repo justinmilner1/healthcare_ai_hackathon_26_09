@@ -3612,7 +3612,7 @@ textarea.ss-input {
   background: #fff4ed;
 }
 
-/* The transcript and the two cues that say what it is not showing (T105). It is the transcript's own
+/* The transcript and the cue that says what it is not showing (T105). It is the transcript's own
    `flex: 1` box moved out one level, so `.sweetie-messages` below still measures the same: design §6.5's
    floor on the region (TRANSCRIPT_ROOM, e2e/mobile.ts) is read off that element. */
 .sweetie-transcript {
