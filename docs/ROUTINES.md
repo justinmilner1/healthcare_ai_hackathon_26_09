@@ -211,17 +211,36 @@ name a stack the branch cannot build. Quote it as evidence; it is about this tre
 expected it, the step failed: an assembly with no stack, or one naming a template that is not on disk, is now
 `infra-check: ...` on stderr and a non-zero exit rather than a confident line.
 
-### What is in a screenshot (T57, T77, T81)
+### What is in a screenshot (T57, T77, T81, T109)
 
 Every spec takes its shots through `shot()` in `e2e/shot.ts`, which decides how much of the page is in the
 image: the desktop project shoots the whole document, where a table row is one line of it, and the mobile
 project shoots its 375px viewport, where it is not — a full-page phone shot of the provider dashboard is as
 tall as the practice's visit list and came out 20,000 pixels of three-pixel rows. A spec overrides that
-where the subject asks for it: `WHOLE_PAGE` for a page bounded by its own content (a patient screen, the
-landing page, the printed sheet), `MODAL` for a dialog, which is one viewport's worth of subject at either
-width, `SCREENFUL` for the provider dashboard, whose height is the practice's visit list on either project,
-and `scrollTo` to put the table card or one booked row in the shot before it is taken. Add a shot by
+where the subject asks for it: `WHOLE_PAGE` for a page bounded by its own content and short enough to read
+whole — a patient screen, the landing page — `MODAL` for a dialog, which is one viewport's worth of subject
+at either width, `SCREENFUL` for the provider dashboard, whose height is the practice's visit list on either
+project, and `scrollTo` to put the table card or one booked row in the shot before it is taken. Add a shot by
 calling the helper; a new `page.screenshot` call is the thing this replaced, and `npm run lint` now says so.
+
+The printed one-pager is **not** one of the whole-page subjects, and this list used to say it was (T109).
+Its height is its own design rather than the practice's data, which is the test `WHOLE_PAGE` is written
+against — but it fails the other half of it, the one about fitting in about two phone screens. Measured on
+the seeded visit: the sheet is 1,296 CSS pixels in the desktop project's two columns and 1,987 in the
+phone's one, in a 2,091-pixel document, which is three phone screens and, at the phone's 2.625 device
+scale, a **5,489-pixel** PNG — past the §12.3 size gate's `MAX_HEIGHT` of 4,000 and past what a reviewer
+can read. The desktop shots of the same sheet are 720 to 1,563 pixels and hold it whole.
+
+So the sheet keeps the per-project default, and a phone shot of it is anchored with `scrollTo` on the part
+its spec took it for. No one frame holds the sheet, so between them the shots cover it: the two flag blocks
+and the single-day sub-line at the top (`e2e/flags.spec.ts`, `e2e/review.spec.ts`), which need no anchor and
+say so where they are taken; `.sour-print-words` at the bottom of the frame for the journey, which brings
+the patterns, the questions and the patient's own words into one picture — the §12.2 handover the journey
+exists to check; and the chart card for both shots in `e2e/print.spec.ts`, which share that anchor so the
+pair is a before-and-after of one part of the sheet, screen media against print media, rather than two
+different parts. `provider-print-no-clinician` is the one phone shot that holds a whole sheet, because that
+visit has nothing to summarize. Anchor a new phone shot of the sheet the same way; `WHOLE_PAGE` on it is a
+5,489-pixel column the gate will stop.
 
 The desktop default was wrong about the dashboard too (T81). A desktop row is one line of a table, but the
 list still grows a row with every visit the suite books, so the whole document of it reached 7,015 pixels
