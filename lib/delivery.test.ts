@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  cannotSendYet,
   DELIVERY_NOT_CHOSEN,
   DELIVERY_NO_EMAIL,
   DELIVERY_NO_PHONE,
@@ -199,6 +200,36 @@ describe("a backend's own message is mapped at the edge (T74)", () => {
         // not exist. The practice administrator's settings page has two fields and neither is a sender.
         assert.doesNotMatch(text, /administrator|admin\b/i, text);
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T111 The same sentence, asked for before a send instead of after one. The booking wizard is told at the
+// point of booking, and what it is told has to be the line the delivery row will carry minutes later —
+// otherwise one visit has two stories, which is the bug the ticket was filed for.
+
+describe("the line a screen gets before the send (T111)", () => {
+  it("is the same sentence the delivery row carries for a channel with no backend", () => {
+    for (const channel of ["email", "sms"]) {
+      // Left-hand side: nothing was reached, because there was nothing to reach — a row with no
+      // `providerName` (lib/visitStore.ts `statusOf` writes `skipped` for exactly that).
+      const onTheRow = deliveryFault({ channel, status: "skipped", error: "SMS not configured: whatever the sender said" });
+      assert.equal(cannotSendYet(channel), onTheRow, channel);
+    }
+  });
+
+  it("names no channel for a visit booked on both, because neither of the two can send", () => {
+    assert.match(cannotSendYet("both"), /cannot send this message yet/);
+    assert.notEqual(cannotSendYet("both"), cannotSendYet("email"));
+  });
+
+  it("names nothing a practice cannot act on, for every channel", () => {
+    for (const channel of ["email", "sms", "both", "", "carrier-pigeon"]) {
+      const text = cannotSendYet(channel);
+      assert.match(text, /^Sweet Spot cannot send/, text);
+      assert.doesNotMatch(text, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, text);
+      assert.doesNotMatch(text, /administrator|admin\b/i, text);
     }
   });
 });

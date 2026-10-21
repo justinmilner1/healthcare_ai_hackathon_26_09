@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   codeTemplates,
   deletionTemplates,
+  inviteSendability,
   inviteTemplates,
   sendDeletionConfirmation,
   sendIntakeInvite,
@@ -305,4 +306,89 @@ test("a demo practice's deletion confirmation and summary notice obey the same r
   });
   assert.match(notified.provider.error!, /demo practice/);
   assert.match(notified.patient.error!, /not configured/, "the patient's reserved address is attempted");
+});
+
+// ---------------------------------------------------------------------------------------------
+// T111 Whether there is a sender behind the channel staff chose, asked before anything is queued. The
+// environment this file runs in has no sender at all (the deletions at the top), which is also the
+// environment `scripts/agent-check.sh` and a fresh `.env` are in, so the unconfigured case is the default
+// here and a configured one is set for the length of one test.
+
+/** Set these for one call and put the environment back, whichever way the assertion goes. */
+function withEnv<T>(vars: Record<string, string>, fn: () => T): T {
+  const before = Object.keys(vars).map((k) => [k, process.env[k]] as const);
+  Object.assign(process.env, vars);
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of before) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+test("with no backend at all, no channel staff chose can send, and the reason is the practice's", () => {
+  for (const channel of ["both", "sms", "email", null, undefined]) {
+    const can = inviteSendability(channel);
+    assert.deepEqual(can.channels, [], `${channel} has nothing to send on`);
+    assert.match(can.reason!, /^Sweet Spot cannot send/, `${channel} says so in staff's words`);
+    // §3.7, §10.6: the deployment's internals stay off a practice's screen. The same shape lib/delivery.ts's
+    // own tests use, so a new sentence in that family cannot smuggle a variable name onto this screen.
+    assert.doesNotMatch(can.reason!, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+  }
+});
+
+test("the channel staff chose names which of the two sentences they get", () => {
+  assert.match(inviteSendability("email").reason!, /cannot send email yet/);
+  assert.match(inviteSendability("sms").reason!, /cannot send texts yet/);
+  // "both" is the wizard's default and neither of the two: the line that names no channel is the true one
+  // when neither can send.
+  assert.match(inviteSendability("both").reason!, /cannot send this message yet/);
+});
+
+test("staff choosing to message nobody is not a gap in the deployment", () => {
+  // `channel: "none"` is a legitimate row (§2.2) and POST /api/book has its own sentence for it. Nothing to
+  // send is not the same statement as nothing to send *with*, so this reports no reason at all.
+  const can = inviteSendability("none");
+  assert.deepEqual(can.channels, []);
+  assert.equal(can.reason, undefined);
+});
+
+test("a configured backend is reported as sendable, with no reason", () => {
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example" }, () => {
+    const can = inviteSendability("email");
+    assert.deepEqual(can.channels, ["email"]);
+    assert.equal(can.reason, undefined);
+  });
+  withEnv({ SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
+    assert.deepEqual(inviteSendability("sms").channels, ["sms"]);
+  });
+});
+
+test("one backend of the two is a narrower invite, not a refused one", () => {
+  // The case the wizard used to be wrong about in the other direction: staff chose "Text and email", the
+  // deployment can only text, and "on its way by text and email" is half false. The answer is the subset,
+  // so the sentence can name the channel that is really going out.
+  withEnv({ SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
+    const can = inviteSendability("both");
+    assert.deepEqual(can.channels, ["sms"]);
+    assert.equal(can.reason, undefined);
+  });
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example" }, () => {
+    assert.deepEqual(inviteSendability("both").channels, ["email"]);
+  });
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
+    assert.deepEqual(inviteSendability("both").channels, ["sms", "email"]);
+  });
+});
+
+test("a credential is not a sender, so it does not make a channel sendable (T94, T110)", () => {
+  // The inference both of those tickets removed: an ambient AWS key says nothing about whether this
+  // deployment texts or mails anybody, and this sandbox has them. Asked before the send, it must give the
+  // same answer `sendEmail` and `sendSms` give during it.
+  withEnv({ AWS_ACCESS_KEY_ID: "AKIAEXAMPLE", AWS_SECRET_ACCESS_KEY: "secret" }, () => {
+    assert.deepEqual(inviteSendability("both").channels, []);
+    assert.match(inviteSendability("email").reason!, /cannot send email yet/);
+  });
 });

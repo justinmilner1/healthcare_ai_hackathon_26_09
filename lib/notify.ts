@@ -4,6 +4,7 @@
 
 import { appUrl } from "./config";
 import {
+  cannotSendYet,
   DELIVERY_NOT_CHOSEN,
   DELIVERY_NO_EMAIL,
   DELIVERY_NO_PATIENT_EMAIL,
@@ -11,12 +12,13 @@ import {
   DELIVERY_NO_PROVIDER_EMAIL,
 } from "./delivery";
 import { demoBlockReason } from "./demo";
-import { sendEmail, type SendResult } from "./email";
+import { emailConfig, sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { sendOrMailbox } from "./mailer";
-import { intakeLink, sendSms } from "./sms";
+import { intakeLink, sendSms, smsConfig } from "./sms";
 import { suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
+import { channelsOf } from "./visitIntake";
 
 export type InviteResult = {
   link: string;
@@ -161,6 +163,37 @@ export async function sendVerificationCode(p: {
   // The code itself is never a field: logSend records the channel and whether it left, nothing more.
   logSend("code_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });
   return { sms, email };
+}
+
+/**
+ * Which of the channels staff chose this deployment can actually send on, and what staff read when the
+ * answer is none of them (T111; §8.1's "Unconfigured -> the UI shows the link instead").
+ *
+ * `sendIntakeInvite` below finds this out one channel at a time, inside a job, minutes after the staff
+ * member who booked the visit has been told what to expect. Both sender modules can answer the same question
+ * synchronously, with no client built and no network call — `smsConfig` (lib/sms.ts, T94) and `emailConfig`
+ * (lib/email.ts, T110) — so a booking route can ask it while that person is still on the screen.
+ *
+ * What it is deliberately *not* is a prediction that the message will arrive. A configured backend can still
+ * bounce, and a suppressed address or a demo practice closes a channel on facts that live on the row rather
+ * than in the environment (`blockedBy` above). Those belong to the delivery row, which reports what actually
+ * happened (§8.3). This answers the narrower question the wizard needs and can have straight away: is there
+ * a sender behind the channel staff chose at all.
+ */
+export type InviteSendability = {
+  /** The chosen channels with a backend behind them, in `channelsOf` order. */
+  channels: NotifyChannel[];
+  /** What staff read when `channels` is empty although they chose one — lib/delivery.ts's words, so it names
+   *  neither a variable nor a backend (§3.7, §10.6). Undefined when something can go out, and when staff
+   *  chose to message nobody, which is not a gap in the deployment and has its own sentence. */
+  reason?: string;
+};
+
+export function inviteSendability(channel: string | null | undefined): InviteSendability {
+  const wanted = channelsOf(channel);
+  const channels = wanted.filter((c) => !("reason" in (c === "sms" ? smsConfig() : emailConfig())));
+  if (channels.length || !wanted.length) return { channels };
+  return { channels, reason: cannotSendYet(channel ?? "") };
 }
 
 export async function sendIntakeInvite(p: {

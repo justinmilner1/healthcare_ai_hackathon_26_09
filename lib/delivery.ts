@@ -80,6 +80,21 @@ type ChannelKey = "sms" | "email" | "other";
 const channelKey = (channel: string): ChannelKey => (channel === "sms" || channel === "email" ? channel : "other");
 
 /**
+ * The same "nothing was reached" line, for a screen asking *before* a send instead of reporting one after it
+ * (T111). The booking wizard is the first thing staff are told about an invite, and until now it was told by
+ * the queue: a row in `Job` read as "on its way by email" in a deployment with no email backend at all. The
+ * sentence it needs is the one the delivery row will carry minutes later, so both screens say one thing.
+ *
+ * Pure, like the rest of this module. Whether a backend exists is `emailConfig` and `smsConfig`'s answer
+ * (lib/email.ts, lib/sms.ts); `inviteSendability` in lib/notify.ts is what asks them and this is what it
+ * quotes. A channel that is neither "sms" nor "email" — "both", the wizard's default — gets the line that
+ * names no channel, which is the true one when neither of the two can send.
+ */
+export function cannotSendYet(channel: string): string {
+  return NOTHING_CONFIGURED[channelKey(channel)];
+}
+
+/**
  * The deployment's own fault with this delivery, in staff's words — or null when the row's `error` is
  * already theirs to read and passes through untouched.
  *

@@ -56,6 +56,15 @@ export function channelsOf(channel: string | null | undefined): ("sms" | "email"
   return ["sms", "email"]; // `both`, and anything older than this field
 }
 
+/** The inverse: the channel id a set of the two amounts to, so `channelLabel` can name a *subset* of what
+ *  staff chose. T111 needs it because what staff chose and what this deployment can send on are two
+ *  different things — a visit booked on "Text and email" where only SNS is configured is an invite going out
+ *  by text message, and that is the channel the wizard should name. */
+export function channelOf(channels: readonly ("sms" | "email")[]): ContactChannel {
+  if (channels.includes("sms") && channels.includes("email")) return "both";
+  return channels[0] ?? "none";
+}
+
 export const MAX_PATIENT_NAME = 120;
 export const MAX_REASON = 280;
 

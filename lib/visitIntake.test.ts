@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture, pinUtcTimeZone } from "./fixtures";
 import {
+  channelLabel,
+  channelOf,
   channelsOf,
   cleanPatientName,
   cleanReason,
@@ -263,4 +265,23 @@ test("the example offered on screen is a file this parser accepts", () => {
   assert.equal(parse.error, undefined);
   assert.equal(parse.rows.length, 2);
   assert.deepEqual(parse.rows.filter((r) => r.errors.length), []);
+});
+
+// T111 `channelOf` is `channelsOf` backwards, so a *subset* of the two has a label: what staff chose and
+// what the deployment can send on are different questions (lib/notify.ts `inviteSendability`).
+test("channelOf names the channel a set of the two amounts to", () => {
+  assert.equal(channelOf(["sms", "email"]), "both");
+  assert.equal(channelOf(["email", "sms"]), "both", "order is not part of the answer");
+  assert.equal(channelOf(["sms"]), "sms");
+  assert.equal(channelOf(["email"]), "email");
+  assert.equal(channelOf([]), "none");
+});
+
+test("channelOf and channelsOf round-trip every channel that sends", () => {
+  for (const channel of ["both", "sms", "email", "none"] as const) {
+    assert.equal(channelOf(channelsOf(channel)), channel);
+  }
+  // And each answer is a label staff can read, which is the only reason this function exists.
+  assert.equal(channelLabel(channelOf(["email"])), "Email");
+  assert.equal(channelLabel(channelOf(["sms", "email"])), "Text and email");
 });
