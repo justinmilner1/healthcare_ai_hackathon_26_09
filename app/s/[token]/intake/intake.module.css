@@ -5,6 +5,9 @@
   /* Small bold labels are set in this one (.eyebrow, .connectionCount span), so it has to clear 4.5:1 on
      white: the old #e84468 was 3.8:1, which axe fails as serious (design §6.4, T22). Same hue, darker. */
   --pink-dark: #db1b45;
+  /* T104: the hover of anything whose resting state is now --pink-dark. White on --pink-dark is 4.9:1,
+     which clears §6.4's 4.5:1; a hover still has to read as darker than the rest, and this is 6.2:1. */
+  --pink-deep: #be1a3e;
   min-height: 100svh;
   overflow: hidden;
   color: var(--ink);
@@ -131,10 +134,15 @@
   color: var(--ink);
 }
 
+/* T104: the step number is the same white-on-brand-pink pair as the primary button below, two sizes
+   smaller — white on --pink (#f75d7c) is 3.08:1 at 10px, against §6.4's 4.5:1. axe reports this node in
+   neither state of the step, which is why e2e/connections.spec.ts measures it the way T84 measured the
+   glyph; the filled disc takes --pink-dark (4.9:1) like the button. The ring keeps the brand colour,
+   because it carries no text. */
 .progressActive > span {
-  border-color: var(--pink);
+  border-color: var(--pink-dark);
   color: white;
-  background: var(--pink);
+  background: var(--pink-dark);
   box-shadow: 0 0 0 4px rgba(247, 93, 124, 0.12);
 }
 
@@ -959,7 +967,10 @@
 
 .readyRow small {
   margin-top: 3px;
-  color: #8f858b;
+  /* T104: this is the sentence telling the patient what they can still do, and #8f858b on the card's own
+     #fffafb was 3.44:1 at 10px — a serious axe color-contrast finding against §6.4's 4.5:1. --muted is the
+     grey the rest of the flow sets its small print in (.benefit small, .lede) and is 5.0:1 on this card. */
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -1000,15 +1011,21 @@
   background: #eee5e8;
 }
 
+/* T104, the product decision this ticket was filed to make: "View my week" is the primary action of the
+   whole connections flow, and white on the brand --pink (#f75d7c) is 3.08:1 at 13px — §6.4 asks 4.5:1. The
+   brand colour is kept where it carries no text (the art panel, the focus ring, the shadow under this
+   button); the resting fill of the button moves to --pink-dark, the same hue two steps darker, which was
+   already defined here for exactly this reason and is 4.9:1. The weight is left alone: 13px bold is still
+   small text to WCAG, so a weight would not have changed the bar it is judged against. */
 .chatButton {
   min-width: 190px;
   color: white;
-  background: var(--pink);
+  background: var(--pink-dark);
   box-shadow: 0 12px 25px rgba(232, 68, 104, 0.24);
 }
 
 .chatButton:hover {
-  background: var(--pink-dark);
+  background: var(--pink-deep);
   box-shadow: 0 15px 32px rgba(232, 68, 104, 0.3);
 }
 
