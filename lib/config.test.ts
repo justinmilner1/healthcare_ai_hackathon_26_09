@@ -351,9 +351,19 @@ test("a deployment storing Dexcom tokens needs the KMS key (design §4.10, §10.
 });
 
 test("a production deployment with no way to reach a patient is a warning", () => {
-  const silent = { ...good(), RESEND_API_KEY: undefined };
+  const silent = { ...good(), RESEND_API_KEY: undefined, EMAIL_FROM: undefined };
   assert.deepEqual(errors(silent), []);
   assert.ok(warnings(silent).some((p) => p.message.includes("invite links can only be read off the screen")));
+
+  // T110: the same question lib/email.ts answers. An AWS credential is ambient and selects nothing, so a
+  // deployment carrying one and no sender setting is still a deployment that cannot reach a patient.
+  const credentialOnly = { ...silent, AWS_ACCESS_KEY_ID: "AKIA-not-real", AWS_SECRET_ACCESS_KEY: "secret-not-real" };
+  assert.ok(warnings(credentialOnly).some((p) => p.message.includes("invite links can only be read off the screen")));
+
+  // A verified sending identity is a backend, on its own and with no key in sight — which is what a task
+  // role on ECS looks like.
+  const sesOnly = { ...silent, EMAIL_FROM: "Sweet Spot <visits@example.com>" };
+  assert.deepEqual(validateConfig(sesOnly), []);
 });
 
 // ---- the gate -----------------------------------------------------------------------------------------
