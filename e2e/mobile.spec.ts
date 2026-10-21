@@ -4,7 +4,7 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
-import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut } from "./mobile";
+import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut, OPENING_BUBBLE_ROOM } from "./mobile";
 import { shot, WHOLE_PAGE } from "./shot";
 
 // T23, design §6.5: every screen a patient sees, at the 375px width the section names. One spec rather than
@@ -91,6 +91,12 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   // above asks that the newest message starts where the patient starts reading; this asks that it also ends
   // where they stop, which is what T83 could not reach without shortening the message (lib/sweetie.ts). The
   // transcript is the only scrolling box on this screen, so "nothing is hidden" is "nothing to scroll".
+  const opener = await page.locator(".sweetie-message").first().evaluate((element) => Math.round(element.getBoundingClientRect().height));
+  expect(
+    opener,
+    `Sweetie's opening message is ${opener}px, over the ${OPENING_BUBBLE_ROOM}px design §6.5 leaves it on the opening screen (T105)`,
+  ).toBeLessThanOrEqual(OPENING_BUBBLE_ROOM);
+  // And on this deployment's own chrome, nothing at all is out of sight: no scrolling, and so no cue.
   const hidden = await page.locator(".sweetie-messages").evaluate((element) => element.scrollHeight - element.clientHeight);
   expect(hidden, `Sweetie's opening message runs ${hidden}px past the transcript at 375px (T105, design §6.5)`).toBeLessThanOrEqual(1);
   await expect(page.locator(".sweetie-more")).toHaveCount(0);
@@ -222,7 +228,7 @@ test("a message taller than the transcript says there is more to read", async ({
   const reason =
     "my numbers keep going high overnight and I don't know why, usually from about two in the morning, " +
     "and it happens whether or not I have eaten late, which is the part I would really like to understand " +
-    "before we talk about changing anything";
+    "before we talk about changing anything, and the same happened last winter";
   const { token, email } = await book(page, "E2E Mobile Scroll Cue", reason);
 
   await page.goto(`/s/${token}`);

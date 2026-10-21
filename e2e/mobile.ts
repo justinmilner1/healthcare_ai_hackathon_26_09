@@ -357,6 +357,22 @@ export async function expectTapTargets(page: Page, screen: string): Promise<void
 export const TRANSCRIPT_ROOM = 190;
 
 /**
+ * The tallest Sweetie's opening message may be, in CSS pixels, to be readable without scrolling (T105).
+ *
+ * The region's floor above is a floor for the *worst* state of the screen. This is the budget for its
+ * *first* state, where only Sweetie's opener is in the transcript, and it is written as the message's own
+ * height rather than as "nothing is scrolled out of sight" so that it stays the §6.5 figure whatever chrome
+ * the deployment happens to put above the conversation. The opening screen measured 251px on the tree that
+ * fixed T83, with the sandbox demo card on it; `.sweetie-messages` spends 15px of that on padding at each
+ * end (app/globals.css), which leaves 221 for the bubble.
+ *
+ * A patient whose practice has a longer name, or whose reason the office recorded at the 280 characters
+ * `MAX_REASON` allows, can still be shown a bubble over this. That is what the scroll cue is for
+ * (app/s/[token]/page.tsx); this is the gate on the message the product writes for itself.
+ */
+export const OPENING_BUBBLE_ROOM = 221;
+
+/**
  * The newest thing Sweetie or the patient said is not cut off at the top of the transcript (T83, §6.5).
  *
  * The transcript is its own scrolling region and moves itself to the newest message, so what it is showing

@@ -209,13 +209,23 @@ export default function SweetiePage({
     region.scrollTo({ top: Math.max(0, Math.min(top, end)), behavior: reducedMotion() ? "auto" : "smooth" });
   }, [messages, interim, busy]);
 
-  /** What is out of sight in the transcript right now. A pixel of slack at each end, because a smooth
-   *  scroll settles a fraction short and a cue that flickers there is worse than no cue. */
+  /** What is out of sight in the transcript right now.
+   *
+   *  Measured against the first and the last thing in it rather than against `scrollHeight`, which counts
+   *  the region's own 15px of padding under the newest message (app/globals.css): with that in it, a
+   *  transcript showing every word of every message still had 15px "below" and said so, which is a cue
+   *  that cries wolf on the ordinary screen. There is more to read only when a message is.
+   *
+   *  In layout coordinates, like the scroll above and for the same reason: a message arrives under a
+   *  340ms transform that `getBoundingClientRect` reads as position and `offsetTop` does not. A pixel of
+   *  slack at each end, because a smooth scroll settles a fraction short of where it was sent. */
   const readMore = useCallback(() => {
     const region = transcript.current;
-    if (!region) return;
-    const above = region.scrollTop > 1;
-    const below = region.scrollTop + region.clientHeight < region.scrollHeight - 1;
+    const first = region?.firstElementChild as HTMLElement | null;
+    const last = region?.lastElementChild as HTMLElement | null;
+    if (!region || !first || !last) return;
+    const above = first.offsetTop < region.scrollTop - 1;
+    const below = last.offsetTop + last.offsetHeight > region.scrollTop + region.clientHeight + 1;
     setMore((was) => (was.above === above && was.below === below ? was : { above, below }));
   }, []);
 
