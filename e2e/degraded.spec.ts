@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { DEGRADED_MAIL_DIR, MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
+import { expectTranscriptUncut } from "./mobile";
 import { patientEmail, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -65,6 +66,14 @@ test.describe("model gateway unreachable", () => {
 
     // "The questions continue": the scripted second question arrives, and the answer was stored.
     await expect(page.locator(".sweetie-messages")).toContainText(SCRIPTED_FOLLOW_UP, LOADED);
+    // `toContainText` is satisfied the moment the words are in the DOM, and the transcript then glides to
+    // them (§6.4) — a glide `shot()`'s `animations: "disabled"` cannot freeze, because a programmatic smooth
+    // scroll is not a CSS transition (T77). Both of this spec's frames used to be taken during it, with the
+    // scripted question they had just asserted sliced by the composer on the desktop and out of the frame
+    // altogether at 375px. So the shot waits for the region to settle on the newest message the same way the
+    // other conversation specs do (T106, T83) — a poll on the region rather than a sleep, which also means a
+    // region that never lands fails here, naming the page, instead of being waited out.
+    await expectTranscriptUncut(page, "the scripted question with the gateway down");
     await shot(page, "sweetie-degraded", WHOLE_PAGE);
 
     // page.request: the verified patient session lives in the browser's cookie jar (T08, §5.3).

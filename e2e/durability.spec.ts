@@ -2,6 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
+import { expectTranscriptUncut } from "./mobile";
 import { patientEmail, verifyLink } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -76,6 +77,12 @@ test("reloading the page restores the full transcript and the stepper state (§6
   // rather than a confusing diff below.
   expect(before.transcript.length).toBe(5);
   expect(before.stepper.some((step) => step.done), "answering filled at least one step").toBe(true);
+  // Every shot of the transcript in this file waits for the region to settle on the newest message first
+  // (T106, T83). The assertions above are satisfied by rows being in the DOM; the region then glides to them
+  // (§6.4), and a programmatic smooth scroll is not a CSS transition, so `shot()`'s `animations: "disabled"`
+  // does not freeze it (T77). Without the wait the shutter opens mid-glide and the PNG shows a message
+  // sliced by the composer — a picture of a state the product is never in.
+  await expectTranscriptUncut(page, "the transcript before the reload");
   await shot(page, "sweetie-before-reload", WHOLE_PAGE);
 
   // Nothing is kept in the browser: the page holds the transcript in React state and the stepper is computed
@@ -89,6 +96,9 @@ test("reloading the page restores the full transcript and the stepper state (§6
   expect(after.stepper, "the same steps, the same one current, the same ones done").toEqual(before.stepper);
   expect(after.progress).toBe(before.progress);
   expect(after.answered).toBe(before.answered);
+  // A reload rebuilds the transcript from the visit and the region scrolls itself again, so the rebuilt
+  // screen needs the same wait as the one it is being compared with.
+  await expectTranscriptUncut(page, "the transcript after the reload");
   await shot(page, "sweetie-after-reload", WHOLE_PAGE);
 
   // And the server agrees with the screen, which is the point: the page is a view of the visit, not the
@@ -123,6 +133,9 @@ test("a reply the browser never receives is still in the transcript after a relo
 
   // What the page does with a failed send: its own apology, which is never stored (app/s/[token]/page.tsx).
   await expect(page.locator(".sweetie-messages")).toContainText(/trouble with that reply/i, LOADED);
+  // The apology is the newest thing in the region, and it is the subject of this frame, so it is the thing
+  // the region has to have arrived at before the shutter opens.
+  await expectTranscriptUncut(page, "the apology for the lost reply");
   await shot(page, "sweetie-lost-reply", WHOLE_PAGE);
 
   await page.unroute("**/api/sweetie");
@@ -135,6 +148,7 @@ test("a reply the browser never receives is still in the transcript after a relo
   expect(restored.transcript).toContain("Lows most afternoons and I have started skipping lunch.");
   expect(restored.transcript.join("\n")).not.toMatch(/trouble with that reply/i);
   expect(restored.transcript.filter((line) => line.includes("skipping lunch")).length, "stored once, not twice").toBe(1);
+  await expectTranscriptUncut(page, "the transcript the reload restored");
   await shot(page, "sweetie-after-lost-reply", WHOLE_PAGE);
 
   // One turn's worth of state, not two and not none: the aborted response cost the patient nothing and
@@ -216,7 +230,11 @@ for (const leg of SLOW_LEG) {
     ).toBe(1);
     // And the stepper is where the turn left it, not rolled back to the snapshot's older state.
     expect(settled.stepper.some((step) => step.done), "the answered step stayed answered").toBe(true);
-    if (leg === "response") await shot(page, "sweetie-answer-before-load");
+    if (leg === "response") {
+      // The merge above has just rewritten the list, which moves the region again.
+      await expectTranscriptUncut(page, "the answer typed before the opening transcript landed");
+      await shot(page, "sweetie-answer-before-load");
+    }
 
     hold = false;
     await page.unroute(sweetie, holdOpening);
