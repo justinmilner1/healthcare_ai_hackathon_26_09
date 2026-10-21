@@ -150,17 +150,25 @@ test("a deployment with a sender still tells staff the invite is on its way", as
 
   const name = uniqueName("Configured Patient");
   await page.getByRole("button", { name: /Add patient/i }).first().click();
-  await page.getByLabel("Patient name").fill(name);
-  await page.getByLabel("Email", { exact: true }).fill(`${name.replace(/\s+/g, ".").toLowerCase()}@example.com`);
-  await page.getByRole("button", { name: /Continue/i }).click();
 
-  await page.getByText("Follow-up", { exact: true }).click();
-  await page.getByRole("button", { name: /Continue/i }).click();
+  // Every step below is scoped to the dialog, because this test books into the *demo* practice, whose
+  // dashboard carries every visit the rest of the run has created. "Follow-up" is a visit type in here and a
+  // `.provider-cell-sub` out there, and "Email" is a channel card in here and a delivery pill out there, so
+  // a bare `getByText` is two elements and a strict-mode violation as soon as the table behind has a row of
+  // the right shape. The specs that do this unscoped (the test above, e2e/journey.spec.ts) each book into a
+  // practice of their own with nothing in its table yet.
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  await wizard.getByLabel("Patient name").fill(name);
+  await wizard.getByLabel("Email", { exact: true }).fill(`${name.replace(/\s+/g, ".").toLowerCase()}@example.com`);
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  await wizard.getByText("Follow-up", { exact: true }).click();
+  await wizard.getByRole("button", { name: /Continue/i }).click();
 
   // Emailed, and the consent §2.2 insists on before anything is sent anywhere.
-  await page.getByText("Email", { exact: true }).click();
-  await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
-  await page.getByRole("button", { name: /Add patient & send/i }).click();
+  await wizard.getByText("Email", { exact: true }).click();
+  await wizard.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
+  await wizard.getByRole("button", { name: /Add patient & send/i }).click();
 
   // The channel named is the one that can send, which is why it comes from the route's answer and not from
   // the form: staff who chose "Text and email" where only one backend exists are told about that one.
