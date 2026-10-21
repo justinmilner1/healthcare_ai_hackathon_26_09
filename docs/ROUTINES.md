@@ -70,7 +70,10 @@ snippet below, which excludes pull requests, and read this table when it returns
 
 Runs every two hours. One ticket per run. Works on `main`, pushes only a tree the check has passed on.
 
-1. `git fetch`, check out `main`, pull.
+1. Deepen, check out `main`, fast-forward: `git fetch --unshallow origin || git fetch origin`, then
+   `git checkout main`, then `git pull --ff-only`. Never a bare `git pull`: this container's checkout is
+   shallow, and on a shallow checkout a bare pull reports a divergence that is not there
+   ("A shallow checkout, and the divergence that is not one" below).
 2. Pick the ticket: the lowest-numbered issue labeled `changes-requested`; otherwise the lowest-numbered `ready`. Skip anything `blocked`. Resolve each of its `Depends on: T<nn>` lines with the dependency snippet below and require that ticket closed — the snippet excludes pull requests, and two numbers name two tickets apiece, so check that table when it returns more than one row. If none, stop.
 3. Label it `in-progress`, remove `ready` or `changes-requested`, and comment `Builder run started <UTC time>` on the issue. If a previous run left a `t<nn>-wip` branch on origin, `git merge origin/t<nn>-wip` into `main` locally and continue from there.
 4. Read the cited design sections and the acceptance criteria. Implement the whole ticket on `main`, locally. Small, focused commits, every message starting `T<nn>:` — that prefix is how the reviewer finds the ticket's commits.
@@ -83,7 +86,10 @@ Runs every two hours. One ticket per run. Works on `main`, pushes only a tree th
 
 Runs every three hours. Reviews the tickets labeled `review`, lowest number first, up to three per run, then sweeps `main`.
 
-1. `git fetch`, check out `main`, pull. Run `scripts/agent-check.sh` once, on `main` as it is now; every review below reads that result and those screenshots. The run starts from an empty `e2e/screenshots/`, so the PNGs are this tree's and no earlier run's.
+1. Deepen, check out `main`, fast-forward — `git fetch --unshallow origin || git fetch origin`,
+   `git checkout main`, `git pull --ff-only`, never a bare `git pull`
+   ("A shallow checkout, and the divergence that is not one" below); the full history is also what step 2
+   and step 5 need to read a ticket's commits at all. Run `scripts/agent-check.sh` once, on `main` as it is now; every review below reads that result and those screenshots. The run starts from an empty `e2e/screenshots/`, so the PNGs are this tree's and no earlier run's.
 2. For each ticket: find its commits — the builder's comment names the range, and `git log --oneline origin/main --grep='^T<nn>'` finds them by the message prefix. Read the diff (`git log -p <first>^..<last>`), the issue body, and the design sections it cites. Compare the result with the acceptance criteria, line by line; read the code, not just the comment.
 3. Small problems (naming, a missing edge case, a lint warning, a missing test): fix them on `main`, commit with a message starting `Review T<nn>:`, run the check, `git pull --rebase origin main`, push. Note each fix in your comment.
 4. If it matches: comment on the issue naming the design sections it fulfills, the commits you read, and what you checked, then close the issue and remove `review`.
@@ -382,6 +388,69 @@ Two pagination traps, both of which silently give a wrong answer rather than an 
 
 `git push` works with the sandbox's credentials, to `main` and to a `t<nn>-wip` branch. The proxy refuses branch
 deletion; a leftover `-wip` branch is harmless, say so in the comment and move on.
+
+### A shallow checkout, and the divergence that is not one (T103)
+
+The third trap of that genre is not a REST call but the git checkout underneath it. This container clones at a
+bounded depth, so the working directory arrives **shallow**: `git rev-parse --is-shallow-repository` prints
+`true` and `.git/shallow` holds one graft line per truncated lineage. Nothing announces it. Once `origin/main`
+has advanced past the graft point, the opening `git pull` of either procedure fails without the word "shallow"
+anywhere in it:
+
+```
+$ git fetch origin && git checkout main && git pull
+Your branch and 'origin/main' have diverged,
+and have 51 and 50 different commits each, respectively.
+fatal: Need to specify how to reconcile divergent branches.
+```
+
+`main` had not diverged. That is the reviewer run of 2026-10-19, on a `main` that was 0 commits ahead of
+`origin/main` and 162 behind. Each ref was truncated at a different graft, so the two had no reachable common
+ancestor, and git reports "no common ancestor" as the count of everything it can still see on either side.
+After `git fetch --unshallow origin` the same two refs were an ordinary fast-forward.
+
+**Deepen before you pull, and reconcile explicitly.** Step 1 of both procedures above opens with:
+
+```bash
+git fetch --unshallow origin || git fetch origin   # deepen; the fallback is for an already-complete clone
+git checkout main
+git pull --ff-only                                 # an honest divergence stops here instead of being merged
+```
+
+`--unshallow` is not a no-op on a complete clone — it exits 128 with
+`fatal: --unshallow on a complete repository does not make sense`, having changed nothing — which is what the
+`||` is for. A guard reads the same: `git rev-parse --is-shallow-repository` prints `true` or `false`, so
+`[ "$(git rev-parse --is-shallow-repository)" = true ] && git fetch --unshallow origin` is the conditional form.
+
+**What not to reach for when that message appears.** The danger is not the error, it is the cures. None of
+these is a force-push, so neither `AGENTS.md` nor the routine prompts stop them, and against a graft all three
+are destructive:
+
+- **`--allow-unrelated-histories`** (or any `git pull --no-rebase` that git's hint suggests) writes a merge of
+  two truncated histories, and pushing it puts a duplicated tree on `main`.
+- **`git reset --hard origin/main`** throws away whatever was local without printing what it dropped.
+- **Any `git pull` that is not `--ff-only`**, which is the whole point of the flag: on a real divergence it
+  refuses, and a refusal is the correct outcome for a routine that is only ever meant to fast-forward.
+
+**One line tells the two apart.** `git merge-base main origin/main` prints the common ancestor and exits 0 on a
+real divergence; on a graft it prints nothing and exits 1. Two confirmations of the same thing:
+`git rev-parse --is-shallow-repository` says `true`, and `git log --oneline --max-parents=0 origin/main` names a
+"root" commit with a `T<nn>:` message — a ticket commit cannot be the start of this repository, so that is a
+graft.
+
+**A graft also shortens the history either routine can ask about.** `git log` and `git bisect` cannot see past
+one. The builder's committed range can fall entirely outside what is on disk, and asking for a range whose
+first commit *is* the graft fails on the `^` rather than on the range — the graft has no parent to name, so git
+calls the whole argument unknown and says nothing about shallowness:
+
+```
+$ git log -p <graft sha>^..<last>
+fatal: ambiguous argument '<graft sha>^..<last>': unknown revision or path not in the working tree.
+```
+
+A bisect is quieter still: it searches only the commits after the graft, so "find the commit that broke it" can
+come back with the oldest commit it was allowed to look at. Deepen first, then read history — the reviewer's
+step 2 and the revert in step 5 both depend on it.
 
 ## Environment facts (from the probe on 2026-10-10)
 
