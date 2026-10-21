@@ -91,8 +91,10 @@ Signing in as a provider (design §5.1): there is no password. Open `/provider`,
 npm run mail            # prints the newest sign-in link; nothing is configured, so mail lands in .mail/
 ```
 
-Set `RESEND_API_KEY` or AWS credentials in `.env` and the same link is emailed instead. `AUTH_SECRET` signs the
-session cookie; local development falls back to a fixed development value, and a deployment must set it.
+Set `RESEND_API_KEY`, or `EMAIL_FROM` for SES, in `.env` and the same link is emailed instead — a backend is
+chosen by the setting it cannot send without, and an AWS credential on its own is not one (T110).
+`AUTH_SECRET` signs the session cookie; local development falls back to a fixed development value, and a
+deployment must set it.
 
 Set `DEMO_SIGN_IN=1` and **Open the demo** skips the mailbox: `/demo` mints the same one-use Auth.js link it
 would have emailed and follows it, so you land on the dashboard. That is what §13.4 asks for on staging,

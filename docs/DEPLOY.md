@@ -71,7 +71,7 @@ empty string or an empty list means "not set yet" and is ignored rather than dep
 | `account`, `region` | where to deploy. Both empty synthesizes env-agnostic, which is what CI does. |
 | `appUrl` | the public base URL once a domain points at the app. Empty means Amplify's own `https://<branch>.<appid>.amplifyapp.com`, which is a perfectly good staging URL. **Every patient and provider link is built from this** (§3.7). |
 | `emailIdentity` | the SES identity: a domain, or a single address while the account is in the SES sandbox. Empty means the stack has no SES identity and the app cannot email. |
-| `emailFrom` | `EMAIL_FROM`. Has to be inside `emailIdentity` or SES refuses the send. |
+| `emailFrom` | `EMAIL_FROM`. Has to be inside `emailIdentity` or SES refuses the send, and it is also what turns the SES backend on: `lib/email.ts` chooses a backend by the setting it cannot send without, not by the task role's credentials (T110). Empty means the app reports itself unconfigured and links are read off the screen. |
 | `alarmEmail` | subscribed to the alarm topic. AWS sends a confirmation link that someone has to click. |
 | `repository`, `branch` | the GitHub repository and the branch that is this stage. |
 | `dbAllowedCidrs` | who may open a TCP connection to the database. |
