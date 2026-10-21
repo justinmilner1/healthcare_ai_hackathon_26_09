@@ -2,8 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { patchJson, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
-import { expectNoHorizontalScroll, expectRowIntact } from "./mobile";
-import { shot } from "./shot";
+import { expectMobileReady, expectNoHorizontalScroll, expectRowIntact, expectTextIntact } from "./mobile";
+import { SCREENFUL, shot } from "./shot";
 
 // Practice membership and roles end to end (design §2.1, §5.2): the two sentences of §5.2, tried against the
 // running app rather than against lib/access.ts. Nothing here stubs a session — each identity signs in by its
@@ -50,6 +50,19 @@ async function expectHintClearOfMascot(page: Page, variant: string): Promise<voi
   ).toBe(false);
 }
 
+/**
+ * The 375px pass `/provider/settings` has never had (T101, design §6.5).
+ *
+ * e2e/mobile.spec.ts measures the patient screens and this spec measures the provider dashboard, so the one
+ * provider page nothing had ever been taken at 375px was the one §2.1 is about — which is where T101 sat.
+ * Phone only, like every width rule in e2e/mobile.ts: at 1280px the measurements pass while meaning nothing,
+ * and a desktop control is smaller than the tap floor on purpose.
+ */
+async function expectSettingsFitsAPhone(page: Page): Promise<void> {
+  if (test.info().project.name !== "mobile") return;
+  await expectMobileReady(page, "practice settings");
+}
+
 test("a user from another practice gets 404 on this practice's visits", async ({ page }) => {
   // Practice A: the seeded one, with Sam Sample's visit in it (`npm run seed`).
   const demo = await signInAsDemo(page);
@@ -90,8 +103,13 @@ test("a user from another practice gets 404 on this practice's visits", async ({
 });
 
 test("an admin invites a colleague, sets the practice up, and the invited role is what that colleague can do", async ({ page }) => {
-  const adminEmail = freshEmail("admin", "northstar-roles.com");
-  const staffEmail = freshEmail("nurse", "northstar-roles.com");
+  // Both addresses are long on purpose. On practice settings a person's heading is `user.name ?? user.email`
+  // (§2.1), so for an invite nobody has signed in to yet it is the whole address — and the heading was
+  // unbounded, so past roughly 48 characters including the admin's own " (you)" the end of it was clipped off
+  // a 375px screen with nothing to say so (T101). `admin+<suffix>@northstar-roles.com` was 46 and fitted,
+  // which is why the bug survived two months of this spec shooting the page. These are 54 and 56.
+  const adminEmail = freshEmail("jennifer.rodriguez", "northstar-roles.com");
+  const staffEmail = freshEmail("benjamin.vandermolen", "northstar-roles.com");
   await signInAs(page, adminEmail);
 
   // The dashboard offers settings to an admin; the link is what gets us there.
@@ -125,7 +143,18 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.locator(".provider-table")).toContainText(staffEmail);
   await expect(page.locator(".provider-table")).toContainText("Invited");
   await expectRowIntact(page, ".ss-topbar", "the admin top bar on practice settings");
+  // The one line this page is for first, then §6.5 on the whole of it. Without the fix expectTextIntact
+  // names both headings — the invited colleague's address and the admin's own, the one carrying " (you)" at
+  // the end — and expectNothingScrollsSideways, inside the page pass, names the card they were hiding
+  // behind: the stacked rows were laid out 1120px wide inside it (T101). The specific failure is asserted
+  // first so it is the one a reader is handed. expectTextIntact runs at both widths — §6.5 is the phone's,
+  // but a heading over its cell is wrong at any width, and desktop is where this page was already right.
+  await expectTextIntact(page, ".settings-users tbody tr", "the users table on practice settings");
+  await expectSettingsFitsAPhone(page);
   await shot(page, "provider-settings");
+  // The table framed rather than wherever it happens to fall: on a phone the invite form above it is a
+  // screenful of its own, so the default shot of this page does not contain the subject at all.
+  await shot(page, "provider-settings-users", { ...SCREENFUL, scrollTo: ".provider-table-card", block: "center" });
 
   // A retention window outside the bounds never leaves the browser — the input carries min and max, so the
   // form does not submit — which is why the server's own refusal is checked where it can be reached. §10.4's

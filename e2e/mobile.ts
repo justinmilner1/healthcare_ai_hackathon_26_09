@@ -142,6 +142,65 @@ export async function expectRowIntact(page: Page, selector: string, screen: stri
 }
 
 /**
+ * And the text that names a row is not cut off either (T101, design §6.5, §6.4).
+ *
+ * expectRowIntact above measures `a[href], button` — the things a person presses — which is the right set
+ * for a top bar and blind to a row whose *text* is what hangs over the edge. On practice settings a
+ * person's heading is `user.name ?? user.email` (§2.1), so until they first sign in it is their whole
+ * address: one unbreakable token, clipped by the card and by `.ss-page`'s overflow: hidden with no ellipsis
+ * and no scrollbar to say that characters were missing. A reader could not tell the row was incomplete.
+ *
+ * Measured on the element's own box rather than on the glyphs inside it, which is exactly what separates the
+ * bug from either fix: a line bounded by `text-overflow: ellipsis` keeps its box inside the cell and says on
+ * screen that it was shortened, and a wrapped line keeps its box inside the cell and loses nothing — while
+ * an unbounded line's box is the thing over the edge.
+ *
+ * Judged against the nearest ancestor that clips as well as against the viewport, because either is a place
+ * where glyphs end up outside the box painting them: this page's table sits in an `overflow-x: auto` card,
+ * and a cell wider than that card hides its end behind a scroll instead of past the screen.
+ */
+export async function expectTextIntact(page: Page, selector: string, screen: string): Promise<void> {
+  const rows = page.locator(selector);
+  await expect(rows.first(), `${screen}: nothing matched ${selector}`).toBeVisible();
+  const clipped: string[] = await page.evaluate((sel) => {
+    const found: string[] = [];
+    const viewport = document.documentElement.clientWidth;
+    for (const root of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
+      for (const node of [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))]) {
+        const text = (node.textContent ?? "").trim().replace(/\s+/g, " ");
+        if (!text) continue;
+        // Only the innermost element carrying a run of text: an ancestor's box is its children's put
+        // together and says nothing of its own about where the glyphs went.
+        if (Array.from(node.children).some((child) => (child.textContent ?? "").trim())) continue;
+        const box = node.getBoundingClientRect();
+        // A box a pixel or two each way is the visually-hidden pattern (`.sr-only`: 1x1, clipped, read
+        // aloud and never painted), not a line of type somebody is trying to read.
+        if (box.width < 2 || box.height < 2) continue;
+        let right = viewport;
+        let left = 0;
+        for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+          if (getComputedStyle(parent).overflowX === "visible") continue;
+          const edge = parent.getBoundingClientRect();
+          right = Math.min(right, edge.right);
+          left = Math.max(left, edge.left);
+        }
+        // Half a pixel of slack, as everywhere else here: these boxes are fractional.
+        if (box.right <= right + 0.5 && box.left >= left - 0.5) continue;
+        found.push(
+          `${node.tagName.toLowerCase()} "${text.slice(0, 44)}" [${Math.round(box.left)}…${Math.round(box.right)}] outside [${Math.round(left)}…${Math.round(right)}]`,
+        );
+        if (found.length >= 8) return found;
+      }
+    }
+    return found;
+  }, selector);
+  expect(
+    clipped,
+    `${screen}: text cut off at an edge with nothing on screen to say so (T101, design §6.5, §6.4)`,
+  ).toEqual([]);
+}
+
+/**
  * A stepper that fits: the element is no wider than its own scroll box.
  *
  * The steppers are `overflow-x: auto`, so a stepper that does not fit hides its later steps behind a scroll
@@ -178,12 +237,25 @@ export async function expectTapTargets(page: Page, screen: string): Promise<void
       const style = getComputedStyle(element);
       if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;
       // A file input is hidden on purpose on both upload screens — the card or chip wrapping it is what a
-      // patient taps — so the input is skipped and its label is measured instead. Every other label is the
-      // text beside a field whose own box is already in this list, and is not a target of its own.
+      // patient taps — so the input is skipped and its label is measured instead.
       if (element instanceof HTMLInputElement && element.type === "file") continue;
+      // A radio or a checkbox is the 13px dot the browser draws, and the practice settings invite form puts
+      // each one inside a label that is a card two lines tall (§2.1): the thumb lands on the card, which the
+      // browser forwards to the control, so the card is the target and the dot is not. Only where there is
+      // one — a control with no label is nobody's target but its own and is still measured here (T101).
+      if (
+        element instanceof HTMLInputElement &&
+        (element.type === "radio" || element.type === "checkbox") &&
+        element.labels?.length
+      ) {
+        continue;
+      }
+      // Every other label is the text beside a field whose own box is already in this list, and is not a
+      // target of its own.
       if (element instanceof HTMLLabelElement) {
         const control = element.control ?? element.querySelector("input");
-        if (!(control instanceof HTMLInputElement) || control.type !== "file") continue;
+        if (!(control instanceof HTMLInputElement)) continue;
+        if (control.type !== "file" && control.type !== "radio" && control.type !== "checkbox") continue;
       }
       const box = element.getBoundingClientRect();
       if (box.width === 0 || box.height === 0) continue;
