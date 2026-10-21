@@ -1658,11 +1658,16 @@ textarea.ss-input {
   white-space: nowrap;
 }
 
+/* A sibling of .provider-table-scroll rather than a cell inside it (T102, design §2.1, §2.2, §6.5), so what
+   it centres itself across is the card a phone can see and not the 1120px the rows need. The border and the
+   padding are the ones the `<td>` used to give it, so the desktop rendering is the pixel it was. */
 .provider-empty {
   display: flex;
   min-height: 310px;
   align-items: center;
   justify-content: center;
+  padding: 15px 11px;
+  border-top: 1px solid #eeeade;
   flex-direction: column;
   text-align: center;
 }

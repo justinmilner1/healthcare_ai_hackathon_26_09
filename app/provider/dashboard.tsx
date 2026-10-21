@@ -617,36 +617,38 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                       </td>
                     </tr>
                   ))}
-                  {provider && visits.length === 0 && (
-                    <tr>
-                      <td colSpan={7}>
-                        <div className="provider-empty">
-                          <Image
-                            src="/assets/sour/sour.png"
-                            alt=""
-                            width={90}
-                            height={90}
-                          />
-                          <strong>Your patient flow starts here.</strong>
-                          <span>
-                            Add the first booked visit and Sweetie will take it
-                            from there.
-                          </span>
-                          {mayBook && (
-                            <button
-                              className="ss-button ss-button-accent"
-                              onClick={openWizard}
-                            >
-                              + Add first patient
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
+            {/* §2.1, §2.2, §6.5 Outside the scroller on purpose (T102). As a `<td colSpan={7}>` this was a
+                cell of a table that is deliberately 1120px wide, so `justify-content: center` put the
+                mascot, the heading and the button at about x=560 — off the right edge of a 375px screen,
+                with nothing to invite the sideways drag that would reveal them. The min-width is
+                load-bearing for rows (above, globals.css) and stays; the empty state is not a row of data
+                and is laid out against the card instead. */}
+            {provider && visits.length === 0 && (
+              <div className="provider-empty">
+                <Image
+                  src="/assets/sour/sour.png"
+                  alt=""
+                  width={90}
+                  height={90}
+                />
+                <strong>Your patient flow starts here.</strong>
+                <span>
+                  Add the first booked visit and Sweetie will take it from
+                  there.
+                </span>
+                {mayBook && (
+                  <button
+                    className="ss-button ss-button-accent"
+                    onClick={openWizard}
+                  >
+                    + Add first patient
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </section>
 
