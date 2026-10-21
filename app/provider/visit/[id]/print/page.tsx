@@ -230,7 +230,10 @@ export default async function PrintPage({
                 </div>
               </div>
 
-              <div className="mt-4">
+              {/* Named, like .sour-print-numbers and .sour-print-grid above, because it is the part of the
+                  sheet §12.2's handover is about: what the patient told Sweetie, on the clinician's paper.
+                  e2e/journey.spec.ts scrolls its phone shot of the sheet to it (T109, §12.3). */}
+              <div className="sour-print-words mt-4">
                 <h2>In the patient&apos;s words</h2>
                 {bundle.patient.notes ? (
                   <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-black/15 pl-3 text-sm italic text-[var(--viz-ink-2)]">
