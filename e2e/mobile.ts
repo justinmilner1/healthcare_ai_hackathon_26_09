@@ -387,6 +387,13 @@ export const OPENING_BUBBLE_ROOM = 221;
  *
  * The room check is the phone's alone — a desktop transcript is half the window — but the two fit checks
  * hold at any width, which is why the specs that drive the whole conversation call this too.
+ *
+ * The room is measured on `.sweetie-transcript`, the box the conversation holds on the screen, rather than
+ * on the scrolling region inside it. The two are the same height until the scroll cue appears, and the cue
+ * takes its row out of the region (T105, app/globals.css) — so measuring the region would read the cue as
+ * the page having lost 20px to new chrome, when the pixels went to telling the patient about the words the
+ * region is already too short for and come back as soon as they are read. What the floor is about is how
+ * much of a 375px phone §6.5 leaves the conversation, and that is the wrapper either way.
  */
 export async function expectTranscriptUncut(page: Page, screen: string): Promise<void> {
   const transcript = page.locator(".sweetie-messages");
@@ -396,6 +403,7 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
       const newest = element.lastElementChild;
       if (!newest) return null;
       const region = element.getBoundingClientRect();
+      const room = (element.closest(".sweetie-transcript") ?? element).getBoundingClientRect();
       const box = newest.getBoundingClientRect();
       const style = getComputedStyle(element);
       const top = Number.parseFloat(style.paddingTop);
@@ -415,6 +423,7 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
           : Math.round(Math.abs((newest as HTMLElement).offsetTop - top - element.scrollTop)),
         newest: Math.round(box.height),
         region: Math.round(region.height),
+        room: Math.round(room.height),
         text: (newest.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40),
       };
     });
@@ -454,10 +463,56 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
   }
   if (test.info().project.name === "mobile") {
     expect(
-      fit.region,
-      `${screen}: the transcript is ${fit.region}px of the 375x667 screen, under the ${TRANSCRIPT_ROOM}px design §6.5 leaves it (T83)`,
+      fit.room,
+      `${screen}: the conversation is ${fit.room}px of the 375x667 screen, under the ${TRANSCRIPT_ROOM}px design §6.5 leaves it (T83)`,
     ).toBeGreaterThanOrEqual(TRANSCRIPT_ROOM);
   }
+}
+
+/**
+ * What the transcript is hiding, and whether the scroll cue says so (T105, design §6.5, §6.4).
+ *
+ * The cue's whole job is to be true: it may not announce words that are on the screen, and it may not stay
+ * quiet over words that are not. So this measures the thing it is a claim about, by a different route from
+ * the page's own arithmetic — a `Range` over the text of the newest message, which gives one rect per line
+ * of type, against the bottom edge of the scrolling region.
+ *
+ * A line counts as hidden when more than half of its line box is under that edge, which is the rule
+ * `hidesAnyText` applies (app/s/[token]/page.tsx) read off the lines themselves rather than off the row's
+ * box: under half a line box is the leading and the descent space a line keeps below its glyphs, and over
+ * it is the bottom of type a patient has not read. The first implementation of the cue measured the row,
+ * padding and border and all, and announced a message whose every word was on the screen.
+ *
+ * Rects rather than the layout coordinates `readMore` uses (app/s/[token]/page.tsx), deliberately: this is
+ * the reader's view of the screen, and it is taken after `expectTranscriptUncut` above has waited out both
+ * the 340ms entrance transform and the glide, which are the two things rects are wrong about.
+ */
+export async function transcriptCue(page: Page): Promise<{ lines: number; hiddenLines: number; pastFold: number; cue: boolean }> {
+  const measured = await page.locator(".sweetie-messages").evaluate((element) => {
+    const newest = element.lastElementChild as HTMLElement | null;
+    if (!newest) return { lines: 0, hiddenLines: 0, pastFold: 0 };
+    const fold = element.getBoundingClientRect().bottom;
+    const bubble = newest.querySelector<HTMLElement>(".sweetie-message") ?? newest;
+    const style = getComputedStyle(bubble);
+    const box = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) || 16;
+    const range = document.createRange();
+    const lines: DOMRect[] = [];
+    const walker = document.createTreeWalker(newest, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!(node.textContent ?? "").trim()) continue;
+      range.selectNodeContents(node);
+      for (const rect of Array.from(range.getClientRects())) {
+        if (rect.width > 0 && rect.height > 0) lines.push(rect);
+      }
+    }
+    return {
+      lines: lines.length,
+      hiddenLines: lines.filter((line) => line.bottom - fold > box / 2).length,
+      // The whole row, chrome and all, past the same edge — which is what the cue used to be measured on.
+      pastFold: Math.round(newest.offsetTop + newest.offsetHeight - element.scrollTop - element.clientHeight),
+    };
+  });
+  return { ...measured, cue: (await page.locator(".sweetie-more").count()) > 0 };
 }
 
 /** The four checks together, which is what every screen in e2e/mobile.spec.ts wants. */

@@ -4,7 +4,7 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { acceptConsent, enterCode, patientEmail } from "./patient";
-import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut, OPENING_BUBBLE_ROOM } from "./mobile";
+import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut, OPENING_BUBBLE_ROOM, transcriptCue } from "./mobile";
 import { shot, WHOLE_PAGE } from "./shot";
 
 // T23, design §6.5: every screen a patient sees, at the 375px width the section names. One spec rather than
@@ -219,17 +219,43 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await shot(page, "375-sweetie-flagged", SCREEN);
 });
 
-test("a message taller than the transcript says there is more to read", async ({ page }) => {
-  // T105, design §6.5. Sweetie's opener fits the region now, but nothing bounds what the patient types or
-  // how long a reason the office recorded — `MAX_REASON` is 280 characters (lib/visitIntake.ts), and the
-  // first question quotes it — so a bubble taller than the 251px the phone leaves the region is still
-  // reachable. The region lands on the top of the newest message (T83), which is right: the patient reads
-  // from the first word. What was missing is anything saying that the rest of it is under the composer.
-  const reason =
-    "my numbers keep going high overnight and I don't know why, usually from about two in the morning, " +
-    "and it happens whether or not I have eaten late, which is the part I would really like to understand " +
-    "before we talk about changing anything, and the same happened last winter";
-  const { token, email } = await book(page, "E2E Mobile Scroll Cue", reason);
+/**
+ * Sweetie's next reply, as long as a model that ignored "one short message" would write it.
+ *
+ * §6.3 keeps this suite offline, where `scripted()` answers in two lines (lib/sweetie.ts), and nothing else
+ * the suite can drive puts a message with hidden *words* in the transcript: the opener is held to
+ * OPENING_BUBBLE_ROOM by a test of its own, and the longest thing it quotes is the reason the office
+ * recorded, which `MAX_REASON` caps at 280 characters — fifteen lines, which overflow the region by the
+ * bubble's own chrome and not by a word (the test under this one measures exactly that state). What is
+ * unbounded in a deployment is what the model writes back. So the turn runs for real — the route scans the
+ * patient's message, stores it, extracts the field and returns the intake (§6.2) — and only the words of
+ * the reply come back longer, which is the one thing about it the product cannot bound.
+ */
+async function withALongReply(page: Page, reply: string) {
+  await page.route("**/api/sweetie", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    const body = (await response.json()) as { reply?: string };
+    await route.fulfill({ response, json: body.reply ? { ...body, reply } : body });
+  });
+}
+
+const LONG_REPLY =
+  "Thank you — that is really helpful, and I have written it down for your doctor in your own words. " +
+  "Before we move on there are a few things I would like to be sure I have right, because the more your " +
+  "doctor has in front of them when you walk in, the less of the visit you will spend saying it all " +
+  "again: when the highs tend to happen, whether they follow a meal or arrive out of nowhere, what you " +
+  "had already tried before you booked this appointment, and whether anything you have changed lately " +
+  "seemed to make a difference either way. If you would rather not go through all of that now we can " +
+  "leave it there — none of it is required, and everything you have told me so far is saved. When you " +
+  "are ready, the next question is about how you have been feeling day to day since you last saw them.";
+
+test("a message with words under the composer says there is more to read", async ({ page }) => {
+  // T105, design §6.5 and §6.4. The region lands on the top of the newest message (T83), which is right:
+  // the patient reads from the first word. What was missing is anything saying that the rest of it is under
+  // the composer, with the page otherwise still.
+  const { token, email } = await book(page, "E2E Mobile Scroll Cue");
+  await withALongReply(page, LONG_REPLY);
 
   await page.goto(`/s/${token}`);
   await enterCode(page, email);
@@ -237,17 +263,40 @@ test("a message taller than the transcript says there is more to read", async ({
   await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
   await expect(page.locator(".sweetie-field-progress")).toBeVisible(LOADED);
 
+  const reply = page.getByLabel("Reply to Sweetie");
+  await reply.fill("Mornings run high, most days from about four, and I sleep badly when they do.");
+  await reply.press("Enter");
+  await expect(page.locator(".sweetie-messages")).toContainText(/the more your doctor has in front of them/, LOADED);
+
   // Still the T83 contract: the first line of it is on screen, not a line sliced through the glyphs.
   await expectTranscriptUncut(page, "a message taller than the transcript");
-  // And now the screen says so, at the edge the hidden words are past.
+  // The case this test is about, measured rather than assumed: whole lines of type are under the composer.
+  const hiding = await transcriptCue(page);
+  expect(
+    hiding.hiddenLines,
+    `the long reply is ${hiding.lines} lines and none of them is under the composer (${hiding.pastFold}px of the row is), so this test is no longer about a message with words out of sight (T105)`,
+  ).toBeGreaterThanOrEqual(1);
+  // And now the screen says so.
+  expect(
+    hiding.cue,
+    `${hiding.hiddenLines} of ${hiding.lines} lines are under the composer (${hiding.pastFold}px of the row) and nothing on the screen says so (T105, design §6.5)`,
+  ).toBe(true);
   await expect(page.locator(".sweetie-more")).toBeVisible(LOADED);
-  // The cue is a cue, not a control: it must not be in the tab order and must not swallow a tap meant for
-  // the message under it (§6.4).
+  // The cue is a cue, not a control: it must not be in the tab order, and it must not swallow a tap meant
+  // for the composer or the transcript around it (§6.4).
   await expect(page.locator(".sweetie-more input, .sweetie-more button, .sweetie-more a, .sweetie-more [tabindex]")).toHaveCount(0);
   expect(
     await page.locator(".sweetie-more").evaluate((element) => getComputedStyle(element).pointerEvents),
-    "the scroll cue takes taps meant for the message underneath it",
+    "the scroll cue takes taps meant for what is around it",
   ).toBe("none");
+  // A row of its own, under the region and not over it: what the cue announces is the bottom of a message
+  // too tall for the region, so a pill on that edge sat on the words it was talking about (T105 review).
+  const overlap = await page.locator(".sweetie-more").evaluate((element) => {
+    const cue = element.getBoundingClientRect();
+    const region = document.querySelector(".sweetie-messages")!.getBoundingClientRect();
+    return Math.round(Math.min(cue.bottom, region.bottom) - Math.max(cue.top, region.top));
+  });
+  expect(overlap, "the scroll cue is over the transcript, on the words it is announcing (T105, design §6.4)").toBeLessThanOrEqual(0);
   await expectMobileReady(page, "a transcript with more to read", ".sweetie-field-progress");
   await shot(page, "375-sweetie-more-to-read", SCREEN);
 
@@ -255,6 +304,48 @@ test("a message taller than the transcript says there is more to read", async ({
   // the region is ordinary scrollback, not something the patient has to be told about.
   await page.locator(".sweetie-messages").evaluate((element) => element.scrollTo({ top: element.scrollHeight, behavior: "auto" }));
   await expect(page.locator(".sweetie-more")).toHaveCount(0);
+  const read = await transcriptCue(page);
+  expect(read.hiddenLines, "the transcript is scrolled to its end and still hiding a line of the message").toBe(0);
+});
+
+test("a message that fits but for its own padding says nothing", async ({ page }) => {
+  // T105, design §6.5. The other half of the cue's claim, and the state it got wrong: a bubble whose every
+  // word is on screen, hanging past the fold by the 10px of padding and border it keeps under its last line
+  // and that line's own leading and descent space. The first implementation measured the row and announced
+  // all ~15px of it as "More below ↓" over a message with nothing below — the same cry-wolf the region's
+  // own 15px of padding caused one level up.
+  //
+  // The reason the office recorded is the longest thing the product puts in the opening bubble, and
+  // `MAX_REASON` (lib/visitIntake.ts) caps it at 280 characters, so this is as close to the edge of the
+  // region as a real visit can bring it.
+  const reason =
+    "my numbers keep going high overnight and I don't know why, usually from about two in the morning, " +
+    "and it happens whether or not I have eaten late, which is the part I would really like to understand " +
+    "before we talk about changing anything, and the same happened last winter";
+  const { token, email } = await book(page, "E2E Mobile Padding Cue", reason);
+
+  await page.goto(`/s/${token}`);
+  await enterCode(page, email);
+  await acceptConsent(page);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+  await expect(page.locator(".sweetie-field-progress")).toBeVisible(LOADED);
+
+  await expectTranscriptUncut(page, "a message that fits but for its own padding");
+  const hiding = await transcriptCue(page);
+  // The state this test is about exists: part of the row is past the bottom of the region.
+  expect(
+    hiding.pastFold,
+    `the opening bubble with a ${reason.length}-character reason does not reach past the transcript at all, so this test is no longer about a bubble that overflows by its own chrome (T105)`,
+  ).toBeGreaterThan(1);
+  // And none of it is text.
+  expect(
+    hiding.hiddenLines,
+    `${hiding.hiddenLines} of the opener's ${hiding.lines} lines are under the composer, so this state is not the chrome-only one (T105)`,
+  ).toBe(0);
+  expect(hiding.cue, `the cue announces ${hiding.pastFold}px of the bubble's own padding and border over a message with nothing below (T105, design §6.5)`).toBe(false);
+  await expect(page.locator(".sweetie-more")).toHaveCount(0);
+  await expectMobileReady(page, "a transcript with nothing but padding past the fold", ".sweetie-field-progress");
+  await shot(page, "375-sweetie-padding-past-the-fold", SCREEN);
 });
 
 test("the connect-your-data screen fits a 375px phone on every step", async ({ page }) => {
