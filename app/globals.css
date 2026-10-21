@@ -2336,8 +2336,13 @@ textarea.ss-input {
   color: var(--sour-ink);
 }
 
+/* Tall enough for a day's rows at a glance, and never more than half the window: a long paste still scrolls
+   in here rather than pushing the tally and the Create button out of reach. 260px was less than the height
+   of the five rows e2e/visits.spec.ts previews, so whichever way the box was scrolled it cut one of them in
+   half -- including in the only screenshot of this screen, which showed the three rows that passed and
+   neither of the two §2.2 refused (T107). */
 .import-table-scroll {
-  max-height: 260px;
+  max-height: min(420px, 50svh);
   overflow: auto;
   border: 1px solid var(--ss-line);
   border-radius: 14px;
