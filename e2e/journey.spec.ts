@@ -280,6 +280,20 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("button", { name: /Add patient/i })).toHaveCount(0);
   const clinicianRow = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(clinicianRow).toContainText(patientName, LOADED);
+
+  // T110 (§8.3) The visit was booked on the email channel, and this environment has no email backend: the
+  // suite runs the product offline (§11.3), and the ambient AWS credentials of the agents' sandbox are a
+  // credential and not a sender. So the invite's one pill is `skipped` — nothing was reached, so there is
+  // nothing to retry and nothing to call a failure — and the line under it is the first of T74's pair.
+  // Before this ticket the same cell read EMAIL ✕ and "The email did not go out", which was false, and the
+  // job behind it spent three attempts getting there. This is the cell the ticket's screenshot is of.
+  const invite = clinicianRow.locator(".provider-invite .provider-data-pill").first();
+  await expect(invite, "skipped, not failed: there is nothing to retry").toHaveClass(/provider-delivery-skipped/, LOADED);
+  await expect(clinicianRow.locator(".provider-delivery-fault")).toContainText(/Sweet Spot cannot send email yet/i);
+  expect(await invite.getAttribute("title"), "no variable, credential or backend on a practice's screen").not.toMatch(
+    /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bAWS\b|credential|verified identity/,
+  );
+
   await shot(page, "11-clinician-dashboard", { scrollTo: clinicianRow, block: "center" });
 
   // The row offers Sour because there is data and answers to summarize, and no summary yet. Clicking it is
