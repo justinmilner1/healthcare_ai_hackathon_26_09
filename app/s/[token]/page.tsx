@@ -89,6 +89,11 @@ export default function SweetiePage({
   const [interim, setInterim] = useState("");
   const [support, setSupport] = useState({ listen: false, speak: false });
   const transcript = useRef<HTMLDivElement>(null);
+  // Whether the transcript has anything scrolled out of sight, above or below what is on screen (T105).
+  // The region is its own scrolling box with no scrollbar of its own on a phone, so without this a message
+  // taller than it simply stopped mid-glyph at the edge: design §6.5 gives it 251px on a 375px phone and
+  // one long answer, or a reason long enough to push Sweetie's opener past it, is taller than that.
+  const [more, setMore] = useState({ above: false, below: false });
   const micOn = useRef(false);
   const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
@@ -203,6 +208,32 @@ export default function SweetiePage({
     // itself and jumps instead of gliding when the patient has asked for less movement (design §6.4).
     region.scrollTo({ top: Math.max(0, Math.min(top, end)), behavior: reducedMotion() ? "auto" : "smooth" });
   }, [messages, interim, busy]);
+
+  /** What is out of sight in the transcript right now. A pixel of slack at each end, because a smooth
+   *  scroll settles a fraction short and a cue that flickers there is worse than no cue. */
+  const readMore = useCallback(() => {
+    const region = transcript.current;
+    if (!region) return;
+    const above = region.scrollTop > 1;
+    const below = region.scrollTop + region.clientHeight < region.scrollHeight - 1;
+    setMore((was) => (was.above === above && was.below === below ? was : { above, below }));
+  }, []);
+
+  // The region scrolls itself (the effect above) and the patient scrolls it; both arrive here as scroll
+  // events, which is also how the glide's end is seen without waiting a guessed number of milliseconds for
+  // it. A resize changes what fits without scrolling anything, so it is asked too — a phone keyboard
+  // opening is exactly that.
+  useEffect(() => {
+    const region = transcript.current;
+    if (!region) return;
+    readMore();
+    region.addEventListener("scroll", readMore, { passive: true });
+    window.addEventListener("resize", readMore);
+    return () => {
+      region.removeEventListener("scroll", readMore);
+      window.removeEventListener("resize", readMore);
+    };
+  }, [readMore, messages, interim, busy, status, intake]);
 
   const applyReply = useCallback(
     (data: {
@@ -598,80 +629,107 @@ export default function SweetiePage({
                 finding (§6.4, §12.5): on a phone it is the taller half of the screen and the only way to
                 read back what was said. tabIndex makes it a tab stop, which is what gives arrow keys and
                 Page Up something to act on; the label is what a screen reader announces on arriving. */}
-            <div ref={transcript} className="sweetie-messages" aria-live="polite" tabIndex={0} role="log" aria-label="Your conversation with Sweetie">
-              {messages.map((message, index) => (
-                <div
-                  key={`${message.createdAt ?? "message"}-${index}`}
-                  className={`sweetie-message-row ${
-                    message.role === "patient"
-                      ? "sweetie-message-patient"
-                      : ""
-                  }`}
-                >
-                  {message.role === "sweetie" && (
+            {/* The wrapper is what the two scroll cues below are positioned against: they sit over the
+                top and the bottom edge of the transcript, which is not the bottom of this column (the
+                composer is under it). It takes the transcript's `flex: 1` and passes it on, so the region
+                itself is the same box it was — the §6.5 gate in e2e/mobile.ts measures it. */}
+            <div className="sweetie-transcript">
+              <div ref={transcript} className="sweetie-messages" aria-live="polite" tabIndex={0} role="log" aria-label="Your conversation with Sweetie">
+                {messages.map((message, index) => (
+                  <div
+                    key={`${message.createdAt ?? "message"}-${index}`}
+                    className={`sweetie-message-row ${
+                      message.role === "patient"
+                        ? "sweetie-message-patient"
+                        : ""
+                    }`}
+                  >
+                    {message.role === "sweetie" && (
+                      <Image
+                        src="/assets/sweetie/sweetie.png"
+                        alt=""
+                        width={36}
+                        height={36}
+                      />
+                    )}
+                    <div className="sweetie-message">{message.content}</div>
+                  </div>
+                ))}
+                {interim && (
+                  <div className="sweetie-message-row sweetie-message-patient">
+                    <div className="sweetie-message sweetie-interim">
+                      {interim}…
+                    </div>
+                  </div>
+                )}
+                {busy && (
+                  <div className="sweetie-message-row">
                     <Image
                       src="/assets/sweetie/sweetie.png"
                       alt=""
                       width={36}
                       height={36}
                     />
-                  )}
-                  <div className="sweetie-message">{message.content}</div>
-                </div>
-              ))}
-              {interim && (
-                <div className="sweetie-message-row sweetie-message-patient">
-                  <div className="sweetie-message sweetie-interim">
-                    {interim}…
+                    <div
+                      className="sweetie-message sweetie-typing"
+                      aria-label="Sweetie is typing"
+                    >
+                      <i />
+                      <i />
+                      <i />
+                    </div>
                   </div>
-                </div>
+                )}
+                {/* A flagged intake has just been told to call someone; §2.5 is that instruction, so it is
+                    the headline, in the same words and with the same name as Sweetie's own message. The
+                    summary link stays (§2.5 "ends with the patient's summary link", §2.7) as the second thing
+                    on the card rather than the first (T66). */}
+                {finished && flagged && (
+                  <div className="sweetie-flagged-card">
+                    <span aria-hidden="true">!</span>
+                    <div>
+                      <strong>{officeAction(provider)}</strong>
+                      <small>If you can&apos;t reach them, go to urgent care.</small>
+                      <a href={`/patient/${token}`}>
+                        See what you&apos;ve shared so far
+                        <b aria-hidden="true"> →</b>
+                      </a>
+                    </div>
+                  </div>
+                )}
+                {finished && !flagged && (
+                  <a href={`/patient/${token}`} className="sweetie-done-card">
+                    <span>✓</span>
+                    <div>
+                      <strong>Your check-in is complete</strong>
+                      <small>
+                        See the summary you&apos;ll share with your doctor
+                      </small>
+                    </div>
+                    <b aria-hidden="true">→</b>
+                  </a>
+                )}
+              </div>
+              {/* There is more to read than the region is showing (T105, design §6.5). Sweetie's opener now
+                  fits the 251px a phone leaves it, but nothing bounds what a patient types or how long a
+                  reason the office recorded, so a message taller than the region is still possible — and
+                  the region lands on the top of the newest one, which puts the rest of it under the
+                  composer with the page otherwise still. These say so, at whichever end of the region it
+                  is true of.
+                  `aria-hidden`, and not a live region: the transcript is a `role="log"` that announces
+                  every message in full, so to a screen reader there is nothing out of sight to point at,
+                  and a cue that spoke on every scroll would talk over the conversation (§6.4). Nothing in
+                  them is a control, and `pointer-events: none` keeps them from taking a tap meant for the
+                  message underneath. */}
+              {more.above && (
+                <p className="sweetie-more sweetie-more-above" aria-hidden="true">
+                  ↑ More above
+                </p>
               )}
-              {busy && (
-                <div className="sweetie-message-row">
-                  <Image
-                    src="/assets/sweetie/sweetie.png"
-                    alt=""
-                    width={36}
-                    height={36}
-                  />
-                  <div
-                    className="sweetie-message sweetie-typing"
-                    aria-label="Sweetie is typing"
-                  >
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                </div>
-              )}
-              {/* A flagged intake has just been told to call someone; §2.5 is that instruction, so it is
-                  the headline, in the same words and with the same name as Sweetie's own message. The
-                  summary link stays (§2.5 "ends with the patient's summary link", §2.7) as the second thing
-                  on the card rather than the first (T66). */}
-              {finished && flagged && (
-                <div className="sweetie-flagged-card">
-                  <span aria-hidden="true">!</span>
-                  <div>
-                    <strong>{officeAction(provider)}</strong>
-                    <small>If you can&apos;t reach them, go to urgent care.</small>
-                    <a href={`/patient/${token}`}>
-                      See what you&apos;ve shared so far
-                      <b aria-hidden="true"> →</b>
-                    </a>
-                  </div>
-                </div>
-              )}
-              {finished && !flagged && (
-                <a href={`/patient/${token}`} className="sweetie-done-card">
-                  <span>✓</span>
-                  <div>
-                    <strong>Your check-in is complete</strong>
-                    <small>
-                      See the summary you&apos;ll share with your doctor
-                    </small>
-                  </div>
-                  <b aria-hidden="true">→</b>
-                </a>
+              {more.below && (
+                <p className="sweetie-more sweetie-more-below" aria-hidden="true">
+                  More below ↓
+                </p>
               )}
             </div>
 

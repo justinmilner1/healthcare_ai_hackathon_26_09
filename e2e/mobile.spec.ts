@@ -35,7 +35,7 @@ const SCREEN = WHOLE_PAGE;
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */
-async function book(page: Page, name: string) {
+async function book(page: Page, name: string, reason = "mornings running high") {
   const email = patientEmail(name);
   await signInAsDemo(page);
   const booked = await (
@@ -43,7 +43,7 @@ async function book(page: Page, name: string) {
       name,
       email,
       visitType: "follow_up",
-      reason: "mornings running high",
+      reason,
       channel: "none",
     })
   ).json();
@@ -86,6 +86,14 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   // line of it — in this shot, in mobile-sweetie-done.png and in mobile-journey-09-sweetie-complete.png,
   // and invisible to the gate because everything measured here measures width.
   await expectTranscriptUncut(page, "Sweetie's first question");
+
+  // T105: and the whole of her opening message is in the region, not merely its top. `expectTranscriptUncut`
+  // above asks that the newest message starts where the patient starts reading; this asks that it also ends
+  // where they stop, which is what T83 could not reach without shortening the message (lib/sweetie.ts). The
+  // transcript is the only scrolling box on this screen, so "nothing is hidden" is "nothing to scroll".
+  const hidden = await page.locator(".sweetie-messages").evaluate((element) => element.scrollHeight - element.clientHeight);
+  expect(hidden, `Sweetie's opening message runs ${hidden}px past the transcript at 375px (T105, design §6.5)`).toBeLessThanOrEqual(1);
+  await expect(page.locator(".sweetie-more")).toHaveCount(0);
 
   // The three upload chips share one row of the sidebar, so 375px is where their names run out of chip.
   // Nothing above catches it: the chips clip rather than widen the page, which is why this asks each name
@@ -203,6 +211,45 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expectTranscriptUncut(page, "Sweetie with a flagged answer");
 
   await shot(page, "375-sweetie-flagged", SCREEN);
+});
+
+test("a message taller than the transcript says there is more to read", async ({ page }) => {
+  // T105, design §6.5. Sweetie's opener fits the region now, but nothing bounds what the patient types or
+  // how long a reason the office recorded — `MAX_REASON` is 280 characters (lib/visitIntake.ts), and the
+  // first question quotes it — so a bubble taller than the 251px the phone leaves the region is still
+  // reachable. The region lands on the top of the newest message (T83), which is right: the patient reads
+  // from the first word. What was missing is anything saying that the rest of it is under the composer.
+  const reason =
+    "my numbers keep going high overnight and I don't know why, usually from about two in the morning, " +
+    "and it happens whether or not I have eaten late, which is the part I would really like to understand " +
+    "before we talk about changing anything";
+  const { token, email } = await book(page, "E2E Mobile Scroll Cue", reason);
+
+  await page.goto(`/s/${token}`);
+  await enterCode(page, email);
+  await acceptConsent(page);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+  await expect(page.locator(".sweetie-field-progress")).toBeVisible(LOADED);
+
+  // Still the T83 contract: the first line of it is on screen, not a line sliced through the glyphs.
+  await expectTranscriptUncut(page, "a message taller than the transcript");
+  // And now the screen says so, at the end the hidden words are past.
+  await expect(page.locator(".sweetie-more-below")).toBeVisible(LOADED);
+  await expect(page.locator(".sweetie-more-above")).toHaveCount(0);
+  // The cue is a cue, not a control: it must not be in the tab order and must not swallow a tap meant for
+  // the message under it (§6.4).
+  await expect(page.locator(".sweetie-more input, .sweetie-more button, .sweetie-more a, .sweetie-more [tabindex]")).toHaveCount(0);
+  expect(
+    await page.locator(".sweetie-more-below").evaluate((element) => getComputedStyle(element).pointerEvents),
+    "the scroll cue takes taps meant for the message underneath it",
+  ).toBe("none");
+  await expectMobileReady(page, "a transcript with more to read", ".sweetie-field-progress");
+  await shot(page, "375-sweetie-more-to-read", SCREEN);
+
+  // Scrolled to the end, the hidden words are the ones above instead, and the cue moves with them.
+  await page.locator(".sweetie-messages").evaluate((element) => element.scrollTo({ top: element.scrollHeight, behavior: "auto" }));
+  await expect(page.locator(".sweetie-more-above")).toBeVisible(LOADED);
+  await expect(page.locator(".sweetie-more-below")).toHaveCount(0);
 });
 
 test("the connect-your-data screen fits a 375px phone on every step", async ({ page }) => {

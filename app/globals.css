@@ -3612,6 +3612,44 @@ textarea.ss-input {
   background: #fff4ed;
 }
 
+/* The transcript and the two cues that say what it is not showing (T105). It is the transcript's own
+   `flex: 1` box moved out one level, so `.sweetie-messages` below still measures the same: design §6.5's
+   floor on the region (TRANSCRIPT_ROOM, e2e/mobile.ts) is read off that element. */
+.sweetie-transcript {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* A pill over the edge the hidden text is past. `pointer-events: none` because it is not a control and sits
+   over a message: a tap on it is a tap meant for the words underneath. */
+.sweetie-more {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  margin: 0;
+  padding: 3px 11px;
+  transform: translateX(-50%);
+  border: 1px solid #f2dce3;
+  border-radius: 999px;
+  color: #8a6d79;
+  background: #fff7f9;
+  box-shadow: 0 4px 12px rgba(64, 38, 49, 0.14);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.sweetie-more-above {
+  top: 5px;
+}
+
+.sweetie-more-below {
+  bottom: 5px;
+}
+
 .sweetie-messages {
   position: relative;
   display: flex;
