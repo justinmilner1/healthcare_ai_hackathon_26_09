@@ -61,8 +61,15 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
   await page.getByRole("button", { name: /Add patient & send/i }).click();
 
-  await expect(page.locator(".patient-wizard-success")).toContainText(/on the way/i, LOADED);
-  await expect(page.locator(".patient-link-card")).toContainText("/s/");
+  // T111 This visit is booked on both channels and this environment can send on neither, so the claim names
+  // neither: the line for a visit whose chosen channels have no backend between them (lib/delivery.ts). The
+  // journey spec pins the one-channel wording; this pins "both", which is the wizard's default and so the
+  // case most bookings land in. Anchored on the lede, because the card's heading says the *patient* is on
+  // the way and would match a promise about the message that is not there.
+  const claim = page.locator(".patient-wizard-success .ss-lede");
+  await expect(claim).toContainText(/No invite sent: Sweet Spot cannot send this message yet/i, LOADED);
+  await expect(claim).not.toContainText(/on its way/i);
+  await expect(page.locator(".patient-link-card"), "§8.1's fallback, on the screen that just refused").toContainText("/s/");
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
   // The row carries §4.4's status, the chosen channels and the consent behind them.
@@ -119,6 +126,49 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
     block: "center",
     inline: "center",
   });
+});
+
+// T111 The other half of that sentence: an office whose deployment *can* send is still told the invite is on
+// its way, by the channel that is sending it. What stands in for such a deployment is the one thing stubbed
+// here, and only because the alternative is worse: this gate configures no sender at all (§11.3), and a
+// server that did would have every booking in the suite attempt a real SES or SNS send — the outbound calls
+// T94 and T110 took out of it, on a box with ambient AWS credentials.
+//
+// So the route runs for real and the visit is really created; only `queued` and `channel` are rewritten to
+// what POST /api/book answers where `emailConfig()` resolves to a backend instead of a reason. That it does
+// answer that is lib/notify.test.ts's to assert, on the senders themselves. Everything in the frame — the
+// card, the sentence, the link, the button — is the product's own.
+test("a deployment with a sender still tells staff the invite is on its way", async ({ page }) => {
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  await page.route("**/api/book", async (route) => {
+    const response = await route.fetch();
+    const booked = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...booked, queued: true, channel: "email", reason: undefined } });
+  });
+
+  const name = uniqueName("Configured Patient");
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+  await page.getByLabel("Patient name").fill(name);
+  await page.getByLabel("Email", { exact: true }).fill(`${name.replace(/\s+/g, ".").toLowerCase()}@example.com`);
+  await page.getByRole("button", { name: /Continue/i }).click();
+
+  await page.getByText("Follow-up", { exact: true }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+
+  // Emailed, and the consent §2.2 insists on before anything is sent anywhere.
+  await page.getByText("Email", { exact: true }).click();
+  await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
+  await page.getByRole("button", { name: /Add patient & send/i }).click();
+
+  // The channel named is the one that can send, which is why it comes from the route's answer and not from
+  // the form: staff who chose "Text and email" where only one backend exists are told about that one.
+  const claim = page.locator(".patient-wizard-success .ss-lede");
+  await expect(claim).toContainText("The invite is on its way by email.", LOADED);
+  await expect(claim).not.toContainText(/No invite sent/i);
+  await expect(page.locator(".patient-link-card"), "§8.1's link is on this screen either way").toContainText("/s/");
+  await shot(page, "provider-add-visit-sent", MODAL);
 });
 
 test("a day of visits imports from a CSV, one error per bad row", async ({ page }, testInfo) => {
@@ -179,6 +229,13 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
 
   await page.getByRole("button", { name: /Create 3 visits/i }).click();
   await expect(page.locator(".import-tally")).toContainText("3 created", LOADED);
+  // T111 One of the three rows asked for a text and this deployment has no SMS backend, so the screen says
+  // the invites did not go out and what staff can do instead. One line for the file rather than one per row,
+  // because it is a fact about the deployment: the two rows with a blank channel asked for nothing and add
+  // no line of their own, and a second texted row would add no second line either.
+  const faults = page.locator(".import-invite-fault");
+  await expect(faults).toHaveCount(1);
+  await expect(faults).toContainText(/No invites sent: Sweet Spot cannot send texts yet/i);
   await shot(page, "provider-import-created", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 

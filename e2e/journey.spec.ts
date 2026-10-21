@@ -150,8 +150,22 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await shot(page, "03-add-visit", MODAL);
   await page.getByRole("button", { name: /Add patient & send/i }).click();
 
-  // The link on the success card is the one that was emailed, and it is the patient's way in from here on.
-  await expect(page.locator(".patient-wizard-success")).toContainText(/on the way/i, LOADED);
+  // T111 (§2.2, §2.3, §8.1) The wizard's own claim about the send, which is the first thing staff are told
+  // about it. This environment has no email backend — the suite runs the product offline (§11.3) and that is
+  // the state a fresh `.env` is in too — so the honest screen is the branch the no-consent case has always
+  // had: no invite sent, the reason in the practice's words, and §8.1's fallback, the link, in the card
+  // right below it. Before this ticket the same screen read "The invite is on its way by email." while the
+  // dashboard cell twelve steps down this test said email cannot be sent.
+  //
+  // Anchored on the lede rather than on the card, because the card's heading is "<name> is on the way" —
+  // about the patient keeping their appointment, not about the message — and a `/on the way/i` over the
+  // whole card is exactly what let the sentence above sit here through two tickets about it.
+  const claim = page.locator(".patient-wizard-success .ss-lede");
+  await expect(claim).toContainText(/No invite sent: Sweet Spot cannot send email yet/i, LOADED);
+  await expect(claim, "and not the promise a row in `Job` used to imply").not.toContainText(/on its way/i);
+  expect(await claim.innerText(), "no variable, credential or backend on a practice's screen").not.toMatch(
+    /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bAWS\b|credential|verified identity/,
+  );
   const link = await page.locator(".patient-link-card a").innerText();
   const token = link.split("/s/")[1]?.trim();
   expect(token, `a /s/<token> link on the success card, got ${link}`).toBeTruthy();
@@ -415,8 +429,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   expect(bundle.status.answered).toBeGreaterThanOrEqual(2);
   expect(bundle.intakeConsentAt, "§2.4's acceptance, stored on the visit").toBeTruthy();
 
-  // The invite really was emailed (§2.2's channel, §8.1's sender): the patient's mailbox holds the link the
-  // staff member sent as well as the code they asked for by opening it. Sent, not merely offered on screen.
+  // The code really was sent (§2.3, §5.3): it is in the patient's mailbox, not merely offered on screen.
+  // The invite is the other half of that pair and this environment could not send it — which is what the
+  // wizard said at the top of this test and what the delivery row said in the middle — so the two messages
+  // part company here. The code is the one §5.3 cannot continue without, so lib/mailer.ts diverts it to the
+  // local mailbox when there is nothing to send with; the invite fails soft and the UI shows the link (§8.1).
   expect(latestCode(email), "the six-digit code went to the address on file").toBeTruthy();
 });
 
