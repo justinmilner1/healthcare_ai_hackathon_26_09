@@ -12,6 +12,16 @@ import { MODAL, SCREENFUL, shot } from "./shot";
 // Nothing here stubs a session: each identity signs in by its own magic link (§5.1, e2e/auth.ts). Every
 // state-changing API call goes through postJson, which echoes the CSRF cookie the way the pages do (§10.8).
 
+/**
+ * The window the §2.2 import dialog is photographed at: a maximised browser on a 1280 x 1024 desk monitor.
+ *
+ * The dialog is `max-height: 88svh` (app/globals.css), so how much of it one frame holds is a property of
+ * the window and not of the dialog: 720px of desktop project leaves 160px of it behind an edge whatever the
+ * shot is anchored on, and what went missing was the two refused rows the test above asserts on (T107).
+ * e2e/shot.ts grows the window for the shot and hands it straight back.
+ */
+const IMPORT_WINDOW = 1000;
+
 /** A name nothing else in the run will use: two Playwright projects share one database. */
 const uniqueName = (prefix: string) => `${prefix} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
@@ -151,23 +161,25 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // MODAL at either width: this is a dialog over the dashboard, and a full-page shot anchors at the top of
   // a very tall document, which cut the dialog's own header off above the image (T57).
   //
-  // MODAL alone is not enough here, though: `.import-scroll` is the dialog's own scrolling body (one
-  // scrolling body with the actions fixed under it, app/provider/dashboard.tsx), and pasting the rows
-  // leaves it scrolled past its header — so the shot still began mid-sentence at "sends them a code." with
-  // the title above the fold of the dialog rather than of the page. The scroller goes back to the top
-  // rather than its header being scrolled into view, because `scrollIntoView` aligns the header's box to
-  // the scrollport and still cut the eyebrow and the cap-heights off the title.
-  await page.locator(".import-scroll").evaluate((element) => {
-    element.scrollTop = 0;
-  });
-  await shot(page, "provider-import-preview", MODAL);
+  // MODAL alone was not enough, and nor was scrolling (T107). The refusals asserted just above are the
+  // whole point of the preview, and neither of them was in the picture: at 720px the dialog gets 525px of
+  // scrolling body for 685px of content, so the frame held the title, the paste box and the rows that
+  // passed, with line 5 and line 6 below the bottom edge of `.import-scroll` and line 4 clipped mid-name on
+  // it. Pinning the scroller to the top — which is what this did before — chooses that framing rather than
+  // fixing it, and no other scroll position holds the title as well.
+  //
+  // So the shot asks for the window the dialog's own `max-height: 88svh` is written against, and gets the
+  // whole dialog in one frame: the title, the tally, and all five rows with their errors and the warning.
+  // `wholeRows` is the assertion that keeps it true — a row half in the frame fails here rather than being
+  // committed as evidence about a validator nobody can see working.
+  await shot(page, "provider-import-preview", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
 
   const beforeImport = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
   expect(beforeImport.visits.some((v) => v.name === goodName), "the preview writes nothing").toBeFalsy();
 
   await page.getByRole("button", { name: /Create 3 visits/i }).click();
   await expect(page.locator(".import-tally")).toContainText("3 created", LOADED);
-  await shot(page, "provider-import-created", MODAL);
+  await shot(page, "provider-import-created", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
   // Both rows are on the dashboard, and the one with no channel says it is not being messaged (§8.3).
