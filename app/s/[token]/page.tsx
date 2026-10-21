@@ -89,11 +89,15 @@ export default function SweetiePage({
   const [interim, setInterim] = useState("");
   const [support, setSupport] = useState({ listen: false, speak: false });
   const transcript = useRef<HTMLDivElement>(null);
-  // Whether the transcript has anything scrolled out of sight, above or below what is on screen (T105).
-  // The region is its own scrolling box with no scrollbar of its own on a phone, so without this a message
-  // taller than it simply stopped mid-glyph at the edge: design §6.5 gives it 251px on a 375px phone and
-  // one long answer, or a reason long enough to push Sweetie's opener past it, is taller than that.
-  const [more, setMore] = useState({ above: false, below: false });
+  // Whether the newest message runs past the bottom of the transcript (T105). The region is its own
+  // scrolling box with no scrollbar of its own on a phone, so without this a message taller than it simply
+  // stopped mid-glyph at the edge: design §6.5 gives it 251px on a 375px phone, and one long answer, or a
+  // reason long enough to push Sweetie's opener past it, is taller than that.
+  //
+  // Below only. Messages above the top of the region are ordinary scrollback — the patient has read on, the
+  // newest thing said is whole on the screen, and a cue over every mid-conversation screen would be noise
+  // sitting on top of the words it is talking about.
+  const [more, setMore] = useState(false);
   const micOn = useRef(false);
   const done = useRef(false);
   const listener = useRef<{ stop: () => void } | null>(null);
@@ -209,24 +213,20 @@ export default function SweetiePage({
     region.scrollTo({ top: Math.max(0, Math.min(top, end)), behavior: reducedMotion() ? "auto" : "smooth" });
   }, [messages, interim, busy]);
 
-  /** What is out of sight in the transcript right now.
+  /** Whether any of the newest message is past the bottom of the region.
    *
-   *  Measured against the first and the last thing in it rather than against `scrollHeight`, which counts
-   *  the region's own 15px of padding under the newest message (app/globals.css): with that in it, a
-   *  transcript showing every word of every message still had 15px "below" and said so, which is a cue
-   *  that cries wolf on the ordinary screen. There is more to read only when a message is.
+   *  Measured against the last thing in it rather than against `scrollHeight`, which counts the 15px
+   *  `.sweetie-messages` keeps under that message (app/globals.css): with that in it, a transcript showing
+   *  every word of every message still had 15px "below" and said so, which is a cue that cries wolf.
    *
-   *  In layout coordinates, like the scroll above and for the same reason: a message arrives under a
-   *  340ms transform that `getBoundingClientRect` reads as position and `offsetTop` does not. A pixel of
-   *  slack at each end, because a smooth scroll settles a fraction short of where it was sent. */
+   *  In layout coordinates, like the scroll above and for the same reason: a message arrives under a 340ms
+   *  transform that `getBoundingClientRect` reads as position and `offsetTop` does not. A pixel of slack,
+   *  because a smooth scroll settles a fraction short of where it was sent. */
   const readMore = useCallback(() => {
     const region = transcript.current;
-    const first = region?.firstElementChild as HTMLElement | null;
     const last = region?.lastElementChild as HTMLElement | null;
-    if (!region || !first || !last) return;
-    const above = first.offsetTop < region.scrollTop - 1;
-    const below = last.offsetTop + last.offsetHeight > region.scrollTop + region.clientHeight + 1;
-    setMore((was) => (was.above === above && was.below === below ? was : { above, below }));
+    if (!region || !last) return;
+    setMore(last.offsetTop + last.offsetHeight > region.scrollTop + region.clientHeight + 1);
   }, []);
 
   // The region scrolls itself (the effect above) and the patient scrolls it; both arrive here as scroll
@@ -720,24 +720,18 @@ export default function SweetiePage({
                   </a>
                 )}
               </div>
-              {/* There is more to read than the region is showing (T105, design §6.5). Sweetie's opener now
-                  fits the 251px a phone leaves it, but nothing bounds what a patient types or how long a
-                  reason the office recorded, so a message taller than the region is still possible — and
-                  the region lands on the top of the newest one, which puts the rest of it under the
-                  composer with the page otherwise still. These say so, at whichever end of the region it
-                  is true of.
+              {/* The newest message runs past the bottom of the region (T105, design §6.5). Sweetie's
+                  opener fits the 251px a phone leaves it now, but nothing bounds what a patient types or
+                  how long a reason the office recorded, so a message taller than the region is still
+                  possible — and the region lands on the top of the newest one, which leaves the rest of it
+                  under the composer with the page otherwise still. This says so.
                   `aria-hidden`, and not a live region: the transcript is a `role="log"` that announces
                   every message in full, so to a screen reader there is nothing out of sight to point at,
                   and a cue that spoke on every scroll would talk over the conversation (§6.4). Nothing in
-                  them is a control, and `pointer-events: none` keeps them from taking a tap meant for the
+                  it is a control, and `pointer-events: none` keeps it from taking a tap meant for the
                   message underneath. */}
-              {more.above && (
-                <p className="sweetie-more sweetie-more-above" aria-hidden="true">
-                  ↑ More above
-                </p>
-              )}
-              {more.below && (
-                <p className="sweetie-more sweetie-more-below" aria-hidden="true">
+              {more && (
+                <p className="sweetie-more" aria-hidden="true">
                   More below ↓
                 </p>
               )}

@@ -239,23 +239,22 @@ test("a message taller than the transcript says there is more to read", async ({
 
   // Still the T83 contract: the first line of it is on screen, not a line sliced through the glyphs.
   await expectTranscriptUncut(page, "a message taller than the transcript");
-  // And now the screen says so, at the end the hidden words are past.
-  await expect(page.locator(".sweetie-more-below")).toBeVisible(LOADED);
-  await expect(page.locator(".sweetie-more-above")).toHaveCount(0);
+  // And now the screen says so, at the edge the hidden words are past.
+  await expect(page.locator(".sweetie-more")).toBeVisible(LOADED);
   // The cue is a cue, not a control: it must not be in the tab order and must not swallow a tap meant for
   // the message under it (§6.4).
   await expect(page.locator(".sweetie-more input, .sweetie-more button, .sweetie-more a, .sweetie-more [tabindex]")).toHaveCount(0);
   expect(
-    await page.locator(".sweetie-more-below").evaluate((element) => getComputedStyle(element).pointerEvents),
+    await page.locator(".sweetie-more").evaluate((element) => getComputedStyle(element).pointerEvents),
     "the scroll cue takes taps meant for the message underneath it",
   ).toBe("none");
   await expectMobileReady(page, "a transcript with more to read", ".sweetie-field-progress");
   await shot(page, "375-sweetie-more-to-read", SCREEN);
 
-  // Scrolled to the end, the hidden words are the ones above instead, and the cue moves with them.
+  // Scrolled to the end there is nothing left under the composer, and the cue goes with it: what is above
+  // the region is ordinary scrollback, not something the patient has to be told about.
   await page.locator(".sweetie-messages").evaluate((element) => element.scrollTo({ top: element.scrollHeight, behavior: "auto" }));
-  await expect(page.locator(".sweetie-more-above")).toBeVisible(LOADED);
-  await expect(page.locator(".sweetie-more-below")).toHaveCount(0);
+  await expect(page.locator(".sweetie-more")).toHaveCount(0);
 });
 
 test("the connect-your-data screen fits a 375px phone on every step", async ({ page }) => {

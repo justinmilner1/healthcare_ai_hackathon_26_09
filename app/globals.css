@@ -3623,15 +3623,17 @@ textarea.ss-input {
   flex-direction: column;
 }
 
-/* A pill over the edge the hidden text is past. `pointer-events: none` because it is not a control and sits
-   over a message: a tap on it is a tap meant for the words underneath. */
+/* A pill at the bottom edge of the region, over the message that runs past it. Against the right margin
+   rather than centred: the words it covers there are a line's ragged end, where a centred pill sat across
+   the middle of the last readable line and took a phrase with it. `pointer-events: none` because it is not
+   a control and sits over a message: a tap on it is a tap meant for the words underneath. */
 .sweetie-more {
   position: absolute;
   z-index: 2;
-  left: 50%;
+  right: 8px;
+  bottom: 5px;
   margin: 0;
-  padding: 3px 11px;
-  transform: translateX(-50%);
+  padding: 3px 10px;
   border: 1px solid #f2dce3;
   border-radius: 999px;
   color: #8a6d79;
@@ -3640,14 +3642,6 @@ textarea.ss-input {
   font-size: 11px;
   white-space: nowrap;
   pointer-events: none;
-}
-
-.sweetie-more-above {
-  top: 5px;
-}
-
-.sweetie-more-below {
-  bottom: 5px;
 }
 
 .sweetie-messages {
