@@ -363,7 +363,9 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // the same question (lib/visit.ts clinicianLine).
   await expect(page.locator(".sour-print-clinician")).toHaveText(clinicianName);
   await expect(page.locator(".sour-print-header"), "the patient's words on the clinician's document").not.toContainText(/your care team/i);
-  await expect(page.locator(".sour-print-sheet")).toContainText("new job in August");
+  // On the block the phone's shot is anchored on below, not just somewhere on the sheet: what the patient
+  // told Sweetie is the handover §12.2 is about, so the picture has to hold it (T109).
+  await expect(page.locator(".sour-print-words")).toContainText("new job in August");
   await expect(page.locator(".sour-print-numbers")).toContainText("Time in range");
   // T99 (§7.4): the sheet carries the screen's caption, out of lib/spikePlaces.ts, so the paper cannot
   // promise a place the brief does not.
@@ -372,7 +374,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(printCaption).toContainText("no place matched");
   await expect(printCaption).not.toContainText("the place the patient had just left");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "15-print-sheet");
+  // The patient's own words at the bottom of the frame, with the patterns and the questions above them
+  // (T109, design §12.3): the sheet at 375px is several phone screens, and unanchored this shot was the
+  // title block and two stat tiles — a picture of the one part of the handover nobody is checking.
+  await shot(page, "15-print-sheet", { scrollTo: ".sour-print-words", block: "end" });
   // And the third (§7.4). The sheet is read on screen before it is sent to paper, so its charts have
   // tooltips like the other two; nothing here is about what the printer puts on the page.
   await expectChartTooltipsLabelled(page, "the printed sheet");

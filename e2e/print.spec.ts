@@ -112,13 +112,20 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "provider-print");
+  // Both shots of the sheet are anchored on the chart card, which is where the assertions just above live
+  // (T109, design §12.3). The sheet at 375px is several phone screens tall, so the phone's frame holds a
+  // part of it and not the whole: unanchored it held the title block and two stat tiles, and the caption,
+  // the chart, the spike table and its coordinates were all below the fold. Anchoring both on the same
+  // element also makes the pair a before-and-after of one part of the sheet rather than two different
+  // parts. The desktop project shoots the document, so nothing here changes what it writes.
+  const chartCard = page.getByRole("heading", { name: /Glucose, last \d+ days?/ });
+  await shot(page, "provider-print", { scrollTo: chartCard });
 
   // The print CSS, as the browser applies it: the toolbar goes, the sheet becomes the page.
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".sour-print-toolbar")).toBeHidden();
   await expect(page.locator(".sour-print-sheet")).toBeVisible();
-  await shot(page, "provider-print-media");
+  await shot(page, "provider-print-media", { scrollTo: chartCard });
   await page.emulateMedia({ media: null });
 
   // And as paper. page.pdf is headless Chromium's own print pipeline, so this is the acceptance criterion's
@@ -162,6 +169,8 @@ test("a visit with no clinician's name on it prints the practice's words for tha
   for (const gone of [".sour-summary-sidebar", ".sour-patient-list", ".persona-brand", ".sour-brief-actions"]) {
     await expect(page.locator(gone), `${gone} does not belong on the sheet`).toHaveCount(0);
   }
+  // No anchor on this one: this visit has nothing to summarize, so the whole sheet is shorter than a phone
+  // screen and the frame holds it end to end on both projects (T109).
   await shot(page, "provider-print-no-clinician");
 });
 

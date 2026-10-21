@@ -99,6 +99,8 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   const sheet = page.locator(".sour-print-sheet");
   await expect(sheet).toContainText("1 day · 84 readings", LOADED);
   await expect(sheet, "a count agrees with its noun on paper too").not.toContainText(/\b1 (days|spikes|readings)\b/);
+  // No anchor: the single day this shot exists to show is in the header's sub-line, so it is in the frame
+  // on both projects without one (T109, design §12.3).
   await shot(page, "provider-print-single-day");
 
   // Pressing again is not an error and does not move the record: the first sign-off is the one that stands.
