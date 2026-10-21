@@ -404,11 +404,26 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
     });
   // The region glides rather than jumps (§6.4), so the first read can be of a scroll still in flight — and
   // `above` is zero throughout a downward glide, which makes it useless as the thing to wait on.
+  //
+  // The wait has to be at least as strict as the assertions under it, or it hands them a state they reject.
+  // For a message that fits, `settling` is `above + below`, the two rect readings those assertions want at
+  // 0 apiece, so a flat `<= 1` let a glide one pixel from done through: the reviewer run of 2026-10-21 read
+  // `expect(fit.below).toBe(0)` holding a 1 on [desktop] e2e/flows.spec.ts:329 ("the stopped check-in"),
+  // on a box whose whole check took 6m21s. Zero is not a knife-edge there — `.sweetie-messages` keeps 22px
+  // of padding under the newest message (app/globals.css), so once the region has arrived `below` is 0 with
+  // room to spare, and anything above it is the 340ms entrance transform or the scroll, both still moving.
+  // The branch that does not fit is measured in `offsetTop`, which neither of those touches but a smooth
+  // scroll can leave a sub-pixel short of, so it keeps the slack it was given.
   await expect
-    .poll(async () => (await measure())?.settling, {
-      message: `${screen}: the transcript never settled on the newest message`,
-    })
-    .toBeLessThanOrEqual(1);
+    .poll(
+      async () => {
+        const reading = await measure();
+        if (!reading) return null;
+        return reading.fits ? reading.settling === 0 : reading.settling <= 1;
+      },
+      { message: `${screen}: the transcript never settled on the newest message` },
+    )
+    .toBe(true);
   const fit = await measure();
   if (!fit) throw new Error(`${screen}: the transcript is empty, so there is nothing to measure`);
   expect(
