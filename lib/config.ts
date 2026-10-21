@@ -362,14 +362,14 @@ export const SPEC: readonly VarSpec[] = [
     name: "EMAIL_PROVIDER",
     group: "Email",
     requirement: "optional",
-    summary: "Force a backend instead of auto-detecting: resend or ses.",
+    summary: "Force a backend instead of taking it from the settings each one needs: resend or ses.",
     check: oneOf("resend", "ses"),
   },
   {
     name: "EMAIL_FROM",
     group: "Email",
     requirement: "optional",
-    summary: "Sender address. With SES it must be a verified identity.",
+    summary: "Verified SES identity to send from, and what selects the SES backend. SES rejects an unverified sender.",
     check: emailAddress,
   },
   {
@@ -624,7 +624,10 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   }
   companions("TWILIO_ACCOUNT_SID", ["TWILIO_AUTH_TOKEN", "TWILIO_FROM"], "lib/sms.ts cannot send without them");
   if (v("EMAIL_PROVIDER") === "resend") companions("EMAIL_PROVIDER", ["RESEND_API_KEY"], "the Resend backend was selected");
-  if (v("EMAIL_PROVIDER") === "ses") companions("EMAIL_PROVIDER", ["EMAIL_FROM"], "SES rejects an unverified sender");
+  // §8.1 SES sends from a verified identity, and since T110 that address is also what selects the backend
+  // (lib/email.ts). Forcing `ses` without it is the one way left to ask for a backend that cannot send:
+  // lib/email.ts reports itself unconfigured rather than building a client, so say which setting is missing.
+  if (v("EMAIL_PROVIDER") === "ses") companions("EMAIL_PROVIDER", ["EMAIL_FROM"], "the SES backend was selected and it rejects an unverified sender");
   if (v("SMS_PROVIDER") === "twilio") companions("SMS_PROVIDER", ["TWILIO_ACCOUNT_SID"], "the Twilio backend was selected");
   // §8.1 SNS sends through a registered origination number, and since T94 that number is also what selects
   // the backend (lib/sms.ts). Forcing `sns` without it is the one way left to ask for a backend that cannot
@@ -732,7 +735,9 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   }
 
   if (production) {
-    const email = Boolean(v("RESEND_API_KEY") || v("AWS_ACCESS_KEY_ID") || v("EMAIL_PROVIDER"));
+    // The question lib/email.ts answers, and not AWS_ACCESS_KEY_ID: a credential is not an email backend
+    // (T110). A verified sending identity is, because that is the setting SES cannot mail anybody without.
+    const email = Boolean(v("RESEND_API_KEY") || v("EMAIL_FROM") || v("EMAIL_PROVIDER"));
     // The same question lib/sms.ts answers, and not AWS_ACCESS_KEY_ID: a credential is not an SMS backend
     // (T94). An origination number is, because that is the setting SNS cannot text anybody without.
     const sms = Boolean(v("TWILIO_ACCOUNT_SID") || v("SNS_ORIGINATION_NUMBER") || v("SMS_PROVIDER"));

@@ -28,8 +28,8 @@ patient or a clinician is waiting for happens inside their request. `notify.invi
 
 | Channel | Production | Also supported | Unconfigured |
 |---|---|---|---|
-| email | SES (`lib/email.ts`) | Resend, for local use (§8.4) | `{ sent: false }`, and the UI shows the link |
-| sms | SNS / AWS End User Messaging (`lib/sms.ts`) | Twilio, for local use (§8.4) | the same |
+| email | SES (`lib/email.ts`), selected by `EMAIL_FROM` | Resend, for local use (§8.4), selected by `RESEND_API_KEY` | `{ sent: false }` with no provider, and the UI shows the link |
+| sms | SNS / AWS End User Messaging (`lib/sms.ts`), selected by `SNS_ORIGINATION_NUMBER` | Twilio, for local use (§8.4), selected by `TWILIO_ACCOUNT_SID` | the same |
 
 Two messages cannot simply fail: a provider's sign-in link and a patient's verification code. With no backend
 configured those go to the local mailbox instead (`lib/devMailbox.ts`, `npm run mail`), which is what makes
@@ -120,7 +120,12 @@ for a cross-site page to ride, and challenging it would make every bounce notifi
 2. **Publish `SPF` and `DMARC`.** A `TXT` record `v=spf1 include:amazonses.com ~all` on the custom MAIL FROM
    subdomain, and `_dmarc` as `v=DMARC1; p=none; rua=mailto:dmarc@<your domain>` to start. Tighten `p` once
    the reports are clean.
-3. **Set `EMAIL_FROM`** to an address on that domain. SES rejects an unverified sender outright.
+3. **Set `EMAIL_FROM`** to an address on that domain. SES rejects an unverified sender outright. This is also
+   what tells the app to send through SES at all: a backend is chosen by the setting it cannot send without,
+   and an AWS credential is not one (T110). `lib/email.ts` reports itself unconfigured until this is set — it
+   never builds an SES client on the strength of an ambient `AWS_ACCESS_KEY_ID`, which is how the offline
+   check run (§11.3) came to retry every invite against a sender it did not have. `EMAIL_PROVIDER=ses` forces
+   the backend but does not stand in for the address; `npm run config:check` says so.
 4. **Leave the sandbox.** SES → *Account dashboard* → *Request production access*. In the sandbox every
    *recipient* must be a verified identity too, which is fine for a demo and not for a practice.
 5. **Create the events topic.** SNS → *Create topic* → Standard, e.g. `sweetspot-ses-events`.
@@ -158,8 +163,8 @@ for a cross-site page to ride, and challenging it would make every bounce notifi
 Nothing above is needed. With no backend configured, mail goes to the console mailer
 (`DEV_MAIL_DIR`, `npm run mail`) and SMS reports itself unconfigured, so the invite link is shown on screen.
 That holds on a machine with AWS credentials in its environment too, which is what makes
-`scripts/agent-check.sh` reach no external service: the invite's SMS channel is `skipped`, with no backend
-named on the row and no attempt to retry.
+`scripts/agent-check.sh` reach no external service: both of the invite's channels are `skipped`, with no
+backend named on either row and no attempt to retry.
 `npm run send:test` sends one real message once keys are set. The webhook has nothing to listen to and
 answers 503, which is the right answer for a machine that no topic is pointed at.
 

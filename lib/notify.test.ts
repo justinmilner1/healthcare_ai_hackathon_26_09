@@ -15,9 +15,10 @@ process.env.APP_URL = "https://sweetspot.example/";
 process.env.TZ = "UTC";
 // No sender, on purpose: the tests below that call a send are about which channels are *attempted*, and an
 // environment carrying any sender's settings would otherwise have lib/sms.ts and lib/email.ts reach for a
-// backend and report the network's opinion instead. The AWS credentials are in the list because
-// lib/email.ts still auto-detects SES from them (this repo's own cloud sandbox has them ambient); since T94
-// SMS is selected by SNS_ORIGINATION_NUMBER, which is the last name here.
+// backend and report the network's opinion instead. Each backend is selected by the setting it cannot send
+// without, so the list is those: SNS_ORIGINATION_NUMBER since T94, EMAIL_FROM since T110. The AWS
+// credentials are still cleared — this repo's own cloud sandbox has them ambient — because a client built
+// on one is what the two tickets were about, even though neither selects a backend any more.
 for (const name of [
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -25,6 +26,7 @@ for (const name of [
   "RESEND_API_KEY",
   "TWILIO_ACCOUNT_SID",
   "EMAIL_PROVIDER",
+  "EMAIL_FROM",
   "SMS_PROVIDER",
   "SNS_ORIGINATION_NUMBER",
 ]) {

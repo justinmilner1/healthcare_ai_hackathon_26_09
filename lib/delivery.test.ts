@@ -22,9 +22,10 @@ import { sendEmail } from "./email";
 import { sendSms } from "./sms";
 import { SUPPRESSED_REASONS, suppressedReason } from "./suppression";
 
-/** A sandbox with ambient AWS credentials auto-detects SES (lib/email.ts), and an origination number
- *  selects SNS (lib/sms.ts, T94), so the senders below are called with the environment emptied of every
- *  one: these tests are about the text a refusal carries, not about the network's opinion of it. */
+/** Each backend is selected by the setting it cannot send without — EMAIL_FROM for SES (lib/email.ts, T110),
+ *  an origination number for SNS (lib/sms.ts, T94) — and a sandbox carries AWS credentials besides, so the
+ *  senders below are called with the environment emptied of every one: these tests are about the text a
+ *  refusal carries, not about the network's opinion of it. */
 const SENDER_KEYS = [
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -106,7 +107,7 @@ describe("a backend's own message is mapped at the edge (T74)", () => {
   it("names nothing a practice cannot act on", async () => {
     // The two strings this ticket was filed about, taken from the senders themselves rather than copied.
     const unconfigured = await withEnv({}, () => sendEmail("a@b.test", "s", "t"));
-    const halfConfigured = await withEnv({ AWS_ACCESS_KEY_ID: "not-a-real-key" }, () => sendEmail("a@b.test", "s", "t"));
+    const halfConfigured = await withEnv({ EMAIL_PROVIDER: "ses", AWS_ACCESS_KEY_ID: "not-a-real-key" }, () => sendEmail("a@b.test", "s", "t"));
     const noSms = await withEnv({}, () => sendSms("+14155550100", "t"));
     const halfTwilio = await withEnv({ TWILIO_ACCOUNT_SID: "AC-not-real" }, () => sendSms("+14155550100", "t"));
 
@@ -125,6 +126,26 @@ describe("a backend's own message is mapped at the edge (T74)", () => {
       assert.doesNotMatch(reason, CONFIGURATION, `${channel}: ${reason}`);
       assert.equal(deliveryFault(d), reason, "the mapped line is the fault line too");
     }
+  });
+
+  it("gives a configuration gap the 'cannot send yet' line, from the senders themselves (T110, T94)", async () => {
+    // The pair the two tickets are about, both taken from the real senders rather than written here: an
+    // environment with nothing configured, and one with a credential and an explicit backend but not the
+    // setting that backend needs. Neither reached anything, so neither is "did not go out" — which is the
+    // sentence staff were being given for the invite on every run of the gate.
+    const cases = [
+      ["email", await withEnv({}, () => sendEmail("a@b.test", "s", "t"))],
+      ["email", await withEnv({ EMAIL_PROVIDER: "ses", AWS_ACCESS_KEY_ID: "not-a-real-key" }, () => sendEmail("a@b.test", "s", "t"))],
+      ["sms", await withEnv({}, () => sendSms("+14155550100", "t"))],
+      ["sms", await withEnv({ SMS_PROVIDER: "sns", AWS_ACCESS_KEY_ID: "not-a-real-key" }, () => sendSms("+14155550100", "t"))],
+    ] as const;
+    for (const [channel, sent] of cases) {
+      assert.equal(sent.provider, undefined, `${channel}: ${sent.error}`);
+      const d = row({ channel, status: sent.provider ? "failed" : "skipped", error: sent.error ?? null, providerName: sent.provider ?? null });
+      assert.match(deliveryFault(d) ?? "", channel === "email" ? /cannot send email yet/ : /cannot send texts yet/);
+    }
+    // And a backend that really was reached still gets the other sentence, so the pair stays a pair.
+    assert.match(deliveryFault(row({ channel: "email", status: "failed", error: "Throttling: rate exceeded", providerName: "ses" })) ?? "", /The email did not go out/);
   });
 
   it("tells a sender that refused from no sender at all, on the field and not on the words", () => {
