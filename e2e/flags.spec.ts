@@ -157,9 +157,20 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expectRed(intakeFlag, "the brief's intake flag");
   await expectRed(glucoseFlags, "the brief's glucose flags");
 
-  // The per-project default (e2e/shot.ts): the desktop gets the document, and the phone gets the screenful
-  // the page opens on — which is where the flags are, so neither frame needs scrolling to find them.
-  await shot(page, "provider-sour-flags");
+  // The per-project default (e2e/shot.ts): the desktop gets the document, the phone one screenful. The
+  // phone's own screenful is not enough on this page — the brief opens on a persona header, a title block,
+  // four buttons, the job chip and the §6.3 note, so the first frame of it ended at the second line of the
+  // glucose block and the flag the shot was taken for was half behind the bottom edge. So the subject is
+  // scrolled to the top of the frame on both projects (which a whole-document desktop shot is indifferent
+  // to), and `wholeRows` fails the shot rather than letting a half-read flag be committed as evidence
+  // (T107). The Summary card stays under them, which is what "above the numbers" looks like in a picture.
+  //
+  // `wholeRows` names the glucose block and not the block the scroll is anchored on, which is the one thing
+  // it cannot judge: `scrollIntoView({ block: "start" })` lands the anchor *at* the top edge, and a layout
+  // of fractional pixels lands it a fraction above — 41 of 41px of the intake banner "in frame" on the
+  // desktop run, which is sub-pixel rounding rather than a row anybody is being shown half of. The anchor is
+  // at the top of the frame by construction; what the option is here to catch is the block below it.
+  await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-glucose-flags" });
 
   // §7.4's sheet is the same brief on paper, so the same two blocks are on it, above the same numbers. The
   // sentences are compared with the brief's rather than re-derived: the point of asserting both surfaces is
@@ -181,7 +192,9 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for before the
   // shutter opens — the same wait e2e/print.spec.ts takes before its own shot of this page.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "provider-print-flags");
+  // The sheet opens on its header and then the two blocks, so both frames hold them without scrolling —
+  // `wholeRows` is here to keep it that way as the header grows rather than to fix anything today.
+  await shot(page, "provider-print-flags", { wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 });
 
 test("a visit with nothing to flag carries no flag block on either surface", async ({ page }) => {
