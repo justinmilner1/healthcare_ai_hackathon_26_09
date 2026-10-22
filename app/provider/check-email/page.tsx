@@ -7,11 +7,13 @@ import Link from "next/link";
 import PersonaBrand from "@/components/PersonaBrand";
 import { SIGN_IN_LINK_SECONDS } from "@/lib/auth";
 import { devMailDir, divertsMail } from "@/lib/devMailbox";
-import { emailProvider } from "@/lib/email";
 
 export default function CheckEmailPage() {
   // A diverted link went to the local mailbox instead of an inbox; say where, or the dev has nowhere to look.
-  const local = divertsMail(process.env, Boolean(emailProvider()));
+  // Only `DEV_MAIL_DIR` diverts (T113), and an environment with neither it nor a backend never reaches this
+  // page: `sendVerificationRequest` in lib/auth.ts throws on a send that did not happen, and Auth.js answers
+  // the sign-in form with the error instead of redirecting here.
+  const local = divertsMail(process.env);
 
   return (
     <main className="ss-page sour-theme">

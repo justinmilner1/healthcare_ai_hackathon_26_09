@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { findDevMail, readDevMail, readDevMailFile, writeDevMail } from "./devMailbox";
+import { devMailDir, divertsMail, findDevMail, readDevMail, readDevMailFile, writeDevMail } from "./devMailbox";
 
 // The mailbox is the local stand-in for an email provider, and it is shared: `npm run mail`, the e2e suite's
 // code reader (e2e/patient.ts) and its sign-in claimer (e2e/auth.ts) all walk the same directories, and the
@@ -144,4 +144,30 @@ test("two messages with one subject in one millisecond are both kept, so neither
     assert.ok(one && other, "a second claimer found nothing left to claim");
     assert.notEqual(one, other, "both claimers were handed the same single-use link");
   });
+});
+
+// T113: who the mailbox is for. The round trip of one message is lib/auth.test.ts's, next to the mailer that
+// writes it; what is here is the one decision in front of every write.
+
+test("the mailbox is opted into by naming a directory, and is never where mail lands for want of a backend (T113)", () => {
+  // `hasBackend` used to be the second argument, and `!hasBackend` the second reason to divert. On a
+  // deployment with no email backend and no DEV_MAIL_DIR that wrote the patient's six-digit code (§2.3) and
+  // the provider's sign-in link (§5.1) into ./.mail/ on the server, and lib/mailer.ts reported both sent.
+  // Both are bearer credentials (§10.6), and a success is the one answer nobody checks.
+  assert.equal(divertsMail({}), false, "nothing configured is not a reason to write a credential to disk");
+  assert.equal(divertsMail({ RESEND_API_KEY: "re_test" }), false, "a backend is not a reason either");
+  assert.equal(divertsMail({ DEV_MAIL_DIR: "e2e/.mail" }), true, "naming a directory is the whole of it");
+  // A set-but-blank variable is somebody clearing it, not somebody choosing a directory called "".
+  for (const blank of ["", " ", "\t"]) assert.equal(divertsMail({ DEV_MAIL_DIR: blank }), false, JSON.stringify(blank));
+  // And it is the environment's answer, not the process's: lib/mailer.ts reads process.env, these read what
+  // they are handed, which is what lets one case not leak into the next.
+  assert.equal(divertsMail({ DEV_MAIL_DIR: "one/box" }), true);
+});
+
+test("the mailbox directory is the variable, and `.mail` only where a reader has nothing else to go on", () => {
+  assert.equal(devMailDir({ DEV_MAIL_DIR: "e2e/.mail" }), "e2e/.mail");
+  assert.equal(devMailDir({ DEV_MAIL_DIR: " e2e/.mail " }), "e2e/.mail", "trimmed, like divertsMail reads it");
+  // `npm run mail` on a checkout of .env.example, which sets the variable to exactly this. Nothing writes
+  // here on that default: a write happens only where divertsMail said so, and that is the variable being set.
+  assert.equal(devMailDir({}), ".mail");
 });

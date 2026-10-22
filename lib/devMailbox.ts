@@ -8,9 +8,8 @@
 //   .mail/2026-10-11T09-14-02-123Z-provider-signin.txt      (gitignored)
 //
 // `npm run mail` prints the newest one in the terminal, which is the console half of the console mailer, and
-// the e2e suite reads the same directory to click the link (e2e/auth.ts). It is only ever reached when no
-// email backend is configured (lib/mailer.ts decides); in production SES sends the mail and nothing is
-// written here.
+// the e2e suite reads the same directory to click the link (e2e/auth.ts). It is reached only where
+// `DEV_MAIL_DIR` says so (`divertsMail` below); in production SES sends the mail and nothing is written here.
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,19 +19,33 @@ export type DevMail = { to: string; subject: string; text: string };
 export type MailEnv = { DEV_MAIL_DIR?: string | undefined; [key: string]: string | undefined };
 export type StoredDevMail = DevMail & { file: string; at: string };
 
-/** Where the mailbox lives. `DEV_MAIL_DIR` is for the e2e suite, which keeps its own under e2e/. */
+/**
+ * Where the mailbox lives. `DEV_MAIL_DIR` is for the e2e suite, which keeps its own under e2e/.
+ *
+ * The `.mail` fallback is a reader's default — `npm run mail` on a checkout of `.env.example`, which sets
+ * the variable to exactly that — and not a place anything is written to by default: nothing writes here
+ * unless `divertsMail` said so, and that is the variable being set (T113).
+ */
 export function devMailDir(env: MailEnv = process.env): string {
   return env.DEV_MAIL_DIR?.trim() || ".mail";
 }
 
 /**
- * Whether to divert mail here instead of sending it. Setting `DEV_MAIL_DIR` says so outright, which is what
- * the e2e suite and `npm run dev` on a machine that happens to have AWS credentials in the environment need —
- * otherwise lib/email.ts would pick SES up and try to send a sign-in link through an unverified identity.
- * With nothing configured at all there is no sender either way, so the mailbox is the only place left.
+ * Whether to divert mail here instead of sending it: one question, with one answer, and `DEV_MAIL_DIR` is
+ * it. Setting the variable says so outright, which is what the e2e suite and `npm run dev` on a machine that
+ * happens to have AWS credentials in the environment need — otherwise lib/email.ts would pick SES up and try
+ * to send a sign-in link through an unverified identity.
+ *
+ * What it is not, since T113: a fallback for "no backend configured". That arm used to divert here too, so a
+ * deployment with no email backend and no `DEV_MAIL_DIR` wrote every patient's six-digit code and every
+ * provider's sign-in link into `./.mail/` on the server and reported them sent — an outage whose leftovers
+ * are bearer credentials (§10.6), reported as a success, which is the one shape of failure nobody looks for.
+ * The deployment that has not set a backend up now gets the senders' own contract instead ("Unconfigured ->
+ * { sent: false, error }", lib/email.ts), lib/config.ts refuses to serve on a public URL without one, and
+ * the mailbox is a thing a developer opts into by naming a directory.
  */
-export function divertsMail(env: MailEnv = process.env, hasBackend = false): boolean {
-  return Boolean(env.DEV_MAIL_DIR?.trim()) || !hasBackend;
+export function divertsMail(env: MailEnv = process.env): boolean {
+  return Boolean(env.DEV_MAIL_DIR?.trim());
 }
 
 /** `<sortable timestamp>-<slug>.txt`. The timestamp leads so a plain sort is newest-last. */

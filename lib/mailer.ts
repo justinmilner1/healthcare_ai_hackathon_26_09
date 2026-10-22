@@ -3,14 +3,18 @@
 //   DEV_MAIL_DIR is set             -> the local mailbox in lib/devMailbox.ts, read with `npm run mail`
 //   an email backend is configured  -> send it (SES in production and staging; Resend locally if someone has
 //                                      a key, see lib/email.ts)
-//   neither                         -> the local mailbox again; there is nothing to send with
+//   neither                         -> nothing is sent: `{ sent: false, error }` with no `provider`, which
+//                                      is the senders' own contract for an environment that cannot send
+//                                      (lib/email.ts). The mailbox is not a fallback this lands in — it
+//                                      would be a patient's code and a provider's sign-in link written to
+//                                      disk on a deployment and reported sent (T113, §10.6).
 //
 // The log line records that a link was sent and through what. Never the address and never the URL: the URL is
 // a bearer credential and §10.3 keeps link tokens out of the log.
 
 import { roleDescription, roleLabel, type Role } from "./access";
 import { demoBlockReason } from "./demo";
-import { emailProvider, sendEmail, type SendResult } from "./email";
+import { emailConfig, sendEmail, type SendResult } from "./email";
 import { devMailDir, divertsMail, writeDevMail } from "./devMailbox";
 import { log } from "./log";
 
@@ -18,19 +22,42 @@ export const SIGN_IN_SUBJECT = "Your Sweet Spot sign-in link";
 export const INVITE_SUBJECT = "You have been added to a Sweet Spot workspace";
 
 /**
- * Send one message, or write it to the local mailbox when there is nothing to send with. For the two
- * messages the flow cannot continue without — a provider's sign-in link (§5.1) and a patient's verification
- * code (§5.3) — "not configured" has to still deliver somewhere a developer and the e2e suite can read, or
- * neither sign-in works offline at all. Everything else (invites, summary links) fails soft instead and the
- * UI shows the link.
+ * Send one message, or write it to the local mailbox where this environment has asked for that.
+ *
+ * The two messages the flow cannot continue without go through here — a provider's sign-in link (§5.1) and a
+ * patient's verification code (§5.3) — so that naming `DEV_MAIL_DIR` makes both of them readable offline and
+ * the whole product walkable with no backend at all (§11.3). Everything else (invites, summary links) fails
+ * soft and the UI shows the link.
+ *
+ * With neither a directory to divert to nor a backend to send with, this answers the way every other sender
+ * does: `{ sent: false, error }` and no `provider`, so `assertSendable` (lib/jobHandlers.ts) counts the job
+ * done rather than retrying an error no attempt can fix, and `statusOf` (lib/visitStore.ts) records
+ * `skipped` rather than `failed`. It used to write to `./.mail/` and answer `sent: true` instead (T113).
  */
 export async function sendOrMailbox(to: string, subject: string, text: string): Promise<SendResult> {
-  if (divertsMail(process.env, Boolean(emailProvider()))) {
+  if (divertsMail()) {
     writeDevMail({ to, subject, text });
     // The directory, not the filename: scrub() reads a timestamped filename as a phone number and redacts it.
     return { sent: true, provider: "dev-mailbox", target: devMailDir() };
   }
   return sendEmail(to, subject, text);
+}
+
+/**
+ * Whether `sendOrMailbox` has anywhere to put a message: a mailbox to divert to, or a backend to send with.
+ *
+ * Settled from the environment, with no client built and no network call — the shape `emailConfig` and
+ * `smsConfig` already have (lib/email.ts, lib/sms.ts, T94/T110) — so a screen can ask it while the patient
+ * is still looking at it. It is deliberately a different question from `emailConfig`'s: the mailbox is a
+ * place a code really can be read from (`npm run mail`, e2e/patient.ts), so an offline checkout is sendable
+ * on this path and is not sendable on the invite's, which goes straight to `sendEmail` (§8.1).
+ *
+ * Not a prediction that the message arrives: a configured backend can still bounce, and a suppressed
+ * address or a demo practice closes a channel on facts that live on the row (§8.1, §13.4). This is the
+ * narrower question — is there anywhere at all for it to go.
+ */
+export function canSendOrMailbox(): boolean {
+  return divertsMail() || !("reason" in emailConfig());
 }
 
 /** The body of the sign-in email. Plain text; no clinical content, a link only (§8.2). */
@@ -99,7 +126,7 @@ export async function sendTeamInvite(to: string, p: { practiceName: string; invi
     return { sent: false, error: blocked };
   }
   const text = inviteEmailText({ ...p, url: signInUrlFor(to) });
-  if (divertsMail(process.env, Boolean(emailProvider()))) {
+  if (divertsMail()) {
     writeDevMail({ to, subject: INVITE_SUBJECT, text });
     log.info("team_invite_sent", { channel: "email", provider: "dev-mailbox", sent: true, role: p.role, target: devMailDir() });
     return { sent: true, provider: "dev-mailbox" };

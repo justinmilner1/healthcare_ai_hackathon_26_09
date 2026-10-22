@@ -134,11 +134,13 @@ test("a mailbox file sorts by time, names itself after the subject, and round-tr
   }
 });
 
-test("mail is diverted when a directory is named, or when there is no backend to send with", () => {
-  assert.equal(divertsMail({ DEV_MAIL_DIR: "e2e/.mail" }, true), true);
-  assert.equal(divertsMail({}, false), true);
-  assert.equal(divertsMail({}, true), false);
-  assert.equal(divertsMail({ DEV_MAIL_DIR: "  " }, true), false);
+test("mail is diverted when a directory is named, and never for want of a backend (T113)", () => {
+  assert.equal(divertsMail({ DEV_MAIL_DIR: "e2e/.mail" }), true);
+  assert.equal(divertsMail({ DEV_MAIL_DIR: "  " }), false, "a blank name is not a mailbox");
+  // The arm that used to be here: an environment with no backend at all diverted too, so a deployment that
+  // had set nothing up wrote every sign-in link into ./.mail/ and called it sent. The mailbox is opted into
+  // now; lib/devMailbox.test.ts states the consequence and lib/mailer.test.ts the answer callers get.
+  assert.equal(divertsMail({}), false);
 });
 
 test("a mailbox that does not exist is empty, not an error", () => {
