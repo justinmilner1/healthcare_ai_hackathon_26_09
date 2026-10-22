@@ -17,7 +17,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { fixtureSchema, SKIP_WITHOUT_DB, type FixtureSchema } from "./fixtures";
 import { HttpError } from "./httpError";
 import { setLogSink } from "./log";
-import { MAX_RETENTION_DAYS, MIN_RETENTION_DAYS } from "./team";
+import { MAX_PERSON_NAME, MAX_RETENTION_DAYS, MIN_RETENTION_DAYS } from "./team";
 
 describe("lib/teamStore.ts", { skip: SKIP_WITHOUT_DB }, () => {
   let fx: FixtureSchema;
@@ -171,6 +171,50 @@ describe("lib/teamStore.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.equal(result.sent, false);
       assert.ok(result.error, "the admin is told why");
       assert.equal(await fx.db.user.count({ where: { email: "real.person@northside-endo.com" } }), 1);
+    });
+  });
+
+  // T115, design §4.2, §10.2. The only writer of `User.name` for a person who signed themselves up. The
+  // invite form has an optional name field, but the admin who creates a practice never passes through it —
+  // they create their own account — so before this the first user of every practice could not have a name.
+  describe("setOwnName", () => {
+    it("names the caller's own row, and writes §10.2's row for it", async () => {
+      const named = await store.setOwnName({ practiceId: ids.practice, userId: ids.admin, name: "  Dr.   Jennifer   Rodriguez  " });
+      // Collapsed and trimmed by cleanPersonName, like every other name this app stores (lib/team.ts).
+      assert.equal(named.name, "Dr. Jennifer Rodriguez");
+      assert.equal(named.pending, false, "naming yourself is not a sign-in and does not pretend to be one");
+      assert.equal((await fx.db.user.findUniqueOrThrow({ where: { id: ids.admin } })).name, "Dr. Jennifer Rodriguez");
+
+      const rows = await fx.db.auditLog.findMany({ where: { practiceId: ids.practice } });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].action, "user.name_set");
+      assert.equal(rows[0].entityType, "user");
+      assert.equal(rows[0].entityId, ids.admin);
+      assert.equal(rows[0].actorId, ids.admin);
+      // §4.8: `detail` is counts and constants. A colleague's name is neither, so it is not on the row.
+      assert.equal((rows[0].detail ?? "").includes("Jennifer"), false);
+      assert.match(rows[0].detail ?? "", /"role":"admin"/);
+    });
+
+    it("refuses a blank rather than quietly clearing the name", async () => {
+      await store.setOwnName({ practiceId: ids.practice, userId: ids.admin, name: "Dr. Admin Two" });
+      for (const blank of ["", "   ", null, 42]) {
+        await refusal(store.setOwnName({ practiceId: ids.practice, userId: ids.admin, name: blank }), 400, "own_name_invalid");
+      }
+      assert.equal((await fx.db.user.findUniqueOrThrow({ where: { id: ids.admin } })).name, "Dr. Admin Two", "nothing was written");
+    });
+
+    it("caps a name at the stored length", async () => {
+      const named = await store.setOwnName({ practiceId: ids.practice, userId: ids.admin, name: "n".repeat(MAX_PERSON_NAME + 40) });
+      assert.equal(named.name?.length, MAX_PERSON_NAME);
+    });
+
+    it("gives another practice's user the same 404 as one that never existed (§5.2)", async () => {
+      // The id comes from the session, so a mismatch means the account moved practice under us; either way
+      // this writer never reaches a row outside the practice it was given.
+      await refusal(store.setOwnName({ practiceId: ids.practice, userId: ids.other, name: "Someone Else" }), 404, "user_not_in_practice");
+      await refusal(store.setOwnName({ practiceId: ids.practice, userId: "cl000000000000000000000000", name: "Nobody" }), 404, "user_not_in_practice");
+      assert.equal((await fx.db.user.findUniqueOrThrow({ where: { id: ids.other } })).name, null, "nothing was written");
     });
   });
 

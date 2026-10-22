@@ -116,6 +116,9 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // which is why the bug survived two months of this spec shooting the page. These are 54 and 56.
   const adminEmail = freshEmail("jennifer.rodriguez", "northstar-roles.com");
   const staffEmail = freshEmail("benjamin.vandermolen", "northstar-roles.com");
+  // Invited *with* a name, so the users table holds all three rows T115 is about at once: the signed-in
+  // admin with no name, a pending colleague with no name, and somebody who has one.
+  const namedEmail = freshEmail("maya.chen", "northstar-roles.com");
   await signInAs(page, adminEmail);
 
   // The dashboard offers settings to an admin; the link is what gets us there.
@@ -168,6 +171,30 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   await expect(page.getByText(new RegExp(`Invited ${staffEmail.replace("+", "\\+")}`))).toBeVisible(LOADED);
   await expect(page.locator(".provider-table")).toContainText(staffEmail);
   await expect(page.locator(".provider-table")).toContainText("Invited");
+
+  // And a colleague the invite form was given a name for, which is the only way a name existed at all
+  // before T115 (lib/teamStore.ts inviteMember).
+  await page.getByLabel("Work email").fill(namedEmail);
+  await page.getByLabel("Their name (optional)").fill("Dr. Maya Chen");
+  await page.getByRole("button", { name: /Send invite/i }).click();
+  await expect(page.getByText(new RegExp(`Invited ${namedEmail.replace("+", "\\+")}`))).toBeVisible(LOADED);
+
+  // T115 (§2.1, §4.2): the sub line under each heading, in the three states on screen. The admin has signed
+  // in — the pill beside the row says so — and nothing in the product has ever written a name at sign-in: a
+  // magic link carries an address and nothing else (lib/authAdapter.ts). So the row that used to promise
+  // "Adds their name when they first sign in" under a green "Signed in" pill says what is true instead, and
+  // the promise is gone from every row, including the pending one it was never true for either.
+  const rowFor = (email: string) => page.locator(".settings-users tbody tr", { hasText: email });
+  const mine = page.locator(".settings-users tbody tr", { hasText: "(you)" });
+  await expect(mine).toContainText(adminEmail);
+  await expect(mine.locator(".ss-pill-success")).toHaveText("Signed in");
+  await expect(mine.locator("small")).toHaveText("No name set");
+  await expect(rowFor(staffEmail).locator(".ss-pill-warning")).toHaveText("Invited");
+  await expect(rowFor(staffEmail).locator("small")).toHaveText("No name in the invite");
+  // A named row is unchanged by the ticket: the name is the heading, the address is the sub line.
+  await expect(rowFor(namedEmail).locator("strong")).toHaveText("Dr. Maya Chen");
+  await expect(rowFor(namedEmail).locator("small")).toHaveText(namedEmail);
+  await expect(page.locator(".settings-users")).not.toContainText("when they first sign in");
   await expectRowIntact(page, ".ss-topbar", "the admin top bar on practice settings");
   // The one line this page is for first, then §6.5 on the whole of it. Without the fix expectTextIntact
   // names both headings — the invited colleague's address and the admin's own, the one carrying " (you)" at
@@ -188,6 +215,27 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // The table framed rather than wherever it happens to fall: on a phone the invite form above it is a
   // screenful of its own, so the default shot of this page does not contain the subject at all.
   await shot(page, "provider-settings-users", { ...SCREENFUL, scrollTo: ".provider-table-card", block: "center" });
+
+  // T115's other half (§4.2): the admin can now set their own name, which is the only way §4.2's `name` is
+  // reachable for the person who signs a practice up. The row renames itself from the route's reply — the
+  // reply is the caller's own member row, and the screen swaps it into the team it already has — so this
+  // asserts the heading and the sub line without a reload anywhere in between.
+  await page.getByLabel("Your name").fill("  Dr. Jennifer   Rodriguez  ");
+  await page.getByRole("button", { name: "Save your name" }).click();
+  await expect(page.locator(".settings-me .ss-success")).toHaveText("Saved.", LOADED);
+  await expect(mine.locator("strong")).toHaveText("Dr. Jennifer Rodriguez (you)");
+  await expect(mine.locator("small")).toHaveText(adminEmail);
+  await expect(mine.locator(".ss-pill-success")).toHaveText("Signed in");
+  // Collapsed and trimmed on the way in, like every other name the app stores (lib/team.ts cleanPersonName).
+  await expect(page.getByLabel("Your name")).toHaveValue("Dr. Jennifer Rodriguez");
+  await shot(page, "provider-settings-you-named", { ...SCREENFUL, scrollTo: ".provider-table-card", block: "center" });
+
+  // It survives the reload, and it is the person's own: the form is required, so a blank is the route's 400
+  // rather than a silent clearing (§4.2).
+  const blanked = await patchJson(page.request, "/api/practice/me", { name: "   " });
+  expect(blanked.status()).toBe(400);
+  await page.reload();
+  await expect(page.getByLabel("Your name")).toHaveValue("Dr. Jennifer Rodriguez", LOADED);
 
   // A retention window outside the bounds never leaves the browser — the input carries min and max, so the
   // form does not submit — which is why the server's own refusal is checked where it can be reached. §10.4's
@@ -228,6 +276,15 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   expect(theirs.visits.map((v) => v.id)).toContain(booked.visitId);
   expect((await postJson(page.request, "/api/invite", { visitId: booked.visitId })).status()).toBe(202);
   expect((await postJson(page.request, "/api/book", { name: "Booked By Staff", channel: "none" })).ok()).toBeTruthy();
+
+  // … and names themselves, which is the one thing on the settings screen that is nobody else's to decide
+  // (T115, §4.2). PATCH /api/practice/me asks for a session and no capability, so this is a 200 where every
+  // call below it is a 403 — and the reply is their own row alone, never the practice's user list.
+  const named = await patchJson(page.request, "/api/practice/me", { name: "Benjamin Vandermolen" });
+  expect(named.ok(), "staff may name themselves").toBeTruthy();
+  const body = await named.json();
+  expect(body.member).toMatchObject({ id: staff.id, name: "Benjamin Vandermolen", email: staffEmail });
+  expect(body.team, "a colleague's address is not staff's to be handed (§5.2)").toBeUndefined();
 
   // … and does not read summaries or manage the practice. Their own practice's visit, and still 403: this is
   // the role saying no, which is a different answer from the 404 above and says so.
@@ -321,6 +378,8 @@ test("the provider routes refuse a caller with no session", async ({ request }) 
   expect((await postJson(request, "/api/book", { name: "Nobody At All", channel: "none" })).status()).toBe(401);
   expect((await request.get("/api/provider")).status()).toBe(401);
   expect((await request.get("/api/practice")).status()).toBe(401);
+  // No capability on this one, which is not the same as no session (T115, lib/guard.ts requireProvider).
+  expect((await patchJson(request, "/api/practice/me", { name: "Nobody At All" })).status()).toBe(401);
   expect((await postJson(request, "/api/invite", { visitId: "whatever" })).status()).toBe(401);
   expect((await postJson(request, "/api/sour", { visitId: "whatever" })).status()).toBe(401);
   expect((await request.get("/api/audit")).status()).toBe(401);

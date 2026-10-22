@@ -7,6 +7,7 @@
 // An invite is the User row; see lib/team.ts for why there is no Invite table.
 
 import { isRole, type Role } from "./access";
+import { recordAudit } from "./auditStore";
 import { db } from "./db";
 import { HttpError } from "./httpError";
 import { log, markDemoPractice } from "./log";
@@ -122,6 +123,43 @@ export async function inviteMember(opts: {
   });
 
   return { member: member(created), sent: result.sent, error: result.error };
+}
+
+/**
+ * Set your own name (§4.2, T115). Not an admin power and not scoped to a capability: it is the caller's own
+ * row, so the route behind it asks only for a session (app/api/practice/me/route.ts).
+ *
+ * Until this existed `User.name` was reachable only through the invite form's optional field, which the
+ * person who signs a practice up never passes through — they create their own account — so the first user of
+ * every practice had no way to have a name at all. `practiceId` is still checked against the row: the id
+ * comes from the session, so a mismatch means the account moved practice under us.
+ *
+ * Blank is a 400 rather than a quiet clearing, like the practice name above: the form's one field is
+ * required, and "Save" doing nothing visible is worse than being told what is wrong with it.
+ */
+export async function setOwnName(opts: { practiceId: string; userId: string; name: unknown }): Promise<TeamMember> {
+  const name = cleanPersonName(opts.name);
+  if (!name) throw new HttpError(400, "Type the name you want your colleagues to see.", "own_name_invalid", { practiceId: opts.practiceId, userId: opts.userId });
+
+  const existing = await db.user.findUnique({ where: { id: opts.userId } });
+  if (!existing || existing.practiceId !== opts.practiceId) {
+    throw new HttpError(404, "user not found", "user_not_in_practice", { practiceId: opts.practiceId, userId: opts.userId });
+  }
+
+  const updated = await db.user.update({ where: { id: existing.id }, data: { name } });
+  log.info("user_name_set", { practiceId: opts.practiceId, userId: updated.id, role: updated.role });
+  // §10.2's record of a change to the screen that says who works here. The name itself stays off the row:
+  // §4.8 keeps `detail` to counts and constants (lib/auditLog.ts).
+  await recordAudit({
+    practiceId: opts.practiceId,
+    actorType: "user",
+    actorId: updated.id,
+    action: "user.name_set",
+    entityType: "user",
+    entityId: updated.id,
+    detail: { role: updated.role },
+  });
+  return member(updated);
 }
 
 /** Change a colleague's role. A practice always keeps one admin, or nobody can invite, rename or set retention

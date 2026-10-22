@@ -4,13 +4,17 @@
 // that checks the session and the admin role. Data comes from GET /api/practice and goes back through
 // PATCH /api/practice, POST /api/practice/users and PATCH /api/practice/users/[id] — every one of them
 // admin-only and scoped to this practice, so there is no practice id anywhere in this file to get wrong.
+//
+// The fourth, PATCH /api/practice/me, is the one that is nobody else's business: your own name on your own
+// row (§4.2, T115). It needs no capability, it returns your member row alone, and this file swaps that row
+// into the team it already has — which is why the "(you)" row renames itself without a reload.
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { ROLES, roleDescription, roleLabel, type Role } from "@/lib/access";
 import { apiFetch } from "@/lib/csrf";
-import { MAX_RETENTION_DAYS, MIN_RETENTION_DAYS, type PracticeTeam } from "@/lib/team";
+import { MAX_PERSON_NAME, MAX_RETENTION_DAYS, memberSubLine, MIN_RETENTION_DAYS, type PracticeTeam, type TeamMember } from "@/lib/team";
 
 type Note = { kind: "success" | "error"; text: string } | null;
 
@@ -19,17 +23,24 @@ export default function PracticeSettings({ meId }: { meId: string }) {
   const [name, setName] = useState("");
   const [retentionDays, setRetentionDays] = useState("");
   const [invite, setInvite] = useState({ email: "", name: "", role: "staff" as Role });
+  const [myName, setMyName] = useState("");
   const [practiceNote, setPracticeNote] = useState<Note>(null);
+  const [myNameNote, setMyNameNote] = useState<Note>(null);
   const [inviteNote, setInviteNote] = useState<Note>(null);
   const [teamNote, setTeamNote] = useState<Note>(null);
   const [busy, setBusy] = useState("");
 
-  /** Adopt a fresh team payload, and re-fill the practice form from it so the inputs match what was saved. */
-  const adopt = useCallback((next: PracticeTeam) => {
-    setTeam(next);
-    setName(next.practice.name);
-    setRetentionDays(String(next.practice.retentionDays));
-  }, []);
+  /** Adopt a fresh team payload, and re-fill the forms from it so the inputs match what was saved — the
+   *  practice's two fields, and your own name out of your row in the list below. */
+  const adopt = useCallback(
+    (next: PracticeTeam) => {
+      setTeam(next);
+      setName(next.practice.name);
+      setRetentionDays(String(next.practice.retentionDays));
+      setMyName(next.users.find((user) => user.id === meId)?.name ?? "");
+    },
+    [meId],
+  );
 
   const load = useCallback(async () => {
     const response = await fetch("/api/practice");
@@ -69,6 +80,26 @@ export default function PracticeSettings({ meId }: { meId: string }) {
       setPracticeNote({ kind: "success", text: "Saved." });
     } catch (error) {
       setPracticeNote({ kind: "error", text: error instanceof Error ? error.message : "Could not save." });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** Your own name (§4.2). The reply is your member row alone — no team, because this route is the one a
+   *  non-admin may call and a colleague's address is not theirs to be handed (app/api/practice/me/route.ts)
+   *  — so the row is swapped into the team already on screen and the "(you)" line renames itself. */
+  async function saveMyName(e: React.FormEvent) {
+    e.preventDefault();
+    setMyNameNote(null);
+    setBusy("me");
+    try {
+      const data = await send("/api/practice/me", "PATCH", { name: myName });
+      const member = data.member as TeamMember;
+      setTeam((current) => (current ? { ...current, users: current.users.map((user) => (user.id === member.id ? member : user)) } : current));
+      setMyName(member.name ?? "");
+      setMyNameNote({ kind: "success", text: "Saved." });
+    } catch (error) {
+      setMyNameNote({ kind: "error", text: error instanceof Error ? error.message : "Could not save your name." });
     } finally {
       setBusy("");
     }
@@ -255,6 +286,40 @@ export default function PracticeSettings({ meId }: { meId: string }) {
               </button>
             </div>
           </form>
+
+          {/* The one card on this screen that is not about the practice or about a colleague (T115, §4.2).
+              An admin signs the practice up with a magic link, which carries an address and nothing else, so
+              before this there was nowhere in the product for the person who owns a practice to have a name
+              — and the users table below told them one would arrive on its own. */}
+          <form className="ss-card settings-card settings-me" onSubmit={saveMyName}>
+            <h2>You</h2>
+            <p className="settings-hint">
+              How you are named to your colleagues in the table below, and in the invites you send. Only you
+              can change it.
+            </p>
+            {myNameNote && (
+              <div className={myNameNote.kind === "error" ? "ss-error" : "ss-success"} role={myNameNote.kind === "error" ? "alert" : "status"}>
+                {myNameNote.text}
+              </div>
+            )}
+            <label className="ss-label" htmlFor="my-name">
+              <span>Your name</span>
+              <input
+                id="my-name"
+                className="ss-input"
+                required
+                maxLength={MAX_PERSON_NAME}
+                placeholder="Dr Jennifer Rodriguez"
+                value={myName}
+                onChange={(e) => setMyName(e.target.value)}
+              />
+            </label>
+            <div className="settings-actions">
+              <button className="ss-button ss-button-primary" disabled={busy === "me"}>
+                {busy === "me" ? "Saving…" : "Save your name"}
+              </button>
+            </div>
+          </form>
         </section>
 
         <section className="provider-patients">
@@ -293,9 +358,10 @@ export default function PracticeSettings({ meId }: { meId: string }) {
                               {user.name ?? user.email}
                               {user.id === meId ? " (you)" : ""}
                             </strong>
-                            {/* The address is the heading when there is no name yet, so printing it twice
-                                says nothing; what is worth saying is that the name is still to come. */}
-                            <small>{user.name ? user.email : "Adds their name when they first sign in"}</small>
+                            {/* Four cases, two of them without a name and told apart by `pending` rather
+                                than by the name: lib/team.ts memberSubLine, which is where the sentences
+                                are and why they are those (T115). */}
+                            <small>{memberSubLine(user)}</small>
                           </span>
                         </div>
                       </td>

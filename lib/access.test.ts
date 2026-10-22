@@ -134,6 +134,17 @@ const NOT_PROVIDER_ROUTES: Record<string, string> = {
   demo: "a redirect to the sign-in form with an address filled in; signs nobody in",
 };
 
+/**
+ * Routes a signed-in provider of any role may call, and why no capability narrows them. Each is about the
+ * caller's **own** row rather than about the practice's data, so §5.2's "checks practice membership and
+ * role" is satisfied by the session alone: there is no role for which the answer would be different, and
+ * nothing another account owns is reachable through it. Listed rather than inferred, like the two above, so
+ * a route with no capability on it is a decision somebody wrote down.
+ */
+const ANY_ROLE_ROUTES: Record<string, string> = {
+  "api/practice/me": "the caller's own name on their own row (§4.2, T115): the session names the row, so there is nothing to scope",
+};
+
 /** `/api/patient/[id]` and `/api/provider` take both kinds of caller, so the file-wide check below would
  *  mislead; each is covered by name instead, and by e2e/roles.spec.ts end to end. */
 const MIXED_ROUTES = new Set(["api/patient/[id]", "api/provider"]);
@@ -156,7 +167,7 @@ test("every API route either checks a capability or is listed as one that does n
   const unguarded: string[] = [];
   for (const file of files) {
     const name = routeName(file);
-    if (name in NOT_PROVIDER_ROUTES || MIXED_ROUTES.has(name)) continue;
+    if (name in NOT_PROVIDER_ROUTES || name in ANY_ROLE_ROUTES || MIXED_ROUTES.has(name)) continue;
     if (!/requireCapability\(/.test(readFileSync(file, "utf8"))) unguarded.push(name);
   }
   assert.deepEqual(unguarded, [], "these routes check no role (§5.2); guard them, or say in NOT_PROVIDER_ROUTES what they check instead");
@@ -164,8 +175,18 @@ test("every API route either checks a capability or is listed as one that does n
 
 test("the list of routes that need no role names only routes that exist", () => {
   const names = new Set(routeFiles("app").map(routeName));
-  const stale = [...Object.keys(NOT_PROVIDER_ROUTES), ...MIXED_ROUTES].filter((name) => !names.has(name));
+  const stale = [...Object.keys(NOT_PROVIDER_ROUTES), ...Object.keys(ANY_ROLE_ROUTES), ...MIXED_ROUTES].filter((name) => !names.has(name));
   assert.deepEqual(stale, [], "these are exempted from §5.2 but no longer exist; drop them so the list stays readable");
+});
+
+test("a route that needs no capability still needs a session", () => {
+  // The exemption above is from the *role* check, never from the session: without this, listing a route in
+  // ANY_ROLE_ROUTES would exempt it from §5.2 altogether and the file-wide test would stop looking at it.
+  const unguarded = Object.keys(ANY_ROLE_ROUTES).filter((name) => {
+    const source = readFileSync(path.join("app", ...name.split("/"), "route.ts"), "utf8");
+    return !/requireProvider\(/.test(source) || /requireCapability\(/.test(source);
+  });
+  assert.deepEqual(unguarded, [], "these are exempt from the role check, so each must call requireProvider() and nothing else (lib/guard.ts)");
 });
 
 test("the two mixed-audience routes guard their provider half", () => {

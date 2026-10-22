@@ -73,6 +73,12 @@ export const AUDIT_ACTIONS = {
   // own word for it, never the address or the number (§4.8).
   "contact.suppressed": "Contact channel closed",
   "contact.resumed": "Contact channel reopened",
+  // §4.2's `name`, set by the person it belongs to on the settings screen (T115). Not one of §10.2's four
+  // categories and recorded for the reason `summary.reviewed` below is: the users table is what an admin is
+  // shown when they are asked who works here, so how a name on it got there is a question they can be put.
+  // The row says whose row changed and the role it carries, never the name itself — `detail` is counts and
+  // constants (§4.8), and a colleague's name is not one.
+  "user.name_set": "Name set",
   "summary.reviewed": "Summary marked reviewed",
   "summary.question": "Follow-up question asked",
   "upload.deleted": "Upload deleted",
