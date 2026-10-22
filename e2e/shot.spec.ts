@@ -107,3 +107,50 @@ test("a row behind a scroller's edge is cut in both captures, so both shots fail
     ).rejects.toThrow(CUT);
   }
 });
+
+// T126: the slack at the frame's edges, which is about `scrollTo` and not about layout.
+//
+// `scrollIntoView({ block: "start" })` is asked to land the anchor flush against an edge, so the anchor sits
+// *on* the boundary by construction and only rounding decides which side of it the box lands on. At half a
+// pixel of slack that was a coin toss: `e2e/flags.spec.ts`' anchor measured `box.top` anywhere from -0.59 to
+// +0.41 over 27 mobile runs at a device scale of 2.625, and the gate failed about one run in twelve on a row
+// it described in the same breath as "76 of 76px in frame". The reviewer run of 2026-10-22 found `main` red
+// on exactly that.
+//
+// The fixture is its own page so that the shots above keep their committed frames. It pins the slack from
+// both sides: a sub-pixel overhang is rounding and passes, and a six-pixel one is a cut and fails, so the
+// tolerance cannot be widened into something that hides a real one.
+const EDGES = `<!doctype html>
+<html><head><meta charset="utf-8"><title>wholeRows edge fixture</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;font:16px/1.25 system-ui,sans-serif">
+  <div id="hairline" style="margin-top:-0.6px;width:170px;height:60px;background:#dfd">a fraction above the edge</div>
+  <div id="overhang" style="position:absolute;top:-6px;left:190px;width:170px;height:60px;background:#fdd">six pixels above it</div>
+  <div style="height:200vh">so the document is taller than the window</div>
+</body></html>`;
+
+test.describe("the slack at the frame's edges", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setContent(EDGES);
+    const placed = await page.evaluate(() => {
+      const box = (id: string) => document.getElementById(id)!.getBoundingClientRect();
+      return { hairline: box("hairline").top, overhang: box("overhang").top };
+    });
+    // The sub-pixel row is past the half-pixel slack this replaced — otherwise the first case below would
+    // pass against the old threshold too and prove nothing — and comfortably inside the new one.
+    expect(placed.hairline, "a hairline above the edge, past the old half-pixel slack").toBeLessThan(-0.5);
+    expect(placed.hairline, "and still well inside the two-pixel one").toBeGreaterThan(-1);
+    expect(placed.overhang, "a cut the slack must not swallow").toBeCloseTo(-6, 1);
+  });
+
+  test("a row a fraction of a pixel above the window's top edge is rounding, not a cut, so the shot passes", async ({ page }) => {
+    await shot(page, "shot-wholerows-hairline", { fullPage: false, wholeRows: "#hairline" });
+  });
+
+  test("a row six pixels above it is a cut, so the slack cannot be widened into one", async ({ page }) => {
+    await expect(
+      shot(page, "shot-wholerows-overhang", { fullPage: false, wholeRows: "#overhang" }),
+      "six pixels of a row past the window's top edge",
+    ).rejects.toThrow(CUT);
+  });
+});

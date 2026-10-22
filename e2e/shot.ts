@@ -211,9 +211,21 @@ async function expectWholeRows(page: Page, selector: string, name: string, fullP
         bottom = Math.min(bottom, edge.bottom);
       }
       const shown = Math.min(box.bottom, bottom) - Math.max(box.top, top);
-      // Half a pixel of slack at each edge, as everywhere else here: these boxes are fractional.
-      if (shown <= 0.5) continue; // wholly out of the frame, which is not half a row
-      if (shown >= box.height - 0.5) continue; // wholly in it
+      // The slack is a whole two pixels at each edge, and it is about `scrollTo` rather than about layout
+      // (T126). `scrollIntoView({ block: "start" })` is asked to land the anchor flush against an edge, so
+      // the anchor sits *on* the boundary by construction and nothing but rounding decides which side of it
+      // the box lands. Measured on the mobile project, 27 runs of e2e/flags.spec.ts' own anchor at a device
+      // scale of 2.625: `box.top` came out anywhere from -0.59 to +0.41, a window a whole CSS pixel wide,
+      // because the scroll offset is quantized to the device-pixel grid and the content above the anchor
+      // lays out a fraction differently from run to run. At half a pixel that window straddled the
+      // threshold, so the gate failed about one run in twelve on a row it reported as "76 of 76px in
+      // frame" — whole, by its own message. Two pixels is over three times the worst overhang seen and
+      // still 2.6% of the shortest row this guards, while the cuts it exists to refuse are the fixture's
+      // 20 of 80px and the half-read flag of T107. It cannot be widened again without making it mean
+      // something: if this ever trips, make the scroll land the anchor inside the frame instead.
+      const hidden = box.height - shown;
+      if (shown < 2) continue; // wholly out of the frame, which is not half a row
+      if (hidden < 2) continue; // wholly in it
       const text = (row.textContent ?? "").trim().replace(/\s+/g, " ");
       found.push(`"${text.slice(0, 44)}" ${Math.round(shown)} of ${Math.round(box.height)}px in frame`);
       if (found.length >= 8) return found;
