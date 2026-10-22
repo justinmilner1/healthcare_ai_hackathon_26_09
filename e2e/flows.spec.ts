@@ -527,10 +527,17 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   // nothing in the patient's own report calls one day of readings a week. The hero eyebrow and the stat
   // row's aria-label are out of scope and out of reach: the eyebrow is in `.patient-summary-hero`, and an
   // aria-label is an attribute rather than text.
+  //
+  // The bare noun rather than "your week"/"the week" (Review T114): the point of a negative assertion here
+  // is that the literal cannot come back by a route nobody listed, and an article is exactly the sort of
+  // thing a reword changes — "a week", "this week", "the past week" and "1 week" all say the same wrong
+  // thing about 84 readings and all slip past a pattern that pins the article. Nothing legitimately says
+  // "week" inside this card on a visit that has data: the only such string in `.patient-summary-content`
+  // is the Connect-Dexcom empty state, which this visit's upload means is not rendered.
   await expect(
     page.locator(".patient-summary-content"),
-    "one day of data is never a week, by any of the four routes",
-  ).not.toContainText(/\b(your|the) week\b/i);
+    "one day of data is never a week, by any route or any article",
+  ).not.toContainText(/week/i);
 
   // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
   // phone gets one screenful, with the overview scrolled to the top of it — a whole-page phone shot of this
