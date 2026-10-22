@@ -515,12 +515,39 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   );
   await expect(range, "one day of data is never \"the week\"").not.toContainText(/the week/i);
 
+  // T114 (§2.7, §7): the four other sites on this path that still spelled the span as a week — the heading
+  // over the model's patterns, the card shown while Sour is still running, and the two lines of the prompt
+  // behind those patterns (lib/prompts.ts, lib/sourRun.ts). The first two take `stats.days` through
+  // spanNoun() in lib/plural.ts, the way the sentence above takes it through daySpan(); the prompt is handed
+  // the same number, so a narrative the page cannot correct is never asked about a week it was not given.
+  //
+  // One negative assertion over the whole card rather than one per site, which is the point of it: the
+  // patterns card needs a non-empty `patterns` to render at all and this suite runs with no model key, so
+  // naming the two headings here would assert on which of them happened to be on screen. Whichever is,
+  // nothing in the patient's own report calls one day of readings a week. The hero eyebrow and the stat
+  // row's aria-label are out of scope and out of reach: the eyebrow is in `.patient-summary-hero`, and an
+  // aria-label is an attribute rather than text.
+  await expect(
+    page.locator(".patient-summary-content"),
+    "one day of data is never a week, by any of the four routes",
+  ).not.toContainText(/\b(your|the) week\b/i);
+
   // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
   // phone gets one screenful, with the overview scrolled to the top of it — a whole-page phone shot of this
   // screen is the one §12.3 size gate already has an exception open for. The overview rather than the stat
   // row alone (T100): the claim and the tile that contradicted it are the two halves of one bug, and on a
   // 375px phone they stack, so a frame that starts at the stat row is a picture of the half that was right.
   await shot(page, "patient-summary-single-day", { scrollTo: ".patient-overview" });
+
+  // And the other end of the same page, which is where T114's two sites are. SCREENFUL on both projects
+  // with the footer at the bottom edge: the desktop default would shoot the document again, and the phone
+  // default is anchored on the overview above. `block: "end"` is what puts the foot in frame rather than
+  // the top of the footer with the cards above it off-screen.
+  await shot(page, "patient-summary-single-day-foot", {
+    ...SCREENFUL,
+    scrollTo: ".patient-summary-footer",
+    block: "end",
+  });
 });
 
 // T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones
@@ -647,6 +674,14 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
 
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, no places");
   await shot(page, "patient-summary-no-places", { scrollTo: ".patient-spikes" });
+
+  // T114: the seven-day half of the pair above, framed the same way, so the two foot shots are a
+  // before-and-after of one part of one page at the two spans rather than two different parts.
+  await shot(page, "patient-summary-seven-day-foot", {
+    ...SCREENFUL,
+    scrollTo: ".patient-summary-footer",
+    block: "end",
+  });
 });
 
 test("patient summary: a rise with no place says so in the patient's words, not the matcher's", async ({ page }) => {
