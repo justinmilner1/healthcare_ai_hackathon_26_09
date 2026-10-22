@@ -939,8 +939,10 @@ function Messages({ visit }: { visit: Row }) {
           channel — bounced, stopped, demo-blocked, nothing configured — and a front desk reading a bounce
           pill against an unopened link has to put three of them together to work out that this patient
           cannot get into their link at all. Last, because it is the conclusion of whatever is above it, and
-          once however many channels closed: it is a fact about the visit, not about a channel. */}
-      {visit.codeUnreachable && <small className="provider-suppressed provider-no-code">{NO_CODE_CAN_REACH}</small>}
+          once however many channels closed: it is a fact about the visit, not about a channel. Its own class
+          and not .provider-suppressed with a modifier, because it is a different kind of sentence and the
+          specs that read "why is this channel closed" must not resolve to it too. */}
+      {visit.codeUnreachable && <small className="provider-no-code">{NO_CODE_CAN_REACH}</small>}
       <small className="provider-cell-sub">{consent ? `Consent: ${consent}` : "No consent recorded"}</small>
     </div>
   );

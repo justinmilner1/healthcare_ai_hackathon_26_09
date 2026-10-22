@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
-import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { freshEmail, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { acceptConsent, latestCode, patientEmail, verifyByApi, verifyLink, waitForCode } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
@@ -14,24 +14,66 @@ import { shot, WHOLE_PAGE } from "./shot";
 /**
  * A patient with an address to send a code to. Booking is staff's job and needs their session (T06, §5.2), so
  * someone at the practice signs in, books, and signs out again — leaving the browser as a patient's, which is
- * the only thing these tests are about. `contact: false` books a visit with nothing to send a code to, and
- * `contact: "phone"` one whose only contact method is a number no backend here can text (T113).
+ * the only thing these tests are about. `contact: false` books a visit with nothing to send a code to,
+ * `contact: "phone"` one whose only contact method is a number no backend here can text (T113), and
+ * `contact: { email }` one whose only contact method is that address — which is how T121's two arms put a
+ * channel this environment really can send on in front of a fact that closes it anyway.
  */
-async function book(page: import("@playwright/test").Page, name: string, contact: boolean | "phone" = true) {
-  const email = patientEmail(name);
+async function book(page: import("@playwright/test").Page, name: string, contact: boolean | "phone" | { email: string } = true) {
+  const email = typeof contact === "object" ? contact.email : patientEmail(name);
   // The 555-01xx range the NANP reserves, which is what a demo practice may be given (§13.4, lib/demo.ts):
   // a different number per booking, like patientEmail above, because POST /api/book reuses a patient it can
   // find by phone — and a different area code from the seed's two 415 numbers, so it cannot find one of them
   // and hand this test a patient with an email on file after all.
   const phone = `+120655501${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
   const reach = contact === "phone" ? { phone } : contact ? { email } : {};
+  // Booked into the seeded practice, which `npm run seed` marks `isDemo` (§13.4).
   await signInAsDemo(page);
   const booked = await (
     await postJson(page.request, "/api/book", { name, ...reach, visitType: "follow_up", reason: "checking the lock", channel: "none" })
   ).json();
   expect(booked.token, JSON.stringify(booked)).toBeTruthy();
   await signOutOfBrowser(page);
-  return { token: booked.token as string, visitId: booked.visitId as string, email, phone };
+  return { token: booked.token as string, visitId: booked.visitId as string, reused: Boolean(booked.patientReused), email, phone };
+}
+
+/**
+ * The dead end in front of a link no code can be sent for, whichever of the three things closed it (T113,
+ * T121): the screen, what it must not say, and the route's own answer.
+ *
+ * One helper for all of them because that is the point of the ticket — §2.3 gives the patient one sentence,
+ * and a screen that distinguished a bounced address from an unconfigured sender would be telling whoever
+ * holds a forwarded link which contact details this practice has on file. `secrets` are the strings this
+ * particular arm must not have leaked: the address or number the code would have gone to, and the name.
+ */
+async function expectNoCodeScreen(
+  page: import("@playwright/test").Page,
+  request: import("@playwright/test").APIRequestContext,
+  token: string,
+  secrets: string[],
+) {
+  const card = page.locator(".patient-notice-card");
+  await expect(card.getByRole("heading", { level: 1 })).toHaveText(/can't send you a code right now/i, LOADED);
+  await expect(card).toContainText(/no way to send your 6-digit code/i);
+  // The register of the other two dead ends (T98, components/PatientNotice.tsx): the practice above the
+  // heading and again in the sentence that asks for the call, because this screen's next step is a telephone.
+  const practice = ((await card.locator(".ss-eyebrow").textContent()) ?? "").trim();
+  expect(practice, "the practice named above the heading").not.toBe("");
+  await expect(card.locator(".ss-lede")).toContainText(practice);
+  // No code box and no resend: there is nothing on this screen that pretends to work.
+  await expect(page.getByLabel("6-digit code")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Send a new code/i })).toHaveCount(0);
+  // Nothing on it names the destination, and nothing says *why* the channel is closed — "your email
+  // bounced" would tell a forwarded link that this patient has an email on file (§2.3).
+  for (const secret of secrets) await expect(page.locator("body")).not.toContainText(secret);
+  await expect(card).not.toContainText(/bounced|undeliverable|texted STOP|spam|demo practice|phone|email|text/i);
+  // And the route itself does not mint a code or answer `sent: true` for a visit no channel can reach: 503
+  // for all three, because the request is right and the patient's next step is the telephone either way.
+  const asked = await postJson(request, "/api/verify", { token });
+  expect(asked.status()).toBe(503);
+  const answer = await asked.json();
+  expect(answer.sent).toBeUndefined();
+  expect(answer.channels).toEqual([]);
 }
 
 test("opening a link sends a code and shows the code screen, and the right code opens the chat", async ({ page }) => {
@@ -195,29 +237,47 @@ test("a link whose only channel has no backend says so, and never claims a code 
   // silence, because POST /api/verify answered on the strength of a `Job` row alone.
   const { token, phone } = await book(page, "E2E No Backend", "phone");
   await page.goto(`/s/${token}`);
-  const card = page.locator(".patient-notice-card");
-  await expect(card).toContainText(/aren't going out just now/i, LOADED);
-  await expect(card.getByRole("heading", { level: 1 })).toHaveText(/can't send you a code right now/i);
-  // The register of the other two dead ends (T98, components/PatientNotice.tsx): the practice above the
-  // heading and again in the sentence that asks for the call, because this screen's next step is a telephone.
-  const practice = ((await card.locator(".ss-eyebrow").textContent()) ?? "").trim();
-  expect(practice, "the practice named above the heading").not.toBe("");
-  await expect(card.locator(".ss-lede")).toContainText(practice);
-  // No code box and no resend: there is nothing on this screen that pretends to work.
-  await expect(page.getByLabel("6-digit code")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /Send a new code/i })).toHaveCount(0);
-  // Nothing on it names the number either, which is the §2.3 rule the working screen keeps as well.
-  await expect(page.locator("body")).not.toContainText(phone);
-  await expect(page.locator("body")).not.toContainText(phone.replace("+1", ""));
-  await expect(page.locator("body")).not.toContainText("E2E No Backend");
-  // And the route itself does not answer `sent: true` for a channel that cannot send: 503, because the
-  // request is right and the deployment cannot serve it yet.
-  const asked = await postJson(request, "/api/verify", { token });
-  expect(asked.status()).toBe(503);
-  const answer = await asked.json();
-  expect(answer.sent).toBeUndefined();
-  expect(answer.channels).toEqual([]);
+  await expectNoCodeScreen(page, request, token, [phone, phone.replace("+1", ""), "E2E No Backend"]);
   await shot(page, "verify-no-backend", WHOLE_PAGE);
+});
+
+test("a demo practice cannot send a code to a real address, and the screen does not pretend otherwise (T121, §13.4)", async ({ page, request }) => {
+  // The same dead end arrived at from the row rather than from the environment, and the arm this suite can
+  // drive end to end: email *is* sendable here (DEV_MAIL_DIR is the backend, T113), the address is the only
+  // thing on file, and §13.4's allow-list refuses it anyway because the seeded practice is a demo one and
+  // this domain is one somebody could own. No amount of configuration reopens that channel.
+  //
+  // So nothing is ever sent to the address, which is what makes a non-reserved domain safe to write down
+  // here: `demoBlockReason` (lib/demo.ts) is the gate every send goes through, and the point of the test is
+  // that it closes. A reserved domain would be synthetic and the demo rule would let it through.
+  const email = freshEmail("t121-demo-blocked", "t121-real.com");
+  const { token } = await book(page, "E2E Demo Blocked", { email });
+  await page.goto(`/s/${token}`);
+  await expectNoCodeScreen(page, request, token, [email, "t121-real.com", "E2E Demo Blocked"]);
+  await shot(page, "verify-no-code-row", WHOLE_PAGE);
+});
+
+test("a link whose address a provider reported dead says so, and mints nothing (T121, §8.1)", async ({ page, request }) => {
+  // §8.1's arm, on the visit the seed already puts in this state rather than a booked one. Two reasons it is
+  // not booked here: nothing in this suite can write `emailUndeliverableAt` — it is set by SES's bounce
+  // topic through POST /api/notifications/sns, whose authority is an RSA signature only AWS can produce
+  // (e2e/notifications.spec.ts) — and a second visit for the seeded patient would give the practice two
+  // rows with one name, which is how e2e/notifications.spec.ts finds hers.
+  //
+  // So: `npm run seed` marks Dana Demo's address bounced two days ago, exactly as that topic would have.
+  // Staff read her visit's token off their own dashboard (§8.3's data, GET /api/provider) and then leave the
+  // browser as a patient's, the way `book` above does.
+  const demo = await signInAsDemo(page);
+  const rows = (await (await page.request.get("/api/provider")).json()).visits as { name: string; token: string; email: string | null }[];
+  const dana = rows.find((v) => v.name === "Dana Demo");
+  expect(dana, `the seeded bounced visit, in ${demo.practice}`).toBeTruthy();
+  await signOutOfBrowser(page);
+
+  // Both halves of the dead end at once, which is the state the ticket's own screenshot found her in: the
+  // bounce closed her address, and this environment has no SMS backend for the number beside it. Nothing is
+  // minted either way — this asks for a code on a real visit and the route refuses before `startVerification`.
+  await page.goto(`/s/${dana!.token}`);
+  await expectNoCodeScreen(page, request, dana!.token, [dana!.email!, "Dana Demo"]);
 });
 
 test("a link we do not know says so and reveals nothing about it (§2.3)", async ({ page }) => {

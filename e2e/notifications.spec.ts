@@ -84,9 +84,23 @@ test("the dashboard shows what each message did, and why a channel is closed", a
   // §8.1 And the line that stops a skipped channel reading like a bug in the app.
   await expect(dana.locator(".provider-suppressed")).toContainText("Email bounced");
 
-  // Sam Sample's row is the control: nothing has gone wrong, so no suppression line and no bounce.
+  // T121 (§2.3) What that bounce adds up to, said once on the row rather than left to staff to infer. Dana's
+  // address is dead and her number is a 555-01xx one no backend here can text, so there is no channel left
+  // that can carry the six-digit code her link needs — and §2.3 makes the code the only way in, so this
+  // visit stops until somebody telephones her. The pills above say what happened to each message; this says
+  // what the patient can and cannot do, which is what no pill was saying.
+  //
+  // Which channels are closed is partly this environment's business, the same caveat e2e/demo.spec.ts
+  // carries: with an SMS backend configured, her reserved number would be sendable and this line would
+  // correctly disappear. `scripts/agent-check.sh` configures none.
+  await expect(dana.locator(".provider-no-code")).toContainText(/link will not open/i);
+  await expect(dana.locator(".provider-no-code")).toContainText(/call them/i);
+
+  // Sam Sample's row is the control: nothing has gone wrong, so no suppression line and no bounce — and his
+  // address is reachable through the mailbox this run's codes really arrive in, so no T121 line either.
   const sam = page.locator(".provider-table tbody tr", { hasText: "Sam Sample" });
   await expect(sam.locator(".provider-suppressed")).toHaveCount(0);
+  await expect(sam.locator(".provider-no-code")).toHaveCount(0);
 
   // T74 The tooltip is the one place a backend's own message reached a practice's screen, and it is in the
   // DOM rather than in any screenshot, which is how "EMAIL_FROM must be a verified SES identity" sat beside

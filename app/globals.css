@@ -1602,10 +1602,19 @@ textarea.ss-input {
 /* T121 The conclusion of whatever closed lines are above it: this patient cannot open their link at all
    (§2.3). The failure red of .provider-delivery-fault, because unlike the amber lines it is not a provider
    telling staff something — it is a visit that stops here unless somebody telephones — and the only weight
-   in this cell, so it is read before the explanations it follows. */
+   in this cell, so it is read before the explanations it follows.
+
+   Its own rule rather than .provider-suppressed plus a modifier: it is a different kind of sentence from
+   the lines above it, and sharing their class would have every spec that reads "why is this channel closed"
+   resolve to this line as well. */
 .provider-no-code {
+  display: block;
+  margin-top: 5px;
   color: #8c3b33;
+  font-size: 9px;
   font-weight: 600;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .provider-stage-cancelled {
