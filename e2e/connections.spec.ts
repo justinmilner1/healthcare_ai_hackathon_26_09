@@ -15,6 +15,12 @@ import { shot, WHOLE_PAGE } from "./shot";
 // whose eyebrow reads SETUP COMPLETE. §2.5 makes the data panel optional and §2.4 promises the patient that
 // sharing is their choice, which only means something if the screen can tell them it did not happen.
 //
+// T116 (design §2.5, §2.7) is the same bug one line further out. T84 fixed the row and left the four
+// strings around it unconditional, so the card reported "No data connected yet" while Sweetie's bubble, the
+// lede over the card, the primary button and the hint under it all offered a week to view — and the button
+// landed the patient on the empty summary, which asked them to go back and connect something. All four are
+// asserted below in both states, so the next change cannot split them from the row again.
+//
 // Both states, on both projects, because the fix is a glyph and a colour and the evidence for it is the
 // §12.3 screenshot as much as the assertion: the desktop and mobile runs write
 // `<project>-connect-done-empty.png` and `<project>-connect-done-connected.png`. The assertions read
@@ -104,6 +110,23 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   // reporting that nothing arrived must not be drawing it.
   await expect(dataMark(page).locator('svg[data-icon="check"]')).toHaveCount(0);
   await expect(dataMark(page).locator('svg[data-icon="info"]')).toHaveCount(1);
+
+  // T116: the four strings around the row, in the state the ticket was filed from. Each one names
+  // something that is true with nothing shared, and the two actions offered are the two that lead
+  // somewhere real — Sweetie, now the primary, and the way back to connections.
+  await expect(page.getByText("Nothing shared yet. We can still talk it through.")).toBeVisible();
+  await expect(page.getByText(/nothing to show you yet/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Chat with Sweetie", exact: true })).toBeVisible();
+  await expect(
+    page.getByText("A short chat still gives your clinician something to work from."),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /Back to connections/i })).toBeVisible();
+  // And the promises are gone rather than outnumbered. The button that landed on the empty summary is not
+  // on the screen at all, and neither is the noun that made the step a promise: step 2 has no other use
+  // for "week", so the whole frame is the right scope for the negative — the bubble sits outside the card.
+  await expect(page.getByRole("button", { name: /View my week/i })).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText(/week/i);
+
   // §6.4: the neutral mark has to clear the same bar as the one it replaced.
   expect(
     await contrastOf(dataMark(page)),
@@ -131,6 +154,17 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await expect(page.getByText("You can return to connections to add more data.")).toBeVisible();
   await expect(dataMark(page)).toHaveAttribute("data-mark", "connected");
   await expect(dataMark(page).locator('svg[data-icon="check"]')).toHaveCount(1);
+
+  // T116: the same four, with the wording this state has always had — the span in them is T114's business
+  // and this step is not one of the three sites that knows how many days arrived. The chat drops back to a
+  // secondary action, which is what the absent exact-named button says.
+  await expect(page.getByText("Your week is ready to view. Questions are optional.")).toBeVisible();
+  await expect(page.getByText(/^Go straight to your week without answering questions\./)).toBeVisible();
+  await expect(page.getByRole("button", { name: /View my week/i })).toBeVisible();
+  await expect(page.getByText("Skip the questions. Your shared data stays saved.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Chat with Sweetie", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Chat with Sweetie instead/i })).toBeVisible();
+
   expect(
     await contrastOf(dataMark(page)),
     "§6.4, WCAG 1.4.11: the tick against its badge",
