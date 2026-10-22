@@ -434,6 +434,11 @@ test("the patient summary fits a 375px phone, empty and full", async ({ page }) 
   // Nothing uploaded and nothing answered: the summary's empty state, which is a screen in its own right.
   await page.goto(`/patient/${token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
+  // T118: at 375px this is the only control on the screen below the hero, so what it asks for is the whole
+  // ask. With no Dexcom credentials the destination can only take the file (§2.5, §2.7).
+  const empty = page.locator(".patient-report-empty");
+  await expect(empty.getByRole("link", { name: /Upload your Dexcom export/i })).toBeVisible(LOADED);
+  await expect(empty.getByRole("link", { name: /Connect Dexcom/i })).toHaveCount(0);
   await expectMobileReady(page, "the patient summary, empty");
   await shot(page, "375-patient-summary-empty", SCREEN);
 

@@ -300,7 +300,14 @@ test("the patient summary passes axe, empty and full", async ({ page }) => {
   // patient who opens the link early actually sees.
   await page.goto(`/patient/${token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
-  await expect(page.locator(".patient-report-empty")).toBeVisible(LOADED);
+  const empty = page.locator(".patient-report-empty");
+  await expect(empty).toBeVisible(LOADED);
+  // T118 (§2.5, §2.7): this suite runs with no Dexcom credentials, so /s/<token> has no Dexcom connection
+  // on it — only the file upload. The one button here leads there, so it asks for the upload and never for
+  // a connection, and says nothing about why (the T71 rule).
+  await expect(empty.getByRole("link", { name: /Upload your Dexcom export/i })).toBeVisible();
+  await expect(empty.getByRole("link", { name: /Connect Dexcom/i })).toHaveCount(0);
+  await expect(empty).not.toContainText(/not configured|demo mode|credential/i);
   await expectNoSeriousA11yViolations(page, "patient summary, nothing connected");
   await shot(page, "a11y-summary-empty");
 
