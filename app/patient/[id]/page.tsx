@@ -54,6 +54,20 @@ export default function PatientPage({
   // §2.7 What the empty state asks for, from the control the data panel on /s/<token> is offering
   // this visit (§2.5) rather than from `hasDexcom` alone (T118).
   const invite = summaryDataInvite({ control: bundle.dexcomConnect, sandboxPatient: bundle.patient.isSandbox });
+  // §2.7 The hero's eyebrow is a claim about the data like every other span on this page, so it is read
+  // off `stats.days` through the same spanNoun() the three strings below it use (T114, T123). It sat above
+  // both branches as the literal "YOUR WEEK WITH SWEETIE" and was the one line that rendered identically
+  // whatever arrived: a single-day upload got a hero promising a week directly above "the day you shared"
+  // and a History tile reading "1 day". `hasDexcom` is `glucose.length > 0` and lib/bundle.ts floors
+  // `days` at 1 whenever there is a reading, so the counted branch can never print "0 days".
+  //
+  // With nothing shared the eyebrow names no span at all (§2.5, the rule T116 settled for the step
+  // before this one): the page cannot promise a week to a patient who has shared nothing, and the card
+  // under this hero is the invitation to share something. "Check-in" is the word the meta row beside it
+  // already uses for what they have done so far.
+  const heroEyebrow = (
+    bundle.status.hasDexcom ? `Your ${spanNoun(stats.days)} with Sweetie` : "Your check-in with Sweetie"
+  ).toUpperCase();
   const visitMessage =
     daysToVisit === null
       ? `Getting ready for your visit with ${bundle.patient.provider.name}.`
@@ -81,7 +95,7 @@ export default function PatientPage({
 
         <section className="patient-summary-hero ss-enter">
           <div className="patient-summary-hero-copy">
-            <p className="ss-eyebrow">YOUR WEEK WITH SWEETIE</p>
+            <p className="ss-eyebrow">{heroEyebrow}</p>
             <h1>
               Here&apos;s your story,
               <br />
