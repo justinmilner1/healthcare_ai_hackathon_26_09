@@ -350,20 +350,49 @@ test("a deployment storing Dexcom tokens needs the KMS key (design §4.10, §10.
   assert.match(errors({ ...withDexcom(), DEXCOM_TOKEN_KMS_KEY_ID: "alias/one alias/two" })[0].message, /single KMS key/);
 });
 
-test("a production deployment with no way to reach a patient is a warning", () => {
+test("a deployment with no email backend is refused, because nobody can get in (T113)", () => {
+  // §5.1 signs a provider in by emailed magic link and §2.3 opens a patient's link with a code sent to the
+  // email on file. Both used to be written to ./.mail/ on the server and reported sent, which is what made
+  // this a warning: the behaviour was an outage with a security hole in it rather than a refusal to serve.
+  // lib/devMailbox.ts no longer diverts for want of a backend, so the honest statement is that the
+  // deployment cannot be entered, and §3.7 has the app refuse to start on it.
   const silent = { ...good(), RESEND_API_KEY: undefined, EMAIL_FROM: undefined };
-  assert.deepEqual(errors(silent), []);
-  assert.ok(warnings(silent).some((p) => p.message.includes("invite links can only be read off the screen")));
+  assert.deepEqual(errors(silent).map((p) => p.variable), ["EMAIL_FROM"]);
+  assert.match(errors(silent)[0].message, /No email backend is configured on a deployment/);
+  assert.match(errors(silent)[0].message, /nobody can sign in and no patient can open their link/);
 
   // T110: the same question lib/email.ts answers. An AWS credential is ambient and selects nothing, so a
   // deployment carrying one and no sender setting is still a deployment that cannot reach a patient.
   const credentialOnly = { ...silent, AWS_ACCESS_KEY_ID: "AKIA-not-real", AWS_SECRET_ACCESS_KEY: "secret-not-real" };
-  assert.ok(warnings(credentialOnly).some((p) => p.message.includes("invite links can only be read off the screen")));
+  assert.deepEqual(errors(credentialOnly).map((p) => p.variable), ["EMAIL_FROM"]);
+
+  // An SMS backend does not stand in for it: a magic link is only ever email, so §5.1 is still broken.
+  const textsOnly = { ...silent, SNS_ORIGINATION_NUMBER: "+15550100" };
+  assert.deepEqual(errors(textsOnly).map((p) => p.variable), ["EMAIL_FROM"]);
 
   // A verified sending identity is a backend, on its own and with no key in sight — which is what a task
-  // role on ECS looks like.
+  // role on ECS looks like. Either setting answers it, and so does a forced provider with its own settings.
   const sesOnly = { ...silent, EMAIL_FROM: "Sweet Spot <visits@example.com>" };
   assert.deepEqual(validateConfig(sesOnly), []);
+  assert.deepEqual(validateConfig({ ...silent, RESEND_API_KEY: "resend-key-not-real" }), []);
+});
+
+test("a production build nobody else can reach says what is not sent, not just what can be read off a screen", () => {
+  // The e2e suite and `npm run build && npm start` are production builds on localhost (the same carve-out
+  // the DEV_MAIL_DIR rule uses), so this is a warning there rather than the error above. The sentence used
+  // to offer the invite half alone — "invite links can only be read off the screen" — which was true of
+  // invites and summary links and not of the two messages nobody can read off a screen (T113).
+  const local = { ...good(), APP_URL: "http://localhost:3000", RESEND_API_KEY: undefined, EMAIL_FROM: undefined };
+  assert.deepEqual(errors(local), []);
+  const [warning] = warnings(local);
+  assert.match(warning.message, /invite links can only be read off the screen/);
+  assert.match(warning.message, /is not sent at all unless DEV_MAIL_DIR names a directory/);
+
+  // Which is the opt-in, and on a localhost build it is not refused: with it, both messages are readable
+  // again (`npm run mail`) and the product walks offline (§11.3). The warning is about the backends.
+  assert.deepEqual(errors({ ...local, DEV_MAIL_DIR: ".mail" }), []);
+  // One backend is enough to stop it: the invite goes out and the gap is no longer total.
+  assert.deepEqual(warnings({ ...local, SNS_ORIGINATION_NUMBER: "+15550100" }), []);
 });
 
 // ---- the gate -----------------------------------------------------------------------------------------

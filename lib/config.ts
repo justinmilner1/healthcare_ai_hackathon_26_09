@@ -708,8 +708,7 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
   // Diverting mail is how local development and the e2e suite work, and both run production builds, so
   // NODE_ENV alone cannot judge this. A production build serving a public URL is a deployment, and there
   // every sign-in link stops being delivered and starts being written to a file on the server — an outage
-  // whose leftovers are bearer credentials (§10.6). lib/devMailbox.ts diverts whether or not SES is
-  // configured, so nothing else in the app notices. APP_URL is the same localhost signal publicAppUrl uses.
+  // whose leftovers are bearer credentials (§10.6). APP_URL is the same localhost signal publicAppUrl uses.
   if (production && v("DEV_MAIL_DIR") && !isLocal(v("APP_URL"))) {
     out.push({
       level: "error",
@@ -741,11 +740,32 @@ function groupProblems(env: Env, fatal: ProblemLevel, production: boolean): Prob
     // The same question lib/sms.ts answers, and not AWS_ACCESS_KEY_ID: a credential is not an SMS backend
     // (T94). An origination number is, because that is the setting SNS cannot text anybody without.
     const sms = Boolean(v("TWILIO_ACCOUNT_SID") || v("SNS_ORIGINATION_NUMBER") || v("SMS_PROVIDER"));
-    if (!email && !sms) {
+    if (!email && !isLocal(v("APP_URL"))) {
+      // The second arm of the rule above, and the one it was written for (T113). Diverting mail to files on
+      // a deployment is refused; a deployment with no email backend *at all* used to earn the warning below
+      // and then behave identically, because lib/devMailbox.ts treated "nothing configured" as a reason to
+      // divert. That arm is gone, which makes this an outage rather than a security hole — and an outage of
+      // the two messages the product cannot be entered without, so it is an error and not a warning: no
+      // provider can be sent a sign-in link (§5.1) and no patient can be sent the six-digit code their link
+      // asks for (§2.3). SMS does not stand in for it, because a magic link is only ever email.
+      out.push({
+        level: "error",
+        kind: "combination",
+        variable: "EMAIL_FROM",
+        message:
+          "No email backend is configured on a deployment serving a public APP_URL: set EMAIL_FROM to a verified SES identity (design §8.1), or RESEND_API_KEY locally. Without one, a provider's sign-in link (§5.1) and a patient's six-digit code (§2.3) are never sent, so nobody can sign in and no patient can open their link.",
+      });
+    } else if (!email && !sms) {
+      // A production build nobody else can reach — the e2e suite, `npm run build && npm start` — with no
+      // sender of any kind. The invite half of this has always been true and fails soft: staff read the link
+      // off the screen (§8.1). The other half is the two messages that are nobody's to read off a screen,
+      // and naming DEV_MAIL_DIR is the whole of the answer for a local checkout (§11.3). The sentence used
+      // to offer only the invite half, which described a different behaviour from the one that happened.
       out.push({
         level: "warning",
         kind: "combination",
-        message: "No email or SMS backend is configured, so invite links can only be read off the screen (design §8).",
+        message:
+          "No email or SMS backend is configured: invite links can only be read off the screen (design §8.1), and a sign-in link (§5.1) or a patient's six-digit code (§2.3) is not sent at all unless DEV_MAIL_DIR names a directory to write it to.",
       });
     }
   }
