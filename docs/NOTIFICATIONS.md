@@ -43,7 +43,7 @@ had set §8.1 up for nothing wrote both credentials into `./.mail/` on its own d
 §10.6's leftovers, under a success. A deployment with no email backend on a public `APP_URL` is now refused
 by the §3.7 check (`lib/config.ts`), because neither sign-in works there; a patient whose only channel has no
 sender behind it gets a screen that says so and names the practice to call, rather than a code screen
-(`codeChannels` in `lib/notify.ts`, `components/VerifyGate.tsx`).
+(`codeReach` in `lib/notify.ts`, `components/VerifyGate.tsx`).
 
 ### Asked before the send, not only after it (T111, T120)
 
@@ -70,7 +70,8 @@ anybody's to go and fix.
 
 What this does *not* predict is arrival. A configured backend can still bounce, and §8.1's suppression and
 §13.4's demo rule close a channel on facts that live on the patient's row rather than in the environment.
-Those are the delivery row's to report.
+Those are the delivery row's to report — for an invite, which fails soft, because staff read the link off
+the screen. The code has nobody to fail soft to, which is the next section.
 
 ## Delivery results (§8.3)
 
@@ -105,6 +106,36 @@ texts START reopens the channel.
 
 The verification code is suppressed like everything else. A bounced address does not deliver a code either;
 the honest answer is the other channel, or the staff member with the phone in their hand.
+
+### Can a code reach this patient at all? (T113, T121)
+
+§2.3 makes the six-digit code the only way into a patient link, so a code that cannot be sent is not a
+message that fails soft — it is a visit that stops. `codeReach(…)` in `lib/notify.ts` is the one question
+both of the places that would promise one ask: `components/VerifyGate.tsx` before it renders the code
+screen, and `POST /api/verify` before it mints anything. It is three filters in the order the facts
+outrank each other, and it costs no query and no network call:
+
+| filter | asks | where |
+|---|---|---|
+| `demoBlockReason` | §13.4: may a demo practice write to *this* destination | `lib/demo.ts` |
+| `allowedChannels` | §8.1: has a bounce, a complaint or a `STOP` closed it | `lib/suppression.ts` |
+| `codeChannels` | T113: is there a sender behind what is left | `lib/notify.ts` |
+
+The first two are the patient's own row and the third is the deployment, which is what `closedBy` reports
+when nothing is left: `"row"` means no amount of configuration reopens a channel and the front desk has to
+telephone, `"environment"` means something is still open and somebody can go and configure it. The row's
+filters run first so that answer is a fact rather than an order of evaluation.
+
+The patient is told the same thing either way — "We can't send you a code right now", the practice named
+twice, and the telephone (`components/PatientNotice.tsx`, T98) — with no channel, no address and no reason
+on the screen: "your email bounced" tells whoever holds a forwarded link that this patient has an email on
+file (§2.3). Both call sites answer §2.2's separate gap first, a visit with no phone and no email at all.
+The log is where the two part company, `verify_channels_closed` against `verify_no_backend`, with ids and a
+count and nothing else (§10.3).
+
+Staff see the consequence on the dashboard row, once, under the pills that explain each channel:
+`codeUnreachable` from `GET /api/provider` and the sentence `NO_CODE_CAN_REACH` owns in `lib/delivery.ts`.
+Not for a visit with no contact details — that patient cannot be telephoned about it either.
 
 ## Demo practices (§13.4)
 
