@@ -15,6 +15,7 @@ import ConsentScreen from "@/components/ConsentScreen";
 import PatientNotice from "@/components/PatientNotice";
 import VerifyScreen from "@/components/VerifyScreen";
 import { consentPoints, needsConsent } from "@/lib/consent";
+import { codeChannels } from "@/lib/notify";
 import { channelsFor, CODE_TTL_MS, needsVerification, PATIENT_SESSION_COOKIE, verifiedSession } from "@/lib/patientSession";
 import { providerName, visitByToken } from "@/lib/visit";
 
@@ -35,8 +36,8 @@ export default async function VerifyGate({ token, children }: { token: string; c
     const cookieStore = await cookies();
     const session = await verifiedSession(visit.id, cookieStore.get(PATIENT_SESSION_COOKIE)?.value);
     if (!session) {
-      const channels = channelsFor(visit.patient);
-      if (channels.length === 0) {
+      const onFile = channelsFor(visit.patient);
+      if (onFile.length === 0) {
         // §2.2 has staff record a phone or an email with the visit. Without one there is nowhere to send a
         // code, so there is no way in from here and saying so beats a screen that cannot work. The practice
         // is named, twice: "call the office" is only actionable if the page says which office, and this is
@@ -49,9 +50,27 @@ export default async function VerifyGate({ token, children }: { token: string; c
           />
         );
       }
+      // The second half of the same question (T113): a contact detail on file is not a code that can be
+      // sent, and a deployment with no sender behind the channels this patient has is the same dead end
+      // arrived at from the other side. It is settled here, in front of the screen, rather than left to the
+      // screen's first POST — the code screen's whole job is to say a code is on its way, so a deployment
+      // that cannot send one must not get that far: it would read "We sent a 6-digit code to your phone"
+      // over a resend button that mints another one into the same silence.
+      const channels = codeChannels(onFile);
+      if (channels.length === 0) {
+        return (
+          <PatientNotice
+            practiceName={visit.patient.practice.name}
+            title="We can't send you a code right now."
+            message={`Sweet Spot can't send messages for ${visit.patient.practice.name} yet, so there is nowhere for your 6-digit code to go. Please call them and they can help.`}
+          />
+        );
+      }
       return (
         <VerifyScreen
           token={visit.token}
+          // The sendable ones, not everything on file: the note on that screen names the channel the code
+          // went to (§2.3), and naming one with no sender behind it is the claim this ticket is about.
           channels={channels}
           practiceName={visit.patient.practice.name}
           minutes={Math.round(CODE_TTL_MS / 60_000)}

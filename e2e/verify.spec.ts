@@ -14,13 +14,17 @@ import { shot, WHOLE_PAGE } from "./shot";
 /**
  * A patient with an address to send a code to. Booking is staff's job and needs their session (T06, §5.2), so
  * someone at the practice signs in, books, and signs out again — leaving the browser as a patient's, which is
- * the only thing these tests are about. `contact: false` books a visit with nothing to send a code to.
+ * the only thing these tests are about. `contact: false` books a visit with nothing to send a code to, and
+ * `contact: "phone"` one whose only contact method is a number no backend here can text (T113).
  */
-async function book(page: import("@playwright/test").Page, name: string, contact = true) {
+async function book(page: import("@playwright/test").Page, name: string, contact: boolean | "phone" = true) {
   const email = patientEmail(name);
+  // The 555-01xx range the NANP reserves, which is what a demo practice may be given (§13.4, lib/demo.ts).
+  const phone = `+1415555${String(Math.floor(Math.random() * 100)).padStart(2, "0")}${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
+  const reach = contact === "phone" ? { phone } : contact ? { email } : {};
   await signInAsDemo(page);
   const booked = await (
-    await postJson(page.request, "/api/book", { name, ...(contact ? { email } : {}), visitType: "follow_up", reason: "checking the lock", channel: "none" })
+    await postJson(page.request, "/api/book", { name, ...reach, visitType: "follow_up", reason: "checking the lock", channel: "none" })
   ).json();
   expect(booked.token, JSON.stringify(booked)).toBeTruthy();
   await signOutOfBrowser(page);
@@ -178,6 +182,36 @@ test("a link with no phone or email on file says so, and says which practice to 
   await expect(card.locator(".ss-lede")).toContainText(practice);
   expect((await postJson(request, "/api/verify", { token })).status()).toBe(422);
   await shot(page, "verify-no-contact", WHOLE_PAGE);
+});
+
+test("a link whose only channel has no backend says so, and never claims a code is on its way (T113)", async ({ page, request }) => {
+  // The other way into the same dead end, and the one that used to look like it was working: the number is
+  // on file, so §2.2 is satisfied, but this environment has no SMS backend — `scripts/agent-check.sh`
+  // configures none, which is also what a deployment that has not set §8.1 up looks like. The patient used
+  // to be told "We sent a 6-digit code to your phone", with a resend that minted another one into the same
+  // silence, because POST /api/verify answered on the strength of a `Job` row alone.
+  const { token } = await book(page, "E2E No Backend", "phone");
+  await page.goto(`/s/${token}`);
+  const card = page.locator(".patient-notice-card");
+  await expect(card).toContainText(/nowhere for your 6-digit code to go/i, LOADED);
+  // The register of the other two dead ends (T98, components/PatientNotice.tsx): the practice above the
+  // heading and again in the sentence that asks for the call, because this screen's next step is a telephone.
+  const practice = ((await card.locator(".ss-eyebrow").textContent()) ?? "").trim();
+  expect(practice, "the practice named above the heading").not.toBe("");
+  await expect(card.locator(".ss-lede")).toContainText(practice);
+  // No code box and no resend: there is nothing on this screen that pretends to work.
+  await expect(page.getByLabel("6-digit code")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Send a new code/i })).toHaveCount(0);
+  // Nothing on it names the number either, which is the §2.3 rule the working screen keeps as well.
+  await expect(page.locator("body")).not.toContainText("+1415555");
+  // And the route itself does not answer `sent: true` for a channel that cannot send: 503, because the
+  // request is right and the deployment cannot serve it yet.
+  const asked = await postJson(request, "/api/verify", { token });
+  expect(asked.status()).toBe(503);
+  const answer = await asked.json();
+  expect(answer.sent).toBeUndefined();
+  expect(answer.channels).toEqual([]);
+  await shot(page, "verify-no-backend", WHOLE_PAGE);
 });
 
 test("a link we do not know says so and reveals nothing about it (§2.3)", async ({ page }) => {

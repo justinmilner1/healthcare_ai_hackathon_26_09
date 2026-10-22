@@ -14,7 +14,7 @@ import {
 import { demoBlockReason } from "./demo";
 import { emailConfig, sendEmail, type SendResult } from "./email";
 import { log } from "./log";
-import { sendOrMailbox } from "./mailer";
+import { canSendOrMailbox, sendOrMailbox } from "./mailer";
 import { intakeLink, sendSms, smsConfig } from "./sms";
 import { suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
@@ -163,6 +163,26 @@ export async function sendVerificationCode(p: {
   // The code itself is never a field: logSend records the channel and whether it left, nothing more.
   logSend("code_sent", { visitId: p.visitId, patientId: p.patientId }, { sms, email });
   return { sms, email };
+}
+
+/**
+ * Which of the ways there are to reach this patient can carry a six-digit code (§2.3, T113).
+ *
+ * `channelsFor` (lib/patientSession.ts) answers which contact details are on file; this answers which of
+ * them this deployment has a sender behind, which is the other half of the same question and the one the
+ * code screen was not asking. Without it the patient was told "we sent a 6-digit code to your phone" by a
+ * deployment with no SMS backend, and offered a resend that minted a second code into the same silence.
+ *
+ * Email is `canSendOrMailbox` and not `emailConfig`, because the code is one of the two messages that go
+ * through `sendOrMailbox`: a checkout that names `DEV_MAIL_DIR` really can deliver it, to a file the suite
+ * and `npm run mail` read (§11.3). SMS has no mailbox, so it is `smsConfig` alone.
+ *
+ * Settled from the environment, like `inviteSendability` below and for the same reason: a page can ask it
+ * while the patient is still in front of it, and it is not a promise the message arrives — a suppressed
+ * address or a demo practice closes a channel on facts that live on the row (`blockedBy` above).
+ */
+export function codeChannels(channels: readonly NotifyChannel[]): NotifyChannel[] {
+  return channels.filter((c) => (c === "sms" ? !("reason" in smsConfig()) : canSendOrMailbox()));
 }
 
 /**

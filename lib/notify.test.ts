@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  codeChannels,
   codeTemplates,
   deletionTemplates,
   inviteSendability,
@@ -30,6 +31,10 @@ for (const name of [
   "EMAIL_FROM",
   "SMS_PROVIDER",
   "SNS_ORIGINATION_NUMBER",
+  // And the mailbox, which `scripts/agent-check.sh` exports for the whole run: it is a place a verification
+  // code can really be read from, so `codeChannels` below counts it (T113) and every case here has to say
+  // for itself whether it is there.
+  "DEV_MAIL_DIR",
 ]) {
   delete process.env[name];
 }
@@ -327,6 +332,42 @@ function withEnv<T>(vars: Record<string, string>, fn: () => T): T {
     }
   }
 }
+
+// T113 The same question for the one message that is a credential rather than a link: which of the ways
+// there are to reach this patient can carry a six-digit code (§2.3). `channelsFor` (lib/patientSession.ts)
+// answers what is on file; this answers what has a sender behind it.
+
+test("a contact detail with no sender behind it cannot carry a code (T113)", () => {
+  // The environment of this file, of `scripts/agent-check.sh` with its mailbox unset, and of a deployment
+  // that has configured nothing: a phone number and an address on file, and nowhere for the digits to go.
+  assert.deepEqual(codeChannels(["sms", "email"]), []);
+  assert.deepEqual(codeChannels(["sms"]), []);
+  assert.deepEqual(codeChannels(["email"]), []);
+  assert.deepEqual(codeChannels([]), [], "nothing on file is still nothing to send on");
+});
+
+test("the mailbox can carry a code, which is what makes the product walkable offline (§11.3)", () => {
+  // The difference from `inviteSendability` below, and the reason the two ask different questions: the code
+  // goes through `sendOrMailbox`, so a checkout naming DEV_MAIL_DIR really does deliver it — to a file
+  // `npm run mail` and e2e/patient.ts read. An invite goes straight to `sendEmail` and has no such place.
+  withEnv({ DEV_MAIL_DIR: "e2e/.mail" }, () => {
+    assert.deepEqual(codeChannels(["sms", "email"]), ["email"]);
+    assert.deepEqual(codeChannels(["sms"]), [], "a mailbox is not a phone");
+    assert.deepEqual(inviteSendability("email").channels, [], "and it is not an invite's answer either");
+  });
+});
+
+test("each backend answers for its own channel, and the order on file is kept", () => {
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example" }, () => assert.deepEqual(codeChannels(["sms", "email"]), ["email"]));
+  withEnv({ SNS_ORIGINATION_NUMBER: "+15550100" }, () => assert.deepEqual(codeChannels(["sms", "email"]), ["sms"]));
+  withEnv({ SNS_ORIGINATION_NUMBER: "+15550100", EMAIL_FROM: "clinic@sweetspot.example" }, () => {
+    assert.deepEqual(codeChannels(["sms", "email"]), ["sms", "email"]);
+    assert.deepEqual(codeChannels(["email", "sms"]), ["email", "sms"], "the caller's order, which is the patient's");
+  });
+  // A forced backend missing the setting it cannot send without is unconfigured, not an attempt (T94, T110).
+  withEnv({ SMS_PROVIDER: "twilio" }, () => assert.deepEqual(codeChannels(["sms"]), []));
+  withEnv({ EMAIL_PROVIDER: "ses" }, () => assert.deepEqual(codeChannels(["email"]), []));
+});
 
 test("with no backend at all, no channel staff chose can send, and the reason is the practice's", () => {
   for (const channel of ["both", "sms", "email", null, undefined]) {
