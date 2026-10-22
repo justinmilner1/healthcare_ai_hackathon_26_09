@@ -138,11 +138,11 @@ test("every uncredentialled shape of a real visit asks for the upload, since non
     }
 });
 
-test("with credentials the card is word for word what it was (T118 changes nothing here)", () => {
+test("with credentials the card still offers the connection (T118 changed nothing here)", () => {
   // The two states that reach a control, and the isSandbox branch the ticket pins at page.tsx:118.
   const real = invite({ configured: true, canConnect: true });
   assert.equal(real.action, "Connect Dexcom");
-  assert.equal(real.body, "Connect your Dexcom export and Sweetie will turn the past week into a clear picture for you and your doctor.");
+  assert.equal(real.body, "Connect your Dexcom export and Sweetie will turn your readings into a clear picture for you and your doctor.");
   const synthetic = invite({ configured: true, canConnect: true, sandboxPatient: true });
   assert.equal(synthetic.action, "Connect Dexcom");
   assert.equal(synthetic.body, "Connect Dexcom sandbox in Sweetie to import synthetic demo readings.");
@@ -189,5 +189,25 @@ test("the invitation and the control agree: a connection is named only where the
           } else {
             assert.equal(said.action, "Connect Dexcom", where);
           }
+        }
+});
+
+test("no invitation names a span, because this is the state with no data to take one from (T123)", () => {
+  // §2.5, §2.7: the summary's hero and its three T114 strings all read the span off `stats.days`, and the
+  // empty state is where there is no such number. "the past week" in the connect branch presumed what the
+  // upload would hold, which is the claim T100 and T114 took off every other line of this page. A pattern
+  // rather than the one literal: "a week", "this week", "the past week", "7 days" and "the last 24 hours"
+  // all make the same promise, and an article or a tense is exactly what a reword changes, so the noun is
+  // what the pattern pins.
+  const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
+  for (const env of ["sandbox", "production"] as const)
+    for (const configured of [false, true])
+      for (const canConnect of [false, true])
+        for (const sandboxPatient of [false, true]) {
+          const state = { env, configured, canConnect, sandboxPatient };
+          const said = invite(state);
+          const where = JSON.stringify(state);
+          assert.doesNotMatch(said.body, SPAN, where);
+          if (said.action !== null) assert.doesNotMatch(said.action, SPAN, where);
         }
 });

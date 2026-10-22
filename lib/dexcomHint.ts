@@ -122,6 +122,12 @@ export type SummaryDataInvite = {
  * The file upload is the fallback because it needs no credentials, but it is not universal: `/s/<token>`
  * renders its uploads for a real visit only (§13.4), so a synthetic demonstration visit with nothing to
  * connect has nothing to be sent for either, and gets a card with no button rather than a dead one (T91).
+ *
+ * No branch names a span. This is the one state of the summary where there is no data to take one from,
+ * and the page around it is held to that: a patient who has shared nothing is told what sharing does, not
+ * how much of it to expect (§2.5, T123). "the past week" here presumed the upload would be a week, which
+ * is the thing T100 and T114 established this page must not do — the sentence says "your readings" on
+ * every branch instead, and reads the same whether one day or seven arrives afterwards.
  */
 export function summaryDataInvite(
   { control, sandboxPatient }: { control: DexcomConnectControl; sandboxPatient: boolean },
@@ -130,7 +136,7 @@ export function summaryDataInvite(
     return {
       body: sandboxPatient
         ? "Connect Dexcom sandbox in Sweetie to import synthetic demo readings."
-        : "Connect your Dexcom export and Sweetie will turn the past week into a clear picture for you and your doctor.",
+        : "Connect your Dexcom export and Sweetie will turn your readings into a clear picture for you and your doctor.",
       action: "Connect Dexcom",
     };
   }
