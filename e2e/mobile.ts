@@ -373,6 +373,41 @@ export const TRANSCRIPT_ROOM = 190;
 export const OPENING_BUBBLE_ROOM = 221;
 
 /**
+ * The measurement `expectTranscriptUncut` settled on, and the one it asserted against (T117).
+ *
+ * Returned rather than kept, because "which message did it settle on?" is the whole difference between
+ * waiting a glide out and reporting one, and nothing outside the helper could ask it. e2e/transcript.spec.ts
+ * is what asks.
+ */
+export type TranscriptFit = {
+  /** How much of the newest message is above the top of the scrolling region, in CSS pixels. */
+  above: number;
+  /** How much of it is below the bottom of the region. */
+  below: number;
+  /** Whether the message is short enough for the region to hold it whole. */
+  fits: boolean;
+  /** How far the region still has to travel to where it is going: 0 once it has arrived. */
+  settling: number;
+  /** The newest message's own height. */
+  newest: number;
+  /** The scrolling region's height. */
+  region: number;
+  /** `.sweetie-transcript`'s height — what design §6.5 leaves the conversation on the screen. */
+  room: number;
+  /** The first 40 characters of the newest message, so a failure names what it is about. */
+  text: string;
+  /**
+   * What makes this *this* message rather than the next one.
+   *
+   * Its content, not the node holding it: a DOM reference does not survive the round trip out of one
+   * `evaluate` and into the next. Content is the better question anyway. A re-render that rebuilds the same
+   * words is not a new message and must not restart the wait, while a message that genuinely follows
+   * another differs from it in the row count, in its length, or in its opening words.
+   */
+  identity: string;
+};
+
+/**
  * The newest thing Sweetie or the patient said is not cut off at the top of the transcript (T83, §6.5).
  *
  * The transcript is its own scrolling region and moves itself to the newest message, so what it is showing
@@ -394,11 +429,16 @@ export const OPENING_BUBBLE_ROOM = 221;
  * the page having lost 20px to new chrome, when the pixels went to telling the patient about the words the
  * region is already too short for and come back as soon as they are read. What the floor is about is how
  * much of a 375px phone §6.5 leaves the conversation, and that is the wrapper either way.
+ *
+ * What it returns is the measurement it settled on and asserted against (T117). A caller that only wants
+ * the assertions ignores it, which is all seven of them; e2e/transcript.spec.ts is the one that asks, because
+ * "which message did it settle on, and was that message still moving?" is the helper's own contract and
+ * nothing else in the suite is in a position to check it.
  */
-export async function expectTranscriptUncut(page: Page, screen: string): Promise<void> {
+export async function expectTranscriptUncut(page: Page, screen: string): Promise<TranscriptFit> {
   const transcript = page.locator(".sweetie-messages");
   await expect(transcript, `${screen}: no transcript on the page`).toBeVisible();
-  const measure = () =>
+  const measure = (): Promise<TranscriptFit | null> =>
     transcript.evaluate((element) => {
       const newest = element.lastElementChild;
       if (!newest) return null;
@@ -411,6 +451,7 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
       const fits = box.height + padding <= element.clientHeight + 1;
       const below = Math.round(Math.max(0, box.bottom - region.bottom));
       const above = Math.round(Math.max(0, region.top - box.top));
+      const words = (newest.textContent ?? "").trim().replace(/\s+/g, " ");
       return {
         above,
         below,
@@ -424,7 +465,10 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
         newest: Math.round(box.height),
         region: Math.round(region.height),
         room: Math.round(room.height),
-        text: (newest.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40),
+        text: words.slice(0, 40),
+        // The row count as well as the words, so that two messages the region holds at once cannot share an
+        // identity by sharing their first 64 characters.
+        identity: `${element.children.length}:${words.length}:${words.slice(0, 64)}`,
       };
     });
   // The region glides rather than jumps (§6.4), so the first read can be of a scroll still in flight — and
@@ -439,18 +483,61 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
   // room to spare, and anything above it is the 340ms entrance transform or the scroll, both still moving.
   // The branch that does not fit is measured in `offsetTop`, which neither of those touches but a smooth
   // scroll can leave a sub-pixel short of, so it keeps the slack it was given.
+  //
+  // Two further things this poll owes those assertions, and the reason it reports a measurement rather than
+  // a boolean (T117).
+  //
+  // It hands them the reading it accepted, instead of letting them take one of their own. The helper used
+  // to measure a second time once the poll returned, and anything appended between the two calls made
+  // `lastElementChild` a different node and started a fresh entrance: the assertions then described a glide
+  // the poll had never watched, as though it were the state it had settled on. Nothing is known to have hit
+  // it — every caller waits for its final card first — but it is the same shape of mistake as the pixel
+  // above, in a helper seven specs share.
+  //
+  // And it accepts a reading only once the newest message has held still for one read. A settled reading of
+  // a node that was not the newest last time is a node whose arrival this poll never saw, and the message
+  // the stylesheet is still moving can read settled for an instant in the branch measured in `offsetTop`,
+  // which the entrance transform does not touch. So a message that arrives mid-wait is waited out rather
+  // than reported, and if the newest one keeps changing until the budget runs out, the value the poll
+  // reports says that is what happened.
+  const SETTLED = "settled";
+  // The reading the poll accepts, left where the assertions can reach it. An array rather than a `let`,
+  // because TypeScript does not follow an assignment made inside the callback: with a `let` narrowed to
+  // `null` by its own initialiser, the guard below is unreachable and every reading of the measurement an
+  // error on type `never`. The poll empties it at the top of every attempt, so what is in it afterwards is
+  // the reading of the attempt that returned `SETTLED` and nothing else.
+  const accepted: TranscriptFit[] = [];
+  let held: string | null = null;
+  let arrivals = 0;
   await expect
     .poll(
       async () => {
+        accepted.length = 0;
         const reading = await measure();
-        if (!reading) return null;
-        return reading.fits ? reading.settling === 0 : reading.settling <= 1;
+        if (!reading) {
+          held = null;
+          return "there is nothing in the transcript to settle on";
+        }
+        const first = held === null;
+        const same = !first && reading.identity === held;
+        if (!first && !same) arrivals += 1;
+        held = reading.identity;
+        if (!same) {
+          return first
+            ? `a first reading of "${reading.text}…", with nothing yet to compare it against`
+            : `"${reading.text}…" arrived while the wait was running (${arrivals} so far)`;
+        }
+        if (reading.fits ? reading.settling !== 0 : reading.settling > 1) {
+          return `"${reading.text}…" is still moving, ${reading.settling}px from where it is going`;
+        }
+        accepted.push(reading);
+        return SETTLED;
       },
       { message: `${screen}: the transcript never settled on the newest message` },
     )
-    .toBe(true);
-  const fit = await measure();
-  if (!fit) throw new Error(`${screen}: the transcript is empty, so there is nothing to measure`);
+    .toBe(SETTLED);
+  const fit = accepted.at(-1);
+  if (!fit) throw new Error(`${screen}: the transcript settled without a measurement to assert on`);
   expect(
     fit.above,
     `${screen}: "${fit.text}…" is cut off at the top of the transcript, ${fit.above}px of it above the region (T83, design §6.5)`,
@@ -467,6 +554,7 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
       `${screen}: the conversation is ${fit.room}px of the 375x667 screen, under the ${TRANSCRIPT_ROOM}px design §6.5 leaves it (T83)`,
     ).toBeGreaterThanOrEqual(TRANSCRIPT_ROOM);
   }
+  return fit;
 }
 
 /**
