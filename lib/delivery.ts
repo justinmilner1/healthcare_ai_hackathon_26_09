@@ -59,6 +59,22 @@ export const DELIVERY_NO_PATIENT_EMAIL = "patient has no email";
  */
 export const NO_CONSENT_TO_MESSAGE = "no consent to message this patient";
 
+/**
+ * §2.3, §5.3, T121 What staff read on a visit whose patient cannot be sent a six-digit code: every channel
+ * on file is closed, by a bounce or a STOP (§8.1), by §13.4's demo rule, or because this deployment has no
+ * sender behind it. `codeReach` (lib/notify.ts) is what decides it; this is the one sentence for all of them.
+ *
+ * One sentence rather than three, because the three "why" lines are already on the row — the suppression
+ * line, the demo line, and the deployment's own — and what none of them says is the consequence: the patient
+ * cannot open their link at all, so the intake happens on the telephone or not at all. Staff's words, so it
+ * names no channel, no address and no backend (§3.7, §10.6), and here beside the other staff-readable
+ * refusals because the dashboard is a client component and must not import lib/notify.ts to read it.
+ *
+ * It is deliberately not said about a visit with no phone and no email: that patient cannot be telephoned
+ * either, and §2.2 asking the wizard for a contact method is a different gap with a different fix.
+ */
+export const NO_CODE_CAN_REACH = "No code can reach this patient, so their link will not open — call them";
+
 /** Every reason the app writes for staff rather than for a deployment. §8.1's suppression and §13.4's demo
  *  rule come from the modules that own them, so there is one copy of each sentence in the repo. */
 const STAFF_REASONS: ReadonlySet<string> = new Set([

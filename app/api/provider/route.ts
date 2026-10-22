@@ -19,6 +19,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/guard";
 import { withRoute } from "@/lib/log";
+import { codeReach } from "@/lib/notify";
+import { channelsFor } from "@/lib/patientSession";
 import { signUpPractice } from "@/lib/practice";
 import { FORMER_COLLEAGUE, reviewerNames } from "@/lib/review";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "@/lib/sweetie";
@@ -38,7 +40,9 @@ async function getHandler() {
     where: { patient: { practiceId: provider.practiceId } },
     orderBy: { createdAt: "desc" },
     include: {
-      patient: true,
+      // §13.4's flag rides on the practice, and `codeReach` below needs it to answer whether a demo
+      // practice may write to this patient's own address at all (lib/demo.ts).
+      patient: { include: { practice: { select: { isDemo: true } } } },
       uploads: { select: { kind: true } },
       summaries: { select: { audience: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
@@ -62,6 +66,19 @@ async function getHandler() {
       const defs = fieldsFor(v.visitType, v.reason);
       const intake = parseIntake(v.intake, defs);
       const uploads = Array.from(new Set(v.uploads.map((u) => u.kind)));
+      // §2.3, §5.3, T121 Can this patient be sent the six-digit code their link needs? Answered here rather
+      // than on the screen because two thirds of it are the deployment's (`codeReach` asks the senders
+      // themselves, lib/notify.ts) and the dashboard is a client component. Only said of a visit that has a
+      // channel on file to have lost: a patient with neither a phone nor an address cannot be telephoned
+      // about it either, and §2.2's gap has its own fix.
+      const onFile = channelsFor(v.patient);
+      const reach = codeReach({
+        channels: onFile,
+        phone: v.patient.phone,
+        email: v.patient.email,
+        suppression: v.patient,
+        demo: v.patient.practice.isDemo,
+      });
       return {
         id: v.id,
         patientId: v.patientId,
@@ -87,6 +104,9 @@ async function getHandler() {
         token: v.token,
         phone: v.patient.phone,
         email: v.patient.email,
+        /** §2.3 True when contact details are on file and none of them can carry a code, so the patient
+         *  cannot open their link at all and the front desk has to telephone them (T121). */
+        codeUnreachable: onFile.length > 0 && reach.channels.length === 0,
         // §10.5 Set the moment a deletion is asked for and cleared only by the row going. The dashboard
         // stops offering anything on a row whose patient is on the way out (app/provider/dashboard.tsx).
         patientDeletedAt: v.patient.deletedAt,

@@ -16,6 +16,7 @@ import {
   deliveryFaults,
   deliveryReason,
   deliveryTooltip,
+  NO_CODE_CAN_REACH,
   NO_CONSENT_TO_MESSAGE,
   type DeliveryFacts,
 } from "./delivery";
@@ -258,5 +259,39 @@ describe("the line for a practice that chose to message nobody (T120)", () => {
 
   it("says consent, which is the thing staff would change", () => {
     assert.match(NO_CONSENT_TO_MESSAGE, /consent/i);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T121 (§2.3, §5.3) The line about a visit whose patient cannot be sent the code their link needs. It is
+// the only sentence in this module that is a consequence rather than a reason: the three "why" lines are
+// already on the row, and what none of them said is that the patient cannot get in at all.
+
+describe("the line for a visit no code can reach (T121)", () => {
+  it("is not any of the three reasons it follows", () => {
+    // The row carries whichever of these closed its channels; this says what they add up to, so a reviewer
+    // reading the cell gets the conclusion once and not a fourth explanation.
+    for (const channel of ["email", "sms", "both", "", "none"]) {
+      assert.notEqual(NO_CODE_CAN_REACH, cannotSendYet(channel), channel);
+    }
+    for (const reason of [...SUPPRESSED_REASONS, DEMO_BLOCKED, NO_CONSENT_TO_MESSAGE]) {
+      assert.notEqual(NO_CODE_CAN_REACH, reason, reason);
+    }
+    assert.doesNotMatch(NO_CODE_CAN_REACH, /ask whoever set|bounced|STOP|spam|demo practice/i);
+  });
+
+  it("names nothing a practice cannot act on", () => {
+    assert.doesNotMatch(NO_CODE_CAN_REACH, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+    assert.doesNotMatch(NO_CODE_CAN_REACH, /administrator|admin\b/i);
+  });
+
+  it("says the consequence and the one thing staff can do about it", () => {
+    // §2.3 makes the code the only way into a patient link, so the visit stops here unless the front desk
+    // picks up the telephone. Both halves are in the sentence because either on its own is half the news.
+    assert.match(NO_CODE_CAN_REACH, /link will not open/i);
+    assert.match(NO_CODE_CAN_REACH, /call them/i);
+    // A sentence of its own, unlike NO_CONSENT_TO_MESSAGE above: it is printed on its own line in the
+    // dashboard's Messages cell rather than as the tail of one the screen writes.
+    assert.match(NO_CODE_CAN_REACH, /^[A-Z]/);
   });
 });

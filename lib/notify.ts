@@ -16,7 +16,7 @@ import { emailConfig, sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { canSendOrMailbox, sendOrMailbox } from "./mailer";
 import { intakeLink, sendSms, smsConfig } from "./sms";
-import { suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
+import { allowedChannels, suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
 import { channelsOf } from "./visitIntake";
 
@@ -180,9 +180,66 @@ export async function sendVerificationCode(p: {
  * Settled from the environment, like `inviteSendability` below and for the same reason: a page can ask it
  * while the patient is still in front of it, and it is not a promise the message arrives — a suppressed
  * address or a demo practice closes a channel on facts that live on the row (`blockedBy` above).
+ *
+ * Which is why no caller asks this one on its own any more: it is the environment's third of `codeReach`
+ * below, which is the whole question "can a code reach this patient" and what the two call sites use (T121).
  */
 export function codeChannels(channels: readonly NotifyChannel[]): NotifyChannel[] {
   return channels.filter((c) => (c === "sms" ? !("reason" in smsConfig()) : canSendOrMailbox()));
+}
+
+/** Whether a code can reach this patient at all, and — when it cannot — which side of the question closed it.
+ *  `closedBy` is set only when there was something on file to close: a visit with no phone and no email has
+ *  its own answer at both call sites (§2.2) and is not a channel that shut. */
+export type CodeReach = {
+  /** The channels a code can really be sent on, in the order they were given (the patient's own order). */
+  channels: NotifyChannel[];
+  /** Why `channels` is empty although contact details are on file. `"environment"`: this deployment has no
+   *  sender behind them (T113). `"row"`: the facts on the patient's row closed them — §8.1's bounce, spam
+   *  report or STOP, or §13.4's demo practice with a destination that is not synthetic. Nothing the patient
+   *  is told distinguishes the two (§2.3); the log does (app/api/verify/route.ts). */
+  closedBy?: "environment" | "row";
+};
+
+/**
+ * Can a six-digit code reach this patient (§2.3, §5.3, T121)?
+ *
+ * `codeChannels` above is one of the three filters this applies, and on its own it was half an answer: it
+ * asks whether the *deployment* has a sender behind each channel, and its own doc comment says what it is
+ * not asking — "a suppressed address or a demo practice closes a channel on facts that live on the row". The
+ * send reads those facts (`blockedBy` above) and nothing upstream of the code screen did, so a patient whose
+ * only address had bounced was told a code was on its way, `POST /api/verify` answered `sent: true`, and the
+ * `notify.code` job refused both channels and logged `code_nothing_to_send`. §2.3 makes the code the only
+ * way in, so that is where the visit stopped.
+ *
+ * So this is the one question both call sites ask — the code screen (components/VerifyGate.tsx) and
+ * `POST /api/verify` — rather than three filters spelled out at each of them:
+ *
+ *   §13.4  `demoBlockReason` — a demo practice may only write to a reserved address or number (lib/demo.ts)
+ *   §8.1   `allowedChannels` — a bounce, a spam report or a STOP closes the channel (lib/suppression.ts)
+ *   T113   `codeChannels`    — and then, is there a sender behind what is left
+ *
+ * The row's two filters run before the environment's, which is what makes `closedBy` honest rather than an
+ * order of evaluation: `"row"` means the facts on the row alone close every channel on file, so no amount of
+ * configuration reopens one and the front desk has to telephone. `"environment"` means something on the row
+ * is still open and this deployment cannot serve it, which is somebody's to fix.
+ *
+ * `channels` is what is on file (`channelsFor`, lib/patientSession.ts); `phone` and `email` are the same two
+ * details again, because §13.4's rule is about the destination and not about the channel.
+ */
+export function codeReach(p: {
+  channels: readonly NotifyChannel[];
+  phone?: string | null;
+  email?: string | null;
+  suppression?: SuppressionFacts | null;
+  demo?: boolean;
+}): CodeReach {
+  const open = allowedChannels(p.channels, p.suppression).filter(
+    (c) => !demoBlockReason(Boolean(p.demo), c, c === "sms" ? p.phone : p.email),
+  );
+  const channels = codeChannels(open);
+  if (channels.length || p.channels.length === 0) return { channels };
+  return { channels, closedBy: open.length === 0 ? "row" : "environment" };
 }
 
 /**

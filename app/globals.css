@@ -1599,6 +1599,15 @@ textarea.ss-input {
   color: #8c3b33;
 }
 
+/* T121 The conclusion of whatever closed lines are above it: this patient cannot open their link at all
+   (§2.3). The failure red of .provider-delivery-fault, because unlike the amber lines it is not a provider
+   telling staff something — it is a visit that stops here unless somebody telephones — and the only weight
+   in this cell, so it is read before the explanations it follows. */
+.provider-no-code {
+  color: #8c3b33;
+  font-weight: 600;
+}
+
 .provider-stage-cancelled {
   color: #8a8781;
   background: #eeece6;

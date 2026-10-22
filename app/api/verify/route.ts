@@ -17,7 +17,7 @@ import { recordPatientVerified } from "@/lib/auditStore";
 import { db } from "@/lib/db";
 import { enqueue, nudge } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
-import { codeChannels } from "@/lib/notify";
+import { codeReach } from "@/lib/notify";
 import {
   channelsFor,
   CODE_TTL_MS,
@@ -69,7 +69,16 @@ async function postHandler(req: Request) {
 }
 
 /** Ask for a code. A live code is not replaced unless the patient says it never arrived. */
-async function send(visit: { id: string; patientId: string; patient: { phone: string | null; email: string | null } }, resend: boolean) {
+async function send(
+  visit: {
+    id: string;
+    patientId: string;
+    // §8.1's suppression and §13.4's demo flag are on the rows `visitByToken` already loads (lib/visit.ts),
+    // so asking whether a code can reach this patient costs no extra query.
+    patient: { phone: string | null; email: string | null; emailUndeliverableAt: Date | null; emailUndeliverableReason: string | null; smsOptOutAt: Date | null; practice: { isDemo: boolean } };
+  },
+  resend: boolean,
+) {
   const onFile = channelsFor(visit.patient);
   if (onFile.length === 0) {
     // Nothing to send to, so there is no way in from here. §2.2 has staff record a phone or an email with the
@@ -81,18 +90,32 @@ async function send(visit: { id: string; patientId: string; patient: { phone: st
     );
   }
 
-  // Which of those this deployment has a sender behind (T113). Asked before anything is minted or answered,
+  // Which of those a code can really be sent on (T113, T121). Asked before anything is minted or answered,
   // because `sent: true` on the strength of a queued job is a claim about a `Job` row and not about a
-  // message: with no backend behind the only channel on file, the code was reported sent, the patient waited
-  // for digits that no process could deliver, and the resend minted another of them. `codeChannels` settles
-  // it from the environment, with no client built and no network call (lib/notify.ts), so the answer costs
-  // nothing and is available while the patient is still on the screen — the shape T111 gave POST /api/book.
-  const channels = codeChannels(onFile);
+  // message: with nothing able to carry the digits, the code was reported sent, the patient waited for
+  // digits that no process could deliver, and the resend minted another of them. `codeReach` settles it from
+  // the environment and from the patient's own row, with no client built and no network call
+  // (lib/notify.ts), so the answer costs nothing and is available while the patient is still on the screen —
+  // the shape T111 gave POST /api/book.
+  const { channels, closedBy } = codeReach({
+    channels: onFile,
+    phone: visit.patient.phone,
+    email: visit.patient.email,
+    suppression: visit.patient,
+    demo: visit.patient.practice.isDemo,
+  });
   if (channels.length === 0) {
-    log.warn("verify_no_backend", { visitId: visit.id, patientId: visit.patientId, count: onFile.length });
-    // 503: the request is right and the deployment cannot serve it yet. Nothing here names the channel that
-    // was on file, let alone the address or the number (§2.3) — the patient's next step is the telephone
-    // either way, and VerifyGate renders that as a screen rather than an error under a code box.
+    // Two events for one answer. The caller cannot tell the cases apart — §2.3 gives the patient one
+    // sentence, below — but whoever runs the deployment has to: `verify_no_backend` is a sender nobody has
+    // configured and is theirs to fix, and `verify_channels_closed` is §8.1's bounce or STOP or §13.4's demo
+    // rule, which no configuration reopens and which the front desk has to telephone about. Neither line
+    // carries an address, a number or the reason text (§10.3) — only how many channels were on file.
+    const event = closedBy === "row" ? "verify_channels_closed" : "verify_no_backend";
+    log.warn(event, { visitId: visit.id, patientId: visit.patientId, count: onFile.length });
+    // 503 for both, chosen on what the patient can act on rather than on which filter closed the channel:
+    // the request is right, this link cannot be opened right now, and the next step is the telephone either
+    // way. Nothing here names the channel that was on file, let alone the address or the number (§2.3), and
+    // nothing says why. VerifyGate renders the same answer as a screen rather than an error under a code box.
     return NextResponse.json(
       { error: "Sweet Spot cannot send you a code right now, so there is no way to open this link. Please call your doctor's office.", channels },
       { status: 503 },

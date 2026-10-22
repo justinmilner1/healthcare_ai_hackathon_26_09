@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
-import { deliveryFaults, deliveryTooltip } from "@/lib/delivery";
+import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { confirmsDeletion } from "@/lib/retention";
 import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
@@ -53,6 +53,10 @@ type Row = {
   token: string;
   phone: string | null;
   email: string | null;
+  /** §2.3, T121 Contact details on file and nothing that can carry this visit's six-digit code, so the
+   *  patient cannot open their link. Decided by `codeReach` server-side (app/api/provider/route.ts),
+   *  because two thirds of the question is whether this deployment has a sender at all. */
+  codeUnreachable?: boolean;
   /** §10.5 Set once a deletion has been asked for and until the `patient.delete` job has run. The row is on
    *  its way out, so the screen stops offering anything to do with it. */
   patientDeletedAt: string | null;
@@ -931,6 +935,12 @@ function Messages({ visit }: { visit: Row }) {
           {s.at ? ` · ${s.at.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
         </small>
       ))}
+      {/* §2.3, T121 And what none of the lines above says: the consequence. Each of them explains one
+          channel — bounced, stopped, demo-blocked, nothing configured — and a front desk reading a bounce
+          pill against an unopened link has to put three of them together to work out that this patient
+          cannot get into their link at all. Last, because it is the conclusion of whatever is above it, and
+          once however many channels closed: it is a fact about the visit, not about a channel. */}
+      {visit.codeUnreachable && <small className="provider-suppressed provider-no-code">{NO_CODE_CAN_REACH}</small>}
       <small className="provider-cell-sub">{consent ? `Consent: ${consent}` : "No consent recorded"}</small>
     </div>
   );

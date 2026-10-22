@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   codeChannels,
+  codeReach,
   codeTemplates,
   deletionTemplates,
   inviteSendability,
@@ -422,6 +423,111 @@ test("one backend of the two is a narrower invite, not a refused one", () => {
   withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
     assert.deepEqual(inviteSendability("both").channels, ["sms", "email"]);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T121 The whole of "can a code reach this patient": the environment's third above, plus the two filters
+// that live on the patient's own row. `codeChannels` was half an answer, and the other half closed a
+// channel just as completely — a bounced address, a number that texted STOP, a demo practice whose patient
+// has an address somebody could own — so the code screen promised digits the `notify.code` job then refused.
+
+const MAILBOX = { DEV_MAIL_DIR: "e2e/.mail" };
+const BOTH = { DEV_MAIL_DIR: "e2e/.mail", SNS_ORIGINATION_NUMBER: "+14155550199" };
+const SAM = { phone: "+14155550100", email: "sam.sample@sweetspot.local" };
+const BOUNCED = { emailUndeliverableAt: new Date("2026-10-08T00:00:00Z"), emailUndeliverableReason: "bounce" };
+const STOPPED = { smsOptOutAt: new Date("2026-10-08T00:00:00Z") };
+
+test("with every channel open and a sender behind it, a code can reach the patient (T121)", () => {
+  withEnv(BOTH, () => {
+    const reach = codeReach({ channels: ["sms", "email"], ...SAM });
+    assert.deepEqual(reach.channels, ["sms", "email"]);
+    assert.equal(reach.closedBy, undefined, "nothing closed, so there is nothing to attribute");
+    // The caller's order is the patient's, the same promise `codeChannels` makes.
+    assert.deepEqual(codeReach({ channels: ["email", "sms"], ...SAM }).channels, ["email", "sms"]);
+  });
+});
+
+test("a bounced address cannot carry a code, and the open channel still can (§8.1)", () => {
+  withEnv(BOTH, () => {
+    const reach = codeReach({ channels: ["sms", "email"], ...SAM, suppression: BOUNCED });
+    assert.deepEqual(reach.channels, ["sms"], "the honest answer is the other channel");
+    assert.equal(reach.closedBy, undefined);
+  });
+});
+
+test("a patient whose only channel the row has closed cannot be reached at all (§8.1, T121)", () => {
+  // The ticket's own two arms, each with one channel on file. Both are addresses and numbers this
+  // environment really could send to — the mailbox and a number behind an originator — so what closes them
+  // is the fact on the row and nothing else.
+  withEnv(BOTH, () => {
+    const bounced = codeReach({ channels: ["email"], email: SAM.email, suppression: BOUNCED });
+    assert.deepEqual(bounced.channels, []);
+    assert.equal(bounced.closedBy, "row", "no amount of configuration reopens a dead address");
+
+    const stopped = codeReach({ channels: ["sms"], phone: SAM.phone, suppression: STOPPED });
+    assert.deepEqual(stopped.channels, []);
+    assert.equal(stopped.closedBy, "row");
+
+    // Both at once, which is the state the front desk has to telephone about.
+    const neither = codeReach({ channels: ["sms", "email"], ...SAM, suppression: { ...BOUNCED, ...STOPPED } });
+    assert.deepEqual(neither.channels, []);
+    assert.equal(neither.closedBy, "row");
+  });
+});
+
+test("a demo practice cannot send a code to a destination somebody could own (§13.4)", () => {
+  withEnv(BOTH, () => {
+    // The reserved address and the fictitious number are reachable from a demo practice, which is what makes
+    // the seeded demo walkable at all (lib/demo.ts).
+    assert.deepEqual(codeReach({ channels: ["sms", "email"], ...SAM, demo: true }).channels, ["sms", "email"]);
+
+    // And a real one is not: §13.4 is an allow-list, so this patient's only channel is closed by the row.
+    const real = codeReach({ channels: ["email"], email: "patient@example-endo.com", demo: true });
+    assert.deepEqual(real.channels, []);
+    assert.equal(real.closedBy, "row");
+    const realPhone = codeReach({ channels: ["sms"], phone: "+14155551234", demo: true });
+    assert.deepEqual(realPhone.channels, []);
+    assert.equal(realPhone.closedBy, "row");
+
+    // The same two destinations at a practice that is not a demo one are untouched by any of it.
+    assert.deepEqual(codeReach({ channels: ["email"], email: "patient@example-endo.com" }).channels, ["email"]);
+    assert.deepEqual(codeReach({ channels: ["sms"], phone: "+14155551234" }).channels, ["sms"]);
+  });
+});
+
+test("the row's filters run before the environment's, so `closedBy` says who can fix it (T121)", () => {
+  // T113's answer must not regress through this: a channel the row leaves open and this deployment cannot
+  // serve is still the deployment's gap, and saying "row" would send staff to the telephone over a sender
+  // nobody has configured.
+  withEnv(MAILBOX, () => {
+    // Email is sendable here (the mailbox) and SMS is not. The bounce closes the one that works.
+    const bounced = codeReach({ channels: ["sms", "email"], ...SAM, suppression: BOUNCED });
+    assert.deepEqual(bounced.channels, []);
+    assert.equal(bounced.closedBy, "environment", "the phone is still open; nothing here can text it");
+
+    // And with the row closing nothing, it is T113's own answer.
+    const configured = codeReach({ channels: ["sms"], phone: SAM.phone });
+    assert.deepEqual(configured.channels, []);
+    assert.equal(configured.closedBy, "environment");
+  });
+
+  // Every channel closed on both counts is still the row's: it is the stronger statement, and the one that
+  // no configuration undoes.
+  const nothing = codeReach({ channels: ["email"], email: SAM.email, suppression: BOUNCED });
+  assert.deepEqual(nothing.channels, []);
+  assert.equal(nothing.closedBy, "row");
+});
+
+test("a visit with nothing on file is not a channel that closed (§2.2, T121)", () => {
+  // §2.2's own gap, which both call sites answer before they ask this — and which the dashboard must not
+  // report as "call them": there is no number to call.
+  for (const env of [{}, BOTH] as Record<string, string>[]) {
+    withEnv(env, () => {
+      const reach = codeReach({ channels: [] });
+      assert.deepEqual(reach.channels, []);
+      assert.equal(reach.closedBy, undefined);
+    });
+  }
 });
 
 test("a credential is not a sender, so it does not make a channel sendable (T94, T110)", () => {
