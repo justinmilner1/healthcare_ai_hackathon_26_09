@@ -19,8 +19,11 @@ import { shot, WHOLE_PAGE } from "./shot";
  */
 async function book(page: import("@playwright/test").Page, name: string, contact: boolean | "phone" = true) {
   const email = patientEmail(name);
-  // The 555-01xx range the NANP reserves, which is what a demo practice may be given (§13.4, lib/demo.ts).
-  const phone = `+1415555${String(Math.floor(Math.random() * 100)).padStart(2, "0")}${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
+  // The 555-01xx range the NANP reserves, which is what a demo practice may be given (§13.4, lib/demo.ts):
+  // a different number per booking, like patientEmail above, because POST /api/book reuses a patient it can
+  // find by phone — and a different area code from the seed's two 415 numbers, so it cannot find one of them
+  // and hand this test a patient with an email on file after all.
+  const phone = `+120655501${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
   const reach = contact === "phone" ? { phone } : contact ? { email } : {};
   await signInAsDemo(page);
   const booked = await (
@@ -28,7 +31,7 @@ async function book(page: import("@playwright/test").Page, name: string, contact
   ).json();
   expect(booked.token, JSON.stringify(booked)).toBeTruthy();
   await signOutOfBrowser(page);
-  return { token: booked.token as string, visitId: booked.visitId as string, email };
+  return { token: booked.token as string, visitId: booked.visitId as string, email, phone };
 }
 
 test("opening a link sends a code and shows the code screen, and the right code opens the chat", async ({ page }) => {
@@ -190,7 +193,7 @@ test("a link whose only channel has no backend says so, and never claims a code 
   // configures none, which is also what a deployment that has not set §8.1 up looks like. The patient used
   // to be told "We sent a 6-digit code to your phone", with a resend that minted another one into the same
   // silence, because POST /api/verify answered on the strength of a `Job` row alone.
-  const { token } = await book(page, "E2E No Backend", "phone");
+  const { token, phone } = await book(page, "E2E No Backend", "phone");
   await page.goto(`/s/${token}`);
   const card = page.locator(".patient-notice-card");
   await expect(card).toContainText(/nowhere for your 6-digit code to go/i, LOADED);
@@ -203,7 +206,9 @@ test("a link whose only channel has no backend says so, and never claims a code 
   await expect(page.getByLabel("6-digit code")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Send a new code/i })).toHaveCount(0);
   // Nothing on it names the number either, which is the §2.3 rule the working screen keeps as well.
-  await expect(page.locator("body")).not.toContainText("+1415555");
+  await expect(page.locator("body")).not.toContainText(phone);
+  await expect(page.locator("body")).not.toContainText(phone.replace("+1", ""));
+  await expect(page.locator("body")).not.toContainText("E2E No Backend");
   // And the route itself does not answer `sent: true` for a channel that cannot send: 503, because the
   // request is right and the deployment cannot serve it yet.
   const asked = await postJson(request, "/api/verify", { token });
