@@ -165,12 +165,15 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   // to), and `wholeRows` fails the shot rather than letting a half-read flag be committed as evidence
   // (T107). The Summary card stays under them, which is what "above the numbers" looks like in a picture.
   //
-  // `wholeRows` names the glucose block and not the block the scroll is anchored on, which is the one thing
-  // it cannot judge: `scrollIntoView({ block: "start" })` lands the anchor *at* the top edge, and a layout
-  // of fractional pixels lands it a fraction above — 41 of 41px of the intake banner "in frame" on the
-  // desktop run, which is sub-pixel rounding rather than a row anybody is being shown half of. The anchor is
-  // at the top of the frame by construction; what the option is here to catch is the block below it.
-  await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-glucose-flags" });
+  // Both blocks are named, the anchor included. It used to be only the block below it, because the desktop
+  // run reported 41 of 41px of the intake banner "in frame" and failed the shot: `scrollIntoView({ block:
+  // "start" })` lands the anchor *at* the top edge and a fractional layout lands it a hair above, and the
+  // option was judging a whole-document capture against the window's edges. T119 took the window clamp off
+  // the capture that has no window edge, so the desktop frame — which holds the anchor whole, and always
+  // did — passes. The phone still is one screenful and still is judged against the window; the anchor lands
+  // on or below its top edge at 375px, so nothing had to be loosened for it. So the shot now asserts on
+  // everything it was taken to show rather than on the half below the anchor.
+  await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 
   // §7.4's sheet is the same brief on paper, so the same two blocks are on it, above the same numbers. The
   // sentences are compared with the brief's rather than re-derived: the point of asserting both surfaces is
