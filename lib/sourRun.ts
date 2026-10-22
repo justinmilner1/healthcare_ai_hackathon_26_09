@@ -9,6 +9,7 @@ import { db } from "./db";
 import { enqueue } from "./jobs";
 import { ask, llmStatus, LLMUnavailable } from "./llm";
 import { log } from "./log";
+import { spanNoun } from "./plural";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
 import { narrativeSource, sourInputHash, sourInputsFor, type SourUploadRef } from "./sourInput";
@@ -202,10 +203,14 @@ export function degradedPair(base: Summary, flags: string[], configured: boolean
  *  clinician's patterns rather than from the raw data so the two never disagree. */
 const modelNarrator: Narrator = async (c) => {
   const provider = await ask<Narrative>(sourSystem(), c.brief, { json: true });
+  // The span the figure was computed over, not a literal week (T114, §2.7): `bundle.stats.days` is the
+  // number the patient's own page prints in its History tile, so the prompt and the page cannot disagree
+  // about how much data this is. `lib/bundle.ts` floors it at 1.
+  const days = c.bundle.stats.days;
   const patient = await ask<Narrative>(
-    patientSummarySystem(),
+    patientSummarySystem(days),
     [
-      `Time in range this week: ${Math.round(c.base.timeInRange * 100)}%`,
+      `Time in range over the ${spanNoun(days)}: ${Math.round(c.base.timeInRange * 100)}%`,
       `Clinician's patterns:\n${clean(provider.patterns, 3).map((x) => `- ${x}`).join("\n") || "- (none)"}`,
       `Clinician's questions for the visit:\n${clean(provider.questions, 3).map((x) => `- ${x}`).join("\n") || "- (none)"}`,
       `Patient's own words:\n${c.notes.trim() || "(none)"}`,
