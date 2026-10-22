@@ -64,12 +64,20 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // T111 This visit is booked on both channels and this environment can send on neither, so the claim names
   // neither: the line for a visit whose chosen channels have no backend between them (lib/delivery.ts). The
   // journey spec pins the one-channel wording; this pins "both", which is the wizard's default and so the
-  // case most bookings land in. Anchored on the lede, because the card's heading says the *patient* is on
-  // the way and would match a promise about the message that is not there.
-  const claim = page.locator(".patient-wizard-success .ss-lede");
+  // case most bookings land in.
+  //
+  // T122 And the heading above it, which was a literal promise of motion until this ticket: the whole card
+  // is read back here, because the sentence was already honest and the line in the largest type was not.
+  const card = page.locator(".patient-wizard-success");
+  const claim = card.locator(".ss-lede");
   await expect(claim).toContainText(/No invite sent: Sweet Spot cannot send this message yet/i, LOADED);
   await expect(claim).not.toContainText(/on its way/i);
+  await expect(card.locator(".ss-title")).toHaveText(`${name} is ready for Sweetie.`);
+  expect(await card.innerText(), "nothing on an unsent card claims the invite is going anywhere").not.toMatch(
+    /on (?:the|its) way/i,
+  );
   await expect(page.locator(".patient-link-card"), "§8.1's fallback, on the screen that just refused").toContainText("/s/");
+  await shot(page, "provider-add-visit-unsent", MODAL);
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
   // The row carries §4.4's status, the chosen channels and the consent behind them.
@@ -172,9 +180,13 @@ test("a deployment with a sender still tells staff the invite is on its way", as
 
   // The channel named is the one that can send, which is why it comes from the route's answer and not from
   // the form: staff who chose "Text and email" where only one backend exists are told about that one.
-  const claim = page.locator(".patient-wizard-success .ss-lede");
+  const card = page.locator(".patient-wizard-success");
+  const claim = card.locator(".ss-lede");
   await expect(claim).toContainText("The invite is on its way by email.", LOADED);
   await expect(claim).not.toContainText(/No invite sent/i);
+  // T122 The sent wording is the one this card always had, and the heading is the half of it that used to be
+  // printed whatever the answer was: a deployment with a sender still reads "<name> is on the way."
+  await expect(card.locator(".ss-title"), "unchanged where a send really is happening").toHaveText(`${name} is on the way.`);
   await expect(page.locator(".patient-link-card"), "§8.1's link is on this screen either way").toContainText("/s/");
   await shot(page, "provider-add-visit-sent", MODAL);
 });

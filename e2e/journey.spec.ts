@@ -157,12 +157,20 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // right below it. Before this ticket the same screen read "The invite is on its way by email." while the
   // dashboard cell twelve steps down this test said email cannot be sent.
   //
-  // Anchored on the lede rather than on the card, because the card's heading is "<name> is on the way" —
-  // about the patient keeping their appointment, not about the message — and a `/on the way/i` over the
-  // whole card is exactly what let the sentence above sit here through two tickets about it.
-  const claim = page.locator(".patient-wizard-success .ss-lede");
+  // T122 (§2.3, §8.1) The heading over that sentence was a literal — "<name> is on the way." — so this card
+  // used to promise motion in its largest type and retract it one line down. Both lines now come out of
+  // `bookedOutcome` (lib/booking.ts), so the card is held whole here: nothing on it claims a send.
+  const card = page.locator(".patient-wizard-success");
+  await expect(card.locator(".ss-title"), "the heading says what happened, not what T111 ruled out").toHaveText(
+    `${patientName} is ready for Sweetie.`,
+    LOADED,
+  );
+  const claim = card.locator(".ss-lede");
   await expect(claim).toContainText(/No invite sent: Sweet Spot cannot send email yet/i, LOADED);
   await expect(claim, "and not the promise a row in `Job` used to imply").not.toContainText(/on its way/i);
+  expect(await card.innerText(), "no line of the card claims the invite is going anywhere").not.toMatch(
+    /on (?:the|its) way/i,
+  );
   expect(await claim.innerText(), "no variable, credential or backend on a practice's screen").not.toMatch(
     /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bAWS\b|credential|verified identity/,
   );
