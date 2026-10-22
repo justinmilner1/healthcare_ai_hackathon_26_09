@@ -210,9 +210,17 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
         body: JSON.stringify({ visitId: visit.id }),
       })
     ).json();
+    // T120 `queued` is the route's answer about this deployment and not about the queue, so the note it
+    // writes is the wizard's sentence one screen over (§8.1): what staff read when nothing can go out is
+    // lib/delivery.ts's words, and the row's own Copy intake is where §8.1's fallback lives — the link does
+    // not fit in a note under four buttons, and the button that hands it over is a press away.
     setRowNote((notes) => ({
       ...notes,
-      [visit.id]: data.queued ? "Sending now" : `Not sent: ${data.error ?? "unknown error"}`,
+      [visit.id]: data.queued
+        ? "Sending now"
+        : data.reason
+          ? `No invite sent: ${data.reason}. Use Copy intake to give them the link.`
+          : `Not sent: ${data.error ?? "unknown error"}`,
     }));
   }
 

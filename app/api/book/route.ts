@@ -22,6 +22,7 @@
 // §8.1's two backends amount to for a deployment that has not set them up. The link is already here.
 
 import { after, NextResponse } from "next/server";
+import { NO_CONSENT_TO_MESSAGE } from "@/lib/delivery";
 import { requireCapability, requireMemberInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { withRoute } from "@/lib/log";
@@ -44,7 +45,7 @@ async function postHandler(req: Request) {
   const created = await createVisit(me, provider.id, parsed.draft);
 
   const booked = { ...created, link: intakeLink(created.token) };
-  if (parsed.draft.channel === "none") return NextResponse.json({ ...booked, queued: false, reason: "no consent to message this patient" });
+  if (parsed.draft.channel === "none") return NextResponse.json({ ...booked, queued: false, reason: NO_CONSENT_TO_MESSAGE });
 
   // The send is a job, so adding a patient returns as fast as the insert and a throttled SES call cannot cost
   // the clinic the patient row it just created (§3.4, §8).

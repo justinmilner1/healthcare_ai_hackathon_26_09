@@ -16,6 +16,7 @@ import {
   deliveryFaults,
   deliveryReason,
   deliveryTooltip,
+  NO_CONSENT_TO_MESSAGE,
   type DeliveryFacts,
 } from "./delivery";
 import { DEMO_BLOCKED } from "./demo";
@@ -231,5 +232,31 @@ describe("the line a screen gets before the send (T111)", () => {
       assert.doesNotMatch(text, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, text);
       assert.doesNotMatch(text, /administrator|admin\b/i, text);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T120 The other sentence a screen gets before a send, and the one thing that must stay true of it: it is
+// not the one above. `POST /api/book` and `POST /api/invite` both choose between the two, so a practice that
+// told us not to contact this patient never reads that somebody should go and configure a sender.
+
+describe("the line for a practice that chose to message nobody (T120)", () => {
+  it("is not the deployment's gap, for any channel", () => {
+    for (const channel of ["email", "sms", "both", "", "none"]) {
+      assert.notEqual(NO_CONSENT_TO_MESSAGE, cannotSendYet(channel), channel);
+    }
+    assert.doesNotMatch(NO_CONSENT_TO_MESSAGE, /Sweet Spot cannot send|ask whoever set/);
+  });
+
+  it("names nothing a practice cannot act on either", () => {
+    assert.doesNotMatch(NO_CONSENT_TO_MESSAGE, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+    assert.doesNotMatch(NO_CONSENT_TO_MESSAGE, /administrator|admin\b/i);
+    // It reads as the tail of "No invite sent: ..." on both screens that say it, so it is a phrase and not
+    // a sentence of its own: no leading capital and no full stop to double the one the screens add.
+    assert.doesNotMatch(NO_CONSENT_TO_MESSAGE, /^[A-Z]|[.]$/);
+  });
+
+  it("says consent, which is the thing staff would change", () => {
+    assert.match(NO_CONSENT_TO_MESSAGE, /consent/i);
   });
 });

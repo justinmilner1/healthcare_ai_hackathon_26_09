@@ -224,7 +224,12 @@ export default function SourView({ id }: { id: string }) {
     const d = await (await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
     // The send is a `notify.invite` job now, so this says it is on its way rather than that it arrived; the
     // link is here to share directly either way, and per-channel delivery status is T19 (§8.3).
+    //
+    // T120 And `queued` is the route's answer about this deployment rather than about the queue, so a
+    // deployment that cannot send says so in lib/delivery.ts's words, with the link it already shares — this
+    // screen had §8.1's fallback before the claim in front of it was true.
     if (d.queued) setInvite(`Sending the link to this patient now. Share it directly if you'd rather: ${d.link}`);
+    else if (d.reason) setInvite(`No invite sent: ${d.reason}. Share the link directly: ${d.link}`);
     else setInvite(d.error ? `Couldn't send the link: ${d.error}` : `Couldn't send the link automatically. Share it directly: ${d.link}`);
   }
 

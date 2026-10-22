@@ -47,6 +47,18 @@ export const DELIVERY_NO_EMAIL = "no email on file";
 export const DELIVERY_NO_PROVIDER_EMAIL = "provider has no email";
 export const DELIVERY_NO_PATIENT_EMAIL = "patient has no email";
 
+/**
+ * Why no invite is going out when the practice chose to message nobody — the sentence `inviteSendability`
+ * deliberately does not return, because staff choosing "Don't contact" is not a gap in the deployment
+ * (lib/notify.ts).
+ *
+ * Here rather than in the two routes that say it, so they cannot drift: `POST /api/book` says it when the
+ * wizard's channel is "none" and `POST /api/invite` says it when the visit already on file carries that
+ * channel (T120), and a clinician pressing Send link on the dashboard has to read the same thing the person
+ * who booked the visit did.
+ */
+export const NO_CONSENT_TO_MESSAGE = "no consent to message this patient";
+
 /** Every reason the app writes for staff rather than for a deployment. §8.1's suppression and §13.4's demo
  *  rule come from the modules that own them, so there is one copy of each sentence in the repo. */
 const STAFF_REASONS: ReadonlySet<string> = new Set([
