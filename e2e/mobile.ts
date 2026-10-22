@@ -431,9 +431,9 @@ export type TranscriptFit = {
  * much of a 375px phone §6.5 leaves the conversation, and that is the wrapper either way.
  *
  * What it returns is the measurement it settled on and asserted against (T117). A caller that only wants
- * the assertions ignores it, which is all seven of them; e2e/transcript.spec.ts is the one that asks, because
- * "which message did it settle on, and was that message still moving?" is the helper's own contract and
- * nothing else in the suite is in a position to check it.
+ * the assertions ignores it, which is all fourteen of them across five specs; e2e/transcript.spec.ts is the
+ * one that asks, because "which message did it settle on, and was that message still moving?" is the
+ * helper's own contract and nothing else in the suite is in a position to check it.
  */
 export async function expectTranscriptUncut(page: Page, screen: string): Promise<TranscriptFit> {
   const transcript = page.locator(".sweetie-messages");
@@ -492,7 +492,7 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
   // `lastElementChild` a different node and started a fresh entrance: the assertions then described a glide
   // the poll had never watched, as though it were the state it had settled on. Nothing is known to have hit
   // it — every caller waits for its final card first — but it is the same shape of mistake as the pixel
-  // above, in a helper seven specs share.
+  // above, in a helper five specs share.
   //
   // And it accepts a reading only once the newest message has held still for one read. A settled reading of
   // a node that was not the newest last time is a node whose arrival this poll never saw, and the message

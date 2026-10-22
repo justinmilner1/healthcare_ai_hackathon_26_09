@@ -8,13 +8,13 @@ import { patientEmail, verifyLink } from "./patient";
 // T117, design §12.2/§12.4: the one spec whose subject is `expectTranscriptUncut` itself rather than a
 // screen.
 //
-// Seven specs call that helper to decide whether a committed screenshot is of a finished transcript or of a
-// scroll caught mid-flight, so its own contract is load-bearing — and it is a contract about *timing*,
-// which is the one thing the specs that call it cannot check. They each wait for their final card and then
-// ask whether it is uncut; none of them can say what the helper would do if the transcript moved underneath
-// it, because none of them makes it move. The reviewer run of 2026-10-21 is what that costs: the helper
-// waited a pixel looser than it asserted, nothing in the suite was looking at the helper, and a red `main`
-// is how it surfaced.
+// Five specs call that helper, at fourteen call sites, to decide whether a committed screenshot is of a
+// finished transcript or of a scroll caught mid-flight, so its own contract is load-bearing — and it is a
+// contract about *timing*, which is the one thing the specs that call it cannot check. They each wait for
+// their final card and then ask whether it is uncut; none of them can say what the helper would do if the
+// transcript moved underneath it, because none of them makes it move. The reviewer run of 2026-10-21 is
+// what that costs: the helper waited a pixel looser than it asserted, nothing in the suite was looking at
+// the helper, and a red `main` is how it surfaced.
 //
 // So this file makes the transcript move on purpose, in three stagings and five tests. Every one of them
 // runs in both projects: the helper's room check is the phone's alone, but the wait is the whole subject
