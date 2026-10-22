@@ -63,11 +63,10 @@ test("every figure in the answer is a row of data/dexcom_clarity_sample.csv or d
 
   // The premise of the question, answered by count: nothing peaks between 00:00 and 06:00. Earliest peak in
   // the file is 13:45.
-  assert.match(answer, /None of the 5 spikes on this brief peaks between 00:00 and 06:00/);
-  assert.match(answer, /nothing this week is overnight/);
+  assert.match(answer, /^No spike on this brief peaks between 00:00 and 06:00\. Of the 5, /);
 
   // The three evening spikes, with the rise the Spikes table prints beside each one.
-  assert.match(answer, /3 peak after 19:00/);
+  assert.match(answer, /Of the 5, 3 peak after 19:00/);
   assert.match(answer, /Sun 22:30 \(107→214\)/); // 2026-09-20 22:30, the week's largest rise
   assert.match(answer, /Tue 22:45 \(107→210\)/); // 2026-09-22 22:45
   assert.match(answer, /Fri 19:40 \(104→194\)/); // 2026-09-25 19:40
@@ -94,7 +93,7 @@ test("it reads as a clinician's follow-up: no diagnosis, no medication, no advic
   // It closes on a question for the room rather than on a conclusion.
   assert.match(answer, /Worth asking what those three evenings involved/);
   // Numbers first: the first sentence is a count, not a hedge.
-  assert.match(answer, /^None of the 5 spikes/);
+  assert.match(answer, /^No spike on this brief peaks between 00:00 and 06:00\./);
 });
 
 /**
@@ -145,8 +144,8 @@ test("the same holds for another week's shape: one spike, in the morning, and th
   const answer = seedFollowUpAnswer(spikes, nights);
   assert.equal(spikes.length, 1);
   // No evening spike and no overnight one, so the answer says that rather than naming a cluster.
-  assert.match(answer, /None of the 1 spike on this brief peaks between 00:00 and 06:00 or after 19:00/);
-  assert.match(answer, /it is a daytime excursion, at 08:00/);
+  assert.match(answer, /^No spike on this brief peaks between 00:00 and 06:00, or after 19:00: /);
+  assert.match(answer, /the one spike is a daytime excursion, at 08:00\./);
   // And no sleep comparison: there is no named evening to compare against.
   assert.doesNotMatch(answer, /Sleep on those/);
   assertEveryNumberIsInTheData(answer, spikes, nights);
@@ -161,7 +160,7 @@ test("a week with nothing in it says so, with no stray number and no NaN", () =>
 test("no WHOOP file drops the sleep sentence rather than guessing at it", () => {
   const answer = seedFollowUpAnswer(briefSpikes(), []);
   assert.doesNotMatch(answer, /Sleep|recovery|NaN|undefined/);
-  assert.match(answer, /3 peak after 19:00/);
+  assert.match(answer, /Of the 5, 3 peak after 19:00/);
   assert.match(answer, /Worth asking what those three evenings involved/);
 });
 

@@ -76,18 +76,21 @@ export function seedFollowUpAnswer(spikes: Spike[], sleep: SleepNight[]): string
   const sentences: string[] = [];
 
   // Where the highs actually are. The question's premise is answered first, by count.
-  const set = `the ${spikes.length} ${spikes.length === 1 ? "spike" : "spikes"} on this brief`;
+  const set = `${spikes.length} ${spikes.length === 1 ? "spike" : "spikes"} on this brief`;
+  // Spikes, and only spikes: the claim is about the set in the Spikes card, not about every reading in the
+  // week, so "no spike peaks overnight" is as far as it goes. The close below is what puts the question's
+  // premise to the clinician.
+  const none = `No spike on this brief peaks between ${hour(0)} and ${hour(OVERNIGHT_TO_HOUR)}`;
   if (overnight.length > 0) {
-    sentences.push(`${overnight.length} of ${set} ${verb(overnight.length)} before ${hour(OVERNIGHT_TO_HOUR)} — ${overnight.map(spikeRef).join(", ")}.`);
+    sentences.push(`${overnight.length} of the ${set} ${verb(overnight.length)} before ${hour(OVERNIGHT_TO_HOUR)} — ${overnight.map(spikeRef).join(", ")}.`);
   } else if (evening.length > 0) {
     sentences.push(
-      `None of ${set} peaks between ${hour(0)} and ${hour(OVERNIGHT_TO_HOUR)}, so nothing this week is overnight. ` +
-        `${evening.length} ${verb(evening.length)} after ${hour(EVENING_FROM_HOUR)} — ${evening.map(spikeRef).join(", ")}.`,
+      `${none}. Of the ${spikes.length}, ${evening.length} ${verb(evening.length)} after ${hour(EVENING_FROM_HOUR)} — ${evening.map(spikeRef).join(", ")}.`,
     );
   } else {
     sentences.push(
-      `None of ${set} peaks between ${hour(0)} and ${hour(OVERNIGHT_TO_HOUR)} or after ${hour(EVENING_FROM_HOUR)}: ` +
-        `${byTime.length === 1 ? "it is a daytime excursion" : "they are all daytime excursions"}, ${timeSpan(byTime)}.`,
+      `${none}, or after ${hour(EVENING_FROM_HOUR)}: ` +
+        `${byTime.length === 1 ? "the one spike is a daytime excursion" : `all ${count(byTime.length)} are daytime excursions`}, ${timeSpan(byTime)}.`,
     );
   }
 
