@@ -153,7 +153,11 @@ test("the log belongs to the visit: a second clinician reads what the first aske
   // and nights make the sentence, the panel is showing that sentence and not a stale one in the database.
   await expect(seeded.locator(".sour-answer-reply")).toContainText(seededFollowUpAnswer());
   await expect(seeded.locator(".sour-answer-unanswered")).toHaveCount(0);
-  await shot(page, "provider-sour-followup-answered");
+  // Anchored on the log, because the phone project shoots one screenful and this panel is at the foot of the
+  // brief: unanchored, the 375px frame of a shot named "followup-answered" held the page header and no
+  // answer at all. The desktop shoots the document either way, so the anchor changes only the phone's frame
+  // (e2e/shot.ts).
+  await shot(page, "provider-sour-followup-answered", { scrollTo: ".sour-answers" });
 
   // A visit nobody has asked about reads back an empty log, not the last visit's.
   const booked = (await (
