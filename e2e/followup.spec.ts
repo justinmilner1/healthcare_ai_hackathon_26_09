@@ -2,6 +2,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { readDevMailFile } from "../lib/devMailbox";
+import { detectSpikes, parseClarityCsv } from "../lib/glucose";
+import { labelVisits, parseTimeline, parseVisitsCsv } from "../lib/location";
+import { matchSpikesToVisits } from "../lib/match";
+import { SEED_FOLLOW_UP_QUESTION, seedFollowUpAnswer } from "../lib/seedFollowUp";
+import { parseWhoopCsv } from "../lib/sleep";
 import { csrfToken, postJson } from "./api";
 import { MAIL_DIR, signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
@@ -23,6 +28,19 @@ import { shot } from "./shot";
 // provider session stays signed in for the half of the test that is the clinician's.
 
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"), "utf8");
+
+/** What `npm run seed` wrote on the demo visit's one answered follow-up, recomputed from the same sample
+ *  files it derived it from (lib/seedFollowUp.ts). The spike set is the brief's: matched to Timeline places
+ *  and cut to five, as lib/bundle.ts hands it to the page.
+ *
+ *  Both this process and the `npm run seed` that wrote the row take their zone from the environment
+ *  scripts/agent-check.sh runs them in (neither loads `.env`), so the local times in the two agree. */
+function seededFollowUpAnswer(): string {
+  const sample = (f: string) => readFileSync(join(process.cwd(), "data", f), "utf8");
+  const visits = labelVisits(parseTimeline(sample("timeline_sample.json")), parseVisitsCsv(sample("visits.csv")));
+  const spikes = matchSpikesToVisits(detectSpikes(parseClarityCsv(sample("dexcom_clarity_sample.csv"))), visits).slice(0, 5);
+  return seedFollowUpAnswer(spikes, parseWhoopCsv(sample("whoop_sample.csv")));
+}
 
 const QUESTION = "Which of the overnight highs followed a late dinner out?";
 
@@ -128,9 +146,12 @@ test("the log belongs to the visit: a second clinician reads what the first aske
   await page.goto(`/provider/${demo.id}?visit=${sam!.id}`);
   await expect(page.locator(".sour-brief-header")).toContainText("Sam Sample", LOADED);
   const seeded = page.locator(".sour-followup").first();
-  await expect(seeded).toContainText("What is driving the overnight highs?", LOADED);
+  await expect(seeded).toContainText(SEED_FOLLOW_UP_QUESTION, LOADED);
   await expect(seeded).toContainText("Dr. Demo Endo");
-  await expect(seeded.locator(".sour-answer-reply")).toContainText(/dinner out/i);
+  // The seeded answer is derived from the same two sample exports the cards above it are drawn from
+  // (lib/seedFollowUp.ts, T112), so this asserts the pair rather than a phrase: whatever the week's spikes
+  // and nights make the sentence, the panel is showing that sentence and not a stale one in the database.
+  await expect(seeded.locator(".sour-answer-reply")).toContainText(seededFollowUpAnswer());
   await expect(seeded.locator(".sour-answer-unanswered")).toHaveCount(0);
   await shot(page, "provider-sour-followup-answered");
 

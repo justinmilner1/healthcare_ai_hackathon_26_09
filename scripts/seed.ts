@@ -4,11 +4,13 @@
 import { randomBytes } from "crypto";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { loadBundle } from "../lib/bundle";
 import { appUrl } from "../lib/config";
 import { db } from "../lib/db";
 import { parseClarityCsv } from "../lib/glucose";
 import { parseTimeline, parseVisitsCsv } from "../lib/location";
 import { ensureDemoProvider } from "../lib/practice";
+import { seedFollowUp } from "../lib/seedFollowUp";
 import { parseWhoopCsv } from "../lib/sleep";
 import { newUploadKey, putObject } from "../lib/storage";
 import type { UploadKind } from "../lib/types";
@@ -71,18 +73,26 @@ async function main() {
   // panel: a clinician's question, the answer they were given, and the clinician id and time beside it. The
   // answer is scripted for the same reason the offline summaries are (lib/llm.ts has no key here) — nothing
   // in a seeded demo is a model's work or a real patient's.
+  //
+  // Scripted, but not written by hand: lib/seedFollowUp.ts derives every figure in it from the bundle the
+  // provider page itself renders, so the sentence agrees with the Spikes and Sleep cards above it and moves
+  // with the sample files instead of drifting away from them (T112). The bundle is loaded here rather than
+  // the fixtures re-parsed because the brief shows a matched, five-row spike set (lib/bundle.ts) and a count
+  // in the answer should be a count of rows a clinician can see.
+  const seeded = await loadBundle(visit.id);
+  if (!seeded) throw new Error("seed: the visit just created could not be loaded as a bundle");
+  const followUp = seedFollowUp(seeded.spikes, seeded.sleep);
   await db.followUp.create({
     data: {
       visitId: visit.id,
       askedBy: provider.id,
-      question: "What is driving the overnight highs?",
-      answer:
-        "Three of the four nights above 180 follow a dinner out that ended after 8pm (Tue, Thu, Sat). The fourth " +
-        "starts at 2am with no evening spike before it. Sleep on those nights is 5.8h against 7.1h on the rest.",
+      question: followUp.question,
+      answer: followUp.answer,
       answeredAt: new Date(Date.now() - 3600000),
       createdAt: new Date(Date.now() - 3660000),
     },
   });
+  console.log(`follow-up: ${followUp.answer}`);
 
   // §8.1, §8.3 A second visit, so the dashboard's Messages column shows what a reported delivery looks like
   // and not only the "queued" a fresh row wears. Everything here is what SES's notification topic would have
