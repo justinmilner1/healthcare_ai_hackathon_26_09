@@ -146,8 +146,10 @@ each one, the risk assessment, and the list of things only a human can sign or n
 no agreement is signed and no official is named, so no deployment may yet be pointed at a real patient.
 
 A patient link opens a code screen first: opening it sends a six-digit code to the phone or email on the
-visit, and the chat, the uploads and the summary are all behind it (design §2.3, §5.3). With no SMS or email
-backend configured the code goes to the same local mailbox as the sign-in links, so `npm run mail` prints it.
+visit, and the chat, the uploads and the summary are all behind it (design §2.3, §5.3). With `DEV_MAIL_DIR`
+set — `.env.example` sets it — the code goes to the same local mailbox as the sign-in links, so
+`npm run mail` prints it. Without it and with no email backend there is nowhere to send a code, and the link
+opens a screen that says so and names the practice to call rather than one that waits for digits (T113).
 Behind the code, on the first open only, is the consent screen (§2.4): what the check-in collects, that it is
 optional, that a clinician reads it, and how to have it deleted. One tap continues and the acceptance is kept
 on the visit with its time; declining ends the session there and then.

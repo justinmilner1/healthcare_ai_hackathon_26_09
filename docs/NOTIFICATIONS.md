@@ -31,9 +31,19 @@ patient or a clinician is waiting for happens inside their request. `notify.invi
 | email | SES (`lib/email.ts`), selected by `EMAIL_FROM` | Resend, for local use (§8.4), selected by `RESEND_API_KEY` | `{ sent: false }` with no provider, and the UI shows the link |
 | sms | SNS / AWS End User Messaging (`lib/sms.ts`), selected by `SNS_ORIGINATION_NUMBER` | Twilio, for local use (§8.4), selected by `TWILIO_ACCOUNT_SID` | the same |
 
-Two messages cannot simply fail: a provider's sign-in link and a patient's verification code. With no backend
-configured those go to the local mailbox instead (`lib/devMailbox.ts`, `npm run mail`), which is what makes
-both sign-ins walkable offline and is how the e2e suite reads a link. See docs/ROUTINES.md.
+Two messages have nobody to fail soft to: a provider's sign-in link (§5.1) and a patient's verification code
+(§2.3). There is no screen to read either of them off — they are the way in — so `DEV_MAIL_DIR` writes them
+to the local mailbox instead (`lib/devMailbox.ts`, `npm run mail`), which is what makes both sign-ins walkable
+offline and is how the e2e suite reads a link. See docs/ROUTINES.md.
+
+That is an opt-in and not a fallback (T113). Naming the directory is the only thing that diverts mail; an
+environment with neither it nor a backend sends nothing and says so, `{ sent: false }` with no provider, like
+every other channel in the table. It used to divert on "no backend configured" as well, so a deployment that
+had set §8.1 up for nothing wrote both credentials into `./.mail/` on its own disk and reported them sent —
+§10.6's leftovers, under a success. A deployment with no email backend on a public `APP_URL` is now refused
+by the §3.7 check (`lib/config.ts`), because neither sign-in works there; a patient whose only channel has no
+sender behind it gets a screen that says so and names the practice to call, rather than a code screen
+(`codeChannels` in `lib/notify.ts`, `components/VerifyGate.tsx`).
 
 ### Asked before the send, not only after it (T111)
 
@@ -179,8 +189,9 @@ for a cross-site page to ride, and challenging it would make every bounce notifi
 
 ### Locally
 
-Nothing above is needed. With no backend configured, mail goes to the console mailer
-(`DEV_MAIL_DIR`, `npm run mail`) and SMS reports itself unconfigured, so the invite link is shown on screen.
+Nothing above is needed. `DEV_MAIL_DIR` sends mail to the console mailer (`npm run mail`) — `.env.example`
+sets it, and it is what a local checkout should keep — and SMS reports itself unconfigured, so the invite link
+is shown on screen.
 That holds on a machine with AWS credentials in its environment too, which is what makes
 `scripts/agent-check.sh` reach no external service: both of the invite's channels are `skipped`, with no
 backend named on either row and no attempt to retry.
