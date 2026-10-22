@@ -12,7 +12,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
-import { countOf, daySpan, plural } from "@/lib/plural";
+import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
 import { patientChartCaption } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
 import { visitLabel } from "@/lib/visits";
@@ -229,7 +229,11 @@ export default function PatientPage({
 
                 {summary?.patterns.length ? (
                   <section className="patient-report-card">
-                    <h2>What your week showed</h2>
+                    {/* The span is the data's, like the sentence above it (T114, §2.7): these patterns
+                        are written from this upload, so a heading that calls one day "your week" makes
+                        a claim the page cannot repair — the prompt behind them is handed the same span
+                        (lib/prompts.ts, lib/sourRun.ts). Seven days still read "What your week showed". */}
+                    <h2>What your {spanNoun(stats.days)} showed</h2>
                     <p className="patient-report-subtitle">
                       A few patterns worth noticing together.
                     </p>
@@ -263,9 +267,12 @@ export default function PatientPage({
               ) : !summary ? (
                 <section className="patient-report-card">
                   <h2>Your summary is being prepared</h2>
+                  {/* T114: the span again, because this card sat in one frame with the time-in-range
+                      sentence T100 fixed — "for 76% of the day you shared" above, "a short summary of
+                      your week" below, about the same 84 readings. */}
                   <p className="patient-report-subtitle">
                     Your doctor&apos;s office is preparing a short summary of
-                    your week. It will appear here.
+                    your {spanNoun(stats.days)}. It will appear here.
                   </p>
                 </section>
               ) : null}
