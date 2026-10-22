@@ -32,7 +32,9 @@ export function normalizeEmail(raw: unknown): string | null {
   return EMAIL.test(email) && email.length <= 320 ? email : null;
 }
 
-/** A person's name as typed, capped. Blank is null rather than "": Auth.js fills it in on first sign-in. */
+/** A person's name as typed, capped. Blank is null rather than "": nobody has given a name yet, and nothing
+ *  will give one on their behalf — a magic link carries an address only, so the name arrives from the invite
+ *  form or from the person's own You card, or not at all (T115, memberSubLine below). */
 export function cleanPersonName(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const name = raw.replace(/\s+/g, " ").trim().slice(0, MAX_PERSON_NAME);
@@ -70,6 +72,25 @@ export type TeamMember = {
   /** True until their first magic link has been redeemed — an invite that has not been taken up yet (§5.1). */
   pending: boolean;
 };
+
+/**
+ * The sub line under a person's heading in the users table (§2.1, §4.2). Four cases, and the two without a
+ * name are told apart by `pending` — "has this address ever redeemed a link" — rather than by whether a name
+ * happens to exist, because those are two different facts (T115).
+ *
+ * The row used to promise an unnamed person that their name "adds itself when they first sign in", and
+ * nothing in the product has ever done that: a magic link carries an address and nothing else, so
+ * `authAdapter.createUser` has no name to write (lib/authAdapter.ts, §5.1). Every name that exists was typed
+ * by somebody — their own, through the You card on the settings screen, or a colleague's, in the invite — so
+ * a row with none says that none is set rather than predicting one, and the admin's own signed-in row no
+ * longer contradicts the "Signed in" pill beside it.
+ */
+export function memberSubLine(member: Pick<TeamMember, "email" | "name" | "pending">): string {
+  // The address is already the heading when there is no name, so printing it twice would say nothing; what
+  // is worth saying is that there is no name, and why there is not one yet.
+  if (member.name) return member.email;
+  return member.pending ? "No name in the invite" : "No name set";
+}
 
 export type PracticeTeam = {
   /** `isDemo` is §13.4's flag, read-only here: the settings screen says so, and nothing on it sets it. A

@@ -14,6 +14,7 @@ import {
   MAX_PRACTICE_NAME,
   MAX_RETENTION_DAYS,
   MIN_RETENTION_DAYS,
+  memberSubLine,
   normalizeEmail,
   parseRole,
 } from "./team";
@@ -197,4 +198,35 @@ test("a demo practice's invite to a real address is not sent, even to the local 
     process.env = env;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// T115, design §2.1, §4.2. The users table's sub line, in all four states a row can be in. The bug this
+// pins down was a single condition on the wrong field: the sentence was chosen by whether a name existed,
+// so a signed-in admin with no name — the first user of every practice, because the sign-up path has no
+// name to give — was promised that theirs "adds itself when they first sign in", directly under a green
+// "Signed in" pill. Nothing has ever written a name at sign-in: a magic link carries an address only.
+//
+// `pending` and `name` are different facts, so all four combinations are asserted rather than the two that
+// happen to differ today; keying off the name again would fail two of them.
+test("the users table's sub line says something true in all four states (T115)", () => {
+  const row = { email: "jennifer.rodriguez@northstar.test", name: null as string | null, pending: false };
+
+  // Signed in, no name: no promise, and nothing that contradicts the pill beside it.
+  assert.equal(memberSubLine(row), "No name set");
+  // Invited and never signed in, no name: a different fact, so a different sentence — and still not a
+  // prediction about a name arriving on its own.
+  assert.equal(memberSubLine({ ...row, pending: true }), "No name in the invite");
+  for (const pending of [true, false]) {
+    const subLine = memberSubLine({ ...row, pending });
+    assert.equal(subLine.includes("when they first sign in"), false, "nothing fills a name in at sign-in (lib/authAdapter.ts)");
+    assert.equal(subLine.includes(row.email), false, "the address is already the heading when there is no name");
+  }
+
+  // Named, either way: the address, so the row says both things once each. Unchanged by this ticket.
+  assert.equal(memberSubLine({ ...row, name: "Dr. Journey Okafor" }), row.email);
+  assert.equal(memberSubLine({ ...row, name: "Dr. Journey Okafor", pending: true }), row.email);
+
+  // A name that is only whitespace never reaches a row — cleanPersonName makes it null (above) — but if one
+  // ever did, the heading would be blank, so the sub line must not be the one that hides it.
+  assert.equal(memberSubLine({ ...row, name: "" }), "No name set");
 });

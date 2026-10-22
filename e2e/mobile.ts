@@ -146,8 +146,8 @@ export async function expectRowIntact(page: Page, selector: string, screen: stri
  *
  * expectRowIntact above measures `a[href], button` — the things a person presses — which is the right set
  * for a top bar and blind to a row whose *text* is what hangs over the edge. On practice settings a
- * person's heading is `user.name ?? user.email` (§2.1), so until they first sign in it is their whole
- * address: one unbreakable token, clipped by the card and by `.ss-page`'s overflow: hidden with no ellipsis
+ * person's heading is `user.name ?? user.email` (§2.1), and until somebody types a name it is their whole
+ * address — nothing fills one in at sign-in (T115, lib/team.ts): one unbreakable token, clipped by the card and by `.ss-page`'s overflow: hidden with no ellipsis
  * and no scrollbar to say that characters were missing. A reader could not tell the row was incomplete.
  *
  * Measured on the element's own box rather than on the glyphs inside it, which is exactly what separates the
