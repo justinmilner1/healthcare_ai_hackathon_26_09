@@ -89,10 +89,19 @@ export type ShotOptions = {
    * of `.import-scroll` and the two refused rows below it. A reviewer reading that file could not tell a
    * working validator from one that drops bad rows.
    *
-   * Judged against every ancestor that clips as well as against the window, the way `expectTextIntact` in
-   * e2e/mobile.ts judges a line of type (T101): a row hidden behind a scroller's edge and a row past the
-   * bottom of the screen are the same row nobody is being shown. A row wholly outside the frame is fine —
-   * this asks that what is in the picture is whole, not that everything is in the picture.
+   * **Which frame that is, is `fullPage`'s answer and not the window's** (T119). A `fullPage: false` shot is
+   * one screenful, so the window is an edge of the frame and a row across its bottom edge really is cut in
+   * half in the image. A `fullPage: true` shot is the whole scrollable document: that same row is wholly in
+   * the picture, and the frame has no window edge for anything to be cut by. Judging both against the window
+   * made the gate refuse frames that were whole, on the project that takes most of the suite's shots — T108's
+   * builder lost a run to it, on an anchor `scrollIntoView({ block: "start" })` had landed a fraction above
+   * the top edge of a desktop capture that did not have one.
+   *
+   * Either way it is judged against every ancestor that clips, the way `expectTextIntact` in e2e/mobile.ts
+   * judges a line of type (T101): a row hidden behind a scroller's edge is a row nobody is being shown, in a
+   * full-page capture as much as in a screenful, because the scroller hides it before the shutter opens. A
+   * row wholly outside the frame is fine — this asks that what is in the picture is whole, not that
+   * everything is in the picture.
    */
   wholeRows?: string;
   /**
@@ -163,7 +172,7 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
         element.scrollIntoView(position);
       }, { block, inline });
     }
-    if (wholeRows) await expectWholeRows(page, wholeRows, name);
+    if (wholeRows) await expectWholeRows(page, wholeRows, name, fullPage);
     await page.screenshot({
       path: `e2e/screenshots/${test.info().project.name}-${name}.png`,
       fullPage,
@@ -175,17 +184,26 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
   }
 }
 
-/** Nothing matching `selector` is half in the frame — see `wholeRows` above for why that is worth failing on. */
-async function expectWholeRows(page: Page, selector: string, name: string): Promise<void> {
+/**
+ * Nothing matching `selector` is half in the frame — see `wholeRows` above for why that is worth failing on.
+ *
+ * `fullPage` is the capture this is judging, because it is what decides where the frame's edges are: the
+ * window bounds a screenful, and a full-page capture is the whole scrollable document, where the only thing
+ * that can still show half a row is an ancestor that clips (T119).
+ */
+async function expectWholeRows(page: Page, selector: string, name: string, fullPage: boolean): Promise<void> {
   await expect(page.locator(selector).first(), `${name}: nothing matched ${selector}`).toBeVisible();
-  const cut: string[] = await page.evaluate((sel) => {
+  const cut: string[] = await page.evaluate(({ sel, windowIsAnEdge }) => {
     const found: string[] = [];
     for (const row of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
       const box = row.getBoundingClientRect();
       // A box a pixel or two tall is the visually-hidden pattern, not a row anybody is reading.
       if (box.height < 2) continue;
-      let top = 0;
-      let bottom = document.documentElement.clientHeight;
+      // The frame, in the client coordinates the boxes below are in. A full-page capture holds the whole
+      // document, so it has no top or bottom edge of its own and starts out unbounded; a screenful is
+      // bounded by the window. Either way every clipping ancestor narrows it from there.
+      let top = windowIsAnEdge ? 0 : -Infinity;
+      let bottom = windowIsAnEdge ? document.documentElement.clientHeight : Infinity;
       for (let parent = row.parentElement; parent; parent = parent.parentElement) {
         if (getComputedStyle(parent).overflowY === "visible") continue;
         const edge = parent.getBoundingClientRect();
@@ -201,6 +219,6 @@ async function expectWholeRows(page: Page, selector: string, name: string): Prom
       if (found.length >= 8) return found;
     }
     return found;
-  }, selector);
+  }, { sel: selector, windowIsAnEdge: !fullPage });
   expect(cut, `${name}: a row is half in the frame, so the shot is evidence about neither half (T107, design §12.3)`).toEqual([]);
 }
