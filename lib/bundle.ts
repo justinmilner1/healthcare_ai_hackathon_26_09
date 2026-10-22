@@ -1,6 +1,8 @@
 // Assemble everything a summary needs from the DB. Used by /api/patient/[id], /api/sour, and Sweetie's status.
 
 import { db } from "./db";
+import { configured as dexcomConfigured, currentDexcomEnv, visitMatchesEnv } from "./dexcom";
+import { dexcomConnectControl } from "./dexcomHint";
 import { averageGlucose, detectSpikes, downsample, timeInRange } from "./glucose";
 import { jobStateView, latestJobForVisit } from "./jobs";
 import { llmStatus } from "./llm";
@@ -59,6 +61,17 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   // What the provider page needs to say where the summary got to (§7.2) and whether it still describes the
   // visit (§7.1). The fingerprint is the same function Sour hashes with, so "stale" here and "regenerate"
   // there can never disagree; a summary from a degraded run has no fingerprint and so always reads stale.
+  // §2.5, §9.2 Which connect control this visit's data panel has, so the patient's own summary can invite
+  // them to something that will be there when they arrive (T118). The same inputs GET /api/dexcom/status
+  // answers with, read here because a page renders from the bundle and never from Prisma (AGENTS.md).
+  const dexcomEnv = currentDexcomEnv();
+  const dexcomConnect = dexcomConnectControl({
+    env: dexcomEnv,
+    configured: dexcomConfigured(),
+    canConnect: visitMatchesEnv(visit, dexcomEnv),
+    sandboxPatient: visit.isSandbox,
+  });
+
   const sourJob = await latestJobForVisit("sour.run", visit.id);
   const inputHash = sourInputHash(sourInputsFor(visit, visit.uploads, narrativeSource(llmStatus().configured)));
   const summaryStale = Boolean(prov) && (prov?.inputHash !== inputHash || pat?.inputHash !== inputHash);
@@ -95,6 +108,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     // §7.3: the sign-off on the row, with the reviewer's name joined on (lib/review.ts). One extra query,
     // and only for a visit that has actually been reviewed.
     review: await reviewRecord(visit),
+    dexcomConnect,
   };
 }
 

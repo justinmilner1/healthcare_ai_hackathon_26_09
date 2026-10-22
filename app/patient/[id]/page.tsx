@@ -12,6 +12,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
+import { summaryDataInvite } from "@/lib/dexcomHint";
 import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
 import { patientChartCaption } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
@@ -50,6 +51,9 @@ export default function PatientPage({
     ? Math.ceil((Date.parse(bundle.patient.apptAt) - Date.now()) / 86400000)
     : null;
   const tirPct = Math.round(stats.tir * 100);
+  // §2.7 What the empty state asks for, from the control the data panel on /s/<token> is offering
+  // this visit (§2.5) rather than from `hasDexcom` alone (T118).
+  const invite = summaryDataInvite({ control: bundle.dexcomConnect, sandboxPatient: bundle.patient.isSandbox });
   const visitMessage =
     daysToVisit === null
       ? `Getting ready for your visit with ${bundle.patient.provider.name}.`
@@ -113,17 +117,19 @@ export default function PatientPage({
             <section className="patient-report-card patient-report-empty">
               <span aria-hidden="true">↗</span>
               <h2>Your glucose story is ready for its first chapter</h2>
-              <p>
-                {bundle.patient.isSandbox
-                  ? "Connect Dexcom sandbox in Sweetie to import synthetic demo readings."
-                  : "Connect your Dexcom export and Sweetie will turn the past week into a clear picture for you and your doctor."}
-              </p>
-              <a
-                href={`/s/${bundle.patient.token}`}
-                className="ss-button ss-button-primary"
-              >
-                Connect Dexcom
-              </a>
+              {/* The ask is for whatever /s/<token> can actually take (T118): this button leads there, and
+                  on a deployment with no Dexcom credentials that page has no Dexcom connection on it at
+                  all — only the file upload. lib/dexcomHint.ts decides both, from the one control the
+                  data panel is rendering, so the invitation here cannot outrun the destination. */}
+              <p>{invite.body}</p>
+              {invite.action && (
+                <a
+                  href={`/s/${bundle.patient.token}`}
+                  className="ss-button ss-button-primary"
+                >
+                  {invite.action}
+                </a>
+              )}
             </section>
           ) : (
             <>

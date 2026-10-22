@@ -168,6 +168,15 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.equal(b.status.done, false, "one of two required fields is not done");
     });
 
+    // T118 (§2.5, §2.7): the bundle carries which connect control /s/<token> has for this visit, so the
+    // patient's own empty state asks for something that will be there. The check script and the demo run
+    // with no Dexcom credentials, which is the state that used to offer a Connect Dexcom button leading to
+    // a page with no Dexcom on it.
+    it("says there is no Dexcom connection to offer where the deployment has no credentials", async () => {
+      const b = (await bundle.loadBundle(ids.visit))!;
+      assert.equal(b.dexcomConnect, "none");
+    });
+
     it("drops the reason from the template for a sandbox visit, whose reason is not a patient's", async () => {
       await fx.db.visit.update({ where: { id: ids.visit }, data: { isSandbox: true } });
       const b = (await bundle.loadBundle(ids.visit))!;
@@ -382,6 +391,9 @@ const BUNDLE: PatientBundle = {
   },
   summaryStale: true,
   review: { by: "usr_1", byName: "Dr. Demo Endo", at: "2026-10-11T12:30:00.000Z" },
+  // The control the patient's own empty state renders its invitation from (T118), so it is the patient's
+  // half: `patientView` keeps it, and the assertion below says so.
+  dexcomConnect: "oauth",
 };
 
 describe("patientView", () => {
@@ -390,7 +402,7 @@ describe("patientView", () => {
 
   it("keeps everything the patient's own page renders", async () => {
     const view = await viewOf();
-    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "stats", "status", "intake", "intakeFields", "patientSummary", "patientSummaryAt"] as const) {
+    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "stats", "status", "intake", "intakeFields", "patientSummary", "patientSummaryAt", "dexcomConnect"] as const) {
       assert.deepEqual(view[key], BUNDLE[key], `${key} is the patient's own`);
     }
   });

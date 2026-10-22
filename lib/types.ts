@@ -4,6 +4,8 @@
 // declarations only. TypeScript erases every line of it, so there is nothing at runtime to instrument and
 // nothing a test could assert that `npm run typecheck` does not already enforce at every call site.
 
+import type { DexcomConnectControl } from "./dexcomHint";
+
 export type GlucoseReading = { t: string; mgdl: number }; // ISO time
 
 export type Visit = {
@@ -161,4 +163,9 @@ export type PatientBundle = {
   summaryStale: boolean;
   /** The clinician's sign-off, or null while nobody has marked this summary reviewed (§7.3). */
   review: ReviewRecord | null;
+  /** Which Dexcom connect control, if any, `/s/<token>` can offer this visit (§2.5, §9.2) — the same
+   *  decision lib/dexcomHint.ts makes for the data panel itself. The patient's own summary renders its
+   *  empty-state invitation from this, so it cannot promise a connection the destination has not got
+   *  (T118). `"none"` on the default offline deployment, where the file upload is the only way in. */
+  dexcomConnect: DexcomConnectControl;
 };

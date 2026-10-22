@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dexcomCardHint, dexcomConnectControl, type DexcomHint } from "./dexcomHint";
+import { dexcomCardHint, dexcomConnectControl, summaryDataInvite, type DexcomHint } from "./dexcomHint";
 
 /** A real patient on the default offline deployment: sandbox Dexcom, no credentials, nothing shared. */
 const base: DexcomHint = {
@@ -110,5 +110,84 @@ test("the control and the hint agree: nothing on offer is never described as som
           if (control(state) !== "none") continue;
           // With no control on the card, the sentence under it cannot ask the patient to press one.
           assert.doesNotMatch(hint(state), /Authorize on Dexcom/, JSON.stringify(state));
+        }
+});
+
+// T118 (§2.5, §2.7): the invitation on the patient's own summary while it holds no readings. Its button is
+// a link to /s/<token>, so what it names has to be something that page offers once the patient is there.
+
+const invite = (over: Partial<DexcomHint> = {}) =>
+  summaryDataInvite({ control: control(over), sandboxPatient: (over.sandboxPatient ?? base.sandboxPatient) });
+
+test("with no credentials the summary asks for the upload, not a connection (T118)", () => {
+  // The default offline deployment: the README's, the check script's and the demo's. /s/<token> has no
+  // Dexcom control on it at all there, only the file upload, so that is what the button names.
+  const said = invite();
+  assert.equal(said.action, "Upload your Dexcom export");
+  assert.doesNotMatch(said.action, /Connect/i, "the destination has nothing to connect");
+  assert.match(said.body, /Share your Dexcom export/);
+  assert.doesNotMatch(said.body, /\bConnect\b/);
+  assert.doesNotMatch(said.body, OPERATOR);
+});
+
+test("every uncredentialled shape of a real visit asks for the upload, since none of them can connect", () => {
+  for (const env of ["sandbox", "production"] as const)
+    for (const canConnect of [false, true]) {
+      const said = invite({ env, canConnect });
+      assert.equal(said.action, "Upload your Dexcom export", `${env}/${canConnect}`);
+    }
+});
+
+test("with credentials the card is word for word what it was (T118 changes nothing here)", () => {
+  // The two states that reach a control, and the isSandbox branch the ticket pins at page.tsx:118.
+  const real = invite({ configured: true, canConnect: true });
+  assert.equal(real.action, "Connect Dexcom");
+  assert.equal(real.body, "Connect your Dexcom export and Sweetie will turn the past week into a clear picture for you and your doctor.");
+  const synthetic = invite({ configured: true, canConnect: true, sandboxPatient: true });
+  assert.equal(synthetic.action, "Connect Dexcom");
+  assert.equal(synthetic.body, "Connect Dexcom sandbox in Sweetie to import synthetic demo readings.");
+  // A real visit on a sandbox deployment is offered the separate demonstration, which is still a connection.
+  assert.equal(invite({ configured: true }).action, "Connect Dexcom");
+});
+
+test("a synthetic visit with nothing to connect gets no button, because its uploads are refused too", () => {
+  // §13.4: /s/<token> renders its upload list for a real visit only, so there is no second path to name.
+  // Credentials gone from under a demonstration record (production switch, or keys unset) is the state.
+  for (const state of [{ sandboxPatient: true }, { configured: true, env: "production" as const, sandboxPatient: true }]) {
+    const said = invite(state);
+    assert.equal(said.action, null, JSON.stringify(state));
+    assert.ok(said.body.length > 0, "the card still says where the readings are");
+  }
+});
+
+test("no state puts the deployment's configuration in the patient's copy (§2.5, the T71 rule)", () => {
+  for (const env of ["sandbox", "production"] as const)
+    for (const configured of [false, true])
+      for (const canConnect of [false, true])
+        for (const sandboxPatient of [false, true]) {
+          const state = { env, configured, canConnect, sandboxPatient };
+          const said = invite(state);
+          const where = JSON.stringify(state);
+          assert.ok(said.body.length > 0, `every state has a sentence: ${where}`);
+          assert.doesNotMatch(said.body, OPERATOR, where);
+          if (said.action !== null) assert.doesNotMatch(said.action, OPERATOR, where);
+        }
+});
+
+test("the invitation and the control agree: a connection is named only where there is one", () => {
+  for (const env of ["sandbox", "production"] as const)
+    for (const configured of [false, true])
+      for (const canConnect of [false, true])
+        for (const sandboxPatient of [false, true]) {
+          const state = { env, configured, canConnect, sandboxPatient };
+          const said = invite(state);
+          const where = JSON.stringify(state);
+          if (control(state) === "none") {
+            // Nothing to connect at the destination, so neither the button nor the sentence may say so.
+            assert.doesNotMatch(said.body, /\bconnect\b/i, where);
+            if (said.action !== null) assert.doesNotMatch(said.action, /\bconnect\b/i, where);
+          } else {
+            assert.equal(said.action, "Connect Dexcom", where);
+          }
         }
 });

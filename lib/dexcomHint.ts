@@ -95,3 +95,54 @@ export function dexcomConnectControl(
   // A demonstration visit on a production deployment has nothing to connect to at all.
   return "none";
 }
+
+/**
+ * What §2.7's empty state puts in front of a patient who has shared no glucose yet.
+ *
+ * The summary page's invitation and the data panel's control are one promise made twice, so they are
+ * decided by one function rather than two: the button on `/patient/<token>` is a link to `/s/<token>`, and
+ * what it names has to be something that page will actually offer when the patient arrives (T118).
+ */
+export type SummaryDataInvite = {
+  /** The sentence under the heading, in the patient's words. Never a fact about the deployment. */
+  body: string;
+  /** The button's words, or null where the destination has no Dexcom control to send the patient to. */
+  action: string | null;
+};
+
+/**
+ * The invitation on the patient's own summary while it has no readings in it (§2.5, §2.7).
+ *
+ * `control` is what `dexcomConnectControl` has already decided for this visit, so the two surfaces cannot
+ * drift: where there is no connection to offer, this page stops offering one. It used to offer **Connect
+ * Dexcom** on the strength of `hasDexcom` alone, which on the default offline deployment — the README's,
+ * the check script's and the demo's — sent the patient to a page with no Dexcom control anywhere on it and
+ * left them to work out that "Upload CSV" was what had been meant (T118).
+ *
+ * The file upload is the fallback because it needs no credentials, but it is not universal: `/s/<token>`
+ * renders its uploads for a real visit only (§13.4), so a synthetic demonstration visit with nothing to
+ * connect has nothing to be sent for either, and gets a card with no button rather than a dead one (T91).
+ */
+export function summaryDataInvite(
+  { control, sandboxPatient }: { control: DexcomConnectControl; sandboxPatient: boolean },
+): SummaryDataInvite {
+  if (control !== "none") {
+    return {
+      body: sandboxPatient
+        ? "Connect Dexcom sandbox in Sweetie to import synthetic demo readings."
+        : "Connect your Dexcom export and Sweetie will turn the past week into a clear picture for you and your doctor.",
+      action: "Connect Dexcom",
+    };
+  }
+  // Nothing to connect. A real visit can still share the export it already has, which is the one path into
+  // this page that never needed a connection at all.
+  if (!sandboxPatient) {
+    return {
+      body: "Share your Dexcom export in Sweetie and it will turn your readings into a clear picture for you and your doctor.",
+      action: "Upload your Dexcom export",
+    };
+  }
+  // A synthetic demonstration visit whose readings are not on offer: its uploads are disabled too, so there
+  // is no second path to point at.
+  return { body: "This demonstration visit has no synthetic readings in it.", action: null };
+}
