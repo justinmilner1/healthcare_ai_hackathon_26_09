@@ -95,6 +95,18 @@ export async function enterCode(page: Page, email: string, dir = MAIL_DIR, notBe
 export const AGREE = /I agree/i;
 
 /**
+ * The eyebrow over the patient summary's hero (design §2.7, T123).
+ *
+ * Three specs assert it — one per state the page has, which is the point of it: it is read off
+ * `stats.days` through spanNoun() like the three strings below it, so a single-day upload, a week and a
+ * visit with nothing shared each get a different line and no two of them may drift apart. Shared here
+ * rather than spelled out three times because the selector is the thing that would drift: the eyebrow is
+ * in `.patient-summary-hero`, which is outside the `.patient-summary-content` the span assertions in
+ * e2e/flows.spec.ts sweep, and that is how it stayed literal through T100 and T114.
+ */
+export const EYEBROW = (page: Page) => page.locator(".patient-summary-hero .ss-eyebrow");
+
+/**
  * Take the consent screen, if this visit has not been past it yet (§2.4 is first open only, so the second
  * verification of the same visit — a regenerated link, another device — goes straight through). Returns
  * whether there was a screen to take, so a spec can assert on either.

@@ -5,7 +5,7 @@ import { expectNoSeriousA11yViolations } from "./a11y";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
-import { AGREE, acceptConsent, enterCode, patientEmail } from "./patient";
+import { AGREE, EYEBROW, acceptConsent, enterCode, patientEmail } from "./patient";
 import { shot, WHOLE_PAGE } from "./shot";
 
 // T22, design §6.4 and §12.5: every screen a patient can land on — the code screen, the two dead ends in
@@ -308,6 +308,21 @@ test("the patient summary passes axe, empty and full", async ({ page }) => {
   await expect(empty.getByRole("link", { name: /Upload your Dexcom export/i })).toBeVisible();
   await expect(empty.getByRole("link", { name: /Connect Dexcom/i })).toHaveCount(0);
   await expect(empty).not.toContainText(/not configured|demo mode|credential/i);
+
+  // T123 (§2.5, §2.7): the empty half of the eyebrow pair in e2e/flows.spec.ts. This visit has shared
+  // nothing, so the hero names no span — it read "YOUR WEEK WITH SWEETIE" directly above "Your glucose
+  // story is ready for its first chapter", promising a week to a patient who had given no data at all,
+  // which is the shape T116 settled for the step before this one. The negative assertion on the card
+  // below it is the other half: its invitation presumed a week too ("turn the past week into a clear
+  // picture", lib/dexcomHint.ts), and a visit with nothing in it has no number to justify either. The
+  // card rather than the page, because the hero's own countdown to the appointment legitimately counts
+  // days ("3 days until your visit with …") and that is a fact about the calendar, not about the data.
+  await expect(EYEBROW(page), "nothing shared, so no span is named").toHaveText("YOUR CHECK-IN WITH SWEETIE");
+  await expect(
+    empty,
+    "a patient who shared nothing is not told what span to expect",
+  ).not.toContainText(/\b(hours?|days?|weeks?|months?)\b/i);
+
   await expectNoSeriousA11yViolations(page, "patient summary, nothing connected");
   await shot(page, "a11y-summary-empty");
 

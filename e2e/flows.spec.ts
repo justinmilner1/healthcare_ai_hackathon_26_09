@@ -4,7 +4,7 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
-import { patientEmail, verifyByApi, verifyLink } from "./patient";
+import { EYEBROW, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
@@ -524,9 +524,9 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   // One negative assertion over the whole card rather than one per site, which is the point of it: the
   // patterns card needs a non-empty `patterns` to render at all and this suite runs with no model key, so
   // naming the two headings here would assert on which of them happened to be on screen. Whichever is,
-  // nothing in the patient's own report calls one day of readings a week. The hero eyebrow and the stat
-  // row's aria-label are out of scope and out of reach: the eyebrow is in `.patient-summary-hero`, and an
-  // aria-label is an attribute rather than text.
+  // nothing in the patient's own report calls one day of readings a week. The stat row's aria-label is
+  // still out of reach, an attribute rather than text; the hero eyebrow is asserted below, outside this
+  // locator because `.patient-summary-hero` is not inside `.patient-summary-content`.
   //
   // The bare noun rather than "your week"/"the week" (Review T114): the point of a negative assertion here
   // is that the literal cannot come back by a route nobody listed, and an article is exactly the sort of
@@ -538,6 +538,13 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
     page.locator(".patient-summary-content"),
     "one day of data is never a week, by any route or any article",
   ).not.toContainText(/week/i);
+
+  // T123 (§2.7): and the hero above all of it, which was the one line on this page that rendered the same
+  // string whatever arrived. "YOUR WEEK WITH SWEETIE" sat in the same 1280px frame as "the day you shared"
+  // and "HISTORY 1 day" in T114's own committed evidence and went unread, so it is asserted here, where
+  // the frame that caught it is taken. Uppercase in the DOM like every other `.ss-eyebrow` — the CSS
+  // transform is the same either way, and a test should read what the markup says.
+  await expect(EYEBROW(page), "the hero names the span that arrived").toHaveText("YOUR DAY WITH SWEETIE");
 
   // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
   // phone gets one screenful, with the overview scrolled to the top of it — a whole-page phone shot of this
@@ -678,6 +685,11 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
   await expect(page.locator(".patient-range-copy"), "seven days of readings are \"the week\"").toContainText(
     /% of the week/,
   );
+
+  // T123 (§2.7): the seven-day half of the eyebrow pair. spanNoun() branches on seven rather than
+  // defaulting to it, so the hero a patient with a full week sees is the string the page has always
+  // shown — this is the assertion that keeps the fix for one day from changing the case it was right for.
+  await expect(EYEBROW(page), "a week of readings is still a week").toHaveText("YOUR WEEK WITH SWEETIE");
 
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, no places");
   await shot(page, "patient-summary-no-places", { scrollTo: ".patient-spikes" });
