@@ -322,6 +322,34 @@ export default function SweetieIntakePage({
   // has to look different from the row that says something was. The green tick means CONNECTED everywhere
   // else in this flow, one step earlier included, so it cannot also decorate "No data connected yet".
   const hasConnections = connectedCount > 0;
+  // T116 (§2.5, §2.7): and so does everything else the step promises. T84 made the row above report what
+  // was shared and left the four strings around it unconditional, so the card said "No data connected yet"
+  // beside a bubble offering a week to view, a lede offering to go straight to it, a "View my week" button
+  // and a hint about data that stays saved — and the button landed the patient on the empty summary, which
+  // asked them to go back and connect something. §2.5 makes sharing optional; it does not make it
+  // invisible. The four live in one table because the bug was that they drifted apart from the row one at a
+  // time, and the empty column offers the two things that are true instead: connections, and Sweetie.
+  //
+  // Nothing here is span-aware. T114 moved "your week" onto `spanNoun` at the three sites that know how many
+  // days arrived; this step runs before any of that is computed, so the shared column keeps the wording it
+  // has always had rather than guessing a span. The empty column does not name a span in order to deny it
+  // either — step 2 has no other use for the word, so "week" appearing anywhere in that frame is the bug
+  // itself, and `connections.spec.ts` asserts its absence over the whole page rather than string by string.
+  const completeCopy = hasConnections
+    ? {
+        bubble: "Your week is ready to view. Questions are optional.",
+        lede:
+          "Go straight to your week without answering questions. If you'd like to share more before your " +
+          "visit, chatting with Sweetie is optional.",
+        hint: "Skip the questions. Your shared data stays saved.",
+      }
+    : {
+        bubble: "Nothing shared yet. We can still talk it through.",
+        lede:
+          "You haven't shared any data, so there's nothing to show you yet. You can go back and add some, " +
+          "or tell Sweetie what's going on before your visit — both are optional.",
+        hint: "A short chat still gives your clinician something to work from.",
+      };
   const isUploading = removing !== null || Object.values(connections).some(
     (connection) => connection.state === "uploading",
   );
@@ -432,7 +460,7 @@ export default function SweetieIntakePage({
                 <span>
                   {step === 0 && "I’ll make this quick and easy."}
                   {step === 1 && "You choose exactly what to share."}
-                  {step === 2 && "Your week is ready to view. Questions are optional."}
+                  {step === 2 && completeCopy.bubble}
                 </span>
               </div>
             </div>
@@ -702,11 +730,7 @@ export default function SweetieIntakePage({
                 <div>
                   <p className={styles.eyebrow}>SETUP COMPLETE</p>
                   <h1 className={styles.title}>You&apos;re all set.</h1>
-                  <p className={styles.lede}>
-                    Go straight to your week without answering questions.
-                    If you&apos;d like to share more before your visit, chatting
-                    with Sweetie is optional.
-                  </p>
+                  <p className={styles.lede}>{completeCopy.lede}</p>
                 </div>
 
                 <div className={styles.readyCard}>
@@ -749,17 +773,33 @@ export default function SweetieIntakePage({
                 </div>
 
                 <div className={`${styles.actions} ${styles.completeActions}`}>
-                  <button
-                    className={`${styles.primaryButton} ${styles.chatButton}`}
-                    type="button"
-                    disabled={isFinishing || isUploading}
-                    onClick={() => void finishWithoutQuestions()}
-                  >
-                    {isFinishing ? "Saving…" : "View my week"}
-                    <ArrowIcon />
-                  </button>
-                  <p className={styles.completionHint}>Skip the questions. Your shared data stays saved.</p>
+                  {hasConnections ? (
+                    <button
+                      className={`${styles.primaryButton} ${styles.chatButton}`}
+                      type="button"
+                      disabled={isFinishing || isUploading}
+                      onClick={() => void finishWithoutQuestions()}
+                    >
+                      {isFinishing ? "Saving…" : "View my week"}
+                      <ArrowIcon />
+                    </button>
+                  ) : (
+                    // Nothing was shared, so there is no week to skip the questions on the way to: the chat
+                    // that was the step's secondary action is the only thing here that leads anywhere real,
+                    // and it becomes the primary rather than a second way to say "Back to connections".
+                    <button
+                      className={`${styles.primaryButton} ${styles.chatButton}`}
+                      type="button"
+                      disabled={isFinishing}
+                      onClick={() => router.push(`/s/${token}`)}
+                    >
+                      <MessageIcon />
+                      Chat with Sweetie
+                    </button>
+                  )}
+                  <p className={styles.completionHint}>{completeCopy.hint}</p>
                   <div className={styles.secondaryActions}>
+                  {hasConnections && (
                   <button
                     className={styles.textButton}
                     type="button"
@@ -769,6 +809,7 @@ export default function SweetieIntakePage({
                     <MessageIcon />
                     Chat with Sweetie instead
                   </button>
+                  )}
                   <button
                     className={styles.textButton}
                     type="button"
