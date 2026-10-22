@@ -167,7 +167,9 @@ export async function sendVerificationCode(p: {
 
 /**
  * Which of the channels staff chose this deployment can actually send on, and what staff read when the
- * answer is none of them (T111; §8.1's "Unconfigured -> the UI shows the link instead").
+ * answer is none of them (T111). The fallback is the senders' own contract — "Unconfigured -> { sent:
+ * false, error } with no `provider`, and the UI shows the link instead" (lib/email.ts, lib/sms.ts) — which
+ * is what §8.1's two backends amount to for a deployment that has not set them up.
  *
  * `sendIntakeInvite` below finds this out one channel at a time, inside a job, minutes after the staff
  * member who booked the visit has been told what to expect. Both sender modules can answer the same question

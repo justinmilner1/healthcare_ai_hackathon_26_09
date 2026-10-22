@@ -17,7 +17,9 @@
 // had gone into `Job`, and the wizard read it as "the invite is on its way by email" in an environment with
 // no email backend at all — the one `scripts/agent-check.sh` and a fresh `.env` are both in. `channel` names
 // the channels that really can send, which is a subset of what staff chose, and `reason` is what staff read
-// when it is empty: §8.1's "Unconfigured -> the UI shows the link instead", and the link is already here.
+// when it is empty. The fallback itself is the senders' own contract — "Unconfigured -> { sent: false,
+// error } with no `provider`, and the UI shows the link instead" (lib/email.ts, lib/sms.ts) — which is what
+// §8.1's two backends amount to for a deployment that has not set them up. The link is already here.
 
 import { after, NextResponse } from "next/server";
 import { requireCapability, requireMemberInPractice } from "@/lib/guard";
