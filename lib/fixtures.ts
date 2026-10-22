@@ -31,6 +31,20 @@ export function fixture(name: FixtureName): string {
   return readFileSync(join(FIXTURE_DIR, name), "utf8");
 }
 
+/** The week-long demo files one folder up (`data/*`), which `npm run seed` loads into the demo visit — not
+ *  parser fixtures, and listed separately so the two cannot be confused: `data/visits.csv` and
+ *  `data/fixtures/visits.csv` share a basename and are different files. */
+export type SampleName = "dexcom_clarity_sample.csv" | "timeline_sample.json" | "visits.csv" | "whoop_sample.csv";
+
+/**
+ * Read one of the demo samples verbatim, for the one thing that has to be asserted about them rather than
+ * about a fixture: the seeded follow-up answer is derived from these two exports and is wrong the moment they
+ * change under it (T112, lib/seedFollowUp.test.ts). Fails loudly, like `fixture`.
+ */
+export function sample(name: SampleName): string {
+  return readFileSync(join(process.cwd(), "data", name), "utf8");
+}
+
 /** The Clarity and WHOOP fixtures carry device-local timestamps with no offset, as the real exports do, so a test
  *  that asserts on an instant or a calendar day pins the zone first. See data/fixtures/README.md. */
 export function pinUtcTimeZone(): void {
