@@ -45,7 +45,7 @@ by the §3.7 check (`lib/config.ts`), because neither sign-in works there; a pat
 sender behind it gets a screen that says so and names the practice to call, rather than a code screen
 (`codeChannels` in `lib/notify.ts`, `components/VerifyGate.tsx`).
 
-### Asked before the send, not only after it (T111)
+### Asked before the send, not only after it (T111, T120)
 
 Both columns of that table are answered by `smsConfig()` and `emailConfig()`, which resolve the backend and
 its settings with no client built and no network call. So a screen does not have to wait for the job to find
@@ -53,12 +53,20 @@ out: `inviteSendability(channel)` in `lib/notify.ts` hands back the channels sta
 behind them, and — when that set is empty — the sentence `cannotSendYet` owns in `lib/delivery.ts`, the same
 one the delivery row will carry minutes later.
 
-`POST /api/book` and `POST /api/visits/import` both ask it, which is why `queued` on a booking response is a
-claim about this deployment rather than about the `Job` table. The booking wizard used to read a queued row
-as "the invite is on its way by email" in an office with no email backend at all, while the dashboard cell
-for the same visit said email could not be sent. The jobs are still enqueued either way: they are what write
-the `skipped` delivery rows the **Messages** column reads, so the dashboard does not fall silent about a
-channel just because nothing could be sent on it.
+`POST /api/book`, `POST /api/visits/import` and `POST /api/invite` all ask it, which is why `queued` on any
+of their responses is a claim about this deployment rather than about the `Job` table. The booking wizard
+used to read a queued row as "the invite is on its way by email" in an office with no email backend at all,
+while the dashboard cell for the same visit said email could not be sent; the dashboard's and the Sour
+page's **Send link** buttons said "Sending now" and "Sending the link to this patient now" in the same
+office, one and two screens over (T120). The jobs are still enqueued either way: they are what write the
+`skipped` delivery rows the **Messages** column reads, so the dashboard does not fall silent about a channel
+just because nothing could be sent on it.
+
+The channel the question is asked about is whatever that caller has: the draft's for the two booking routes,
+and `Visit.contactChannel` for `POST /api/invite`, where the visit already exists. A visit whose channel is
+`none` is answered separately and in different words — `NO_CONSENT_TO_MESSAGE` in `lib/delivery.ts` — because
+a practice that chose to message nobody is not a deployment that cannot, and only the second of those is
+anybody's to go and fix.
 
 What this does *not* predict is arrival. A configured backend can still bounce, and §8.1's suppression and
 §13.4's demo rule close a channel on facts that live on the patient's row rather than in the environment.
