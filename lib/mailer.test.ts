@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { devMailDir } from "./devMailbox";
 import { canSendOrMailbox, INVITE_SUBJECT, inviteEmailText, sendOrMailbox, signInEmailText, signInUrlFor, SIGN_IN_SUBJECT } from "./mailer";
 
 // Where the two messages the flow cannot continue without go: a provider's sign-in link (design §5.1) and a
@@ -57,15 +58,16 @@ test("with nothing configured and nowhere to divert to, a sign-in link is not se
 });
 
 test("nothing is written to disk by a send that had nowhere to go", async () => {
-  await mailbox(async (dir) => {
-    // The directory exists and is empty, which is the state a deployment's `./.mail/` was in before the
-    // first credential landed in it. Unset here on purpose: it is the variable, not the directory, that
-    // diverts (lib/devMailbox.ts), so an empty mailbox lying around is not an invitation to use it.
-    assert.deepEqual(readdirSync(dir), []);
-    const result = await withEnv({}, () => sendOrMailbox("maya@practice.test", "Your code is 480913", "480913"));
-    assert.equal(result.sent, false);
-    assert.deepEqual(readdirSync(dir), [], "the code is not on the server's disk");
-  });
+  // The directory to watch is the one the regression wrote to: `devMailDir`'s own default, `./.mail`
+  // relative to the process's cwd (lib/devMailbox.ts), which is where a `!hasBackend` arm would put the
+  // code with `DEV_MAIL_DIR` unset. A throwaway directory nothing can name stays empty whatever this
+  // module does, so watching one would assert nothing about the thing this test is named for.
+  const fallback = devMailDir({});
+  const before = existsSync(fallback) ? readdirSync(fallback) : null;
+  const result = await withEnv({}, () => sendOrMailbox("maya@practice.test", "Your code is 480913", "480913"));
+  assert.equal(result.sent, false);
+  const after = existsSync(fallback) ? readdirSync(fallback) : null;
+  assert.deepEqual(after, before, "the code is not in the mailbox a fallback would have written it to");
 });
 
 test("naming a directory is what diverts, and the result says where it landed", async () => {
