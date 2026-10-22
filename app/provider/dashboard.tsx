@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
+import { bookedOutcome, type BookedOutcome } from "@/lib/booking";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { confirmsDeletion } from "@/lib/retention";
@@ -112,10 +113,9 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
   const [wizardOpen, setWizardOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [addStep, setAddStep] = useState(0);
-  const [result, setResult] = useState<{
-    message: string;
-    link: string;
-  } | null>(null);
+  // The two lines of the success card plus §8.1's link. The card's wording is `bookedOutcome`'s and not
+  // this component's, so its heading cannot drift from its sentence (lib/booking.ts, T122).
+  const [result, setResult] = useState<(BookedOutcome & { link: string }) | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
@@ -187,13 +187,17 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
       // it asks for already in the card below. `data.channel` is the channels that can really send, which
       // is why the sentence names it rather than `form.channel`: staff who chose "Text and email" in a
       // deployment that can only text are told about the text.
+      //
+      // T122 Both lines of the card come out of that one answer, heading included: the heading used to be a
+      // literal promise of motion over a sentence saying nothing had moved.
       setResult({
-        message: [
-          data.patientReused ? "Visit added for a patient you already had." : "Patient added.",
-          data.queued
-            ? `The invite is on its way by ${channelLabel(data.channel ?? form.channel).toLowerCase()}.`
-            : `No invite sent${data.reason ? `: ${data.reason}.` : "."} Share the link below.`,
-        ].join(" "),
+        ...bookedOutcome({
+          name: form.name,
+          queued: Boolean(data.queued),
+          channel: data.channel ?? form.channel,
+          reason: data.reason,
+          patientReused: Boolean(data.patientReused),
+        }),
         link: data.link,
       });
       setAddStep(3);
@@ -964,7 +968,7 @@ function PatientWizard({
   setForm: React.Dispatch<React.SetStateAction<PatientForm>>;
   busy: boolean;
   error: string;
-  result: { message: string; link: string } | null;
+  result: (BookedOutcome & { link: string }) | null;
   onClose: () => void;
   onBack: () => void;
   onSubmit: (e: React.FormEvent) => void;
@@ -1239,8 +1243,10 @@ function PatientWizard({
             <div className="patient-wizard-success ss-enter" key="success">
               <div className="patient-success-check">✓</div>
               <p className="ss-eyebrow">PATIENT ADDED</p>
-              <h3 className="ss-title">{form.name} is on the way.</h3>
-              <p className="ss-lede">{result.message}</p>
+              {/* Both lines from one call, so the largest type on the card cannot promise a send the
+                  sentence under it is retracting (lib/booking.ts, §2.3, §8.1, T122). */}
+              <h3 className="ss-title">{result.heading}</h3>
+              <p className="ss-lede">{result.lede}</p>
               <div className="patient-link-card">
                 <span>Private Sweetie link</span>
                 <a href={result.link}>{result.link}</a>
