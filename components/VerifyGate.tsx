@@ -62,7 +62,7 @@ export default async function VerifyGate({ token, children }: { token: string; c
           <PatientNotice
             practiceName={visit.patient.practice.name}
             title="We can't send you a code right now."
-            message={`Sweet Spot can't send messages for ${visit.patient.practice.name} yet, so there is nowhere for your 6-digit code to go. Please call them and they can help.`}
+            message={`Messages from ${visit.patient.practice.name} aren't going out just now, so there is nowhere to send your 6-digit code. Please call them and they can help.`}
           />
         );
       }

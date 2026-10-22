@@ -196,7 +196,8 @@ test("a link whose only channel has no backend says so, and never claims a code 
   const { token, phone } = await book(page, "E2E No Backend", "phone");
   await page.goto(`/s/${token}`);
   const card = page.locator(".patient-notice-card");
-  await expect(card).toContainText(/nowhere for your 6-digit code to go/i, LOADED);
+  await expect(card).toContainText(/aren't going out just now/i, LOADED);
+  await expect(card.getByRole("heading", { level: 1 })).toHaveText(/can't send you a code right now/i);
   // The register of the other two dead ends (T98, components/PatientNotice.tsx): the practice above the
   // heading and again in the sentence that asks for the call, because this screen's next step is a telephone.
   const practice = ((await card.locator(".ss-eyebrow").textContent()) ?? "").trim();
