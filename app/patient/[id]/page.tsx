@@ -41,7 +41,14 @@ export default function PatientPage({
   }
 
   if (!bundle) {
-    return <PatientState message="Sweetie is getting your week ready…" />;
+    // §2.7 The one state of this page that knows nothing at all: `bundle` is null, so there is no
+    // `stats.days` to read a span off and none should be added here — this is the no-data branch. It named
+    // "your week" through T100, T114, T116 and T123, which took the same presumption off every rendered
+    // line below, and so the page contradicted itself across one navigation: a patient who shared a single
+    // day read "getting your week ready…" and then "YOUR DAY WITH SWEETIE" over a HISTORY tile saying
+    // "1 day" (T132). It takes the word the hero's own nothing-shared branch settled on instead, which is
+    // the one line on this page that is true before any data has arrived.
+    return <PatientState message="Sweetie is getting your check-in ready…" />;
   }
 
   const first = bundle.patient.name.split(" ")[0];

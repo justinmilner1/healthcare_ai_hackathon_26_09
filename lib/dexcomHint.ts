@@ -60,7 +60,12 @@ export function dexcomCardHint(hint: DexcomHint): string {
   if (hint.uploaded) return `Your Clarity CSV is in. ${nextStep(hint)}`;
   // Nothing shared yet. With no credentials there is nothing to connect — demonstration included — so the
   // only thing to tell the patient is the path that works, which is their own export.
-  if (!hint.configured) return "Upload your Clarity CSV export to share your last 7 days of glucose.";
+  // No span: this sentence is about a file the *patient* chooses, and Clarity exports whatever range they
+  // pick. `parseClarityCsv` (lib/glucose.ts) keeps every EGV row it is handed, and
+  // data/fixtures/clarity_window.csv — 84 readings inside one morning — is a supported upload this line
+  // described wrongly as seven days (T132). It is the presumption T123 took out of `summaryDataInvite`
+  // below, which is why both now say "your readings" and read the same whether one day or seven arrives.
+  if (!hint.configured) return "Upload your Clarity CSV export to share your glucose readings.";
   if (!hint.canConnect) {
     // Nothing for this visit to connect to (§9.2): on the sandbox a real patient is offered the separate
     // demonstration instead, and in production a demo visit has nothing to be offered at all.
@@ -68,6 +73,12 @@ export function dexcomCardHint(hint: DexcomHint): string {
       ? `Demo connects ${DEMO_SESSION}. ${DEMO_UNCHANGED}`
       : "This demonstration visit cannot connect to a real Dexcom account.";
   }
+  // The one legitimate span in this module, and it stays (T132). Every other "7 days" on the patient path
+  // was a guess about a file the patient picks; this one is a fact about what the *connection* fetches —
+  // lib/dexcom.ts requests `{ start: Math.max(first, end - 7 * 86400000), end }`, pinned by
+  // lib/dexcom.test.ts. That is the rule itself: name a span the system controls, never one the patient
+  // chooses. A sweep of this shape should leave this line alone; the span test below excludes this branch
+  // by name rather than by a pattern that happens to miss it.
   return hint.sandboxPatient
     ? `${AUTHORIZE} Only synthetic readings are imported.`
     : `${AUTHORIZE} Your last 7 days of readings are imported.`;

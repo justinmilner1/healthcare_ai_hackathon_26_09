@@ -76,7 +76,10 @@ const SOURCES: {
   {
     kind: "whoop",
     name: "WHOOP",
-    description: "Sleep, recovery, and strain from the past week",
+    // No span (T132): this describes a file the patient exports, and `lib/whoop.ts` clips nothing —
+    // `SleepNight[]` has no span requirement — so "the past week" was a claim about their choice, not
+    // about the source. Parallel with the two descriptions around it, which name content and no range.
+    description: "Nightly sleep, recovery, and strain",
     format: "WHOOP CSV · Optional",
     accept: ".csv,text/csv",
     tone: "charcoal",
@@ -541,8 +544,13 @@ export default function SweetieIntakePage({
                     Back
                   </button>
                   <p className={styles.eyebrow}>CONNECT YOUR HEALTH DATA</p>
+                  {/* §2.5 No span: the largest type on the step, rendered before a single file exists,
+                      and every source under it is one the patient chooses the range of (T132). It named
+                      "the last 7 days" — the same presumption T123 took off the summary's invitation and
+                      T132 took off the Dexcom card's sentence below. "Your data" covers all three
+                      sources without promising how much of it there will be. */}
                   <h1 className={`${styles.title} ${styles.connectTitle}`}>
-                    Bring the last 7 days into focus.
+                    Bring your data into focus.
                   </h1>
                   <p className={styles.lede}>
                     {dexcomStatus?.sandboxPatient
