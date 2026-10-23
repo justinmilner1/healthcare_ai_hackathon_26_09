@@ -1,17 +1,18 @@
 // Spikes linked to places. The table twin of the markers on GlucoseChart.
 
-import { anyPlaceKnown, UNKNOWN_PLACE } from "@/lib/spikePlaces";
+import { anyPlaceKnown, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE } from "@/lib/spikePlaces";
 import type { Spike } from "@/lib/types";
 
 /**
  * `compact` drops the "left 25 min before" suffix and narrows the heading, for the two places the table is
  * printed in a card rather than read at a desk: the patient's page and the printed sheet (§7.4).
  *
- * `patient` is the §2.7 page only, and is deliberately not `compact`: the printed sheet is compact too and
- * is a clinician's document, where "no matching visit" is a true and useful thing to say (T82). What the
+ * `patient` is the §2.7 page only, and is not what `compact` means: the printed sheet is compact too and is
+ * a clinician's document, where "no matching visit" is a true and useful thing to say (T82). What the
  * patient's copy does differently is in lib/spikePlaces.ts — with no place known anywhere it leaves the
- * column out rather than reporting an absence of data §2.5 made optional, and where some rows do have a
- * place the rest answer in the patient's own words.
+ * column out rather than reporting an absence of data §2.5 made optional; where some rows do have a place
+ * the rest answer in the patient's own words; and a place the export never named answers in them too
+ * rather than in the coordinates the clinician's surfaces are right to carry (T128).
  */
 export default function SpikeTable({
   spikes,
@@ -39,6 +40,9 @@ export default function SpikeTable({
           // began during the visit, which is normal for a sit-down meal.
           const gapMin = s.visit ? Math.round((Date.parse(s.start) - Date.parse(s.visit.end)) / 60000) : null;
           const relation = gapMin === null ? "" : gapMin > 0 ? `left ${gapMin} min before` : "while there";
+          // Muted like "not sure" below it, and for the same reason: both are the page saying what it does
+          // not know, which is not the same kind of cell as "Pizzeria Delfina" (T128).
+          const unnamed = patient && s.visit !== undefined && placeIsUnnamed(s.visit);
           return (
             <tr key={i} className="border-t border-black/5">
               <td className="py-1.5 pr-3 whitespace-nowrap">{fmt(s.peak)}</td>
@@ -49,7 +53,11 @@ export default function SpikeTable({
                 <td className="py-1.5">
                   {s.visit ? (
                     <>
-                      {s.visit.place}
+                      {unnamed ? (
+                        <span className="text-[var(--viz-muted)]">{patientPlaceName(s.visit)}</span>
+                      ) : (
+                        s.visit.place
+                      )}
                       {!compact && relation && <span className="text-[var(--viz-muted)]"> · {relation}</span>}
                     </>
                   ) : (

@@ -218,10 +218,13 @@ export default function PatientPage({
                   <span>{countOf(stats.readings, "reading")}</span>
                 </div>
                 <div className="patient-chart-wrap">
+                  {/* T128 (§2.7): `patient` is what keeps a marker over a rise that matched an unnamed
+                      stop from reading as a lat/long, the same call the Where column below makes. */}
                   <GlucoseChart
                     readings={bundle.glucose}
                     spikes={bundle.spikes}
                     height={250}
+                    patient
                   />
                 </div>
               </section>

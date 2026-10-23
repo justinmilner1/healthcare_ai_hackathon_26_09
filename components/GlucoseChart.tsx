@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
+import { markerLabel } from "@/lib/spikePlaces";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
 const INK2 = "var(--viz-ink-2)";
@@ -16,7 +17,14 @@ const SERIES = "var(--viz-series)";
 const CRITICAL = "var(--viz-critical)";
 const SURFACE = "var(--viz-surface)";
 
-export default function GlucoseChart({ readings, spikes, height = 280 }: { readings: GlucoseReading[]; spikes: Spike[]; height?: number }) {
+/**
+ * `patient` is the §2.7 page, and all it changes is what a marker over a placed rise is allowed to say: the
+ * place where the Timeline export named one, and the patient's own words where it did not, rather than the
+ * coordinates the brief and the printed sheet are right to carry (T128). The decision itself is
+ * lib/spikePlaces.ts's `markerLabel`, which is also what SpikeTable's Where column reads, so the marker and
+ * the row under it cannot disagree about one spike.
+ */
+export default function GlucoseChart({ readings, spikes, height = 280, patient = false }: { readings: GlucoseReading[]; spikes: Spike[]; height?: number; patient?: boolean }) {
   // How wide the chart actually got. On a 375px phone the card leaves the plot about 270px for seven days,
   // and the fixed "5% of the span apart" rule below let four labels land inside 60px of each other —
   // unreadable (T23, design §6.5). Measured rather than guessed from a breakpoint, because the same chart
@@ -44,7 +52,8 @@ export default function GlucoseChart({ readings, spikes, height = 280 }: { readi
   for (let t = d.getTime(); t <= last; t += 86400000) if (t >= first) ticks.push(t);
 
   // Direct labels are selective: a spike whose label would collide with an already-labeled one keeps its
-  // marker but drops its label (tooltip and SpikeTable still carry it). Long place names are trimmed.
+  // marker but drops its label (tooltip and SpikeTable still carry it). Long place names are trimmed, and
+  // `markerLabel` never hands over anything longer than a real place name to trim (T128).
   //
   // "Collide" is measured in pixels once the width is known: two centred labels clear each other when the
   // gap between their markers covers half of each. Until the first measurement — the server render, and a
@@ -58,7 +67,7 @@ export default function GlucoseChart({ readings, spikes, height = 280 }: { readi
   let lastLabelChars = 0;
   for (const s of ordered) {
     const at = Date.parse(s.peak);
-    const label = trim(s.visit?.place ?? String(s.to));
+    const label = trim(markerLabel(s, { patient }));
     const apart = plot > 0
       ? ((at - lastLabeledAt) / span) * plot >= (lastLabelChars + label.length) * HALF_CHAR + LABEL_GAP
       : (at - lastLabeledAt) / span >= 0.05;
