@@ -8,8 +8,8 @@ import test from "node:test";
 /** scripts/gh-issues.sh, the read both routines' opening question goes through (T127). The bug it exists for
  *  cannot be reproduced on demand against GitHub — an intermittent HTTP 200 with an empty array, about one
  *  read in three — so the listing command is stubbed and the plan of what each successive read returns is
- *  the test input. Design §12.4's loop starts with a routine asking GitHub what to do; docs/ROUTINES.md,
- *  "An empty listing that is not an empty list", is the prose version.
+ *  the test input. Design §12.4's loop starts with a routine asking GitHub what to do; the third trap under
+ *  docs/ROUTINES.md, "GitHub from the sandbox: REST only", is the prose version.
  *
  *  Like lib/workflows.test.ts, this file has no module of its own under lib/: its subject is a script in
  *  scripts/, and `npm test` only collects lib/*.test.ts. */
