@@ -5,6 +5,7 @@ import {
   codeReach,
   codeTemplates,
   deletionTemplates,
+  inviteFaults,
   inviteSendability,
   inviteTemplates,
   sendDeletionConfirmation,
@@ -423,6 +424,60 @@ test("one backend of the two is a narrower invite, not a refused one", () => {
   withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
     assert.deepEqual(inviteSendability("both").channels, ["sms", "email"]);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T135 The same question about a file of rows rather than one visit: §2.2's CSV import is the bulk path,
+// and what staff need before they press the button is one sentence per distinct reason rather than one per
+// row. The set is the whole of it; the rest is `inviteSendability` above, row by row.
+
+test("a file of invites nothing can send is one sentence, not one per row (T135)", () => {
+  // Twenty-five texted rows in an office with no SMS backend is one fact about the deployment, which is the
+  // reason this answers with a set: the sentence the import screen prints is about the office and not about
+  // any patient in the file.
+  assert.deepEqual(inviteFaults(Array(25).fill("sms")), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"]);
+  assert.deepEqual(inviteFaults([]), [], "a file with no creatable row promises nothing");
+});
+
+test("two channels nothing can send are two sentences, because each names its own", () => {
+  // `cannotSendYet` names the channel staff chose (lib/delivery.ts), so a file holding both kinds has two
+  // things to say and the Invite column beside them says which rows each is about.
+  assert.deepEqual(inviteFaults(["sms", "email", "sms"]), [
+    "Sweet Spot cannot send texts yet — ask whoever set it up for your office",
+    "Sweet Spot cannot send email yet — ask whoever set it up for your office",
+  ]);
+  // "both" is neither of the two, and the line that names no channel is the true one when neither can send.
+  assert.deepEqual(inviteFaults(["both"]), ["Sweet Spot cannot send this message yet — ask whoever set it up for your office"]);
+});
+
+test("a row that chose to message nobody is not a gap in the deployment (T120)", () => {
+  // §2.2's blank `channel` column, which the CSV parser reads as "none" (lib/visitIntake.ts). Lines 3 and 4
+  // of the example file are this case: they must stay clean on a screen full of faults, because nothing is
+  // wrong with them and `NO_CONSENT_TO_MESSAGE` is their sentence.
+  assert.deepEqual(inviteFaults(["none", "none"]), []);
+  assert.deepEqual(inviteFaults(["none", "sms"]), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"], "and it hides nothing beside it");
+});
+
+test("a configured deployment reports no fault for a file at all (T135)", () => {
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example" }, () => {
+    assert.deepEqual(inviteFaults(["email", "email", "none"]), []);
+    // One backend of the two still sends, so "both" is a narrower invite and not a refused one — the same
+    // judgement `inviteSendability` makes one row at a time.
+    assert.deepEqual(inviteFaults(["both"]), []);
+    assert.deepEqual(inviteFaults(["sms", "email"]), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"], "the channel with no backend is still named");
+  });
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
+    assert.deepEqual(inviteFaults(["sms", "email", "both", "none"]), [], "nothing to say about a deployment that can send");
+  });
+});
+
+test("every sentence a file can carry stays in staff's words (§3.7, §10.6)", () => {
+  // The same shape lib/delivery.ts's own tests use: a new sentence in this family cannot smuggle a variable
+  // name or a backend onto a practice's screen, and this is the screen a whole day of patients is decided on.
+  for (const fault of inviteFaults(["sms", "email", "both"])) {
+    assert.match(fault, /^Sweet Spot cannot send/);
+    assert.doesNotMatch(fault, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+  }
 });
 
 // ---------------------------------------------------------------------------------------------

@@ -275,6 +275,35 @@ export function inviteSendability(channel: string | null | undefined): InviteSen
   return { channels, reason: cannotSendYet(channel ?? "") };
 }
 
+/**
+ * The same question about a *batch* of invites rather than one (§2.2, §8.1, T135): the distinct reasons
+ * nothing can go out, one per reason however many rows ran into it.
+ *
+ * §2.2's CSV import is the bulk path, and the fact is about the deployment rather than about any row — a
+ * file of 25 texts in an office with no SMS backend is one sentence, not 25. The set is what makes that
+ * true, and the channel is what keeps the sentences apart: a file holding both an `sms` row and an `email`
+ * row in a deployment that has configured neither has two things to say, because `cannotSendYet` names the
+ * channel staff chose (lib/delivery.ts).
+ *
+ * A row that chose to message nobody adds nothing, the way `inviteSendability` returns no reason for
+ * `"none"`: that is the practice's own choice and `NO_CONSENT_TO_MESSAGE` is its sentence (T120). A blank
+ * `channel` column is that same choice — the CSV parser reads it as `"none"` (lib/visitIntake.ts) — so the
+ * two "Do not message" lines of the example file stay clean on a screen full of faults.
+ *
+ * Settled from the environment with no client and no network call, like everything else here, which is why
+ * `POST /api/visits/import` can answer it on the preview — before a single row is written — as cheaply as it
+ * answers it afterwards.
+ */
+export function inviteFaults(channels: Iterable<string | null | undefined>): string[] {
+  const faults = new Set<string>();
+  for (const channel of channels) {
+    if (channel === "none") continue;
+    const reason = inviteSendability(channel).reason;
+    if (reason) faults.add(reason);
+  }
+  return [...faults];
+}
+
 export async function sendIntakeInvite(p: {
   visitId?: string;
   patientId?: string;
