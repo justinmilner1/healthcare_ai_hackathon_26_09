@@ -42,6 +42,25 @@ const AUTHORIZE = "Authorize on Dexcom and return here.";
 const DEMO_SESSION = "a separate synthetic-data session";
 const DEMO_UNCHANGED = "Your existing uploads stay unchanged.";
 
+// And the words on the button, on both of the surfaces that carry one: §2.7's invitation and the control it
+// sends the patient to (`components/DexcomDemoLink.tsx`). They lived apart, and drifted exactly as far as
+// that allows — the invitation said "Try the Dexcom demo" while its own destination said **Try Dexcom
+// sandbox** on the Sweetie page and **Connect Dexcom · Demo** on the intake step: an operator fact in the
+// first (which Dexcom this deployment talks to, the T71 rule) and in the second the one claim this state
+// has none of, since no readings of the patient's own are coming (T134). So the subject is written once
+// here and both labels are built from it, which is what keeps them one promise.
+const DEMO_SUBJECT = "Dexcom demo";
+const DEMO_ACTION = `Try the ${DEMO_SUBJECT}`;
+
+/**
+ * The demonstration link's own button, in the two lengths its two slots have.
+ *
+ * `full` is `summaryDataInvite({ control: "demo" }).action` to the word, because that invitation is what
+ * sent the patient here. `compact` is shorter for the intake step's tight account row, and is the same
+ * subject with the verb dropped rather than a second way of describing the thing.
+ */
+export const DEXCOM_DEMO_LABEL = { full: DEMO_ACTION, compact: DEMO_SUBJECT } as const;
+
 /** What the patient can do next once their file is in. Never the reason a connection is missing. */
 function nextStep({ env, configured, canConnect }: DexcomHint): string {
   if (configured && canConnect) return "You can also connect Dexcom to import your readings automatically.";
@@ -174,13 +193,14 @@ export function summaryDataInvite(
   //
   // `sandboxPatient` is not read here. It cannot be true in this branch — `dexcomConnectControl` returns
   // `"demo"` only for a real visit — and the copy would not want it if it could: what this state turns on
-  // is where the button leads, not whose record it was pressed from. The destination's own control is
-  // labelled "Try Dexcom sandbox"; this says "demo" because the patient reading it is a real patient, who
-  // is never told which Dexcom an operator pointed the deployment at (the T71 rule).
+  // is where the button leads, not whose record it was pressed from. This says "demo", and not which
+  // Dexcom an operator pointed the deployment at, because the patient reading it is a real patient (the
+  // T71 rule) — and the destination's own control now says the same, out of `DEXCOM_DEMO_LABEL` above
+  // (T134).
   if (control === "demo") {
     return {
-      body: `The Dexcom demo in Sweetie opens ${DEMO_SESSION} — synthetic readings, not your own. ${DEMO_UNCHANGED}`,
-      action: "Try the Dexcom demo",
+      body: `The ${DEMO_SUBJECT} in Sweetie opens ${DEMO_SESSION} — synthetic readings, not your own. ${DEMO_UNCHANGED}`,
+      action: DEMO_ACTION,
     };
   }
   // Nothing to connect. A real visit can still share the export it already has, which is the one path into

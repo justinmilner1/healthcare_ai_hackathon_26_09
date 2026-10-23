@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { apiFetch } from "@/lib/csrf";
+import { DEXCOM_DEMO_LABEL } from "@/lib/dexcomHint";
 
 export default function DexcomDemoLink({ token, disabled = false, compact = false, buttonClassName }: { token: string; disabled?: boolean; compact?: boolean; buttonClassName?: string }) {
   const [busy, setBusy] = useState(false);
@@ -28,7 +29,11 @@ export default function DexcomDemoLink({ token, disabled = false, compact = fals
     <div className={compact ? "text-sm" : "sweetie-sandbox-note mt-3 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"}>
       {!compact && <p>Explore with synthetic glucose readings in a separate demo session. Your patient record and uploads will not change.</p>}
       <button type="button" disabled={disabled || busy} onClick={start} className={buttonClassName ?? "min-h-11 rounded-lg border border-amber-700 px-3 py-2 font-semibold disabled:opacity-50"}>
-        {busy ? "Opening demo…" : compact ? "Connect Dexcom · Demo" : "Try Dexcom sandbox"}
+        {/* Both labels come from lib/dexcomHint.ts, where the invitation that sends the patient here takes
+            its own words from (T134): this button is where that promise is either kept or broken, and a
+            label written beside it was free to say "Try Dexcom sandbox" — an operator fact no patient is
+            told (T71) — and "Connect Dexcom · Demo", the one claim this state has none of. */}
+        {busy ? "Opening demo…" : compact ? DEXCOM_DEMO_LABEL.compact : DEXCOM_DEMO_LABEL.full}
       </button>
       {error && <p role="alert">{error}</p>}
     </div>
