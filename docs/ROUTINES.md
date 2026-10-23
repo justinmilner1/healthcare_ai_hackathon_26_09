@@ -318,6 +318,19 @@ When the timings say it was the box:
   which is what keeps a raised ceiling from being overtaken by a number in a spec. A wait that genuinely
   needs longer than an ordinary one asks for `DRAINED` or `loadedAtLeast(ms)` from `e2e/budget.ts`, a floor
   under the shared budget rather than a flat number beside it.
+- And nothing omits one either (T124). A `timeout:` written wrong is what the rule above selects; a poll
+  that passes no budget at all has no such property to select, so it passed lint and quietly took
+  Playwright's own 5s `expect` default — `playwright.config.ts` sets no `expect` block, so that number is
+  Playwright's and not anybody's choice, and `E2E_LOADED_TIMEOUT_MS` cannot reach it. Two sites got there
+  that way, one of them `expectTranscriptUncut`'s poll behind fourteen call sites, and on a slow box they
+  failed saying "the transcript never settled on the newest message" about something that was only the
+  clock. `npm run lint` now refuses an `expect.poll` whose options carry no budget as well as one that
+  carries a flat number.
+- The one budget a slow box does **not** need raised is `GIVES_UP`, which is for a wait staged to run out:
+  the three negative tests in `e2e/transcript.spec.ts` assert on `expectTranscriptUncut` giving up, so they
+  spend their whole budget on every green run rather than only on a slow one. It is a quarter of
+  `E2E_LOADED_TIMEOUT_MS` with 8s under it, so raising that override still moves it, and a staging duration
+  that has to outlast it is derived from it rather than written beside it.
 
 ### The journey spec (T26)
 
