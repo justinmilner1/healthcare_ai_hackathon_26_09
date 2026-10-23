@@ -42,6 +42,29 @@ const noFlatTimeout = {
   message: "Budgets come from e2e/budget.ts (T95): use LOADED, DRAINED or loadedAtLeast(), not a flat timeout.",
 };
 
+// And a budget *omitted* is the half of that the rule above cannot see (T124). `noFlatTimeout` selects a
+// `timeout` property written wrong; an `expect.poll` whose only option is `message` has no such property to
+// select, passes lint, and silently takes Playwright's own 5s `expect` default — a number nobody wrote down
+// (`playwright.config.ts` sets no `expect` block) and the documented `E2E_LOADED_TIMEOUT_MS` override cannot
+// reach. Two sites got there that way and failed on slow boxes naming Sweetie's transcript for the clock.
+//
+// Two selectors, because a poll can omit its budget two ways: by passing no options at all, and by passing
+// an object literal with no `timeout` in it. A spread (`{ ...LOADED, message }`) satisfies the second — the
+// budget is in the object, just not as a key this selector can see — as does handing `LOADED`, `DRAINED`,
+// `GIVES_UP` or `loadedAtLeast()` straight through as the second argument.
+const noBudgetlessPoll = [
+  {
+    selector: "CallExpression[callee.property.name='poll'][arguments.length<2]",
+    message: "expect.poll needs a budget from e2e/budget.ts (T124): pass LOADED, DRAINED, GIVES_UP or loadedAtLeast().",
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='poll'] > ObjectExpression:not(:has(> Property[key.name='timeout'])):not(:has(> SpreadElement))",
+    message:
+      "expect.poll options with no budget take Playwright's 5s default, which E2E_LOADED_TIMEOUT_MS cannot reach (T124): spread LOADED or GIVES_UP from e2e/budget.ts into them.",
+  },
+];
+
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
@@ -54,22 +77,22 @@ const eslintConfig = [
     rules: { "no-console": "error" },
   },
   {
-    // Three things the suite may not write by hand. They share one rule because `no-restricted-syntax` takes
+    // Four things the suite may not write by hand. They share one rule because `no-restricted-syntax` takes
     // the whole list from the last config block that sets it: a second block for `e2e/**/*.ts` would not add
     // a selector, it would replace the other one and switch it off everywhere.
     files: ["e2e/**/*.ts"],
-    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot, noFlatTimeout] },
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot, noFlatTimeout, ...noBudgetlessPoll] },
   },
   {
     // e2e/shot.ts is the helper the screenshot rule points at, so it is the one file allowed to take one.
     files: ["e2e/shot.ts"],
-    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noFlatTimeout] },
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noFlatTimeout, ...noBudgetlessPoll] },
   },
   {
     // e2e/budget.ts is the helper the budget rule points at, so it is the one file allowed to write the
     // defaults down. playwright.config.ts is outside e2e/ and takes them from it.
     files: ["e2e/budget.ts"],
-    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot] },
+    rules: { "no-restricted-syntax": ["error", noBareClearCookies, noBareScreenshot, ...noBudgetlessPoll] },
   },
   {
     ignores: [
