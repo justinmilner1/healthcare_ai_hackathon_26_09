@@ -62,8 +62,12 @@ test("an office with no sender is told so before it invites anybody, and is not 
   await expect(note).toContainText("they cannot sign in yet: Sweet Spot cannot send email yet");
   await expect(note).not.toContainText(/sign in with that address/i);
   expect(await card.innerText()).not.toMatch(MOTION);
-  // The invite *is* the User row (lib/team.ts), so what the note says about the role is true of the table.
-  await expect(page.locator(".settings-users tbody tr", { hasText: colleagueEmail })).toContainText(/Clinician/i);
+  // The invite *is* the User row (lib/team.ts), so what the note says about the role is true of the table:
+  // the role select carries the one that was picked, and the status pill says nobody has redeemed a link.
+  // `toContainText` would pass on the select's other options, so this reads its value.
+  const row = page.locator(".settings-users tbody tr", { hasText: colleagueEmail });
+  await expect(row.locator("select")).toHaveValue("clinician");
+  await expect(row.locator(".ss-pill-warning")).toHaveText("Invited");
   await shot(page, "provider-settings-invite-unsendable-sent", { ...SCREENFUL, scrollTo: ".settings-invite-hint", block: "center" });
 
   // 4. The dead end itself, which is the whole reason the note no longer points at it: the colleague goes
