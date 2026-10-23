@@ -11,6 +11,7 @@ import { apiFetch, CSRF_PARAM, ensureCsrfToken } from "@/lib/csrf";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
 import { dexcomCardHint, dexcomConnectControl } from "@/lib/dexcomHint";
 import { countOf } from "@/lib/plural";
+import { setupCompleteCopy } from "@/lib/summaryPromise";
 
 type DexcomStatus = {
   /** Which Dexcom this deployment talks to (design §9.2). The sandbox answers with synthetic readings, so
@@ -328,34 +329,33 @@ export default function SweetieIntakePage({
   // has to look different from the row that says something was. The green tick means CONNECTED everywhere
   // else in this flow, one step earlier included, so it cannot also decorate "No data connected yet".
   const hasConnections = connectedCount > 0;
-  // T116 (§2.5, §2.7): and so does everything else the step promises. T84 made the row above report what
-  // was shared and left the four strings around it unconditional, so the card said "No data connected yet"
-  // beside a bubble offering a week to view, a lede offering to go straight to it, a "View my week" button
-  // and a hint about data that stays saved — and the button landed the patient on the empty summary, which
-  // asked them to go back and connect something. §2.5 makes sharing optional; it does not make it
-  // invisible. The four live in one table because the bug was that they drifted apart from the row one at a
-  // time, and the empty column offers the two things that are true instead: connections, and Sweetie.
+  // T133 (§2.5, §2.7): and whether any of it is glucose, which is a different question and the one the
+  // thing this step offers turns on. `connectedCount` counts every source, so a WHOOP CSV or a Timeline
+  // export alone made `hasConnections` true — and neither produces a reading, while `/patient/<token>`
+  // renders on `status.hasDexcom`, which is `glucose.length > 0` (lib/bundle.ts). The union of the two
+  // Dexcom paths is the page's view of that predicate: the card, which the status fetch above seeds from
+  // `status.hasDexcom` and an upload fills in, and an OAuth import of this visit's own, which is what
+  // `dexcomStatus.connected` reports (app/api/dexcom/status/route.ts) and the only path a sandbox visit
+  // has, its uploads being disabled.
+  const hasGlucose =
+    connections.dexcom.state === "connected" || Boolean(dexcomStatus?.connected);
+  // T116 (§2.5, §2.7) and T133: everything the step promises follows one of those two conditions, and the
+  // four strings follow the second. T84 made the card's first row report what was shared and left the
+  // strings around it unconditional, so the card said "No data connected yet" beside a bubble offering a
+  // week to view, a lede offering to go straight to it, a "View my week" button and a hint about data
+  // that stays saved — and the button landed the patient on the empty summary, which asked them to go
+  // back and connect something. T116 fixed that for a patient who had shared nothing and left the same
+  // sentence standing for one who had shared something with no glucose in it. §2.5 makes sharing
+  // optional; it does not make it invisible, and it does not make a sleep upload into a week of readings.
   //
-  // Nothing here is span-aware. T114 moved "your week" onto `spanNoun` at the three sites that know how many
-  // days arrived; this step runs before any of that is computed, so the shared column keeps the wording it
-  // has always had rather than guessing a span. The empty column does not name a span in order to deny it
-  // either — step 2 has no other use for the word, so "week" appearing anywhere in that frame is the bug
-  // itself, and `connections.spec.ts` asserts its absence over the whole page rather than string by string.
-  const completeCopy = hasConnections
-    ? {
-        bubble: "Your week is ready to view. Questions are optional.",
-        lede:
-          "Go straight to your week without answering questions. If you'd like to share more before your " +
-          "visit, chatting with Sweetie is optional.",
-        hint: "Skip the questions. Your shared data stays saved.",
-      }
-    : {
-        bubble: "Nothing shared yet. We can still talk it through.",
-        lede:
-          "You haven't shared any data, so there's nothing to show you yet. You can go back and add some, " +
-          "or tell Sweetie what's going on before your visit — both are optional.",
-        hint: "A short chat still gives your clinician something to work from.",
-      };
+  // The words and the condition are lib/summaryPromise.ts, with the chat's skip link and the route's
+  // goodbye, which make the same promise: three surfaces, one rule, and every state of it swept in a unit
+  // test rather than restated here (§12.1). Nothing in it names a span — T114 moved "your week" onto
+  // `spanNoun` at the three sites that know how many days arrived, and this step runs before any of that
+  // is computed — so "week" appearing anywhere in this frame is the bug itself, whatever was shared, and
+  // `connections.spec.ts` asserts its absence over the whole page in all three states rather than string
+  // by string.
+  const completeCopy = setupCompleteCopy({ hasConnections, hasGlucose });
   const isUploading = removing !== null || Object.values(connections).some(
     (connection) => connection.state === "uploading",
   );
@@ -788,20 +788,21 @@ export default function SweetieIntakePage({
                 </div>
 
                 <div className={`${styles.actions} ${styles.completeActions}`}>
-                  {hasConnections ? (
+                  {completeCopy.action !== null ? (
                     <button
                       className={`${styles.primaryButton} ${styles.chatButton}`}
                       type="button"
                       disabled={isFinishing || isUploading}
                       onClick={() => void finishWithoutQuestions()}
                     >
-                      {isFinishing ? "Saving…" : "View my week"}
+                      {isFinishing ? "Saving…" : completeCopy.action}
                       <ArrowIcon />
                     </button>
                   ) : (
-                    // Nothing was shared, so there is no week to skip the questions on the way to: the chat
-                    // that was the step's secondary action is the only thing here that leads anywhere real,
-                    // and it becomes the primary rather than a second way to say "Back to connections".
+                    // There is no summary to skip the questions on the way to — nothing was shared, or
+                    // nothing with a glucose reading in it (T133) — so the chat that was the step's
+                    // secondary action is the only thing here that leads anywhere real, and it becomes the
+                    // primary rather than a second way to say "Back to connections".
                     <button
                       className={`${styles.primaryButton} ${styles.chatButton}`}
                       type="button"
@@ -814,7 +815,7 @@ export default function SweetieIntakePage({
                   )}
                   <p className={styles.completionHint}>{completeCopy.hint}</p>
                   <div className={styles.secondaryActions}>
-                  {hasConnections && (
+                  {completeCopy.action !== null && (
                   <button
                     className={styles.textButton}
                     type="button"
