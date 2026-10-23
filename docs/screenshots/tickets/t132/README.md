@@ -49,3 +49,9 @@ possessive and addressed to a particular patient, on a panel where they have sha
 The new spec in `e2e/connections.spec.ts` therefore names its three strings one by one instead of sweeping
 the frame for `/week/i` the way the setup-complete assertion above it does. A frame-wide negative here would
 quietly settle a question nobody has ruled on.
+
+**Settled in T136 (#207).** The decision went the way the rule points: the headline now reads "Your data, /
+in one *picture.*", and `e2e/connections.spec.ts` carries the frame-wide `not.toContainText(/week/i)` over
+`main` as well as the three named strings. The frames above are this screen before that change; the ones
+under `docs/screenshots/tickets/t136/` are after it. Nothing on the connect step names a span any more, so
+this is not a question for another sweep to re-find.

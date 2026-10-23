@@ -265,7 +265,7 @@ test("the setup-complete step offers no summary to a connection with no glucose 
 
 /**
  * The connect step before anything is uploaded, where every word is written against a file that does not
- * exist yet (T132, design §2.5).
+ * exist yet (T132, T136, design §2.5).
  *
  * T100 → T114 → T116 → T123 took one rule off the patient path a screen at a time: the span comes from the
  * data, not from the brand. This step was the last place that still broke it in the state it is always in
@@ -273,13 +273,16 @@ test("the setup-complete step offers no summary to a connection with no glucose 
  * days of glucose" and the WHOOP card "the past week", all three about files whose range the patient picks.
  * Clarity exports whatever window they choose and `lib/whoop.ts` clips nothing.
  *
- * Scoped to the three strings rather than swept over the frame, which is the opposite of what the
- * setup-complete assertion above does, and deliberately: step 2 has no other use for the word, so there a
- * negative over `main` is the right scope. Here the art column beside the panel carries "Your week, / in
- * one picture." — brand copy of the same shape as the landing page's, which T132 put out of scope rather
- * than settle in passing, so a frame-wide negative here would be asserting a decision nobody has made.
- * The three strings the ticket is about are named one by one instead, each by a selector that is not a
- * hashed CSS module class.
+ * T136 settled the fifth site and took the scope with it. T132 named its three strings one by one and
+ * left the frame alone, because the art column beside the panel carried "Your week, / in one picture."
+ * and its status was undecided: brand copy of the same shape as the landing page's, which T132 put out of
+ * scope, but possessive and addressed to this patient mid-flow rather than copy about the product. T136
+ * decided it — it reads "Your data, / in one picture." — so there is no longer a string on this step
+ * that a frame-wide negative would be settling in passing, and the scope is the one the setup-complete
+ * assertions above already use: `main` must not contain the word at all. The three strings stay named
+ * individually under the noun pattern, which catches "3 days" and "48 hours" as well, each by a selector
+ * that is not a hashed CSS module class. The frame-wide negative is what stops a sixth site drifting in
+ * somewhere nobody thought to name.
  *
  * Both projects, so the §12.3 evidence is the step at 1280px and at 375px.
  */
@@ -319,6 +322,17 @@ test("the connect step names no span before anything is shared", async ({ page }
   // this adds is that the string really does reach the patient's screen: the unit test holds the function,
   // this holds the wiring, and the defect was in the words either way.
   await expect(page.getByText("Upload your Clarity CSV export to share your glucose readings.")).toBeVisible();
+
+  // The art column's headline, which T132 photographed and left undecided and T136 reworded. It is the
+  // largest type on the step and, at 375px, the first thing the patient reads. The only <h2> on the page,
+  // and asserted in two parts because the line break between them puts no whitespace in `textContent`.
+  const artHeading = page.getByRole("heading", { level: 2 });
+  await expect(artHeading).toContainText("Your data,");
+  await expect(artHeading).toContainText("in one picture.");
+  expect(await artHeading.textContent(), "the connect step's art headline").not.toMatch(SPAN);
+  // And the frame, now that nothing on this step has a use for the word (T136). The art panel is inside
+  // `main`, so this reaches the headline above as well as anything a later ticket adds.
+  await expect(page.locator("main")).not.toContainText(/week/i);
 
   // No axe pass here: this exact step is already scanned, in the state this test leaves it in, by
   // e2e/a11y.spec.ts's "the intake page passes axe and labels every file picker" (§12.5). A second scan of
