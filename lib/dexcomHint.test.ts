@@ -297,3 +297,56 @@ test("the new state is held to the same two rules as every other (T71's and T123
       }
     }
 });
+
+// T132 (§2.5, §2.7): the same sweep T123 gave `summaryDataInvite` above, over `dexcomCardHint`'s
+// unimported states — the ones that describe a file the patient has not sent yet. The unconfigured branch
+// told them it would hold "your last 7 days of glucose", which is a presumption about their own export:
+// Clarity sends whatever range they pick, `parseClarityCsv` keeps every EGV row it is handed, and
+// data/fixtures/clarity_window.csv is 84 readings inside one morning.
+
+/**
+ * The one hint in this module that may name a span, written out so the sweep below can exclude it *by
+ * name* rather than by a pattern that happens to miss it.
+ *
+ * `lib/dexcom.ts` requests `{ start: Math.max(first, end - 7 * 86400000), end }` (pinned by
+ * lib/dexcom.test.ts), so on the OAuth branch the seven days are a fact about what the connection fetches,
+ * not a guess about what the patient will upload. That is the rule T132 settled: name a span the system
+ * controls, never one the patient chooses.
+ *
+ * Asserted as an equality, so a reword of this sentence fails here and has to be read against that rule
+ * again. A `doesNotMatch` with this branch skipped would let it drift into any span at all.
+ */
+const OAUTH_WINDOW = "Authorize on Dexcom and return here. Your last 7 days of readings are imported.";
+
+test("no hint for an unsent file names a span, and the one that may is the connection's own window (T132)", () => {
+  const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
+  // The exclusion has to be doing real work: if this sentence stopped naming a span, the `assert.equal`
+  // below would be the only thing still holding it, and a reader would have no way to see that the sweep
+  // had gone slack. So the premise is checked rather than assumed.
+  assert.match(OAUTH_WINDOW, SPAN, "the excluded branch is excluded because it names a span");
+
+  let reachedOauth = 0;
+  for (const env of ["sandbox", "production"] as const)
+    for (const configured of [false, true])
+      for (const canConnect of [false, true])
+        for (const sandboxPatient of [false, true])
+          for (const uploaded of [false, true]) {
+            // `imported` is false throughout: an OAuth import's hint is its own date range, which is the
+            // range that actually arrived and the one span on this card that was never in question.
+            const state = { env, configured, canConnect, sandboxPatient, uploaded, imported: false, importRange: null };
+            const said = hint(state);
+            const where = JSON.stringify({ env, configured, canConnect, sandboxPatient, uploaded });
+            assert.ok(said.length > 0, `every state has a hint: ${where}`);
+            // The real-OAuth branch, named by the condition that reaches it in dexcomCardHint rather than
+            // by the words it returns: nothing shared, credentials present, this visit may connect, and a
+            // real patient rather than a synthetic one (whose import is invented and says so instead).
+            if (configured && canConnect && !uploaded && !sandboxPatient) {
+              assert.equal(said, OAUTH_WINDOW, where);
+              reachedOauth += 1;
+              continue;
+            }
+            assert.doesNotMatch(said, SPAN, where);
+          }
+  // And the branch is reachable, so the sweep is not quietly excluding a state it never visits.
+  assert.equal(reachedOauth, 2, "the real-OAuth branch is reached on both deployments");
+});
