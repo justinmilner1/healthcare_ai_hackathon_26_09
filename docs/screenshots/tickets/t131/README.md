@@ -1,7 +1,7 @@
 # T131 — the invite card stops promising an email, and stops pointing at a sign-in that errors
 
 From `bash scripts/agent-check.sh` on the tree this ticket landed (exit 0, 1011 unit tests with 0 failures, 256 Playwright
-tests, whole check 8m16s, build 55s), in the cloud sandbox. All four frames are from the suite's sixth web
+tests, whole check 7m41s, build 33s), in the cloud sandbox. All four frames are from the suite's sixth web
 server (`UNSENDABLE_PORT` in `playwright.config.ts`): no email backend **and** no `DEV_MAIL_DIR`, which is
 the state a fresh `.env` is in and the only state in which §2.1's staff onboarding dead-ends. Every other
 server in the suite names a mailbox, which is why this card went unchallenged — `canSendOrMailbox()` is true
