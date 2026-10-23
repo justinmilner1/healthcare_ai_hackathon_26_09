@@ -4,8 +4,9 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
-import { EYEBROW, patientEmail, verifyByApi, verifyLink } from "./patient";
+import { EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
+import { UNNAMED_PLACE } from "../lib/spikePlaces";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
 // reviewer routines can find them: e2e/screenshots/<project>-<name>.png. e2e/shot.ts decides how much of the
@@ -727,6 +728,14 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   await expect(rises).toContainText("not sure");
   await expect(rises, "the matcher's vocabulary").not.toContainText(/no matching visit/i);
   await expect(rises, "the one word that means something else on this page").not.toContainText(/visit/i);
+
+  // T128 (§2.7): and so do the rows it *did* place against a stop the export never named. These two
+  // samples are the whole of that case — data/timeline_sample.json carries coordinates and nothing here
+  // uploads the hand labels, so every placed rise is an unnamed stop — and the coordinates used to be the
+  // cell. The chart says the same words over its markers, because both read lib/spikePlaces.ts.
+  await expect(rises, "the patient's word for a stop with no name").toContainText(UNNAMED_PLACE);
+  await expect(page.locator(".patient-chart-wrap").first(), "the marker labels over the same rises").toContainText(UNNAMED_PLACE, LOADED);
+  await expectNoCoordinates(page, "the patient summary, mixed places");
 
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, mixed places");
   await shot(page, "patient-summary-places", { scrollTo: ".patient-spikes" });

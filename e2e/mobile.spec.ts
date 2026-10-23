@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
-import { acceptConsent, enterCode, patientEmail } from "./patient";
+import { acceptConsent, enterCode, expectNoCoordinates, patientEmail } from "./patient";
 import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut, OPENING_BUBBLE_ROOM, transcriptCue } from "./mobile";
 import { shot, WHOLE_PAGE } from "./shot";
 
@@ -461,6 +461,10 @@ test("the patient summary fits a 375px phone, empty and full", async ({ page }) 
 
   await page.goto(`/patient/${token}`);
   await expect(page.locator(".patient-overview")).toBeVisible(LOADED);
+  // T128 (§2.7, §6.5): this is the shot the coordinates were found in. The Timeline sample above places
+  // some of the week's rises and nothing uploads the hand labels, so every one of them is a stop with no
+  // name — the case that used to put a lat/long in the Where column and over the chart's markers.
+  await expectNoCoordinates(page, "the patient summary at 375px");
   await expectNoHorizontalScroll(page, "the patient summary, full");
   await expectNothingScrollsSideways(page, "the patient summary, full");
   await expectTapTargets(page, "the patient summary, full");

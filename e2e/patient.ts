@@ -183,3 +183,24 @@ export async function verifyByApi(
   expect(consented.status(), `POST /api/consent: ${await consented.text()}`).toBe(200);
   return code;
 }
+
+/** A lat/long pair as lib/location.ts writes one. Nothing on §2.7's page may read like this (T128). */
+const COORDINATES = /-?\d+\.\d{3}, -?\d+\.\d{3}/;
+
+/**
+ * No coordinates anywhere on the patient's own summary (T128, design §2.7).
+ *
+ * `placeLabel` is how an unnamed Timeline stop is named for the clinician's brief and the printed sheet
+ * (T62), and it used to reach the patient through two surfaces at once: the Where column and the chart's
+ * marker labels. So this sweeps the whole of `.patient-summary-content`, which holds both — a third surface
+ * growing its own copy of the same string fails here rather than in a reviewer's sweep.
+ *
+ * The chart is the half that has to be waited for: its labels are painted client-side once the card has
+ * been measured, and a chart that has not drawn yet would pass a negative assertion without having drawn
+ * anything. The spike markers appear in that same render and are the only circles in the card — the line
+ * carries no dots — so one of them on the page is the whole wait.
+ */
+export async function expectNoCoordinates(page: Page, where: string): Promise<void> {
+  await expect(page.locator(".patient-chart-wrap circle"), `the chart's spike markers on ${where}`).not.toHaveCount(0, LOADED);
+  await expect(page.locator(".patient-summary-content"), `a lat/long on ${where}`).not.toContainText(COORDINATES);
+}
