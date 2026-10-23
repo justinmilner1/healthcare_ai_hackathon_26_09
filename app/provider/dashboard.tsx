@@ -11,6 +11,7 @@ import { can } from "@/lib/access";
 import { bookedOutcome, type BookedOutcome } from "@/lib/booking";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
+import { newLinkNote, sendLinkNote } from "@/lib/inviteNote";
 import { confirmsDeletion } from "@/lib/retention";
 import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
 import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
@@ -222,18 +223,18 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
     // writes is the wizard's sentence one screen over (§8.1): what staff read when nothing can go out is
     // lib/delivery.ts's words, and the row's own Copy intake is where §8.1's fallback lives — the link does
     // not fit in a note under four buttons, and the button that hands it over is a press away.
-    setRowNote((notes) => ({
-      ...notes,
-      [visit.id]: data.queued
-        ? "Sending now"
-        : data.reason
-          ? `No invite sent: ${data.reason}. Use Copy intake to give them the link.`
-          : `Not sent: ${data.error ?? "unknown error"}`,
-    }));
+    //
+    // T129 The sentence is lib/inviteNote.ts's, with New link's, because the two buttons post to this same
+    // route and write into this same note element and spent a ticket telling staff two different stories.
+    setRowNote((notes) => ({ ...notes, [visit.id]: sendLinkNote(data) }));
   }
 
   // §5.5 Staff can regenerate a link, which invalidates the old one. Destructive from the patient's side —
   // a half-finished check-in in another browser is locked out — so it asks first and says what happened.
+  //
+  // T129 The question it asks promises nothing about a send, and is true in a deployment with no sender at
+  // all: it names only the destructive half, which is the half that happens either way. Keep it that way —
+  // it is asked before the route has answered, so it has no `queued` to branch on.
   async function regenerateLink(visit: Row) {
     if (!window.confirm(`Replace ${visit.name}'s link?\n\nThe old link stops working straight away, and anyone already signed in on it has to verify again with a new code.`)) return;
     setRowNote((notes) => ({ ...notes, [visit.id]: "Replacing the link…" }));
@@ -245,9 +246,16 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not replace the link.");
-      setRowNote((notes) => ({ ...notes, [visit.id]: "New link sent. The old one no longer works." }));
-      // The row still carries the old token, and Copy intake reads it from there.
+      // T129 The old link is dead on both branches — the route swaps the token and revokes the sessions
+      // before it enqueues anything — but only a deployment with a sender gets to say the new one went
+      // anywhere. `queued` is the same answer Send link three pixels away already reads, and the sentence
+      // for both is lib/inviteNote.ts's.
+      //
+      // Reloaded before the note rather than after it, because the note points at Copy intake and that
+      // button reads the token off the row: staff pressing it have to get the link the sentence promised
+      // and not the one that just stopped working.
       await load();
+      setRowNote((notes) => ({ ...notes, [visit.id]: newLinkNote(data) }));
     } catch (e) {
       setRowNote((notes) => ({ ...notes, [visit.id]: e instanceof Error ? e.message : "Could not replace the link." }));
     }
@@ -593,7 +601,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
                                 type="button"
                                 onClick={() => regenerateLink(visit)}
                                 className="ss-button"
-                                title="Replace this patient's link and send the new one. The old link stops working."
+                                title="Replace this patient's link with a new one. The old link stops working straight away."
                               >
                                 New link
                               </button>
