@@ -176,7 +176,7 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
           element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
           return gap;
         }),
-      { message: "the transcript never settled on the newest message" },
+      { ...LOADED, message: "the transcript never settled on the newest message" },
     )
     .toBeLessThanOrEqual(2);
   const fit = await transcript.evaluate((element) => {

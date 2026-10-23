@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { LOADED } from "./budget";
 
 // The three measurements design §6.5 asks of the patient pages, written once so every screen is judged the
 // same way (T23). playwright.config.ts pins the mobile project's viewport to 375px, which is the width the
@@ -434,8 +435,19 @@ export type TranscriptFit = {
  * the assertions ignores it, which is all fourteen of them across five specs; e2e/transcript.spec.ts is the
  * one that asks, because "which message did it settle on, and was that message still moving?" is the
  * helper's own contract and nothing else in the suite is in a position to check it.
+ *
+ * How long it waits is `LOADED`, the budget every other wait on asynchronous work in the suite takes
+ * (T124). It used to be Playwright's own 5s `expect` default — a number nobody chose and
+ * `E2E_LOADED_TIMEOUT_MS` could not reach, so on a slow box the poll below gave up at fourteen call sites
+ * with a message naming Sweetie's transcript for something that was only the clock, which is the
+ * misleading-failure class T89 and T95 exist to remove. `settles` overrides it for a caller whose wait is
+ * *meant* to run out — `GIVES_UP` in e2e/budget.ts, which e2e/transcript.spec.ts is the only spec to want.
  */
-export async function expectTranscriptUncut(page: Page, screen: string): Promise<TranscriptFit> {
+export async function expectTranscriptUncut(
+  page: Page,
+  screen: string,
+  settles: { timeout: number } = LOADED,
+): Promise<TranscriptFit> {
   const transcript = page.locator(".sweetie-messages");
   await expect(transcript, `${screen}: no transcript on the page`).toBeVisible();
   const measure = (): Promise<TranscriptFit | null> =>
@@ -533,7 +545,7 @@ export async function expectTranscriptUncut(page: Page, screen: string): Promise
         accepted.push(reading);
         return SETTLED;
       },
-      { message: `${screen}: the transcript never settled on the newest message` },
+      { ...settles, message: `${screen}: the transcript never settled on the newest message` },
     )
     .toBe(SETTLED);
   const fit = accepted.at(-1);
