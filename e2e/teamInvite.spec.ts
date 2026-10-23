@@ -24,9 +24,9 @@ import { UNSENDABLE_PORT } from "../playwright.config";
 
 const UNSENDABLE = `http://localhost:${UNSENDABLE_PORT}`;
 
-/** Anything that reads as an email reaching the colleague, which is what the hint used to claim. Narrow on
- *  purpose, the way lib/teamInvite.test.ts states it: "did not go out" is a refusal with "go" in it, and
- *  "Work email" is the field's own label. */
+/** Anything on the card that reads as an email reaching the colleague, which is what the hint used to claim.
+ *  Narrow on purpose, the way lib/teamInvite.test.ts states it for the two sentences: the card also carries
+ *  "Work email", which is the field's own label, and "Send invite", which is the button. */
 const MOTION = /they get an email|comes to their own inbox|we(?:'| ha)ve (?:sent|emailed)|^Invited /im;
 
 test("an office with no sender is told so before it invites anybody, and is not sent down the sign-in dead end", async ({ page }) => {
