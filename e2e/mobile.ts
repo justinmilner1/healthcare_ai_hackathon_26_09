@@ -350,7 +350,7 @@ export async function expectTapTargets(page: Page, screen: string): Promise<void
  *
  * The number is the floor for the *worst* state of the screen rather than for its first one, because the
  * page's own chrome grows as the check-in goes on. Measured on the tree that fixed T83: 251px on the
- * opening screen and 200px once the patient has answered and "Skip the rest and view my week" has taken a
+ * opening screen and 200px once the patient has answered and the skip link under the strip has taken a
  * 44px row of the strip. A safety flag is the third state — it drops the skip link and adds a fourth step
  * pill, which the stepper wraps when it has to — and e2e/mobile.spec.ts measures all three. 190 clears
  * them and still fails on anything that takes another row.

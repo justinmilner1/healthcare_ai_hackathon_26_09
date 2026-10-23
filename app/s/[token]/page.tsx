@@ -10,6 +10,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
+import { skipLinkLabel } from "@/lib/summaryPromise";
 import type {
   ChatMessage,
   IntakeFieldDef,
@@ -604,10 +605,15 @@ export default function SweetiePage({
             </div>
 
             {/* Skipping only makes sense once there is something to show. Until the patient has answered
-                a question or added data, the primary action is the conversation itself. */}
+                a question or added data, the primary action is the conversation itself. That condition is
+                about whether to offer the skip; what the link then promises is a narrower question and the
+                label used to answer it with this one (T133, §2.5): "view my week" on a check-in with one
+                typed message and no uploads named both a span it could not know and a summary
+                `/patient/<token>` would not render. lib/summaryPromise.ts has the words, with the route's
+                own goodbye for the same press. */}
             {(completeFields > 0 || status?.hasDexcom || status?.hasLocation || status?.hasWhoop) && !finished ? (
               <button type="button" className="ss-text-button sweetie-skip-link" disabled={busy || Boolean(uploading) || skipping || !status} onClick={() => void skipQuestions()}>
-                {skipping ? "Saving…" : "Skip the rest and view my week"}
+                {skipping ? "Saving…" : skipLinkLabel(Boolean(status?.hasDexcom))}
               </button>
             ) : !finished ? (
               <p className="sweetie-skip-hint">Answer Sweetie&apos;s first question to get started. It takes about five minutes.</p>

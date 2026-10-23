@@ -21,6 +21,7 @@ import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { fieldsFor, flaggedHoldReply, greeting, parseIntake, renderNotes, skipQuestions } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
 import { queueSour } from "@/lib/sourQueue";
+import { skipGoodbye } from "@/lib/summaryPromise";
 import { runTurn } from "@/lib/sweetieTurn";
 import type { TurnStore } from "@/lib/sweetieTurn";
 import type { ChatMessage, ChatRole, IntakeFieldDef, IntakeState } from "@/lib/types";
@@ -92,7 +93,7 @@ async function postHandler(req: Request) {
 
   if (skippingQuestions) {
     // A flagged check-in has already stopped (§2.5, T97), so there are no remaining questions to skip and
-    // the goodbye below would replace the office instruction with "you can view your week now". The page
+    // the goodbye below would replace the office instruction with an invitation to go and read a summary. The page
     // hides the skip link once the intake is flagged; this is the same answer for anything that posts anyway.
     if (state.flagged) {
       const hold = flaggedHoldReply(firstName, providerName(visit));
@@ -100,7 +101,7 @@ async function postHandler(req: Request) {
       return respond(visit.id, state, hold, wasWrapped);
     }
     // Skipping is for a patient who has given us something. With nothing answered and nothing uploaded
-    // there is no week to view, so steer back to the first question instead of wrapping an empty intake.
+    // there is nothing to wrap, so steer back to the first question instead of wrapping an empty intake.
     const soFar = await loadBundle(visit.id);
     const hasAnything = state.turns > 0 || Boolean(soFar?.status.hasDexcom || soFar?.status.hasLocation || soFar?.status.hasWhoop);
     if (!hasAnything) {
@@ -108,7 +109,13 @@ async function postHandler(req: Request) {
       return NextResponse.json({ skipRefused: true, status: soFar?.status, intake: soFar?.intake, intakeFields: soFar?.intakeFields, agent: agentInfo() });
     }
     const skipped = skipQuestions(state);
-    const goodbye = "You've skipped the remaining questions. Anything you've already shared is saved for your care team. You can view your week now.";
+    // T133 (§2.5, §2.7): what is saved is said either way; the summary is offered only where there is one.
+    // The gate above is about whether to wrap at all and `turns > 0` is the right condition for that — but
+    // it also decided this sentence, so a patient who typed one message and uploaded nothing was told "You
+    // can view your week now" and reached the empty summary. `/patient/<token>` renders on
+    // `status.hasDexcom` (lib/bundle.ts), so that is what the offer asks, and the words are
+    // lib/summaryPromise.ts with the two surfaces on the pages that make the same promise.
+    const goodbye = skipGoodbye(Boolean(soFar?.status.hasDexcom));
     await store.commit(goodbye, skipped);
     return respond(visit.id, skipped, goodbye, wasWrapped);
   }
