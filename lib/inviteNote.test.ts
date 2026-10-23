@@ -13,8 +13,12 @@ import { newLinkNote, sendLinkNote } from "./inviteNote";
 
 /** Anything that reads as the message being in motion, the way lib/booking.test.ts states it for the card
  *  one screen over, plus the literal this ticket was filed about: none of it may appear where the route
- *  answered `queued: false`. Deliberately not a bare /sent/, which "No invite sent" is a refusal with. */
-const MOTION = /on (?:the|its) way|sending|sent to|new link sent|we(?:'| ha)ve (?:sent|emailed|texted)/i;
+ *  answered `queued: false`.
+ *
+ *  Deliberately not a bare /sent/, which "No invite sent" is a refusal with — and `\bsent to\b` and not
+ *  `sent to`, because `NO_CONSENT_TO_MESSAGE` has "con|sent to" inside it and the refusal this rule exists
+ *  to protect was failing its own test. */
+const MOTION = /on (?:the|its) way|sending|\bsent to\b|new link sent|we(?:'| ha)ve (?:sent|emailed|texted)/i;
 
 /** The two answers `POST /api/invite` gives when nothing is going out, which are different statements: one
  *  is the deployment's to fix and the other is the practice's own choice (lib/delivery.ts). */
