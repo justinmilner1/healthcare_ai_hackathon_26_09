@@ -20,6 +20,13 @@ import { SCREENFUL, shot } from "./shot";
 //
 // Every test here books its own visit. Pressing Send link writes that visit's delivery rows, and the seeded
 // ones are what e2e/notifications.spec.ts asserts §8.3 on.
+//
+// T129 (§5.5) added the third caller of that route on the same row: **New link**, which posts to it with
+// `regenerate: true`, reads the same answer and writes into the same note element, and went on saying
+// "New link sent." for a ticket after Send link beside it had stopped. It is the worse of the two to get
+// wrong — it is what staff reach for when the first invite did not arrive, which is already the case where
+// nothing can send, and it kills the link the patient may still have in hand — so it is pinned here, beside
+// the pair it has to agree with.
 
 /** A name, number and address nothing else in the run will use: two Playwright projects share one database,
  *  and §2.2 matches an existing patient on phone or email. */
@@ -41,6 +48,31 @@ const unique = (prefix: string) => {
  * — that the screens say it at all, instead of promising a send — still fails if either screen drifts back.
  */
 const NOTHING_CONFIGURED = cannotSendYet("both");
+
+/**
+ * Record what **Copy intake** hands over, which nothing else can see (T129).
+ *
+ * `copyIntakeLink` writes with `navigator.clipboard.writeText`, which needs a permission this project does
+ * not grant, and falls back to a textarea it removes again — so neither path leaves a token anywhere a test
+ * can read. Recording the call is how the row's claim that Copy intake gives them the *new* link is checked
+ * against the token the row is really carrying by then. Install it before the first navigation.
+ */
+async function recordCopies(page: Parameters<typeof signInAsDemo>[0]) {
+  await page.addInitScript(() => {
+    // Re-run on every navigation, so nothing here may be a property that cannot be redefined.
+    const copied: string[] = [];
+    Object.assign(window, { __copied: copied });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          copied.push(text);
+        },
+      },
+    });
+  });
+  return () => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
+}
 
 /** One visit of the signed-in provider's, on both channels, with the consent §2.2 wants behind it. */
 async function book(page: Parameters<typeof signInAsDemo>[0], providerId: string, prefix: string, channel = "both") {
@@ -87,6 +119,51 @@ test("the dashboard's Send link says no invite went out, and where the link is i
     block: "center",
     inline: "end",
   });
+});
+
+test("the dashboard's New link kills the old link without claiming the new one went anywhere", async ({ page }) => {
+  const copies = await recordCopies(page);
+  const demo = await signInAsDemo(page);
+  const visit = await book(page, demo.id, "Invite Regenerate");
+
+  await page.reload();
+  const row = page.locator(".provider-table tbody tr", { hasText: visit.name });
+  await expect(row).toContainText("Invited", LOADED);
+
+  // The tooltip is static markup, so it is wrong before anyone presses anything — which is why it is read
+  // here first. It cannot quote a `reason`; what it owes is wording true in both deployments.
+  const newLink = row.getByRole("button", { name: /^New link$/ });
+  await expect(newLink).toHaveAttribute("title", /^Replace this patient's link with a new one\./);
+  await expect(newLink, "the tooltip promised the send too").not.toHaveAttribute("title", /send|sent/i);
+
+  // The link the patient has in hand right now, so the one the note promises afterwards can be told from it.
+  await row.getByRole("button", { name: /Copy intake/ }).click();
+  await expect(row.locator(".provider-row-note")).toContainText("Intake link copied", LOADED);
+
+  // §5.5 asks first, and Playwright dismisses a dialog nobody is listening for.
+  page.once("dialog", (dialog) => dialog.accept());
+  await newLink.click();
+
+  const note = row.locator(".provider-row-note");
+  await expect(note, "the half that is true either way, and first").toContainText("The old link no longer works", LOADED);
+  await expect(note).toContainText(`No invite sent: ${NOTHING_CONFIGURED}`);
+  await expect(note, "the claim this ticket was filed for").not.toContainText(/New link sent/i);
+  await expect(note, "§8.1's fallback has to be reachable from the sentence that refuses").toContainText("Copy intake");
+
+  await shot(page, "provider-row-new-link-not-sent", {
+    ...SCREENFUL,
+    scrollTo: note,
+    block: "center",
+    inline: "end",
+  });
+
+  // And the control the note names hands over the token that replaced the dead one, not the dead one.
+  await row.getByRole("button", { name: /Copy intake/ }).click();
+  await expect(note).toContainText("Intake link copied", LOADED);
+  const [before, after] = await copies();
+  expect(before, "the link the patient had").toContain("/s/");
+  expect(after, "and the one Copy intake gives them now").toContain("/s/");
+  expect(after, "the row was still carrying the token the route had just thrown away").not.toBe(before);
 });
 
 test("the Sour page's Send link says the same, and still hands the link over", async ({ page }) => {
@@ -140,6 +217,19 @@ test("a deployment with a sender still tells staff the link is on its way, on bo
   // talking, not the bug: the row beside it is reporting the environment this gate really runs in. Nothing
   // on a real deployment with a sender shows both.
   await shot(page, "provider-row-invite-sending", {
+    ...SCREENFUL,
+    scrollTo: note,
+    block: "center",
+    inline: "end",
+  });
+
+  // T129 The third button on the row reads the same stubbed answer, and an office that can send is still
+  // told the new link went out: this ticket took a claim away from one deployment and not from both.
+  page.once("dialog", (dialog) => dialog.accept());
+  await row.getByRole("button", { name: /^New link$/ }).click();
+  await expect(note).toContainText("New link sent. The old one no longer works.", LOADED);
+  await expect(note).not.toContainText(/No invite sent/i);
+  await shot(page, "provider-row-new-link-sending", {
     ...SCREENFUL,
     scrollTo: note,
     block: "center",
