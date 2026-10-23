@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
-import { LOADED } from "./budget";
+import { GIVES_UP, LOADED } from "./budget";
 import { expectTranscriptUncut } from "./mobile";
 import { patientEmail, verifyLink } from "./patient";
 
@@ -27,6 +27,13 @@ import { patientEmail, verifyLink } from "./patient";
 // message is, and the moment it arrives, both numbers this file chose. `getBoundingClientRect` reads an
 // inline transform exactly as it reads an animation's, which is what makes the stand-in honest: the same
 // measurement going wrong in the same way, at a size and a moment a test can assert on.
+//
+// Three of the five are negatives: they stage a condition the helper can never satisfy and assert on the
+// failure it gives up with. Those three hand it `GIVES_UP` instead of the `LOADED` every other wait in the
+// suite takes, because a wait that is meant to run out spends its whole budget on every green run, on both
+// projects — six ceilings' worth of wall time for nothing. e2e/budget.ts carries the reasoning, and the
+// short of it is that too small a budget cannot turn a negative into a false pass the way it turns a
+// positive into a false failure: the condition is false at every reading, whatever the box is doing.
 //
 // One thing no test here reproduces, and it is worth saying where a reader will look for it. The window the
 // ticket is about — between the old helper's poll accepting a reading and its second, independent
@@ -256,7 +263,10 @@ test("the transcript helper waits out messages that keep arriving, and reports t
  * newest. It runs on an interval rather than a fixed list so that no number of poll attempts can outlast it,
  * and stops after `stopAfter` so that a page kept open past the budget does not go on appending for the rest
  * of the suite. That figure is a page-side staging duration, not a wait budget — nothing here is waiting on
- * it — and it is several times the `expect` budget the poll under test runs on.
+ * it — and it has to be several times the `expect` budget the poll under test runs on, which is why its
+ * caller derives it from that budget rather than writing a number beside it (T124). A staging duration that
+ * stopped first would leave the transcript quiet while the wait was still running, the wait would settle on
+ * the last arrival, and this test would invert from a negative into a pass about nothing.
  */
 async function stageEndlessArrivals(page: Page, every: number, stopAfter: number): Promise<void> {
   await page.locator(".sweetie-messages").evaluate(
@@ -297,9 +307,9 @@ test("the transcript helper fails on a transcript whose newest message keeps cha
   await checkIn(page, "E2E Transcript Stream");
   await expectTranscriptUncut(page, "Sweetie's opener");
 
-  await stageEndlessArrivals(page, 120, 20_000);
+  await stageEndlessArrivals(page, 120, GIVES_UP.timeout * 3);
 
-  const failure = await expectTranscriptUncut(page, "a transcript that never holds still").then(
+  const failure = await expectTranscriptUncut(page, "a transcript that never holds still", GIVES_UP).then(
     () => null,
     (error: Error) => error.message,
   );
@@ -356,7 +366,7 @@ for (const { what, offset, subject } of [
 
     // `then` with both arms rather than `rejects`, so that a helper which *passed* is a failure this test
     // reports in its own words rather than one Playwright reports as a missing rejection.
-    const failure = await expectTranscriptUncut(page, subject).then(
+    const failure = await expectTranscriptUncut(page, subject, GIVES_UP).then(
       () => null,
       (error: Error) => error.message,
     );
