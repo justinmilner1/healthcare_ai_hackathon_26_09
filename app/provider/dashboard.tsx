@@ -11,6 +11,7 @@ import { can } from "@/lib/access";
 import { bookedOutcome, type BookedOutcome } from "@/lib/booking";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
+import { importInviteNote } from "@/lib/importNote";
 import { newLinkNote, sendLinkNote } from "@/lib/inviteNote";
 import { confirmsDeletion } from "@/lib/retention";
 import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
@@ -1316,7 +1317,10 @@ type Preview = {
   created?: number;
   /** T111 What staff read when the invites these rows asked for cannot be sent by this deployment at all
    *  (lib/delivery.ts's words, via POST /api/visits/import). One line per distinct reason, however many rows
-   *  ran into it, the way `deliveryFaults` already reads under the pills on the dashboard. */
+   *  ran into it, the way `deliveryFaults` already reads under the pills on the dashboard.
+   *
+   *  T135 On both responses: the forecast about the rows the preview is offering to create, then the report
+   *  on the ones it created. `importInviteNote` is which of the two tenses is read. */
   inviteFaults?: string[];
   rows: PreviewRow[];
 };
@@ -1430,13 +1434,16 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
                     </strong>
                   )}
                   {preview.ignored.length > 0 && <span> Columns ignored: {preview.ignored.join(", ")}.</span>}
-                  {/* T111 The rows were created; their invites were not sent, because there is nothing to
-                      send them with (§8.1). Said here rather than per row because it is one fact about the
+                  {/* T111 The invites these rows asked for cannot be sent, because there is nothing to send
+                      them with (§8.1). Said here rather than per row because it is one fact about the
                       deployment, and it names what staff can do instead: every row is on the dashboard
-                      behind a "Copy intake" button. */}
+                      behind a "Copy intake" button.
+                      T135 And said on the preview as well, in the tense that screen is in — an import is a
+                      day of patients, so the one press that makes the trip through the dashboard necessary
+                      is the moment to say it costs one. lib/importNote.ts owns both sentences. */}
                   {preview.inviteFaults?.map((fault) => (
                     <span className="import-invite-fault" key={fault}>
-                      No invites sent: {fault}. Copy each link from the dashboard instead.
+                      {importInviteNote({ fault, committed: preview.committed })}
                     </span>
                   ))}
                 </p>

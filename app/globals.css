@@ -2370,9 +2370,12 @@ textarea.ss-input {
   color: var(--sour-ink);
 }
 
-/* T111 The rows went in; their invites did not go out. A block of its own under the tally rather than a
+/* T111 The invites these rows asked for are not going out. A block of its own under the tally rather than a
    sentence trailing it, because it is the one line on this screen staff have to act on, and in the colour
-   the dashboard already uses for a delivery that reached nobody (.provider-delivery-fault). */
+   the dashboard already uses for a delivery that reached nobody (.provider-delivery-fault).
+   T135 It reads on the preview too, where the tally is a count of rows nobody has created yet, so the one
+   style covers a forecast as well as a report. Same weight either way: on the preview it is the line that
+   decides whether the button gets pressed at all. */
 .import-invite-fault {
   display: block;
   margin: 6px 0 0;
