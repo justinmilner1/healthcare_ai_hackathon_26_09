@@ -858,7 +858,10 @@ test("the skip link and goodbye promise no summary to a check-in with nothing sh
   // from.
   await expect(page.locator(".sweetie-skip-link")).toHaveCount(0, LOADED);
   await expect(page).toHaveURL(new RegExp(`/s/${booked.token}$`));
-  await expect(page.locator("[role='alert']")).toHaveCount(0);
+  // Scoped to the sidebar, where the refusal's inline hint is rendered: App Router puts a permanently
+  // empty `role="alert"` at the end of every document (its route announcer), so a page-wide count is 1 on
+  // every screen in the product and asserts nothing.
+  await expect(page.locator(".sweetie-chat-sidebar [role='alert']")).toHaveCount(0);
 
   // And the goodbye is on the screen, not only in the transcript behind it: it says what is saved and
   // offers no summary there is none of. The span pattern is lib/dexcomHint.test.ts's, as above.
