@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { setupCompleteCopy, skipGoodbye, skipLinkLabel, type SummaryPromise } from "./summaryPromise";
+import {
+  checkInCompleteCopy,
+  setupCompleteCopy,
+  skipDestination,
+  skipGoodbye,
+  skipLinkLabel,
+  type SummaryPromise,
+} from "./summaryPromise";
 
 /** The three states a visit can be in by the time it reaches the end of the connections step. */
 const NOTHING: SummaryPromise = { hasConnections: false, hasGlucose: false };
@@ -82,5 +89,43 @@ test("the goodbye still tells the patient what is saved, in both states", () => 
   for (const said of [skipGoodbye(true), skipGoodbye(false)]) {
     assert.match(said, /skipped the remaining questions/i, said);
     assert.match(said, /saved for your care team/i, said);
+  }
+});
+
+test("the skip press goes to the summary on the same condition its label offers one (T137)", () => {
+  // The half T133 left behind: the words were fixed and the `router.push` under them was not, so the
+  // no-glucose press still landed on `/patient/<token>`. One predicate now answers both, which is what
+  // this pair of assertions pins — a label that offers nothing beside a destination that is nowhere.
+  assert.equal(skipDestination(true, "tok-123"), "/patient/tok-123");
+  assert.equal(skipDestination(false, "tok-123"), null, "nothing to view, so the press goes nowhere");
+  // Said once more as the invariant rather than as two literals: wherever the link says "view", there is
+  // somewhere to go, and wherever it does not, there is not.
+  for (const hasGlucose of [true, false]) {
+    const offers = /view/i.test(skipLinkLabel(hasGlucose));
+    assert.equal(
+      skipDestination(hasGlucose, "tok-123") !== null,
+      offers,
+      `hasGlucose=${hasGlucose}: the label and the destination disagree`,
+    );
+    assert.equal(/you can view/i.test(skipGoodbye(hasGlucose)), offers, `hasGlucose=${hasGlucose}: the goodbye`);
+  }
+});
+
+test("the completion card ends the transcript with the same promise as the rest of the page (T137)", () => {
+  // The card the skipped check-in now stays on. Its whole box used to be a link to `/patient/<token>`
+  // under "See the summary you'll share with your doctor", on `wrapped` alone — the offer the goodbye
+  // above it declines, one line later and in larger type.
+  const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
+  const glucose = checkInCompleteCopy(true);
+  const none = checkInCompleteCopy(false);
+  assert.match(glucose.detail, /summary/i, "with glucose there is one, and the card may say so");
+  assert.doesNotMatch(none.detail, /summary/i, "without glucose the card offers nothing to look at");
+  assert.match(none.detail, /saved for your care team/i, "what the patient did share is still acknowledged");
+  // The check-in is over in both states, and that is not what the data decides.
+  assert.equal(glucose.title, none.title);
+  assert.match(none.title, /check-in is complete/i);
+  for (const said of [glucose, none]) {
+    assert.doesNotMatch(said.title, SPAN, said.title);
+    assert.doesNotMatch(said.detail, SPAN, said.detail);
   }
 });

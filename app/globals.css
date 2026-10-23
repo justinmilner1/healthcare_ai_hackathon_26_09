@@ -3827,6 +3827,14 @@ textarea.ss-input {
   transform: translateY(-2px);
 }
 
+/* The same card with nothing at the other end of it: a check-in that wrapped with no glucose has no
+   summary to send the patient to, so it is a statement rather than a link (T137, §2.5). The lift on hover
+   is what a pointer reads as "this goes somewhere", so it does not survive the anchor. */
+.sweetie-done-card-static:hover {
+  border-color: #baddc4;
+  transform: none;
+}
+
 .sweetie-done-card > span {
   display: grid;
   width: 30px;

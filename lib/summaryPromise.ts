@@ -122,3 +122,46 @@ export function skipGoodbye(hasGlucose: boolean): string {
     "You've skipped the remaining questions. Anything you've already shared is saved for your care team.";
   return hasGlucose ? `${saved} You can view your glucose now.` : saved;
 }
+
+/**
+ * Where the press on the chat's skip link lands (§2.5, §2.7).
+ *
+ * T133 made the three sentences above honest and left the navigation under them alone, so the no-glucose
+ * press still pushed `/patient/<token>`: the patient asked to stop answering questions and was moved,
+ * unasked, to a card headed "Your glucose story is ready for its first chapter" whose only button sends
+ * them back to the chat they were on — and the goodbye the route had just committed never painted (T137).
+ *
+ * The destination is the same question as the words on the button, so it is answered here rather than by
+ * a fourth predicate written beside them. With glucose, the summary the label offers. Without it, `null`:
+ * stay in the chat, which is where `skipGoodbye(false)` can be read and where §2.5's remaining action is.
+ */
+export function skipDestination(hasGlucose: boolean, token: string): string | null {
+  return hasGlucose ? `/patient/${token}` : null;
+}
+
+/** The card that ends the transcript once the intake has wrapped. */
+export type CheckInCompleteCopy = {
+  /** The headline. The check-in is over either way, so this does not turn on the data. */
+  title: string;
+  /** The line under it — the one that either offers the summary or says what was kept instead. */
+  detail: string;
+};
+
+/**
+ * The completion card at the end of Sweetie's transcript (§2.5).
+ *
+ * It is the fourth surface of the same promise, and the one a skipped check-in now stays on: its whole
+ * box was a link to `/patient/<token>` under "See the summary you'll share with your doctor", on nothing
+ * but `wrapped`. Keeping the patient in the chat would have been worth little with that card sitting
+ * under the goodbye, offering in a heading what the sentence above it had just declined to offer. So the
+ * card asks the same question as everything else here: with glucose it is the link it was, and without it
+ * it is a statement — `skipDestination` returns `null` and the page renders no anchor around this copy.
+ */
+export function checkInCompleteCopy(hasGlucose: boolean): CheckInCompleteCopy {
+  return {
+    title: "Your check-in is complete",
+    detail: hasGlucose
+      ? "See the summary you'll share with your doctor"
+      : "What you shared is saved for your care team",
+  };
+}

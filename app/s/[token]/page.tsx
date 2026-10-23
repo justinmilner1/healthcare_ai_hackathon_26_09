@@ -10,7 +10,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
-import { skipLinkLabel } from "@/lib/summaryPromise";
+import { checkInCompleteCopy, skipDestination, skipLinkLabel } from "@/lib/summaryPromise";
 import type {
   ChatMessage,
   IntakeFieldDef,
@@ -486,7 +486,18 @@ export default function SweetiePage({
         setSkipping(false);
         return;
       }
-      router.push(`/patient/${token}`);
+      // The goodbye the route just committed, and the status it was written from, land in the page before
+      // anything decides where to go — without this the reply is a message the patient only ever meets on
+      // their way back into the chat (T137, §2.5).
+      applyReply(data);
+      // And where to go is the question the link's own words asked, answered by the same module so the two
+      // cannot drift apart: the summary where there is one, and otherwise here, where the goodbye now is.
+      const destination = skipDestination(Boolean(data.status?.hasDexcom), token);
+      if (destination) {
+        router.push(destination);
+        return;
+      }
+      setSkipping(false);
     } catch (error) {
       setSkipError(error instanceof Error ? error.message : "We couldn't save your choice. Please try again.");
       setSkipping(false);
@@ -506,6 +517,12 @@ export default function SweetiePage({
   // below is drawn from, because the card and the composer have to agree about whether anything is still
   // being asked (T97).
   const stopped = finished && flagged;
+  // The one question every offer of the summary on this page turns on: `/patient/<token>` renders on
+  // `status.hasDexcom` (lib/bundle.ts), so the skip link's words, the press's destination and the card
+  // that ends the transcript all ask it here and take their answer from lib/summaryPromise.ts (T133, T137).
+  const hasGlucose = Boolean(status?.hasDexcom);
+  const summaryHref = skipDestination(hasGlucose, token);
+  const complete = checkInCompleteCopy(hasGlucose);
   const totalSteps = fields.length + 1;
   const completedSteps = completeFields + (finished && !flagged ? 1 : 0);
   const progress = totalSteps
@@ -613,7 +630,7 @@ export default function SweetiePage({
                 own goodbye for the same press. */}
             {(completeFields > 0 || status?.hasDexcom || status?.hasLocation || status?.hasWhoop) && !finished ? (
               <button type="button" className="ss-text-button sweetie-skip-link" disabled={busy || Boolean(uploading) || skipping || !status} onClick={() => void skipQuestions()}>
-                {skipping ? "Saving…" : skipLinkLabel(Boolean(status?.hasDexcom))}
+                {skipping ? "Saving…" : skipLinkLabel(hasGlucose)}
               </button>
             ) : !finished ? (
               <p className="sweetie-skip-hint">Answer Sweetie&apos;s first question to get started. It takes about five minutes.</p>
@@ -753,17 +770,30 @@ export default function SweetiePage({
                     </div>
                   </div>
                 )}
+                {/* The check-in is over either way, and whether there is anything to go and look at is the
+                    question lib/summaryPromise.ts answers for every other offer on this page (T137, §2.5,
+                    §2.7). Without glucose the card is the same box with no anchor and no arrow: a patient
+                    who skipped the rest reads the goodbye above it and is not invited, one line later,
+                    into the empty summary the goodbye had just declined to promise. */}
                 {finished && !flagged && (
-                  <a href={`/patient/${token}`} className="sweetie-done-card">
-                    <span>✓</span>
-                    <div>
-                      <strong>Your check-in is complete</strong>
-                      <small>
-                        See the summary you&apos;ll share with your doctor
-                      </small>
+                  summaryHref ? (
+                    <a href={summaryHref} className="sweetie-done-card">
+                      <span>✓</span>
+                      <div>
+                        <strong>{complete.title}</strong>
+                        <small>{complete.detail}</small>
+                      </div>
+                      <b aria-hidden="true">→</b>
+                    </a>
+                  ) : (
+                    <div className="sweetie-done-card sweetie-done-card-static">
+                      <span>✓</span>
+                      <div>
+                        <strong>{complete.title}</strong>
+                        <small>{complete.detail}</small>
+                      </div>
                     </div>
-                    <b aria-hidden="true">→</b>
-                  </a>
+                  )
                 )}
               </div>
               {/* The newest message runs past the bottom of the region (T105, design §6.5). Sweetie's
