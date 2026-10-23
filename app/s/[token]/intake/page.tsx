@@ -77,9 +77,12 @@ const SOURCES: {
     kind: "whoop",
     name: "WHOOP",
     // No span (T132): this describes a file the patient exports, and `lib/whoop.ts` clips nothing —
-    // `SleepNight[]` has no span requirement — so "the past week" was a claim about their choice, not
-    // about the source. Parallel with the two descriptions around it, which name content and no range.
-    description: "Nightly sleep, recovery, and strain",
+    // `SleepNight[]` has no span requirement — so "from the past week" was a claim about their choice, not
+    // about the source. Just the contents, parallel with the two descriptions around it, which name what
+    // is in the file and no range. No adjective replaces the span either: "nightly" would have been the
+    // same mistake a size smaller, since WHOOP's strain is a daytime measure and only sleep and recovery
+    // are per-night.
+    description: "Sleep, recovery, and strain",
     format: "WHOOP CSV · Optional",
     accept: ".csv,text/csv",
     tone: "charcoal",

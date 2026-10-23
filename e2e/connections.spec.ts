@@ -222,7 +222,7 @@ test("the connect step names no span before anything is shared", async ({ page }
   await expect(dexcomCard).toHaveText("Glucose trends, time in range, and recent highs");
   expect(await dexcomCard.textContent(), "the Dexcom card's description").not.toMatch(SPAN);
 
-  await expect(whoopCard).toHaveText("Nightly sleep, recovery, and strain");
+  await expect(whoopCard).toHaveText("Sleep, recovery, and strain");
   expect(await whoopCard.textContent(), "the WHOOP card's description").not.toMatch(SPAN);
 
   // The sentence under the Dexcom card is lib/dexcomHint.ts's, and the states it has are swept there. What
