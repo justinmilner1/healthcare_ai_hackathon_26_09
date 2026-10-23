@@ -2,11 +2,19 @@
 // Owner: identity.
 //
 // Two calls, one route, because the preview and the import have to agree about every row:
-//   commit false (the default)  -> { columns, ignored, rows: [{ line, name, visit?, errors }] , valid, invalid }
-//   commit true                 -> the same rows, plus `created` per row, the ids of what was written, and
-//                                  `inviteFaults`: what staff read when the invites those rows asked for
-//                                  cannot be sent by this deployment at all (T111)
+//   commit false (the default)  -> { columns, ignored, rows: [{ line, name, visit?, errors }] , valid, invalid,
+//                                  `inviteFaults` }
+//   commit true                 -> the same rows and the same `inviteFaults`, plus `created` per row and the
+//                                  ids of what was written
 // Staff paste or pick a file, read the preview, then press the button; nothing is written until they do.
+//
+// `inviteFaults` is what staff read when the invites those rows asked for cannot be sent by this deployment
+// at all (T111). It is on *both* responses, because the preview is the screen the decision is made on and
+// T135 found it the only one of the two that could not say so: an import is a day of patients, so the fact
+// arriving after 25 rows are written arrives after the only moment anyone could have acted on it. The
+// answer costs a read of the environment and no network call (lib/notify.ts `inviteFaults`), so the preview
+// can afford it exactly as the commit path can.
+//
 // §2.2's "per-row errors" is the whole point: one unreadable line out of 25 must not cost the other 24.
 //
 // Importing is booking, so it is the same capability as /api/book (`visits:create`, §5.2) and the same
@@ -19,7 +27,7 @@ import { after, NextResponse } from "next/server";
 import { requireCapability, requireMemberInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { withRoute } from "@/lib/log";
-import { inviteSendability } from "@/lib/notify";
+import { inviteFaults } from "@/lib/notify";
 import { intakeLink } from "@/lib/sms";
 import { MAX_CSV_ROWS, parseVisitCsv, type VisitDraft } from "@/lib/visitIntake";
 import { importVisits } from "@/lib/visitStore";
@@ -50,11 +58,21 @@ async function postHandler(req: Request) {
     invalid: parse.rows.filter((r) => !r.draft).length,
   };
 
+  const creatable = parse.rows.filter((r): r is typeof r & { draft: VisitDraft } => Boolean(r.draft));
+
+  // T135 The preview's half of the same question, asked about the rows that *would* be created: a row the
+  // parser refused is not an invite anybody is promising. Nothing is written here — `importVisits` and the
+  // `enqueue` loop are both below, inside the commit branch — and nothing has to be: the senders answer
+  // from the environment.
   if (body.commit !== true) {
-    return NextResponse.json({ ...preview, committed: false, rows: parse.rows.map((r) => ({ line: r.line, name: r.name, visit: r.draft, errors: r.errors, warnings: r.warnings })) });
+    return NextResponse.json({
+      ...preview,
+      committed: false,
+      inviteFaults: inviteFaults(creatable.map((r) => r.draft.channel)),
+      rows: parse.rows.map((r) => ({ line: r.line, name: r.name, visit: r.draft, errors: r.errors, warnings: r.warnings })),
+    });
   }
 
-  const creatable = parse.rows.filter((r): r is typeof r & { draft: VisitDraft } => Boolean(r.draft));
   const outcomes = await importVisits(me, provider.id, creatable.map((r) => ({ line: r.line, draft: r.draft })));
   const byLine = new Map(outcomes.map((o) => [o.line, o]));
 
@@ -65,12 +83,11 @@ async function postHandler(req: Request) {
   // T111 And the same question /api/book asks, once per distinct answer rather than once per row: a file of
   // 25 emailed invites in a deployment with no email backend is one fact about the deployment, not 25. The
   // jobs are still queued, because they are what write the delivery rows §8.3's dashboard reads.
-  const inviteFaults = new Set<string>();
+  const invited: string[] = [];
   for (const row of creatable) {
     const created = byLine.get(row.line)?.created;
     if (!created || row.draft.channel === "none") continue;
-    const reason = inviteSendability(row.draft.channel).reason;
-    if (reason) inviteFaults.add(reason);
+    invited.push(row.draft.channel);
     await enqueue({ kind: "notify.invite", payload: { visitId: created.visitId }, idempotencyKey: `notify.invite:${created.visitId}` });
   }
   nudge(after);
@@ -79,7 +96,9 @@ async function postHandler(req: Request) {
     ...preview,
     committed: true,
     created: outcomes.filter((o) => o.created).length,
-    inviteFaults: [...inviteFaults],
+    // The rows the database really took, which is narrower than the preview's forecast: a row it refused
+    // asked for no invite in the end, so it contributes no sentence about one.
+    inviteFaults: inviteFaults(invited),
     rows: parse.rows.map((r) => {
       const outcome = byLine.get(r.line);
       return {
