@@ -126,6 +126,14 @@ export type SummaryDataInvite = {
  * the check script's and the demo's — sent the patient to a page with no Dexcom control anywhere on it and
  * left them to work out that "Upload CSV" was what had been meant (T118).
  *
+ * All three controls are branched on, not two. T118 split `"none"` off and left the other two together on
+ * `control !== "none"`, but `"oauth"` and `"demo"` are not the same offer (T125): the first imports this
+ * patient's own readings, the second opens somebody's synthetic ones in a session of its own. A real
+ * patient on a sandbox deployment — which is every patient on §13.4's sandbox — therefore read "Connect
+ * your Dexcom export and Sweetie will turn your readings into a clear picture", pressed it, and got the
+ * demonstration whose own hint on the destination says the opposite. That is T118's defect one state over,
+ * in the costlier direction: a promise about *their* data, made on the one page §2.7 writes for them.
+ *
  * The file upload is the fallback because it needs no credentials, but it is not universal: `/s/<token>`
  * renders its uploads for a real visit only (§13.4), so a synthetic demonstration visit with nothing to
  * connect has nothing to be sent for either, and gets a card with no button rather than a dead one (T91).
@@ -139,12 +147,29 @@ export type SummaryDataInvite = {
 export function summaryDataInvite(
   { control, sandboxPatient }: { control: DexcomConnectControl; sandboxPatient: boolean },
 ): SummaryDataInvite {
-  if (control !== "none") {
+  // The real OAuth button, which imports the readings of whoever this visit belongs to.
+  if (control === "oauth") {
     return {
       body: sandboxPatient
         ? "Connect Dexcom sandbox in Sweetie to import synthetic demo readings."
         : "Connect your Dexcom export and Sweetie will turn your readings into a clear picture for you and your doctor.",
       action: "Connect Dexcom",
+    };
+  }
+  // The demonstration, which is not that button: it opens a session of its own and brings this visit
+  // nothing. So the sentence makes the destination's own promise (DEMO_UNCHANGED, DEMO_SESSION) rather
+  // than the one above it, and the button names the demonstration instead of a connection — "Connect
+  // Dexcom" is a claim about this patient's readings and there are none coming.
+  //
+  // `sandboxPatient` is not read here. It cannot be true in this branch — `dexcomConnectControl` returns
+  // `"demo"` only for a real visit — and the copy would not want it if it could: what this state turns on
+  // is where the button leads, not whose record it was pressed from. The destination's own control is
+  // labelled "Try Dexcom sandbox"; this says "demo" because the patient reading it is a real patient, who
+  // is never told which Dexcom an operator pointed the deployment at (the T71 rule).
+  if (control === "demo") {
+    return {
+      body: `The Dexcom demo in Sweetie opens ${DEMO_SESSION} — synthetic readings, not your own. ${DEMO_UNCHANGED}`,
+      action: "Try the Dexcom demo",
     };
   }
   // Nothing to connect. A real visit can still share the export it already has, which is the one path into
