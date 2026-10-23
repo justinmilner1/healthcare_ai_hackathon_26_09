@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { DEXCOM_DEMO_LABEL } from "../lib/dexcomHint";
 import { postJson } from "./api";
 import { MAIL_DIR, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
@@ -54,8 +55,8 @@ test.describe("DEXCOM_ENV=production", () => {
     await expect(connect).toBeEnabled();
     // The lede promises the connection this screen has (T91).
     await expect(page.getByText(/Connect Dexcom or upload a file/)).toBeVisible();
-    await expect(page.getByRole("button", { name: /Connect Dexcom · Demo/ })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: DEXCOM_DEMO_LABEL.compact, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: DEXCOM_DEMO_LABEL.full, exact: true })).toHaveCount(0);
     // Nothing on the card may describe the import as synthetic, or as a demonstration session: these are
     // the patient's own readings now.
     const dexcomCard = page.locator("section, div").filter({ hasText: /Glucose trends/ }).last();
@@ -73,9 +74,9 @@ test.describe("DEXCOM_ENV=production", () => {
     // one thing that works without credentials, which is their own Clarity export.
     const upload = page.getByLabel(/Upload Dexcom file/i);
     await expect(upload).toBeAttached(LOADED);
-    await expect(page.getByRole("button", { name: /Connect Dexcom · Demo/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: DEXCOM_DEMO_LABEL.compact, exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Connect Dexcom", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: DEXCOM_DEMO_LABEL.full, exact: true })).toHaveCount(0);
     // And the lede over the cards does not promise one either: it offered "Connect Dexcom or upload a
     // file" above a panel whose only control is the upload.
     await expect(page.getByText(/Connect Dexcom or upload a file/)).toHaveCount(0);
@@ -94,11 +95,13 @@ test.describe("DEXCOM_ENV=production", () => {
     expect(sandboxStatus.canConnect).toBe(false);
     expect(sandboxStatus.configured).toBe(false);
 
-    // The same deployment's Sweetie page carried the other half of the offer: an amber card headed "Try
-    // Dexcom sandbox", which POST /api/dexcom/demo answers 503 to without credentials (T91).
+    // The same deployment's Sweetie page carried the other half of the offer: an amber card whose button
+    // is `DEXCOM_DEMO_LABEL.full`, which POST /api/dexcom/demo answers 503 to without credentials (T91).
+    // The two label literals this spec used to assert on are gone: it takes them from the module that owns
+    // them now, so a reword cannot leave these absences asserting about a string nothing renders (T134).
     await page.goto(`http://localhost:${PORT}/s/${booked.token}`);
     await expect(page.getByRole("button", { name: "Send message" })).toBeVisible(LOADED);
-    await expect(page.getByRole("button", { name: /Try Dexcom sandbox/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: DEXCOM_DEMO_LABEL.full, exact: true })).toHaveCount(0);
     expect((await postJson(page.request, `http://localhost:${PORT}/api/dexcom/demo`, { token: booked.token })).status()).toBe(503);
   });
 });

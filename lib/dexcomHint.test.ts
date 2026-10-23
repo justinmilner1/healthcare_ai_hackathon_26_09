@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dexcomCardHint, dexcomConnectControl, summaryDataInvite, type DexcomConnectControl, type DexcomHint } from "./dexcomHint";
+import { dexcomCardHint, dexcomConnectControl, DEXCOM_DEMO_LABEL, summaryDataInvite, type DexcomConnectControl, type DexcomHint } from "./dexcomHint";
 
 /** A real patient on the default offline deployment: sandbox Dexcom, no credentials, nothing shared. */
 const base: DexcomHint = {
@@ -276,6 +276,38 @@ test("the demo invitation makes the destination's promise, not one about the pat
   assert.doesNotMatch(said.body, /\bConnect Dexcom\b/);
   assert.doesNotMatch(said.action, /\bConnect Dexcom\b/);
   assert.match(said.body, /synthetic/, "the patient is told the readings are invented");
+});
+
+test("the demo link's own button keeps the invitation's promise (T134)", () => {
+  // The last surface of this promise, and the one the patient reaches after the invitation: both labels on
+  // `components/DexcomDemoLink.tsx`. They are pinned as equalities so a reword of either is a failure here
+  // rather than a drift the patient finds by pressing the thing.
+  assert.deepEqual({ ...DEXCOM_DEMO_LABEL }, { full: "Try the Dexcom demo", compact: "Dexcom demo" });
+
+  // The full label is the invitation's button to the word — one phrase, two surfaces, so the state that
+  // sent the patient here cannot name an action the destination does not offer (T118's rule, T125's state).
+  const invite = summaryDataInvite({ control: "demo", sandboxPatient: false });
+  assert.equal(DEXCOM_DEMO_LABEL.full, invite.action);
+  // The compact one is the intake step's tight slot, so it may be shorter — but it is the same subject out
+  // of the same place, not a second description of the thing.
+  assert.ok(invite.action?.includes(DEXCOM_DEMO_LABEL.compact), "the short label is the long one's subject");
+
+  for (const [slot, label] of Object.entries(DEXCOM_DEMO_LABEL)) {
+    // "Try Dexcom sandbox" said which Dexcom an operator pointed this deployment at, to a real patient who
+    // is never told that (T71): every patient on §13.4's sandbox deployment reaches this state.
+    assert.doesNotMatch(label, /\bsandbox\b/i, slot);
+    assert.doesNotMatch(label, OPERATOR, slot);
+    // And "Connect Dexcom · Demo" made the claim this state has none of: no readings of this patient's own
+    // are coming, which is the reason `summaryDataInvite` gives for not saying it either.
+    assert.doesNotMatch(label, /\bConnect Dexcom\b/, slot);
+    assert.match(label, /demo/i, `${slot} names the demonstration`);
+  }
+
+  // The synthetic demonstration patient's own copy is the other side of the T71 rule and is untouched: for
+  // the patient the sandbox account *is*, the word describes who they are rather than an operator's
+  // choice. So `OPERATOR` does not gain it, and that sentence keeps it.
+  assert.doesNotMatch("sandbox", OPERATOR);
+  assert.match(summaryDataInvite({ control: "oauth", sandboxPatient: true }).body, /\bsandbox\b/);
 });
 
 test("the new state is held to the same two rules as every other (T71's and T123's)", () => {
