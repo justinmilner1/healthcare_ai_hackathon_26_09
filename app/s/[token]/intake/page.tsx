@@ -420,9 +420,18 @@ export default function SweetieIntakePage({
                     More <i>you.</i>
                   </>
                 )}
+                {/* §2.5 No span, for the same reason as the step's own <h1> (T136). This is the
+                    largest type on the connect step at either width, and at 375px the art column
+                    stacks above the panel, so it is the first thing the patient reads — before a
+                    single file exists, on a step where every source is a file whose range they
+                    choose. It read "Your week," and T132 left it for a decision rather than sweeping
+                    it up: unlike app/page.tsx's "7 days of context", which is copy about the product
+                    addressed to nobody, this is possessive and addressed to this patient mid-flow.
+                    "Your data" is the wording T123 and T132 settled on for the no-data case. Steps 0
+                    and 2 name no span and are untouched. */}
                 {step === 1 && (
                   <>
-                    Your week,
+                    Your data,
                     <br />
                     in one <i>picture.</i>
                   </>
@@ -547,8 +556,8 @@ export default function SweetieIntakePage({
                     Back
                   </button>
                   <p className={styles.eyebrow}>CONNECT YOUR HEALTH DATA</p>
-                  {/* §2.5 No span: the largest type on the step, rendered before a single file exists,
-                      and every source under it is one the patient chooses the range of (T132). It named
+                  {/* §2.5 No span: rendered before a single file exists, and every source under it
+                      is one the patient chooses the range of (T132). It named
                       "the last 7 days" — the same presumption T123 took off the summary's invitation and
                       T132 took off the Dexcom card's sentence below. "Your data" covers all three
                       sources without promising how much of it there will be. */}
