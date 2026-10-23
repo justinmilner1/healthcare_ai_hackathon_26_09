@@ -798,18 +798,20 @@ test("patient summary: the loading card names no span, because nothing is known 
 });
 
 /**
- * Skipping the rest of the questions with nothing shared but a typed answer (T133, design §2.5, §2.7).
+ * Skipping the rest of the questions with nothing shared but a typed answer (T133, T137, design §2.5, §2.7).
  *
  * The chat's half of the ticket. Whether to offer the skip at all is decided correctly — there is nothing
  * to skip to until the patient has answered or shared something — but the same condition also wrote the
- * link and the goodbye, and `turns > 0` satisfies it on its own. So a patient who typed one message and
- * uploaded nothing read "Skip the rest and view my week" and was answered "You can view your week now",
- * about a `/patient/<token>` that renders on `status.hasDexcom` and had no reading to render.
+ * link, the goodbye and the destination of the press, and `turns > 0` satisfies all three on its own. So
+ * a patient who typed one message and uploaded nothing read "Skip the rest and view my week", was
+ * answered "You can view your week now", and was taken to a `/patient/<token>` that renders on
+ * `status.hasDexcom` and had no reading to render.
  *
- * Driven through the page rather than by posting the event, because the link's words are half of what was
- * wrong. The goodbye is then read out of the transcript rather than off the screen: pressing the link
- * navigates to the summary, so the reply Sweetie commits is a message the patient meets on their way back
- * into the chat, which is where GET /api/sweetie is the only honest place to look at it.
+ * Driven through the page rather than by posting the event, because the link's words are part of what was
+ * wrong and where the press lands is the rest of it. T133 fixed the words and read the goodbye out of
+ * `GET /api/sweetie`, because the navigation took the patient off the page before the reply could paint —
+ * the transcript was the only honest place left to look at it. T137 removed that navigation, so the
+ * goodbye is asserted where the patient actually meets it: on the screen they are still on.
  */
 test("the skip link and goodbye promise no summary to a check-in with nothing shared", async ({ page }) => {
   await signInAsDemo(page);
@@ -849,15 +851,94 @@ test("the skip link and goodbye promise no summary to a check-in with nothing sh
   expect(label, "the skip link").not.toMatch(/view/i);
 
   await skip.click();
-  // The press is honoured — the intake wraps and the patient is taken on — so this is not the refusal
-  // branch, which keeps them in the chat with an inline hint instead.
-  await expect(page).toHaveURL(new RegExp(`/patient/${booked.token}$`), LOADED);
+  // The press is honoured — the intake wraps, so the link goes and the questions stop — and it leaves the
+  // patient here. The label offered no view of anything, and `skipDestination` (lib/summaryPromise.ts) is
+  // the same answer for where the press goes. This is not the refusal branch either: that one keeps them
+  // in the chat with an inline hint and writes no goodbye at all, which the assertions below separate it
+  // from.
+  await expect(page.locator(".sweetie-skip-link")).toHaveCount(0, LOADED);
+  await expect(page).toHaveURL(new RegExp(`/s/${booked.token}$`));
+  await expect(page.locator("[role='alert']")).toHaveCount(0);
 
-  // And the goodbye in the transcript says what is saved without offering a summary there is none of.
+  // And the goodbye is on the screen, not only in the transcript behind it: it says what is saved and
+  // offers no summary there is none of. The span pattern is lib/dexcomHint.test.ts's, as above.
+  const goodbye = sweetieSaid.last();
+  await expect(goodbye).toContainText(/skipped the remaining questions/i, LOADED);
+  await expect(goodbye).toContainText(/saved for your care team/i);
+  const spoken = await goodbye.textContent();
+  expect(spoken, "Sweetie's goodbye").not.toMatch(/you can view/i);
+  expect(spoken, "Sweetie's goodbye").not.toMatch(/\b(hours?|days?|weeks?|months?)\b/i);
+  // Visible, and not merely present: the transcript is its own scrolling region and glides to the newest
+  // message (§6.4), so this waits that glide out and fails if the goodbye is cut off at the bottom (T83).
+  // It is also what makes the committed screenshot a picture of the goodbye rather than of the question
+  // before it.
+  await expectTranscriptUncut(page, "Sweetie's goodbye after the skip");
+
+  // The card that now ends the transcript does not re-make, one line below the goodbye and in larger
+  // type, the offer the goodbye just declined — and it is a statement rather than a link, so there is no
+  // route from this screen to the empty summary at all.
+  const doneCard = page.locator(".sweetie-done-card");
+  await expect(doneCard).toContainText(/check-in is complete/i);
+  await expect(doneCard).toContainText(/saved for your care team/i);
+  await expect(doneCard, "no summary is offered where there is none").not.toContainText(/summary/i);
+  await expect(page.locator(`.sweetie-conversation a[href="/patient/${booked.token}"]`)).toHaveCount(0);
+
+  await shot(page, "sweetie-skip-no-glucose", WHOLE_PAGE);
+
+  // What the route committed is what the patient read, so the two halves of §2.5's goodbye cannot drift:
+  // the page is not showing a message of its own making.
   const after = await (await page.request.get(`/api/sweetie?token=${booked.token}`)).json();
-  const goodbye = after.messages.filter((m: { role: string }) => m.role === "sweetie").at(-1).content as string;
-  expect(goodbye, "Sweetie's goodbye").toMatch(/skipped the remaining questions/i);
-  expect(goodbye, "Sweetie's goodbye").toMatch(/saved for your care team/i);
-  expect(goodbye, "Sweetie's goodbye").not.toMatch(/you can view/i);
-  expect(goodbye, "Sweetie's goodbye").not.toMatch(/\b(hours?|days?|weeks?|months?)\b/i);
+  const committed = after.messages.filter((m: { role: string }) => m.role === "sweetie").at(-1).content as string;
+  expect(committed, "the goodbye the route committed").toBe(spoken);
+});
+
+/**
+ * The other half of the same press: with glucose it still reaches the summary (T137, design §2.5, §2.7).
+ *
+ * T133 settled this pairing — `skipLinkLabel(true)` offers "Skip the rest and view my glucose" and
+ * `/patient/<token>` renders exactly that — and T137 moved the destination of the press behind the same
+ * predicate. A fix that simply stopped navigating would satisfy the test above and take this path with
+ * it, silently, so the path that was always right is asserted beside the one that was not.
+ */
+test("the skip link with glucose still goes to the summary it offers", async ({ page }) => {
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Skip Glucose");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E Skip Glucose", email, visitType: "follow_up", reason: "mornings running high", channel: "none" })
+  ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
+  await verifyLink(page, booked.token, email);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+
+  // The one difference from the test above: this visit has readings. clarity_window.csv is the same
+  // fixture the single-day test uses. Multipart, so postJson does not fit; the header is the one it would
+  // have added (§10.8). The reload is what brings the new status into the page, since the upload went
+  // round the back of it rather than through the Dexcom button.
+  const uploaded = await page.request.post("/api/upload", {
+    headers: { "x-csrf-token": await csrfToken(page.request) },
+    multipart: {
+      token: booked.token,
+      kind: "dexcom",
+      file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: readFileSync("data/fixtures/clarity_window.csv") },
+    },
+  });
+  expect(uploaded.ok(), `POST /api/upload: ${await uploaded.text()}`).toBeTruthy();
+  await page.reload();
+
+  // Glucose is enough on its own to put the link on the screen — nothing has been answered here — and the
+  // label is the one that offers the summary.
+  const skip = page.locator(".sweetie-skip-link");
+  await expect(skip).toBeVisible(LOADED);
+  await expect(skip).toHaveText("Skip the rest and view my glucose");
+
+  await skip.click();
+  await expect(page).toHaveURL(new RegExp(`/patient/${booked.token}$`), LOADED);
+  // And the destination renders what the label named, rather than the empty card that asks for it — which
+  // is the pairing the whole module exists to keep true.
+  await expect(EYEBROW(page)).toBeVisible(LOADED);
+  await expect(page.locator(".patient-summary-content")).not.toContainText(/first chapter/i);
+  await expect(
+    page.locator(".patient-report-card", { has: page.getByRole("heading", { name: "Your glucose", exact: true }) }),
+  ).toBeVisible();
 });
