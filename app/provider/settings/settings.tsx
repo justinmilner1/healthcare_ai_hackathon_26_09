@@ -15,10 +15,14 @@ import PersonaBrand from "@/components/PersonaBrand";
 import { ROLES, roleDescription, roleLabel, type Role } from "@/lib/access";
 import { apiFetch } from "@/lib/csrf";
 import { MAX_PERSON_NAME, MAX_RETENTION_DAYS, memberSubLine, MIN_RETENTION_DAYS, type PracticeTeam, type TeamMember } from "@/lib/team";
+import { inviteHint, invitedNote } from "@/lib/teamInvite";
 
 type Note = { kind: "success" | "error"; text: string } | null;
 
-export default function PracticeSettings({ meId }: { meId: string }) {
+/** `canEmail` is the server's answer to "can this deployment mail a colleague at all" (page.tsx,
+ *  canSendOrMailbox in lib/mailer.ts). The invite card's hint and its result note both branch on it and on
+ *  nothing else, which is what stops them telling two stories (T131, lib/teamInvite.ts). */
+export default function PracticeSettings({ meId, canEmail }: { meId: string; canEmail: boolean }) {
   const [team, setTeam] = useState<PracticeTeam | null>(null);
   const [name, setName] = useState("");
   const [retentionDays, setRetentionDays] = useState("");
@@ -115,12 +119,10 @@ export default function PracticeSettings({ meId }: { meId: string }) {
       const email = invite.email.trim();
       setInvite({ email: "", name: "", role: "staff" });
       // The row is the invite, so a send that failed is worth saying out loud rather than hiding: the person
-      // is in the practice either way and can be told to sign in by hand.
-      setInviteNote(
-        data.sent
-          ? { kind: "success", text: `Invited ${email}. They can sign in with that address now.` }
-          : { kind: "error", text: `${email} was added, but the email did not go out${data.error ? `: ${data.error}` : ""}. Ask them to sign in with that address.` },
-      );
+      // is in the practice either way. What they are told to do about it comes from lib/teamInvite.ts, from
+      // the same `canEmail` the hint above the form was written from — "sign in with that address" is only a
+      // recovery on a deployment that can mail them a link (T131, §5.1).
+      setInviteNote(invitedNote({ email, canEmail, sent: Boolean(data.sent), error: typeof data.error === "string" ? data.error : null }));
     } catch (error) {
       setInviteNote({ kind: "error", text: error instanceof Error ? error.message : "Could not invite." });
     } finally {
@@ -143,6 +145,11 @@ export default function PracticeSettings({ meId }: { meId: string }) {
       setBusy("");
     }
   }
+
+  // Both sentences of the invite card come from one module and one value, so neither can be reworded without
+  // the other being looked at (T131, lib/teamInvite.ts). The hint is settled before the admin does anything,
+  // which is why it is not waiting on `team`.
+  const hint = inviteHint(canEmail);
 
   if (!team) {
     return (
@@ -237,10 +244,10 @@ export default function PracticeSettings({ meId }: { meId: string }) {
 
           <form className="ss-card settings-card" onSubmit={sendInvite}>
             <h2>Invite someone</h2>
-            <p className="settings-hint">
-              They get an email asking them to sign in with this address. Nothing in it signs anyone in — the
-              one-time link comes to their own inbox.
-            </p>
+            {/* T131 (§2.1, §5.1, §8.1): decided by whether this deployment can send email at all, not by a
+                literal. The blocked variant is the dead end said before the admin invites anybody — the
+                role is still worth setting, and nobody can sign in until a sender exists. */}
+            <p className={`settings-hint settings-invite-hint${hint.claimsEmail ? "" : " settings-invite-hint-blocked"}`}>{hint.text}</p>
             {inviteNote && (
               <div className={inviteNote.kind === "error" ? "ss-error" : "ss-success"} role={inviteNote.kind === "error" ? "alert" : "status"}>
                 {inviteNote.text}

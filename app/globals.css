@@ -1789,6 +1789,17 @@ textarea.ss-input {
   line-height: 1.6;
 }
 
+/* T131 (design §2.1, §8.1): the invite card's hint, and the variant for a deployment that cannot mail
+   anybody. Red rather than the demo note's amber one card over, because this one *is* something wrong: the
+   role can be set and the colleague still cannot sign in until a sender exists. Same left-rule shape as
+   .settings-demo-note, so the two read as the same kind of aside. */
+
+.settings-invite-hint-blocked {
+  padding-left: 11px;
+  border-left: 2px solid #e0a0a0;
+  color: var(--sour-ink);
+}
+
 .settings-actions {
   display: flex;
   justify-content: flex-end;

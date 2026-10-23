@@ -9,11 +9,17 @@
 import { redirect } from "next/navigation";
 import { can } from "@/lib/access";
 import { currentProvider } from "@/lib/auth";
+import { canSendOrMailbox } from "@/lib/mailer";
 import PracticeSettings from "./settings";
 
 export default async function SettingsPage() {
   const provider = await currentProvider();
   if (!provider) redirect("/provider/signin");
   if (!can(provider.role, "practice:manage")) redirect("/provider");
-  return <PracticeSettings meId={provider.id} />;
+  // T131 (§2.1, §5.1, §8.1): whether this deployment can put an email in front of a colleague at all — the
+  // invite nudge and, more to the point, the magic link that is the only way they ever sign in. Settled from
+  // the environment here rather than fetched, because the invite card's hint is read before the admin has
+  // done anything, and asked here rather than in the client component because the answer is the server's
+  // (lib/mailer.ts) and a client bundle has no business with it (§10.6).
+  return <PracticeSettings meId={provider.id} canEmail={canSendOrMailbox()} />;
 }
