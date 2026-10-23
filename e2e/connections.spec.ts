@@ -172,3 +172,64 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await expectNoSeriousA11yViolations(page, "patient setup complete, one source shared");
   await shot(page, "connect-done-connected", WHOLE_PAGE);
 });
+
+/**
+ * The connect step before anything is uploaded, where every word is written against a file that does not
+ * exist yet (T132, design §2.5).
+ *
+ * T100 → T114 → T116 → T123 took one rule off the patient path a screen at a time: the span comes from the
+ * data, not from the brand. This step was the last place that still broke it in the state it is always in
+ * on arrival — the heading read "Bring the last 7 days into focus", the Dexcom card promised "your last 7
+ * days of glucose" and the WHOOP card "the past week", all three about files whose range the patient picks.
+ * Clarity exports whatever window they choose and `lib/whoop.ts` clips nothing.
+ *
+ * Scoped to the three strings rather than swept over the frame, which is the opposite of what the
+ * setup-complete assertion above does, and deliberately: step 2 has no other use for the word, so there a
+ * negative over `main` is the right scope. Here the art column beside the panel carries "Your week, / in
+ * one picture." — brand copy of the same shape as the landing page's, which T132 put out of scope rather
+ * than settle in passing, so a frame-wide negative here would be asserting a decision nobody has made.
+ * The three strings the ticket is about are named one by one instead, each by a selector that is not a
+ * hashed CSS module class.
+ *
+ * Both projects, so the §12.3 evidence is the step at 1280px and at 375px.
+ */
+test("the connect step names no span before anything is shared", async ({ page }) => {
+  const { token, email } = await book(page, "E2E Connect Span");
+  await verifyLink(page, token, email);
+  await page.goto(`/s/${token}/intake`);
+  await page.getByRole("button", { name: /Let's get started/i }).click();
+
+  // The cards are rendered off `dexcomStatus`, so the step is not settled until they are in: asserting on
+  // the heading alone could pass against a panel still reading "Checking data connections…".
+  const dexcomCard = page.locator('[data-source-description="dexcom"]');
+  const whoopCard = page.locator('[data-source-description="whoop"]');
+  await expect(dexcomCard).toBeVisible(LOADED);
+  await expect(whoopCard).toBeVisible();
+  // Nothing has been uploaded yet, which is the state the three strings are wrong in. Asserted rather than
+  // assumed, so this test cannot quietly become one about the post-upload copy.
+  await expect(page.getByText(/records securely added/i)).toHaveCount(0);
+
+  // The same noun pattern the unit sweeps use (lib/dexcomHint.test.ts): an article or a tense is what a
+  // reword changes, so the noun is what gets pinned — "a week", "the past week", "7 days" all fail.
+  const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
+
+  const heading = page.getByRole("heading", { level: 1 });
+  await expect(heading).toHaveText("Bring your data into focus.");
+  expect(await heading.textContent(), "the connect step's heading").not.toMatch(SPAN);
+
+  // The Dexcom card, in the state a deployment with no credentials is permanently in — which is the one
+  // the check script itself runs in, so this is the sentence every run of the suite puts on screen.
+  await expect(dexcomCard).toHaveText("Glucose trends, time in range, and recent highs");
+  expect(await dexcomCard.textContent(), "the Dexcom card's description").not.toMatch(SPAN);
+
+  await expect(whoopCard).toHaveText("Nightly sleep, recovery, and strain");
+  expect(await whoopCard.textContent(), "the WHOOP card's description").not.toMatch(SPAN);
+
+  // The sentence under the Dexcom card is lib/dexcomHint.ts's, and the states it has are swept there. What
+  // this adds is that the string really does reach the patient's screen: the unit test holds the function,
+  // this holds the wiring, and the defect was in the words either way.
+  await expect(page.getByText("Upload your Clarity CSV export to share your glucose readings.")).toBeVisible();
+
+  await expectNoSeriousA11yViolations(page, "patient connect step, nothing shared");
+  await shot(page, "connect-step-no-span", WHOLE_PAGE);
+});

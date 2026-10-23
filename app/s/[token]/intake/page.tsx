@@ -602,7 +602,11 @@ export default function SweetieIntakePage({
                               <SourceStatus connection={connection} name={source.name} />
                             )}
                           </span>
-                          <span className={styles.sourceDescription}>
+                          {/* `data-source-description` is the seam the T132 span assertion reads, keyed by
+                              source: the class around it is a hashed CSS module name, and what is being
+                              held here is the words, like `data-mark` and `data-icon` elsewhere on this
+                              step. */}
+                          <span className={styles.sourceDescription} data-source-description={source.kind}>
                             {source.description}
                           </span>
                           <span

@@ -740,3 +740,55 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, mixed places");
   await shot(page, "patient-summary-places", { scrollTo: ".patient-spikes" });
 });
+
+/**
+ * The summary's loading card, which is the one state of §2.7's page that had no assertion on it at all —
+ * and is how "your week" outlived T100, T114, T116 and T123 (T132, design §2.5, §2.7).
+ *
+ * `bundle` is null here, so nothing is known: there is no `stats.days` to read a span off, and the page
+ * used to guess one. That made it contradict itself across a single navigation — the single-day visit below
+ * resolved to "YOUR DAY WITH SWEETIE" over a HISTORY tile reading "1 day", under a card that had just
+ * promised a week. So the card takes the word the hero's own nothing-shared branch settled on.
+ *
+ * The state is transient by nature, which is exactly why it went unasserted: the comment above the
+ * patient-summary shot in this file records a loose text check matching the spinner and the screenshot
+ * being of it. Holding the response rather than racing it is what makes this deterministic — the route is
+ * stalled, the card is read, and only then is the response let through, so the same test also shows the
+ * card is really a stage of this page and not a dead branch. The ticket's own reproduction is the network
+ * throttled; this is that, made exact.
+ */
+test("patient summary: the loading card names no span, because nothing is known yet", async ({ page }) => {
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Loading");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E Loading", email, visitType: "follow_up", reason: "what the card says while it loads", channel: "none" })
+  ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
+  await verifyLink(page, booked.token, email);
+
+  // Hold GET /api/patient/<token> until the card has been read. `release` is resolved by the test, so the
+  // wait is on this test's own order of events and not on a timer that a slow box could outrun (T95).
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/patient/**", async (route) => {
+    await held;
+    await route.continue();
+  });
+
+  await page.goto(`/patient/${booked.token}`);
+  const card = page.locator(".patient-state-card");
+  await expect(card).toBeVisible(LOADED);
+  await expect(card).toHaveText("Sweetie is getting your check-in ready…");
+  // The rule, not just the literal: the same noun pattern lib/dexcomHint.test.ts pins, so a reword that
+  // puts any span back fails here rather than only an exact return of "your week".
+  expect(await card.textContent(), "the summary's loading card").not.toMatch(/\b(hours?|days?|weeks?|months?)\b/i);
+
+  // And it is this page's loading stage: letting the response through resolves the same navigation into the
+  // summary itself, so the card above was not a branch nothing reaches.
+  release();
+  await expect(EYEBROW(page)).toBeVisible(LOADED);
+  await expect(card).toHaveCount(0);
+});
