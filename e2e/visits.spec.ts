@@ -228,6 +228,17 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // And a row with nothing to reach the patient on is still importable, with what that costs on it: after
   // T08 (§5.3) opening the link sends a code, so this visit has no way in until someone adds a number.
   await expect(page.locator(".import-warning")).toContainText(/cannot open their link/i);
+  // T135 One of the three creatable rows asked for a text and this deployment has no SMS backend, so the
+  // screen the decision is made on says so — before the button, in the future tense, and naming what
+  // pressing it will cost. The same single line the committed screen gets below, for the same reason: it is
+  // one fact about the deployment, so the two "Do not message" rows add none of their own.
+  const previewFault = page.locator(".import-invite-fault");
+  await expect(previewFault).toHaveCount(1, LOADED);
+  await expect(previewFault).toContainText(/No invites will be sent: Sweet Spot cannot send texts yet/i);
+  await expect(previewFault).toContainText(/copy each link from the dashboard/i);
+  // Nothing has happened yet, and this screen must not read as though it had (T111's sentence is the other
+  // tense, asserted after the press).
+  await expect(previewFault).not.toContainText(/No invites sent:/i);
   // MODAL at either width: this is a dialog over the dashboard, and a full-page shot anchors at the top of
   // a very tall document, which cut the dialog's own header off above the image (T57).
   //
@@ -256,6 +267,9 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   const faults = page.locator(".import-invite-fault");
   await expect(faults).toHaveCount(1);
   await expect(faults).toContainText(/No invites sent: Sweet Spot cannot send texts yet/i);
+  // T135 And it has changed tense: the forecast asserted on the preview above is now a report on rows that
+  // exist. lib/importNote.test.ts holds both sentences word for word.
+  await expect(faults).not.toContainText(/will be sent|will have to/i);
   await shot(page, "provider-import-created", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
@@ -273,6 +287,48 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   expect(imported!.reason).toBe("mornings running high, every day");
   expect(after.visits.find((v) => v.name === silentName)?.channel).toBe("none");
   expect(after.visits.find((v) => v.name === unreachableName), "a row with nothing on file still imports").toBeTruthy();
+});
+
+// T135 The other half of the preview's sentence: an office whose deployment *can* send reads a clean
+// preview, and nothing on it hints at a gap that is not there. What stands in for such a deployment is the
+// one thing stubbed here, for the reason T111 gives above and e2e/invite.spec.ts gives again: this gate
+// configures no sender at all (§11.3), and a server that did would have every invite in the suite attempt a
+// real SES or SNS send on a box with ambient AWS credentials — the outbound calls T94 and T110 took out.
+//
+// So the route runs for real, parses the file for real and writes nothing, as a preview must; only
+// `inviteFaults` is rewritten to the empty array a deployment with a sender behind the channel answers
+// with. That it does answer that is lib/notify.test.ts's to assert, on the senders themselves.
+test("a deployment with a sender previews a day of invites with nothing to warn about", async ({ page }, testInfo) => {
+  testInfo.skip(testInfo.project.name === "mobile", "the CSV import control is desktop-only by design");
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  await page.route("**/api/visits/import", async (route) => {
+    const response = await route.fetch();
+    const answer = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...answer, inviteFaults: [] } });
+  });
+
+  const csv = [
+    "name,phone,email,scheduled_at,visit_type,reason,channel,consent",
+    `${uniqueName("CSV Sendable")},${uniquePhone()},,2026-11-03 09:30,follow_up,mornings running high,sms,phone`,
+    `${uniqueName("CSV Quiet Sendable")},${uniquePhone()},,2026-11-03 10:00,annual,,,`,
+  ].join("\n");
+
+  await page.getByRole("button", { name: /Import a day/i }).click();
+  await page.getByLabel("CSV file").setInputFiles({ name: "sendable.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByRole("button", { name: /Check the rows/i }).click();
+
+  await expect(page.locator(".import-tally")).toContainText("2 ready to create", LOADED);
+  await expect(page.locator(".import-invite-fault")).toHaveCount(0);
+  // Not just the one line: nothing on this screen says anything cannot be sent, which is the criterion a
+  // warning rendered somewhere else on the row would also have to meet.
+  await expect(page.locator(".import-preview")).not.toContainText(/cannot send/i);
+  await shot(page, "provider-import-preview-sendable", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
+
+  // And it is still a preview: a stubbed answer about the environment must not have written a visit.
+  const rows = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
+  expect(rows.visits.some((v) => v.name.startsWith("CSV Sendable")), "the preview writes nothing").toBeFalsy();
 });
 
 test("a second visit for the same person reuses the patient, matched on phone", async ({ page }) => {
