@@ -35,10 +35,17 @@ export type DexcomHint = {
 
 const AUTHORIZE = "Authorize on Dexcom and return here.";
 
+// The demonstration the sandbox offers a real visit instead of that authorization (§9.2, §13.4) is
+// described on three surfaces: under the Dexcom card before and after an upload, and in §2.7's empty
+// state. One claim made three times is one phrase written once, so a reword of it is a reword of all
+// three and none of them can drift from the destination (T118's rule for `"none"`, T125's for `"demo"`).
+const DEMO_SESSION = "a separate synthetic-data session";
+const DEMO_UNCHANGED = "Your existing uploads stay unchanged.";
+
 /** What the patient can do next once their file is in. Never the reason a connection is missing. */
 function nextStep({ env, configured, canConnect }: DexcomHint): string {
   if (configured && canConnect) return "You can also connect Dexcom to import your readings automatically.";
-  if (configured && env === "sandbox") return "Connecting the demo opens a separate synthetic-data session and leaves your file unchanged.";
+  if (configured && env === "sandbox") return `Connecting the demo opens ${DEMO_SESSION} and leaves your file unchanged.`;
   return "Upload a newer export any time to replace it.";
 }
 
@@ -58,7 +65,7 @@ export function dexcomCardHint(hint: DexcomHint): string {
     // Nothing for this visit to connect to (§9.2): on the sandbox a real patient is offered the separate
     // demonstration instead, and in production a demo visit has nothing to be offered at all.
     return hint.env === "sandbox"
-      ? "Demo connects a separate synthetic-data session. Your existing uploads stay unchanged."
+      ? `Demo connects ${DEMO_SESSION}. ${DEMO_UNCHANGED}`
       : "This demonstration visit cannot connect to a real Dexcom account.";
   }
   return hint.sandboxPatient
