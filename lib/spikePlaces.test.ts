@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { anyPlaceKnown, clinicianChartCaption, patientChartCaption, UNKNOWN_PLACE } from "./spikePlaces";
+import { placeLabel } from "./location";
+import { anyPlaceKnown, clinicianChartCaption, markerLabel, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -104,4 +105,64 @@ test("the clinician's caption keeps the clinician's register, not the patient's 
   }
   // And the patient's page is unchanged by this ticket.
   assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
+});
+
+// T128 (§2.7, §6.5): the same question for a stop the matcher placed and the export never named, which
+// until now fell through to the coordinates lib/location.ts mints for the clinician's surfaces.
+
+/** A stop the Timeline placed but nothing named: lib/location.ts leaves its own coordinates as the name. */
+const unnamed = (lat = 37.7899, lng = -122.4009): Visit => ({
+  start: "2026-09-20T16:00:00Z",
+  end: "2026-09-21T00:00:00Z",
+  place: placeLabel(lat, lng),
+  lat,
+  lng,
+  placeId: "ChIJ_office_demo",
+});
+
+test("an unnamed stop is the one whose name is the coordinates it was given (T128)", () => {
+  assert.equal(placeIsUnnamed(unnamed()), true);
+  assert.equal(placeIsUnnamed(somewhere("Office")), false);
+  // Southern hemisphere, and a round number, because placeLabel pads both to three decimals.
+  assert.equal(placeIsUnnamed({ ...unnamed(-33.8688, 151.2093) }), true);
+  assert.equal(placeIsUnnamed({ ...somewhere("Office"), place: "37.790, -122.401" }), true);
+});
+
+test("a name that merely contains numbers is still a name", () => {
+  for (const name of ["Pier 39", "24 Hour Fitness", "Cafe 1.5", "37.790"]) {
+    assert.equal(placeIsUnnamed({ ...somewhere(name) }), false, name);
+  }
+});
+
+test("the patient's word for an unnamed stop is not the coordinates (T128)", () => {
+  assert.equal(patientPlaceName(unnamed()), UNNAMED_PLACE);
+  assert.equal(patientPlaceName(somewhere("Pizzeria Delfina")), "Pizzeria Delfina");
+  // Not a lat/long, not the matcher's vocabulary, and not the one word that means their appointment (§4.4).
+  assert.doesNotMatch(UNNAMED_PLACE, /^-?\d+\.\d{3}, -?\d+\.\d{3}$/);
+  assert.doesNotMatch(UNNAMED_PLACE, MATCHER);
+  assert.doesNotMatch(UNNAMED_PLACE, /visit/i);
+  assert.notEqual(UNNAMED_PLACE, UNKNOWN_PLACE);
+  // GlucoseChart trims a marker label over 16 characters; this one is the chart's too, so it has to fit.
+  assert.ok(UNNAMED_PLACE.length <= 16, `${UNNAMED_PLACE} is ${UNNAMED_PLACE.length} characters`);
+});
+
+test("one predicate behind the chart marker and the Where cell, so they cannot disagree (T128)", () => {
+  for (const s of [spike(), spike(unnamed()), spike(somewhere("Gym"))]) {
+    const cell = s.visit ? patientPlaceName(s.visit) : UNKNOWN_PLACE;
+    const marker = markerLabel(s, { patient: true });
+    // The marker names a place exactly when the cell does, and names the same one.
+    assert.equal(marker === String(s.to), cell === UNKNOWN_PLACE);
+    if (cell !== UNKNOWN_PLACE) assert.equal(marker, cell);
+  }
+});
+
+test("the clinician's marker label keeps T62's coordinates — both sides of the split (T128)", () => {
+  const placed = spike(unnamed());
+  assert.equal(markerLabel(placed, { patient: false }), "37.790, -122.401");
+  assert.equal(markerLabel(placed, { patient: true }), UNNAMED_PLACE);
+  // A named stop reads the same to both, and an unplaced rise is the peak reading to both.
+  for (const patient of [true, false]) {
+    assert.equal(markerLabel(spike(somewhere("Home")), { patient }), "Home");
+    assert.equal(markerLabel(spike(), { patient }), "214");
+  }
 });
