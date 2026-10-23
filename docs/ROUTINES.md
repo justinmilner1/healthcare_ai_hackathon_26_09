@@ -30,8 +30,11 @@ The reviewer closes the issue once what landed meets the ticket. Bugs the review
 
 ### Where a new ticket's number comes from
 
-**The highest `T<nn>` across every issue *and* pull request, in *any* state, plus one.** The snippet for it is
-[below](#github-from-the-sandbox-rest-only), next to the other REST calls.
+**The highest `T<nn>` across every issue *and* pull request, in *any* state, plus one.**
+`scripts/gh-issues.sh next-number` is that rule as a command; it is
+[below](#github-from-the-sandbox-rest-only), next to the other REST calls. Take the number from it rather
+than from a page walk of your own: a walk that loses a page answers with a number already taken, and that is
+the third trap in that section.
 
 Nothing narrower is safe. Both routines once took the number from the open issue list, which misses every
 closed ticket — and most of the stack is closed. Three items landed in one afternoon on numbers already
@@ -74,7 +77,7 @@ Runs every two hours. One ticket per run. Works on `main`, pushes only a tree th
    `git checkout main`, then `git pull --ff-only`. Never a bare `git pull`: this container's checkout is
    shallow, and on a shallow checkout a bare pull reports a divergence that is not there
    ("A shallow checkout, and the divergence that is not one" below).
-2. Pick the ticket: the lowest-numbered issue labeled `changes-requested`; otherwise the lowest-numbered `ready`. Skip anything `blocked`. Resolve each of its `Depends on: T<nn>` lines with the dependency snippet below and require that ticket closed — the snippet excludes pull requests, and two numbers name two tickets apiece, so check that table when it returns more than one row. If none, stop.
+2. Pick the ticket: the lowest-numbered issue labeled `changes-requested`; otherwise the lowest-numbered `ready`. Both listings go through `scripts/gh-issues.sh list` ("GitHub from the sandbox" below): a bare `gh api` answers this one with an empty array often enough that "If none, stop" would end a run with six tickets open, and nothing in the log would say why. Skip anything `blocked`. Resolve each of its `Depends on: T<nn>` lines with `scripts/gh-issues.sh depends T<nn>` and require that ticket closed — it excludes pull requests, and two numbers name two tickets apiece, so check that table when it returns more than one row. If none, stop.
 3. Label it `in-progress`, remove `ready` or `changes-requested`, and comment `Builder run started <UTC time>` on the issue. If a previous run left a `t<nn>-wip` branch on origin, `git merge origin/t<nn>-wip` into `main` locally and continue from there.
 4. Read the cited design sections and the acceptance criteria. Implement the whole ticket on `main`, locally. Small, focused commits, every message starting `T<nn>:` — that prefix is how the reviewer finds the ticket's commits.
 5. Run `scripts/agent-check.sh`. Fix what fails — but read the timings table it closes with first: a stage several times its usual length and no failed assertion is a slow box, not a red tree ("When the box is the problem" below). Look at the screenshots in `e2e/screenshots/` — the script empties it first, so everything in it is from this run — and confirm the affected screens look right. Copy the relevant ones to `docs/screenshots/tickets/t<nn>/` and commit them.
@@ -89,12 +92,15 @@ Runs every three hours. Reviews the tickets labeled `review`, lowest number firs
 1. Deepen, check out `main`, fast-forward — `git fetch --unshallow origin || git fetch origin`,
    `git checkout main`, `git pull --ff-only`, never a bare `git pull`
    ("A shallow checkout, and the divergence that is not one" below); the full history is also what step 2
-   and step 5 need to read a ticket's commits at all. Run `scripts/agent-check.sh` once, on `main` as it is now; every review below reads that result and those screenshots. The run starts from an empty `e2e/screenshots/`, so the PNGs are this tree's and no earlier run's.
+   and step 5 need to read a ticket's commits at all. List the tickets labeled `review` with
+   `scripts/gh-issues.sh list` ("GitHub from the sandbox" below), never a bare `gh api`: an empty answer
+   there is a run that reviews nothing and goes straight to the sweep, which is exactly what happened on
+   2026-10-22. Run `scripts/agent-check.sh` once, on `main` as it is now; every review below reads that result and those screenshots. The run starts from an empty `e2e/screenshots/`, so the PNGs are this tree's and no earlier run's.
 2. For each ticket: find its commits — the builder's comment names the range, and `git log --oneline origin/main --grep='^T<nn>'` finds them by the message prefix. Read the diff (`git log -p <first>^..<last>`), the issue body, and the design sections it cites. Compare the result with the acceptance criteria, line by line; read the code, not just the comment.
 3. Small problems (naming, a missing edge case, a lint warning, a missing test): fix them on `main`, commit with a message starting `Review T<nn>:`, run the check, `git pull --rebase origin main`, push. Note each fix in your comment.
 4. If it matches: comment on the issue naming the design sections it fulfills, the commits you read, and what you checked, then close the issue and remove `review`.
 5. If it does not: comment with a precise numbered list, each item naming the criterion or design section and exactly what is missing or wrong, with file paths. Label the issue `changes-requested`, remove `review`. The builder fixes forward on `main`; nothing is reverted for a gap. Revert (`git revert`, then the check, then push) only when a commit has broken the check on `main` and the fix is not obvious — a check that ran out of time on a slow box has broken nothing, so check the timings table before you revert — then say which commit and why in the comment.
-6. Then sweep: read the state of `main` below — a `main-red` issue, when Actions is running, says what broke before you run anything. Open the app, click through the two flows. Anything broken or drifting from the design becomes a new issue labeled `ready` and `bug`, with steps to reproduce, placed before the next feature ticket in numbering if it blocks it. Take its `T<nn>` from the rule above — the highest across every issue and pull request, any state, plus one — and recompute it for each issue you file in the same sweep, so two bugs in one run do not land on one number.
+6. Then sweep: read the state of `main` below — a `main-red` issue, when Actions is running, says what broke before you run anything. Open the app, click through the two flows. Anything broken or drifting from the design becomes a new issue labeled `ready` and `bug`, with steps to reproduce, placed before the next feature ticket in numbering if it blocks it. Take its `T<nn>` from `scripts/gh-issues.sh next-number`, which is the rule above — the highest across every issue and pull request, any state, plus one — and run it again for each issue you file in the same sweep, so two bugs in one run do not land on one number.
 
 ## The state of `main`
 
@@ -384,8 +390,11 @@ The cloud sandbox blocks GitHub's GraphQL endpoint, so `gh pr create`, `gh issue
 fail with HTTP 403. `gh api` (REST) works. Use these, with `R=justinmilner1/healthcare_ai_hackathon_26_09`:
 
 ```bash
-# issues by label, lowest number first
-gh api "repos/$R/issues?labels=ready&state=open&per_page=100" --jq 'sort_by(.number)[] | "\(.number) \(.title)"'
+# issues by label, lowest number first. Every *listing* goes through the helper (third trap below): it is
+# the one call whose wrong answer is silence, so `list` re-reads until the reads agree and prints the array
+# for jq to shape.
+scripts/gh-issues.sh list "repos/$R/issues?labels=ready&state=open&per_page=100" \
+  | jq -r 'sort_by(.number)[] | "\(.number) \(.title)"'
 # read one issue (body has the design sections and acceptance criteria)
 gh api "repos/$R/issues/12" --jq '.title, .body'
 # labels: add / remove
@@ -398,25 +407,46 @@ gh api -X POST "repos/$R/issues/12/comments" -F body=@/tmp/comment.md
 # close an issue (the reviewer, once the landed work meets the ticket)
 gh api -X PATCH "repos/$R/issues/12" -f state=closed
 # the tickets waiting for review, lowest number first
-gh api "repos/$R/issues?labels=review&state=open&per_page=100" --jq 'sort_by(.number)[] | "\(.number) \(.title)"'
+scripts/gh-issues.sh list "repos/$R/issues?labels=review&state=open&per_page=100" \
+  | jq -r 'sort_by(.number)[] | "\(.number) \(.title)"'
 # ci on main, when Actions is running (see "The state of main")
 gh api "repos/$R/actions/workflows/ci.yml/runs?branch=main&per_page=10" --jq '.workflow_runs[] | "\(.head_sha[0:7]) \(.event) \(.conclusion)"'
 # the next ticket number: the highest T<nn> over every issue AND pull request, any state, plus one
-n=$(for p in 1 2 3 4; do gh api "repos/$R/issues?state=all&per_page=100&page=$p" --jq '.[].title'; done \
-      | grep -oE '^T[0-9]+' | tr -d T | sort -n | tail -1); echo "T$((n + 1))"
+scripts/gh-issues.sh next-number      # prints T<nn>, or exits non-zero; never a number from a short walk
 # resolve "Depends on: T41": the issue that owns the number, pull requests excluded
-for p in 1 2 3 4; do gh api "repos/$R/issues?state=all&per_page=100&page=$p" \
-      --jq ".[] | select(.pull_request == null) | select(.title | startswith(\"T41:\")) | \"\(.number) \(.state) \(.title)\""; done
+scripts/gh-issues.sh depends T41      # one "<number> <state> <title>" line per owning issue
+# every page of a listing as one array, for anything the two commands above do not cover
+scripts/gh-issues.sh pages "repos/$R/issues?state=all&per_page=100" | jq -r '.[].title'
 ```
 
-Two pagination traps, both of which silently give a wrong answer rather than an error:
+Three traps, each of which silently gives a wrong answer rather than an error:
 
 - **`gh api --paginate` does not work here.** It follows GitHub's `Link` header, whose `rel="next"` is a
   numeric-id path (`repositories/{id}/...`), and the sandbox proxy refuses those with HTTP 403. It prints the
   error to stderr and the first page to stdout, so a pipeline that ignores stderr looks like it succeeded.
 - **`per_page=100` is one page, not "everything".** This repository held 129 issues-plus-pull-requests when T48
-  was written — two pages — so the two snippets above walk pages explicitly and keep a spare page or two; add
-  pages as the stack grows. The `&state=open` calls higher up are still well inside one page.
+  was written — two pages — so anything that needs all of them walks pages. `scripts/gh-issues.sh pages` is
+  that walk: it stops at the first page shorter than `per_page`, and when every page it is allowed to read
+  comes back full it **fails** rather than hand back the first few as though they were all of them
+  (`GH_ISSUES_MAX_PAGES`, 6 by default — raise it as the stack grows). The `&state=open` calls higher up are
+  still well inside one page.
+- **A listing can answer `HTTP 200` with `[]` on a repository that has issues (T127).** Measured on
+  2026-10-22: 8 of 25 `issues?state=open&per_page=100` reads, 3 of 25 `labels=review` reads (and 4 of 12 in
+  an earlier burst), and 1 of 5 passes of the next-number walk lost a page. `gh` exits **0**; the response
+  carries `Server: github.com`, `Content-Length: 2`, a fresh `X-Github-Request-Id` and 14917 of 15000 rate
+  limit left, and every empty body shares one `Etag` (`9e006b32…`) — a replica serving an empty index, not
+  the proxy, not a rate limit, and not the label filter, since the unfiltered listing is affected worst.
+  **An empty list from a routine's opening read is not evidence that there is nothing to do.** It is the
+  answer that means "stop": the builder's step 2 ends the run, the reviewer's step 1 skips every ticket
+  waiting, and the next-number rule fails *towards a duplicate* — five identical passes during that
+  measurement returned `max=125, 125, 62, 125, 125`, and the third would have filed the next bug as **T63**,
+  a number taken since September. So read listings through `scripts/gh-issues.sh`, which re-reads until two
+  consecutive reads agree, treats fewer rows than it has already seen as the suspect direction, requires
+  four consecutive empties before it will call a listing empty (two in a row land about 11% of the time at
+  the measured rate, which is a stopped routine most days), and exits non-zero rather than print an answer
+  nothing corroborates. Its header comment states the rule and why it is enough; `lib/ghIssues.test.ts`
+  holds it to that against a stubbed flaky listing. A single issue (`issues/12`) is an object rather than a
+  list and needs none of this: it cannot come back empty, and a missing one is a loud 404.
 
 `git push` works with the sandbox's credentials, to `main` and to a `t<nn>-wip` branch. The proxy refuses branch
 deletion; a leftover `-wip` branch is harmless, say so in the comment and move on.
@@ -486,7 +516,11 @@ step 2 and the revert in step 5 both depend on it.
 
 ## Environment facts (from the probe on 2026-10-10)
 
-Node 22, npm 10, git, `gh` 2.89, Python 3.11, Docker 29; 4 CPUs, 15 GB RAM; npm registry reachable. The Playwright
+Node 22, npm 10, git, `gh` 2.89, `jq` 1.7, Python 3.11, Docker 29; 4 CPUs, 15 GB RAM; npm registry reachable.
+(`jq` is what `scripts/gh-issues.sh` shapes and compares listings with, and what the snippets above pipe
+into: the helper prints an array rather than taking a `--jq` expression, so one read can be shaped more than
+one way. It needs no `npm install`, which matters — both procedures ask GitHub what to do before anything is
+installed.) The Playwright
 CDN is blocked but a Chromium is pre-installed under `/opt/pw-browsers`; `scripts/agent-check.sh` finds it. The
 full check took about two minutes *on that box*; containers since have been several times slower, so read the
 timings table the check prints rather than this line ("When the box is the problem"). Both routines are one
