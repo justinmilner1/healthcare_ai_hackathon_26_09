@@ -796,3 +796,68 @@ test("patient summary: the loading card names no span, because nothing is known 
   await expect(EYEBROW(page)).toBeVisible(LOADED);
   await expect(card).toHaveCount(0);
 });
+
+/**
+ * Skipping the rest of the questions with nothing shared but a typed answer (T133, design §2.5, §2.7).
+ *
+ * The chat's half of the ticket. Whether to offer the skip at all is decided correctly — there is nothing
+ * to skip to until the patient has answered or shared something — but the same condition also wrote the
+ * link and the goodbye, and `turns > 0` satisfies it on its own. So a patient who typed one message and
+ * uploaded nothing read "Skip the rest and view my week" and was answered "You can view your week now",
+ * about a `/patient/<token>` that renders on `status.hasDexcom` and had no reading to render.
+ *
+ * Driven through the page rather than by posting the event, because the link's words are half of what was
+ * wrong. The goodbye is then read out of the transcript rather than off the screen: pressing the link
+ * navigates to the summary, so the reply Sweetie commits is a message the patient meets on their way back
+ * into the chat, which is where GET /api/sweetie is the only honest place to look at it.
+ */
+test("the skip link and goodbye promise no summary to a check-in with nothing shared", async ({ page }) => {
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Skip Empty");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E Skip Empty", email, visitType: "follow_up", reason: "mornings running high", channel: "none" })
+  ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
+  await verifyLink(page, booked.token, email);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+
+  // One answer and no upload, which is the state the ticket is about. The reply landing is one more
+  // Sweetie bubble, the signal e2e/flows.spec.ts's two-question test waits on.
+  const sweetieSaid = page.locator(
+    ".sweetie-messages .sweetie-message-row:not(.sweetie-message-patient) .sweetie-message:not(.sweetie-typing)",
+  );
+  const said = await sweetieSaid.count();
+  const input = page.locator("input[type='text'], input:not([type]), textarea").first();
+  await input.fill("Mornings are the worst of it and I want to know whether to change anything.");
+  await input.press("Enter");
+  await expect(sweetieSaid).toHaveCount(said + 1, LOADED);
+
+  // Asserted rather than assumed: a visit that somehow had readings in it would make everything below
+  // pass for the wrong reason, since with glucose the promise is the correct thing to make.
+  const before = await (await page.request.get(`/api/sweetie?token=${booked.token}`)).json();
+  expect(before.status.hasDexcom, "nothing was uploaded").toBe(false);
+  expect(before.status.hasWhoop || before.status.hasLocation, "nothing was uploaded").toBe(false);
+
+  // The link is on the screen, because the patient has answered something — and it no longer offers a
+  // week, or a view of anything. The span pattern is lib/dexcomHint.test.ts's, so a reword fails here too.
+  const skip = page.locator(".sweetie-skip-link");
+  await expect(skip).toBeVisible(LOADED);
+  await expect(skip).toHaveText("Skip the rest of the questions");
+  const label = await skip.textContent();
+  expect(label, "the skip link").not.toMatch(/\b(hours?|days?|weeks?|months?)\b/i);
+  expect(label, "the skip link").not.toMatch(/view/i);
+
+  await skip.click();
+  // The press is honoured — the intake wraps and the patient is taken on — so this is not the refusal
+  // branch, which keeps them in the chat with an inline hint instead.
+  await expect(page).toHaveURL(new RegExp(`/patient/${booked.token}$`), LOADED);
+
+  // And the goodbye in the transcript says what is saved without offering a summary there is none of.
+  const after = await (await page.request.get(`/api/sweetie?token=${booked.token}`)).json();
+  const goodbye = after.messages.filter((m: { role: string }) => m.role === "sweetie").at(-1).content as string;
+  expect(goodbye, "Sweetie's goodbye").toMatch(/skipped the remaining questions/i);
+  expect(goodbye, "Sweetie's goodbye").toMatch(/saved for your care team/i);
+  expect(goodbye, "Sweetie's goodbye").not.toMatch(/you can view/i);
+  expect(goodbye, "Sweetie's goodbye").not.toMatch(/\b(hours?|days?|weeks?|months?)\b/i);
+});

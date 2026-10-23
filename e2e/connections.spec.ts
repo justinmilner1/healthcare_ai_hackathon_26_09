@@ -21,6 +21,13 @@ import { shot, WHOLE_PAGE } from "./shot";
 // landed the patient on the empty summary, which asked them to go back and connect something. All four are
 // asserted below in both states, so the next change cannot split them from the row again.
 //
+// T133 (design §2.5, §2.7) is the same bug one condition further out, and the third state of this step.
+// T116 fixed the column where nothing was shared; the four strings stayed wrong in the column where
+// something was, because `connectedCount > 0` counts a WHOOP CSV and a Timeline export and neither
+// produces a glucose reading — while `/patient/<token>` renders on `status.hasDexcom`. The shared column's
+// assertions below have always run on a Clarity upload, so the promise happened to be true there and the
+// suite could not see the gap. The test after this one is the fixture it never had.
+//
 // Both states, on both projects, because the fix is a glyph and a colour and the evidence for it is the
 // §12.3 screenshot as much as the assertion: the desktop and mobile runs write
 // `<project>-connect-done-empty.png` and `<project>-connect-done-connected.png`. The assertions read
@@ -28,6 +35,8 @@ import { shot, WHOLE_PAGE } from "./shot";
 // name and the thing that regressed is which shape the row draws.
 
 const clarity = () => readFileSync(join(process.cwd(), "data", "fixtures", "clarity_window.csv"));
+/** A connection with no glucose in it, which is the state T133 is about. */
+const whoop = () => readFileSync(join(process.cwd(), "data", "fixtures", "whoop_cycles.csv"));
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. */
@@ -155,15 +164,20 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   await expect(dataMark(page)).toHaveAttribute("data-mark", "connected");
   await expect(dataMark(page).locator('svg[data-icon="check"]')).toHaveCount(1);
 
-  // T116: the same four, with the wording this state has always had — the span in them is T114's business
-  // and this step is not one of the three sites that knows how many days arrived. The chat drops back to a
-  // secondary action, which is what the absent exact-named button says.
-  await expect(page.getByText("Your week is ready to view. Questions are optional.")).toBeVisible();
-  await expect(page.getByText(/^Go straight to your week without answering questions\./)).toBeVisible();
-  await expect(page.getByRole("button", { name: /View my week/i })).toBeVisible();
+  // T116: the same four, and T133's wording for them. This upload is glucose, so the step may offer the
+  // summary — and it names what the destination opens that data with ("Your glucose", the chart card's own
+  // heading) rather than a span, which this step cannot know and used to claim twice over. The chat drops
+  // back to a secondary action, which is what the absent exact-named button says.
+  await expect(page.getByText("Your glucose is ready to view. Questions are optional.")).toBeVisible();
+  await expect(page.getByText(/^Go straight to your glucose without answering questions\./)).toBeVisible();
+  await expect(page.getByRole("button", { name: /View my glucose/i })).toBeVisible();
   await expect(page.getByText("Skip the questions. Your shared data stays saved.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Chat with Sweetie", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Chat with Sweetie instead/i })).toBeVisible();
+  // T133: and the span is gone from this column too, over the whole frame for the reason given above —
+  // step 2 has no other use for the word, so there is nothing here for a frame-wide negative to catch
+  // except the promise itself.
+  await expect(page.locator("main")).not.toContainText(/week/i);
 
   expect(
     await contrastOf(dataMark(page)),
@@ -171,6 +185,82 @@ test("the setup-complete card marks nothing-shared differently from something-sh
   ).toBeGreaterThanOrEqual(3);
   await expectNoSeriousA11yViolations(page, "patient setup complete, one source shared");
   await shot(page, "connect-done-connected", WHOLE_PAGE);
+});
+
+/**
+ * The setup-complete step for a patient who shared something with no glucose in it (T133, design §2.5, §2.7).
+ *
+ * The case the suite has never had. T116 pinned the column where nothing was shared and the test above
+ * pins the column where a Clarity export was, and between them they left out the state that is neither:
+ * §2.5 offers three sources and two of them — WHOOP and Timeline — produce no glucose reading at all. A
+ * patient who uploads only their sleep history satisfied `connectedCount > 0`, was told "Your week is
+ * ready to view", pressed "View my week" and landed on the empty summary asking them to go back and share
+ * a Dexcom export. They shared data, were promised their week, and arrived at a screen telling them they
+ * had shared nothing to show.
+ *
+ * So this asserts the two halves of the fix together: the words say what this patient actually has, and
+ * the primary action goes somewhere that does not contradict them. Pressing it is the assertion — the
+ * destination is checked rather than the label, because the label was not the thing that cost the patient
+ * their time.
+ *
+ * The first row of the card is the one thing that does not change here: something *was* shared, so it
+ * keeps T84's tick and its count. That is the point of the state — the row and the strings answer two
+ * different questions, and T133 is what happens when the strings are given the row's.
+ *
+ * Both projects, so the §12.3 evidence is this step at 1280px and at 375px.
+ */
+test("the setup-complete step offers no summary to a connection with no glucose in it", async ({ page }) => {
+  const { token, email } = await book(page, "E2E No Glucose");
+  await verifyLink(page, token, email);
+  await page.goto(`/s/${token}/intake`);
+  await page.getByRole("button", { name: /Let's get started/i }).click();
+
+  // WHOOP only. The Dexcom picker is waited on rather than the WHOOP one because the whole panel arrives
+  // with the status fetch, and the Dexcom card is the one the other tests here wait on.
+  await expect(page.getByLabel(/Upload Dexcom file/i)).toBeAttached(LOADED);
+  await page
+    .getByLabel(/Upload WHOOP file/i)
+    .setInputFiles({ name: "whoop_cycles.csv", mimeType: "text/csv", buffer: whoop() });
+  await expect(page.getByText(/records securely added/i)).toBeVisible(LOADED);
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: /You.re all set/i })).toBeVisible(LOADED);
+
+  // The row still reports what arrived: one source, with the tick. T133 changes nothing about this half.
+  await expect(page.getByText("1 data source connected")).toBeVisible();
+  await expect(dataMark(page)).toHaveAttribute("data-mark", "connected");
+  await expect(dataMark(page).locator('svg[data-icon="check"]')).toHaveCount(1);
+
+  // And the strings around it answer the other question. Each one is true of a patient who has shared
+  // their sleep and nothing else: the upload is saved, and there is nothing to look at.
+  await expect(page.getByText("Your data is saved. There's nothing to view without glucose.")).toBeVisible();
+  await expect(page.getByText(/saved for your care team/)).toBeVisible();
+  await expect(page.getByText(/nothing to show you yet without your glucose readings/)).toBeVisible();
+  await expect(
+    page.getByText("A short chat still gives your clinician something to work from."),
+  ).toBeVisible();
+  // The promise and the button that carried it are not on the screen — in any wording, which is what the
+  // frame-wide negative is for: this step cannot know a span in any of its three states.
+  await expect(page.getByRole("button", { name: /View my (week|glucose)/i })).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText(/week/i);
+  // Nor is the summary offered under another name. The patient page is reached from the chat, which is
+  // where the two things that lead somewhere real now are.
+  await expect(page.locator(`main a[href="/patient/${token}"]`)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Back to connections/i })).toBeVisible();
+  // One "Chat with Sweetie", as the primary: the secondary copy of it belongs to the column that has a
+  // summary to make it second to.
+  await expect(page.getByRole("button", { name: /Chat with Sweetie instead/i })).toHaveCount(0);
+  const chat = page.getByRole("button", { name: "Chat with Sweetie", exact: true });
+  await expect(chat).toBeVisible();
+
+  // §6.4, §12.5: the third state of this step is scanned like the other two.
+  await expectNoSeriousA11yViolations(page, "patient setup complete, a connection with no glucose");
+  await shot(page, "connect-done-no-glucose", WHOLE_PAGE);
+
+  // The half of the ticket a string cannot show: following the primary action does not land the patient on
+  // the empty summary. It goes to Sweetie, and the summary's own empty state is somebody else's test.
+  await chat.click();
+  await expect(page).toHaveURL(new RegExp(`/s/${token}$`), LOADED);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
 });
 
 /**
