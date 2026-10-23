@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dexcomCardHint, dexcomConnectControl, summaryDataInvite, type DexcomHint } from "./dexcomHint";
+import { dexcomCardHint, dexcomConnectControl, summaryDataInvite, type DexcomConnectControl, type DexcomHint } from "./dexcomHint";
 
 /** A real patient on the default offline deployment: sandbox Dexcom, no credentials, nothing shared. */
 const base: DexcomHint = {
@@ -146,8 +146,9 @@ test("with credentials the card still offers the connection (T118 changed nothin
   const synthetic = invite({ configured: true, canConnect: true, sandboxPatient: true });
   assert.equal(synthetic.action, "Connect Dexcom");
   assert.equal(synthetic.body, "Connect Dexcom sandbox in Sweetie to import synthetic demo readings.");
-  // A real visit on a sandbox deployment is offered the separate demonstration, which is still a connection.
-  assert.equal(invite({ configured: true }).action, "Connect Dexcom");
+  // A real visit on a sandbox deployment is offered the separate demonstration instead. T118 gave it this
+  // button's words; it is a different offer and no longer wears them (T125, pinned as equalities below).
+  assert.notEqual(invite({ configured: true }).action, "Connect Dexcom");
 });
 
 test("a synthetic visit with nothing to connect gets no button, because its uploads are refused too", () => {
@@ -187,7 +188,10 @@ test("the invitation and the control agree: a connection is named only where the
             assert.doesNotMatch(said.body, /\bconnect\b/i, where);
             if (said.action !== null) assert.doesNotMatch(said.action, /\bconnect\b/i, where);
           } else {
-            assert.equal(said.action, "Connect Dexcom", where);
+            // Something is on offer, and the button names the control the destination will actually
+            // render: the real connection for `"oauth"`, the demonstration for `"demo"` (T125). Neither
+            // may be sent to the patient in the other's words.
+            assert.equal(said.action, control(state) === "oauth" ? "Connect Dexcom" : "Try the Dexcom demo", where);
           }
         }
 });
@@ -210,4 +214,86 @@ test("no invitation names a span, because this is the state with no data to take
           assert.doesNotMatch(said.body, SPAN, where);
           if (said.action !== null) assert.doesNotMatch(said.action, SPAN, where);
         }
+});
+
+// T125 (§2.5, §2.7, §9.2): `"oauth"` and `"demo"` are not one offer, and T118 left them sharing a branch
+// on `control !== "none"`. The first imports this patient's own readings; the second opens a synthetic
+// session of its own, which is all §13.4's sandbox deployment has for a real visit — so a real patient
+// there was promised their own last week and sent to somebody's invented one.
+
+const CONTROLS: DexcomConnectControl[] = ["oauth", "demo", "none"];
+
+/** The demo invitation, written out once: both rows of the matrix below are this, for the reason there. */
+const DEMO_INVITE = {
+  body: "The Dexcom demo in Sweetie opens a separate synthetic-data session — synthetic readings, not your own. Your existing uploads stay unchanged.",
+  action: "Try the Dexcom demo",
+};
+
+test("each control gets its own invitation, for both kinds of patient, as equalities (T125)", () => {
+  const says = (c: DexcomConnectControl, sandboxPatient: boolean) => summaryDataInvite({ control: c, sandboxPatient });
+
+  // `"oauth"` and `"none"` are what T118 left them, word for word — this ticket is only the third state.
+  assert.deepEqual(says("oauth", false), {
+    body: "Connect your Dexcom export and Sweetie will turn your readings into a clear picture for you and your doctor.",
+    action: "Connect Dexcom",
+  });
+  assert.deepEqual(says("oauth", true), {
+    body: "Connect Dexcom sandbox in Sweetie to import synthetic demo readings.",
+    action: "Connect Dexcom",
+  });
+  assert.deepEqual(says("none", false), {
+    body: "Share your Dexcom export in Sweetie and it will turn your readings into a clear picture for you and your doctor.",
+    action: "Upload your Dexcom export",
+  });
+  assert.deepEqual(says("none", true), { body: "This demonstration visit has no synthetic readings in it.", action: null });
+
+  // The new state. `sandboxPatient` cannot be true alongside `"demo"` — `dexcomConnectControl` reaches it
+  // for a real visit only — and the copy would not read it if it could, because what this state turns on is
+  // where the button leads and not whose record it sits on. Both rows are pinned so the unreachable one
+  // cannot be given a sentence nobody looked at.
+  assert.deepEqual(says("demo", false), DEMO_INVITE);
+  assert.deepEqual(says("demo", true), DEMO_INVITE);
+
+  // The regression itself: a demo link is not the Connect Dexcom offer. A branch folded back onto
+  // `control !== "none"` fails here whatever the two sentences then say.
+  assert.notDeepEqual(says("demo", false), says("oauth", false));
+  assert.notDeepEqual(says("demo", false), says("none", false));
+});
+
+test("the demo invitation makes the destination's promise, not one about the patient's own data (T125)", () => {
+  const said = summaryDataInvite({ control: "demo", sandboxPatient: false });
+  assert.ok(said.action, "the demo link is a destination, so this state has a button");
+  // One state, one promise — T118's rule for `"none"`, applied to `"demo"`. The destination for this state
+  // is the demo link on /s/<token>, and the sentence under its card is dexcomCardHint's sandbox branch.
+  const destination = hint({ configured: true });
+  assert.equal(control({ configured: true }), "demo", "this is the state the two surfaces share");
+  for (const phrase of ["a separate synthetic-data session", "Your existing uploads stay unchanged."]) {
+    assert.ok(destination.includes(phrase), `the destination says: ${phrase}`);
+    assert.ok(said.body.includes(phrase), `so does the invitation: ${phrase}`);
+  }
+  // And not the real-visit sentence, which promises this patient's own readings turned into a picture.
+  assert.doesNotMatch(said.body, /turn your readings into a clear picture/);
+  assert.doesNotMatch(said.body, /\bConnect Dexcom\b/);
+  assert.doesNotMatch(said.action, /\bConnect Dexcom\b/);
+  assert.match(said.body, /synthetic/, "the patient is told the readings are invented");
+});
+
+test("the new state is held to the same two rules as every other (T71's and T123's)", () => {
+  // The matrices above reach these through `dexcomConnectControl`, which cannot produce `"demo"` with a
+  // synthetic patient. Driving `summaryDataInvite` directly covers that row too, so the unreachable
+  // sentence is under the rules as well: no operator fact in patient copy (T71), and no span named on the
+  // one state of this page with no data to take one from (T123).
+  const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
+  for (const c of CONTROLS)
+    for (const sandboxPatient of [false, true]) {
+      const said = summaryDataInvite({ control: c, sandboxPatient });
+      const where = `${c}/${sandboxPatient}`;
+      assert.ok(said.body.length > 0, `every state has a sentence: ${where}`);
+      assert.doesNotMatch(said.body, OPERATOR, where);
+      assert.doesNotMatch(said.body, SPAN, where);
+      if (said.action !== null) {
+        assert.doesNotMatch(said.action, OPERATOR, where);
+        assert.doesNotMatch(said.action, SPAN, where);
+      }
+    }
 });

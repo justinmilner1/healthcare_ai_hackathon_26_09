@@ -134,7 +134,9 @@ export default function PatientPage({
               {/* The ask is for whatever /s/<token> can actually take (T118): this button leads there, and
                   on a deployment with no Dexcom credentials that page has no Dexcom connection on it at
                   all — only the file upload. lib/dexcomHint.ts decides both, from the one control the
-                  data panel is rendering, so the invitation here cannot outrun the destination. */}
+                  data panel is rendering, so the invitation here cannot outrun the destination. All three
+                  of those controls are now branched on rather than two (T125): the sandbox's demo link is
+                  a separate synthetic session, not this patient's own readings, and says so. */}
               <p>{invite.body}</p>
               {invite.action && (
                 <a
