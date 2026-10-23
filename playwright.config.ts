@@ -38,6 +38,14 @@ const DEXCOM_PORT = PORT + 3;
 // `/demo` offers the sign-in form with the address filled in, which e2e/signin.spec.ts asserts — so the
 // shortcut needs a server of its own to be seen at all. e2e/demo.spec.ts is the only spec that uses it.
 const DEMO_PORT = PORT + 4;
+// A sixth server, the only one with nowhere at all to put an email: no backend and, unlike every other
+// server here, no DEV_MAIL_DIR either. That is the state a fresh `.env` is in and the state a deployment
+// whose sender was never set up is in, and it is the only state in which §2.1's staff onboarding dead-ends
+// — the invite nudge is not sent and neither is the magic link that is the colleague's only way in (T131,
+// §5.1, §8.1). Every other server diverts to a mailbox, so `canSendOrMailbox()` is true on all of them and
+// the branch had no screen anybody could look at. e2e/teamInvite.spec.ts is the only spec that uses it, and
+// it signs in against the main server first: nobody can sign in to this one, which is the point.
+const UNSENDABLE_PORT = PORT + 5;
 
 /**
  * How long one test may run before Playwright calls it hung, in milliseconds.
@@ -230,6 +238,27 @@ export default defineConfig({
       },
     },
     {
+      command: nextStart(UNSENDABLE_PORT),
+      url: `http://localhost:${UNSENDABLE_PORT}/api/health/live`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000, // no build of its own either
+      env: {
+        ...process.env,
+        PORT: String(UNSENDABLE_PORT),
+        APP_URL: `http://localhost:${UNSENDABLE_PORT}`,
+        OPENAI_API_KEY: "",
+        AUTH_SECRET, // the same secret, so a session minted on the main server is one this build accepts
+        // The three variables that would give this server somewhere to send: blanked rather than left out,
+        // because `...process.env` above would otherwise hand it whatever the box has (scripts/agent-check.sh
+        // sets DEV_MAIL_DIR for the whole run). `lib/config.ts` is content with this on a localhost APP_URL —
+        // a production build is not a deployment — so the server still boots and still serves the screen.
+        DEV_MAIL_DIR: "",
+        EMAIL_FROM: "",
+        RESEND_API_KEY: "",
+        EMAIL_PROVIDER: "",
+      },
+    },
+    {
       command: nextStart(RUNNER_PORT),
       url: `http://localhost:${RUNNER_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
@@ -247,4 +276,4 @@ export default defineConfig({
   ],
 });
 
-export { DEMO_PORT, DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET };
+export { DEMO_PORT, DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET, UNSENDABLE_PORT };

@@ -73,6 +73,37 @@ What this does *not* predict is arrival. A configured backend can still bounce, 
 Those are the delivery row's to report — for an invite, which fails soft, because staff read the link off
 the screen. The code has nobody to fail soft to, which is the next section.
 
+### The staff path, which has no fallback (T131)
+
+Everything above is the patient path, where §8.1's answer to an unconfigured deployment is that staff read
+the link off the screen. §2.1's own onboarding has no such fallback. An invite **is** the `User` row
+(`lib/team.ts`); the email `sendTeamInvite` writes is only a nudge and carries no token; and the thing that
+actually lets a colleague in is a magic link they ask for themselves (§5.1). So on a deployment with no
+sender the role is set and nobody can get in — `sendVerificationRequest` throws and `/provider/signin`
+answers `?error=` (`lib/auth.ts`, T113) — and there is no link for the admin to forward, because
+`POST /api/practice/users` answers `{ member, sent, error }` and never one.
+
+The settings screen's invite card therefore asks the question before the admin invites anybody, the way the
+booking wizard does, and both of its sentences come from `lib/teamInvite.ts`:
+
+| | The hint above the form | The note after an invite |
+|---|---|---|
+| a sender, or `DEV_MAIL_DIR` | they get an email; the one-time link comes to their own inbox | `Invited <address>. They can sign in with that address now.` |
+| a sender that refused this one message | *(as above — the deployment can mail a link)* | the email did not go out, with the reason; ask them to sign in with that address |
+| neither | `cannotSendYet("email")`, plus: the role can be set, nothing reaches them, nobody signs in | added with that role, but they cannot sign in yet, with the same sentence |
+
+The question is `canSendOrMailbox()` and not `emailConfig()`, because a checkout naming `DEV_MAIL_DIR` really
+can deliver both messages, to a file (`npm run mail`). It is asked in the server component above the screen
+(`app/provider/settings/page.tsx`) and passed in, so the hint is settled before the first paint and the
+client bundle learns nothing about the deployment (§10.6). Each line carries whether it claims an email and
+whether it offers a sign-in, so `lib/teamInvite.test.ts` holds the pair to the invariant rather than to the
+strings.
+
+Seeing that branch end to end takes a server with nowhere at all to put an email: `UNSENDABLE_PORT` in
+`playwright.config.ts`, the one with no backend *and* no `DEV_MAIL_DIR`, used only by
+`e2e/teamInvite.spec.ts`. Every other server in the suite names a mailbox, which is why this card went two
+months claiming a send it could not make.
+
 ## Delivery results (§8.3)
 
 A send writes a `VisitDelivery` row per message: `(visitId, kind, channel, audience)`, replaced by the next
