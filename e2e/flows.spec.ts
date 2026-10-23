@@ -305,8 +305,9 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   expect(bundle.status.answered).toBeGreaterThanOrEqual(1);
 
   await page.goto(`/patient/${booked.token}`);
-  // The loading card says "getting your week ready", which the old loose text check matched, so the screenshot was
-  // of a spinner. Assert on something only the loaded summary has.
+  // The loading card is a card with Sweetie on it, which the old loose text check matched, so the
+  // screenshot was of a spinner. Assert on something only the loaded summary has. (The card's own copy is
+  // held by the T132 test at the end of this file, which stalls the response instead of racing it.)
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
   // T41 (§2.7, §6): the chip row names the visit in words. This visit was booked as `follow_up`, and the row
   // read exactly that until the page started going through visitLabel() — a column value on the one screen
@@ -773,7 +774,10 @@ test("patient summary: the loading card names no span, because nothing is known 
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/patient/**", async (route) => {
+  // A regex rather than a glob: `**` around a path segment is the kind of pattern that silently matches
+  // nothing, and a route that never intercepts would leave this test asserting the loaded page instead of
+  // the card — passing for the wrong reason.
+  await page.route(/\/api\/patient\//, async (route) => {
     await held;
     await route.continue();
   });

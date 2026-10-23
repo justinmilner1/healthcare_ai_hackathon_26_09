@@ -230,6 +230,8 @@ test("the connect step names no span before anything is shared", async ({ page }
   // this holds the wiring, and the defect was in the words either way.
   await expect(page.getByText("Upload your Clarity CSV export to share your glucose readings.")).toBeVisible();
 
-  await expectNoSeriousA11yViolations(page, "patient connect step, nothing shared");
+  // No axe pass here: this exact step is already scanned, in the state this test leaves it in, by
+  // e2e/a11y.spec.ts's "the intake page passes axe and labels every file picker" (§12.5). A second scan of
+  // one screen would cost every run time and tell the next reader nothing the first does not.
   await shot(page, "connect-step-no-span", WHOLE_PAGE);
 });
