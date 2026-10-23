@@ -62,3 +62,28 @@ export const loadedAtLeast = (ms: number) => ({ timeout: Math.max(ms, LOADED_TIM
  * come round to the row before it can start on it. This is the one place that 60s is written.
  */
 export const DRAINED = loadedAtLeast(60_000);
+
+/**
+ * How long a wait the suite expects to *run out* is given before it does (T124).
+ *
+ * Every budget above is a ceiling for something that has stopped making progress: a healthy run never
+ * reaches it, so headroom there is free and a slow box is the only thing it is spent on. A handful of waits
+ * in `e2e/transcript.spec.ts` are the other shape. They are staged on a condition that is never satisfiable
+ * — a newest message parked below the fold for good, a transcript whose newest message is replaced faster
+ * than any reading can confirm it — because the subject under test is `expectTranscriptUncut` giving up and
+ * saying why. Those spend their whole budget on every run, on both projects, including the green ones.
+ *
+ * So a ceiling sized for a box twenty times slower than the probe's buys them nothing and costs the suite
+ * that much wall time, six times over. What they need is not a ceiling at all but a floor: enough round
+ * trips for the poll to observe the thing its failure message names — two readings of a changing newest
+ * message, in the worst of them — and no more. A budget too small cannot turn a negative into a false pass
+ * the way one too small turns a positive into a false failure, because the condition is false at every
+ * reading whatever the box is doing; it can only rob the poll of the readings the message is made of.
+ *
+ * Hence a quarter of `LOADED`, with 8s under it. It is derived rather than written down so that
+ * `E2E_LOADED_TIMEOUT_MS` — the override docs/ROUTINES.md tells a routine on a slow box to reach for —
+ * reaches these waits too, which is the whole of what T124 is about: a budget the override cannot see is a
+ * budget that fails as a verdict on the product. The floor keeps it sane if the shared budget is ever
+ * lowered.
+ */
+export const GIVES_UP = { timeout: Math.max(8_000, Math.round(LOADED_TIMEOUT_MS / 4)) } as const;
