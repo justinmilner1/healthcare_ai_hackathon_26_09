@@ -1,9 +1,9 @@
 // What a page may say about where the patient was when a rise started (design §2.5, §2.6, §2.7, §7.4).
 // Owner: sour. The patient's "biggest rises" table and the chart caption on all three surfaces read it.
 //
-// The place on a Spike comes from the Timeline export, which §2.5 makes optional and Sweetie's `nextTarget`
-// stops offering once the patient declines it. So a patient who shared only Dexcom has a spike table whose
-// place column cannot ever say anything, and it used to fill every row with "no matching visit" (T82):
+// The place on a Spike comes from the Timeline export, which §2.5 makes optional and leaves to the patient
+// page's own data panel — Sweetie never asks for it (T144). So a patient who shared only Dexcom has a spike
+// table whose place column cannot ever say anything, and it used to fill every row with "no matching visit" (T82):
 // the matcher's vocabulary (lib/match.ts: a spike *matches* a visit), on the one page written for the
 // patient, using the one word — "visit" — that already means their appointment to them (§4.4). It also read
 // as a lookup that had come back empty, for data §2.4 and §2.5 told them they need not give.

@@ -148,8 +148,10 @@ closest.
   what the patient called in about and what they want from the visit, then what has changed since last time,
   worded for the visit type. Each patient message goes through a deterministic red-flag regex scan first, then
   an extraction call fills fields with a confidence, a deterministic backstop catches what the model missed,
-  and `nextTarget` picks the next thing to ask (dexcom upload, timeline upload unless declined, first unfilled
-  field, optional WHOOP, wrap) before `speak` writes one short plain-text message toward it.
+  and `nextTarget` picks the next thing to ask — the first unfilled required field, then any optional field
+  under the six-turn cap, then wrap — before `speak` writes one short plain-text message toward it. It never
+  asks for an upload: §2.5 gives that to the optional data panel on the page, and `Target` has only the two
+  kinds `nextTarget` returns (T144).
 - The order of a turn is `lib/sweetieTurn.ts`, because §6.2 is a claim about order: the patient's message is
   stored before any model call, and the reply and the intake state are committed together or not at all. The
   route (`app/api/sweetie/route.ts`) is transport only — token, session, rate limit, and the database half of
