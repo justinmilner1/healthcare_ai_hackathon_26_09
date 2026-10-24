@@ -6,7 +6,7 @@ deletion.
 
 | Kind | Enqueued by | Does |
 |---|---|---|
-| `sour.run` | the turn that wraps intake (`/api/sweetie`) when the readings are in, a completed Dexcom import (`/api/dexcom/callback`, or a Clarity export through `/api/upload`) when the intake is done, the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
+| `sour.run` | the turn that wraps intake (`/api/sweetie`), a completed Dexcom import (`/api/dexcom/callback`, or a Clarity export through `/api/upload`) when the intake is done, the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
 | `notify.invite` | adding a patient with consent (`/api/book`), a CSV import (`/api/visits/import`), Send link (`/api/invite`) | the presigned `/s/<token>` link, on the channels the visit consented to (§2.2); what each channel did is recorded on the visit (§8.3) |
 | `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
@@ -19,13 +19,19 @@ say it was owed. A job row says what to do, when it may run, how often it has be
 failed, so the work survives the process and a clinician can see where it got to.
 
 **Who queues Sour, and when (§7.1).** The Generate button queues whatever the state is — a clinician asked
-for it. The two patient-side triggers are each other's mirror image, and `lib/sourQueue.ts` holds both the
-idempotency key and the rule: the wrapping turn queues a run when the visit already has Dexcom data, and a
-completed import queues one when the intake is already done. A summary needs both halves and either can be
-the last to arrive, so whichever lands second is the one that queues — exactly once, with no trigger needing
-to know about the other. Data that arrives mid-intake queues nothing: summarizing there would write a brief
-from half an interview, move the visit to `summary_ready` while the patient is still answering, and email the
-clinician about a summary the wrapping turn is about to replace. The OAuth callback also deletes the visit's
+for it. `lib/sourQueue.ts` holds the idempotency key and both patient-side rules: the wrapping turn queues a
+run on every wrap (`wrapQueuesSour`), and a completed import queues one when the intake is already done
+(`queueSourAfterImport`). Only the second of those has a condition on it, and it is about ordering rather
+than about content — data that arrives mid-intake queues nothing, because summarizing there would write a
+brief from half an interview, move the visit to `summary_ready` while the patient is still answering, and
+email the clinician about a summary the wrapping turn is about to replace. The wrap has no condition: §2.6
+and §7.1 name it as the trigger with no data beside it, and the patient has just been told their doctor will
+see a one-page summary before the visit (lib/sweetie.ts). Until T143 it required the visit to already have
+Dexcom data, so a check-in that shared no readings produced no run, no `summary_ready` and no
+`notify.summary`, and the clinician was never told about a brief the product could perfectly well write from
+the conversation — which is what it does, and what `renderSourInput` says in place of a week of zeros. Where
+glucose does arrive after a wrap, that is the import trigger's run and a regenerate: the input hash carries
+every upload, so the numbers-less pair is not what the second run dedupes against (`lib/sourInput.ts`). The OAuth callback also deletes the visit's
 saved summaries, which is a separate promise and one that path alone keeps — never serve an older narrative
 against newly imported readings — and the queued run is what puts a current one back without a clinician
 opening the page to pay for it. The Clarity upload path makes no such promise and deletes nothing: the saved

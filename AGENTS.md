@@ -163,10 +163,10 @@ closest.
 **Sour** (provider-facing) is `lib/sour.ts` (the numbers), `lib/prompts.ts` (the prompts) and
 `lib/sourRun.ts` (the run).
 - Clinical, terse, no fluff. Numbers first.
-- Runs as a `sour.run` job, not inside a request: the three enqueuers are the turn that wraps intake, when the
-  visit has Dexcom data, a completed Dexcom import — OAuth or a Clarity upload — when the intake is already
-  done, and the provider page's Generate button (`docs/JOBS.md` is the list; `lib/sourQueue.ts` is the key and
-  the gate the two patient-side ones share). The OAuth callback also deletes the saved summary, so a stale
+- Runs as a `sour.run` job, not inside a request: the three enqueuers are the turn that wraps intake — every
+  wrap, with or without glucose (T143) — a completed Dexcom import — OAuth or a Clarity upload — when the
+  intake is already done, and the provider page's Generate button (`docs/JOBS.md` is the list;
+  `lib/sourQueue.ts` is the key, the wrap predicate and the import trigger's gate on the intake). The OAuth callback also deletes the saved summary, so a stale
   narrative is off the screen while the fresh run is in flight; the Clarity upload path deletes nothing — the
   saved pair stays up, `lib/bundle.ts` marks it `summaryStale` so it is never read as current, and the queued
   run replaces it. Idempotent per visit and input hash (§7.1), so a second run with unchanged inputs returns

@@ -262,7 +262,13 @@ export function speakSystem(p: Omit<SpeakInput, "transcript">): string {
         `Offer, once and lightly, that if ${p.firstName} has a Dexcom export handy they can add it with the optional Dexcom button on this page, and it helps the doctor see their glucose readings. Make clear it is optional and a no is completely fine; if they decline or don't have it, thank them and move on.`
       : target.kind === "field"
         ? `Ask ONE question to learn: ${target.def.goal}. Do not ask about anything else, and do not chase small missing details; a broad answer is enough to move on.`
-        : `Wrap up: in two or three short sentences, say back the gist of what they told you, say their doctor will see a one-page summary before the visit, and say goodbye warmly.${p.status.hasDexcom ? "" : p.visit.isSandbox ? " In passing, mention the optional Connect Dexcom sandbox link for synthetic readings, not a file upload." : " In passing, one clause only, mention that if they have a Dexcom export handy they can add it with the optional Dexcom button on this page, and that it is fine not to."} Do not ask any question.`;
+        : // The one-page summary is a promise, and it is kept rather than hedged (T143, §2.6, §7.1): the turn
+        // that wraps queues the `sour.run` for every visit, with or without glucose, so there is a brief and
+        // a clinician's link behind this sentence by the time the patient has read it (lib/sourQueue.ts
+        // `wrapQueuesSour`, which is where the reasoning is). The gate this used to sit behind made the
+        // sentence false for a check-in that shared no readings. Keep the scripted stand-in below saying the
+        // same thing, and if a data condition is ever put back on the trigger, both halves have to change.
+        `Wrap up: in two or three short sentences, say back the gist of what they told you, say their doctor will see a one-page summary before the visit, and say goodbye warmly.${p.status.hasDexcom ? "" : p.visit.isSandbox ? " In passing, mention the optional Connect Dexcom sandbox link for synthetic readings, not a file upload." : " In passing, one clause only, mention that if they have a Dexcom export handy they can add it with the optional Dexcom button on this page, and that it is fine not to."} Do not ask any question.`;
 
   return `You are Sweetie 🍬, a warm assistant helping ${p.firstName} get ready for their ${visitPhrase(p.visit.visitType)} with ${p.providerName}, an endocrinologist.${p.visit.reason ? ` When they booked, the office noted the reason as: "${p.visit.reason}" (the scheduler's words, not the patient's).` : ""}
 You work the way a good clinic intake nurse does on the phone: acknowledge what they just said in a few words, then ask the next thing. Curious about notable events, concerns, and what they want from the visit. Never rushed, never chatty.
@@ -301,6 +307,8 @@ export function scripted(p: { isSandbox?: boolean; firstName: string; target: Ta
           : `If you use WHOOP, the sleep export helps too. Totally optional.`,
     );
   } else if (t.kind === "field") parts.push(t.def.fallbackQuestion);
+  // The same promise as the model's wrap goal above, and true for the same reason (T143): §6.3 makes this
+  // line the product on an offline deployment, so what it claims has to be what the wrap actually does.
   else parts.push(`That's everything I need, ${p.firstName}. Your doctor will see a one-page summary before your visit. See you soon!`);
   return parts.join(" ");
 }

@@ -243,7 +243,17 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   expect(after.summaryStale).toBe(false);
 });
 
-test("patient flow: Sweetie two questions in scripted mode, then summary", async ({ page }) => {
+/**
+ * The patient flow end to end, and the promise it ends on (T143, design §2.5, §2.6, §7.1).
+ *
+ * The check-in shares nothing — no Dexcom, no Timeline, no WHOOP — which is what makes the last half of this
+ * test the ticket: Sweetie's closing sentence tells the patient their doctor will see a one-page summary
+ * before the visit, and until T143 the wrap queued the `sour.run` only when the visit already had glucose.
+ * So on this visit nothing produced that summary, no `notify.summary` carried §2.6's clinician link, and the
+ * brief said "No summary yet." behind a Generate button nobody had been asked to press. Both halves are
+ * asserted here, in one test, because the bug was only ever visible as the two of them disagreeing.
+ */
+test("patient flow: Sweetie two questions in scripted mode, then the summary she promised", async ({ page }) => {
   // Someone at the practice books the visit — staff's job, and it needs their session now (§5.2) — and from
   // there the patient has no provider account: the link plus the code sent to the address on file is their
   // whole credential (§5.3). The provider's session is dropped before the link is opened, so everything after
@@ -302,6 +312,10 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // still has a number, and it is a full one beside the sentence that says so (lib/intakeProgress.ts).
   await expect(page.locator(".sweetie-progress-card strong")).toHaveText("100%");
   await expect(page.locator(".sweetie-progress-card small")).toHaveText("Your story is ready");
+  // T143: the claim the end of this test is about, in Sweetie's own words. With no model key the scripted
+  // wrap line is what every patient reads (§6.3, lib/sweetie.ts `scripted`), and this visit has shared
+  // nothing — which is exactly the state in which nobody used to produce the summary it promises.
+  await expect(page.locator(".sweetie-messages")).toContainText("Your doctor will see a one-page summary before your visit");
   await shot(page, "sweetie-done", WHOLE_PAGE);
 
   // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
@@ -320,6 +334,30 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   await expect(page.locator(".patient-summary-meta")).toContainText("Follow-up");
   await expect(page.locator(".patient-summary-meta")).not.toContainText("follow_up");
   await shot(page, "patient-summary", WHOLE_PAGE);
+
+  // T143: the other half of what Sweetie just promised. Nothing was shared, so this is the visit whose wrap
+  // used to queue no run at all. The patient's session goes first — the clinician's half of a bundle is not
+  // a patient's to receive (§5.2, §10.6, app/api/patient/[id]), so the state asserted below is only
+  // readable as a provider, and signOutOfBrowser is what lets one test be two identities (e2e/auth.ts).
+  await signOutOfBrowser(page);
+  const clinician = await signInAsDemo(page);
+  await page.goto(`/provider/${clinician.id}?visit=${booked.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Talker", LOADED);
+  // The run the wrap queued, reported by the job's own state rather than inferred from the page (§7.2).
+  // Nothing here presses Generate: if the wrap queued nothing, this chip never leaves "none" and the
+  // assertion says so. The first-open auto-generate is behind the same predicate the wrap is, so it is not
+  // a second way for this to pass either — both changed together (app/provider/[id]/sour.tsx).
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", LOADED);
+  await expect(page.locator(".sour-brief")).not.toContainText(/No summary yet/i);
+  // What the clinician gets is the brief the product already had for this state, and it says what it has.
+  await expect(page.locator(".sour-no-glucose-note")).toContainText("This summary is from the conversation only.");
+  // The handover §2.6 is about: the patient's own words, on the clinician's page, from a check-in with no
+  // numbers in it at all.
+  await expect(page.locator(".sour-brief")).toContainText("Exhausted for six weeks");
+  // And no invented figure beside them. The suite runs with no model key, so the narrative sections are
+  // empty by design (§6.3) and every number on this page would have come from `renderSourInput`'s zeros.
+  await expect(page.locator(".sour-brief")).not.toContainText(/Time in range/i);
+  await shot(page, "provider-sour-conversation-only", { ...SCREENFUL, scrollTo: ".sour-no-glucose-note", block: "center" });
 });
 
 /**
