@@ -241,7 +241,14 @@ export async function speak(p: {
   if (p.visit.isSandbox && target.kind === "upload") return SANDBOX_CONNECT_HELP;
   const goal =
     target.kind === "upload"
-      ? `Offer, once and lightly, that if ${p.firstName} has a Dexcom export handy they can add it with the optional Dexcom button on this page, and it helps the doctor see the week in numbers. Make clear it is optional and a no is completely fine; if they decline or don't have it, thank them and move on.`
+      ? // No span (T139, §2.5). This is the sentence that *asks*, and it runs before any file exists, so
+        // nothing on this turn knows how much data there will be: `parseClarityCsv` (lib/glucose.ts) keeps
+        // every EGV row it is handed and clips nothing, and data/fixtures/clarity_window.csv — 84 readings
+        // inside one morning — is a supported upload. It promised "the week in numbers", which T123 and
+        // T132 had already taken off every rendered line on the patient path; it now names what the upload
+        // buys in their words instead. Keep the scripted stand-in below saying the same thing: without a
+        // key that line is the whole product (§6.3).
+        `Offer, once and lightly, that if ${p.firstName} has a Dexcom export handy they can add it with the optional Dexcom button on this page, and it helps the doctor see their glucose readings. Make clear it is optional and a no is completely fine; if they decline or don't have it, thank them and move on.`
       : target.kind === "field"
         ? `Ask ONE question to learn: ${target.def.goal}. Do not ask about anything else, and do not chase small missing details; a broad answer is enough to move on.`
         : `Wrap up: in two or three short sentences, say back the gist of what they told you, say their doctor will see a one-page summary before the visit, and say goodbye warmly.${p.status.hasDexcom ? "" : p.visit.isSandbox ? " In passing, mention the optional Connect Dexcom sandbox link for synthetic readings, not a file upload." : " In passing, one clause only, mention that if they have a Dexcom export handy they can add it with the optional Dexcom button on this page, and that it is fine not to."} Do not ask any question.`;
@@ -270,7 +277,11 @@ export function scripted(p: { isSandbox?: boolean; firstName: string; target: Ta
   if (t.kind === "upload") {
     parts.push(
       t.which === "dexcom"
-        ? `One optional thing: if you have your Dexcom export handy, you can add it with the Dexcom button and your doctor can see the week in numbers. Totally fine to skip. Would you like to?`
+        ? // The same offer, span-free for the same reason as the model's goal above (T139): without
+          // `OPENAI_API_KEY` this line is not a rarely-seen fallback, it is what the check script, the demo
+          // and every offline deployment actually say (§6.3, §11.3). "your glucose readings" is the wording
+          // T123 and T132 settled on for a file whose range the patient picks.
+          `One optional thing: if you have your Dexcom export handy, you can add it with the Dexcom button and your doctor can see your glucose readings. Totally fine to skip. Would you like to?`
         : t.which === "timeline"
           ? `Next, your Google Maps Timeline export with the Timeline button, so we can connect meals to places. If you don't have it, just say so.`
           : `If you use WHOOP, the sleep export helps too. Totally optional.`,
