@@ -46,6 +46,17 @@ const DEMO_PORT = PORT + 4;
 // the branch had no screen anybody could look at. e2e/teamInvite.spec.ts is the only spec that uses it, and
 // it signs in against the main server first: nobody can sign in to this one, which is the point.
 const UNSENDABLE_PORT = PORT + 5;
+// A seventh server, the only one with a sender behind a channel: a registered SNS origination number, so
+// `smsConfig()` resolves to a backend instead of a reason (lib/sms.ts). It exists for the screen T140 added
+// — step 3 of the booking wizard says, before the button, whether this deployment can send on the channel
+// staff chose — whose answer is settled on the server and handed down as a prop (app/provider/page.tsx), so
+// no `page.route` stub can stand in for a configured office the way e2e/visits.spec.ts stubs POST /api/book's
+// answer for the success card. The number is the DEXCOM_ENV fixture's trick: real-looking and never used for
+// a request, because the spec that uses this server reads the step and does not press the button, and
+// nothing on it enqueues a job (`nudge` runs on POST routes only, lib/jobs.ts). Email is left unconfigured,
+// which is what makes the same screen answer differently per channel. e2e/visits.spec.ts is the only spec
+// that uses it.
+const SENDABLE_PORT = PORT + 6;
 
 /**
  * How long one test may run before Playwright calls it hung, in milliseconds.
@@ -259,6 +270,23 @@ export default defineConfig({
       },
     },
     {
+      command: nextStart(SENDABLE_PORT),
+      url: `http://localhost:${SENDABLE_PORT}/api/health/live`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000, // no build of its own either
+      env: {
+        ...process.env,
+        PORT: String(SENDABLE_PORT),
+        APP_URL: `http://localhost:${SENDABLE_PORT}`,
+        OPENAI_API_KEY: "",
+        AUTH_SECRET, // the same secret, so a session minted on the main server is one this build accepts
+        DEV_MAIL_DIR: `${MAIL_DIR}-sendable`, // its own mailbox, like the others
+        // What makes this the one server that can text anybody: since T94 the origination number is also
+        // what selects the SNS backend (lib/sms.ts). Registered with nobody — see the comment above.
+        SNS_ORIGINATION_NUMBER: "+15550000100",
+      },
+    },
+    {
       command: nextStart(RUNNER_PORT),
       url: `http://localhost:${RUNNER_PORT}/api/health/live`,
       reuseExistingServer: !process.env.CI,
@@ -276,4 +304,4 @@ export default defineConfig({
   ],
 });
 
-export { DEMO_PORT, DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET, UNSENDABLE_PORT };
+export { DEMO_PORT, DEXCOM_PORT, E2E_TOPIC_ARN, RUNNER_PORT, RUNNER_SECRET, SENDABLE_PORT, UNSENDABLE_PORT };

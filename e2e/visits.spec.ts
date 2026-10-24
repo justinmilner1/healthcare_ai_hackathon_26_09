@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { cannotSendYet } from "../lib/delivery";
+import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
@@ -24,6 +26,20 @@ const IMPORT_WINDOW = 1000;
 
 /** A name nothing else in the run will use: two Playwright projects share one database. */
 const uniqueName = (prefix: string) => `${prefix} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
+/**
+ * The wizard's submit button, whichever of its two labels it is carrying (T140).
+ *
+ * It reads **Add patient & send →** where the invite really is going out and **Add patient →** where it is
+ * not, because the screen may not offer to send what the note under the radios has just said will not be
+ * sent. Matched by the half that does not move, anchored so the dashboard's own **Add a patient** and the
+ * button's "Adding patient…" busy label are not it.
+ */
+const SAVE = /^Add patient/;
+
+/** Anything on step 3 that reads as the invite going out: the lede's verb, and a button offering to send.
+ *  The card after the button has its own pattern a few tests down — this is the tense before it. */
+const PROMISES_SEND = /\bsends\b|& send/i;
 
 /**
  * A number nothing else in the run will use either — which matters more here than the name does. §2.2 matches
@@ -54,12 +70,39 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // Step 3 is §2.2's channel and consent. Saving without the consent is refused by the route, which is worth
   // asserting here rather than only in lib/visitIntake.test.ts: the sentence has to reach the screen.
   await expect(page.getByText("Contact channel")).toBeVisible();
+
+  // T140 (§2.2, §8.1) What the step says about the invite *before* the button, which is the screen the
+  // channel is chosen on and the last one in this family that promised a send it could not make. This gate
+  // configures no sender at all (§11.3) and the wizard's default channel is "Text and email", so the honest
+  // note is the line that names neither of the two (lib/delivery.ts, via `inviteSendability`) — and the lede
+  // and the button have to agree with it, because the bug was one literal above another.
+  const step3 = page.getByRole("dialog", { name: "Add a booked patient" });
+  await expect(step3.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
+  );
+  await expect(step3.locator(".patient-consent-note").first()).toHaveText(
+    `No invite will be sent: ${cannotSendYet("both")}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+  );
+  await expect(step3.locator(".patient-consent-note").first()).toHaveClass(/patient-consent-note-blocked/);
+  await expect(step3.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+  // The whole step, because the next literal would be somewhere else on it.
+  expect(await step3.innerText(), "nothing on the step offers a send this office cannot make").not.toMatch(PROMISES_SEND);
   await shot(page, "provider-add-visit-consent", MODAL);
-  await page.getByRole("button", { name: /Add patient & send/i }).click();
+
+  // And "Do not message" is still the practice's own choice rather than a gap in the deployment (T120): the
+  // sentence it has always carried, word for word, and unmarked.
+  await step3.getByText("Do not message", { exact: true }).click();
+  const chosen = step3.locator(".patient-consent-note").first();
+  await expect(chosen).toHaveText(
+    "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code.",
+  );
+  await expect(chosen).not.toHaveClass(/patient-consent-note-blocked/);
+  await step3.getByText("Text and email", { exact: true }).click();
+  await page.getByRole("button", { name: SAVE }).click();
   await expect(page.locator(".ss-error")).toContainText(/consent/i, LOADED);
 
   await page.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
-  await page.getByRole("button", { name: /Add patient & send/i }).click();
+  await page.getByRole("button", { name: SAVE }).click();
 
   // T111 This visit is booked on both channels and this environment can send on neither, so the claim names
   // neither: the line for a visit whose chosen channels have no backend between them (lib/delivery.ts). The
@@ -136,6 +179,68 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   });
 });
 
+// T140 The other half of the step, on the seventh server in playwright.config.ts — the only one in the suite
+// with a sender behind a channel (a registered SNS origination number, so `smsConfig()` resolves to a backend
+// and not a reason).
+//
+// It needs a server of its own, which the success card's configured case a few tests down does not: that one
+// rewrites POST /api/book's answer with `page.route`, and this answer never crosses the network. It is
+// settled on the server from the environment and handed to the dashboard as a prop (app/provider/page.tsx),
+// which is what the ticket asked for — no new route, no fetch — and what leaves a stub nothing to intercept.
+//
+// Email is left unconfigured on that server on purpose, so the one screen answers differently per channel:
+// the office can text and cannot mail, which is the half-configured state most offices are in part way
+// through setup and the one a per-channel answer exists for.
+//
+// The staff member signs in against the main server and walks over, like e2e/teamInvite.spec.ts: a cookie is
+// not scoped to a port, both builds share AUTH_SECRET and the database, and nothing here presses the button
+// — the step is the subject, and a booking on this server would be the suite's only outbound SNS call.
+test("an office that can text is told so on the step, and still told what it cannot mail", async ({ page }) => {
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  await page.goto(`http://localhost:${SENDABLE_PORT}/provider`);
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+
+  // Scoped to the dialog throughout: this books into the demo practice, whose table behind the wizard
+  // carries every visit the run has made, so "Email" and "Follow-up" are two elements unscoped.
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  const phone = uniquePhone();
+  await wizard.getByLabel("Patient name").fill(uniqueName("Sendable Patient"));
+  await wizard.getByLabel("Mobile number").fill(phone);
+  await wizard.getByLabel("Email", { exact: true }).fill("sendable.patient@example.com");
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+  await wizard.getByText("Follow-up", { exact: true }).click();
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  // 1. The wizard's default channel, "Text and email", with one of the two behind it: a narrower invite and
+  //    not a refused one, so the step reads exactly as it did before T140 — the sentence, the destination
+  //    and the button that offers to send.
+  const note = wizard.locator(".patient-consent-note").first();
+  await expect(wizard.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and sends their private Sweetie link on the channel you choose here.",
+  );
+  await expect(note).toHaveText(`The secure link goes to ${phone} and sendable.patient@example.com.`);
+  await expect(note).not.toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient & send \u2192");
+  await shot(page, "provider-add-visit-sendable", MODAL);
+
+  // 2. And the channel this office has not set up, on the same screen a radio later: the answer is per
+  //    channel, which is the whole point of settling it from the environment rather than from a literal.
+  await wizard.getByText("Email", { exact: true }).click();
+  await expect(note).toHaveText(
+    `No invite will be sent: ${cannotSendYet("email")}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+  );
+  await expect(note).toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+
+  // 3. Back to the channel it can send on, and the step is clean again: nothing here is sticky, and the
+  //    office is not left reading a fault about a channel it is no longer choosing.
+  await wizard.getByText("Text message", { exact: true }).click();
+  await expect(note).toHaveText(`The secure link goes to ${phone}.`);
+  await expect(note).not.toHaveClass(/patient-consent-note-blocked/);
+});
+
 // T111 The other half of that sentence: an office whose deployment *can* send is still told the invite is on
 // its way, by the channel that is sending it. What stands in for such a deployment is the one thing stubbed
 // here, and only because the alternative is worse: this gate configures no sender at all (§11.3), and a
@@ -176,7 +281,7 @@ test("a deployment with a sender still tells staff the invite is on its way", as
   // Emailed, and the consent §2.2 insists on before anything is sent anywhere.
   await wizard.getByText("Email", { exact: true }).click();
   await wizard.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
-  await wizard.getByRole("button", { name: /Add patient & send/i }).click();
+  await wizard.getByRole("button", { name: SAVE }).click();
 
   // The channel named is the one that can send, which is why it comes from the route's answer and not from
   // the form: staff who chose "Text and email" where only one backend exists are told about that one.

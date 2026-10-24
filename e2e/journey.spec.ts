@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { cannotSendYet } from "../lib/delivery";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
@@ -147,8 +148,17 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.locator(".patient-review-card"), "the date staff just typed, not 'Date pending'").toContainText(
     await asRendered(page, appt.iso, "dateTime", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
   );
+  // T140 (§2.2, §8.1) The same claim the card below makes, one press earlier, on the frame this ticket was
+  // filed from: this environment has no email backend, so the step says the emailed invite is not going out
+  // *before* the button and offers to add the patient rather than to send. `cannotSendYet("email")` is the
+  // sentence, from the module that owns it; e2e/visits.spec.ts reads the whole step for the "both" default.
+  const beforeTheButton = page.getByRole("dialog", { name: "Add a booked patient" });
+  await expect(beforeTheButton.locator(".patient-consent-note").first()).toContainText(
+    `No invite will be sent: ${cannotSendYet("email")}.`,
+  );
+  await expect(beforeTheButton.locator(".ss-lede")).not.toContainText(/sends their private Sweetie link/);
   await shot(page, "03-add-visit", MODAL);
-  await page.getByRole("button", { name: /Add patient & send/i }).click();
+  await page.getByRole("button", { name: /^Add patient/ }).click();
 
   // T111 (§2.2, §2.3, §8.1) The wizard's own claim about the send, which is the first thing staff are told
   // about it. This environment has no email backend — the suite runs the product offline (§11.3) and that is
