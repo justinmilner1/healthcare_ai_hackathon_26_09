@@ -55,7 +55,43 @@ test("an empty week does not divide by zero", () => {
   assert.deepEqual(x.overall, { days: 0, readings: 0, tir: 0, tbr: 0, tar: 0, avg: 0, gmi: 0 });
   assert.deepEqual(x.days, []);
   assert.deepEqual(x.spikes, []);
-  assert.match(renderSourInput(x), /SPIKES \(0;[^)]*\)[\s\S]*\n {2}none/);
+});
+
+test("a week of readings with nothing over 180 says so under SPIKES", () => {
+  // The flat-week case, which used to be asserted on the no-readings input below: a brief with numbers in
+  // it and no excursion, where "none" is a fact about the week rather than a fact about the upload.
+  const flat = build({ glucose: series("2026-09-19T08:00:00Z", 5, [104, 110, 108, 112, 109, 106]), spikes: [] });
+  assert.match(renderSourInput(flat), /SPIKES \(0;[^)]*\)[\s\S]*\n {2}none/);
+});
+
+// T143 (design §2.6, §7.1, §7): the brief a conversation-only run reads.
+//
+// Until T143 this was reachable only by a clinician pressing Generate on a visit with no glucose; the wrap
+// now queues a run for every check-in (lib/sourQueue.ts `wrapQueuesSour`), so it is the brief behind the
+// one-page summary Sweetie promises a patient who shared nothing to graph. Every number in it would be a
+// zero — `timeInRange([])` and `averageGlucose([])` are both 0 — and the model is asked for patterns that
+// cite the brief, so "TIR 0%" over an empty upload is a citable, alarming figure about nothing.
+test("no readings: the brief says there are none rather than printing a week of zeros", () => {
+  const text = renderSourInput(build({ glucose: [], spikes: [], sleep: [], patientNotes: "Tired in the afternoons." }));
+  assert.match(text, /^NO GLUCOSE: the patient shared no CGM readings/m);
+  // None of the four glucose blocks, because each one would be made of those zeros.
+  for (const heading of [/^OVERALL/m, /^BY TIME OF DAY/m, /^BY DAY/m, /^SPIKES/m]) {
+    assert.doesNotMatch(text, heading, String(heading));
+  }
+  // And no figure anywhere that could be read as a result: no percentage, no mg/dL.
+  assert.doesNotMatch(text, /\d+%/);
+  assert.doesNotMatch(text, /mg\/dL/);
+  // What is left is the visit and the words the summary is actually from.
+  assert.match(text, /^Visit: follow_up · patient called about: mornings running high$/m);
+  assert.match(text, /PATIENT'S OWN WORDS[\s\S]*Tired in the afternoons\./);
+});
+
+test("no readings but a WHOOP export: the sleep table is still the model's to read", () => {
+  // A patient can share sleep and no glucose, which is one of the visits §2.5 calls optional-data-only. The
+  // no-glucose block replaces the glucose tables and nothing else.
+  const text = renderSourInput(build({ glucose: [], spikes: [] }));
+  assert.match(text, /^NO GLUCOSE/m);
+  assert.match(text, /^SLEEP \(night of\)/m);
 });
 
 test("day rows carry the day's crest and its minutes out of range", () => {

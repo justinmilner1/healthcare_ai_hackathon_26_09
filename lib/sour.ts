@@ -189,27 +189,44 @@ export function renderSourInput(x: SourInput): string {
   L.push(`All times are local (${x.timeZone}).`);
   L.push(`Visit: ${x.visit.type ?? "unspecified"}${x.visit.reason ? ` · patient called about: ${x.visit.reason}` : ""}`);
   L.push("");
-  L.push(`OVERALL (${x.overall.days} days, ${x.overall.readings} readings): TIR ${pct(x.overall.tir)} · below 70: ${pct(x.overall.tbr)} · above 180: ${pct(x.overall.tar)} · mean ${x.overall.avg} mg/dL · GMI ${x.overall.gmi}%`);
-  L.push("");
-  L.push("BY TIME OF DAY: window | TIR | mean");
-  for (const w of x.byTimeOfDay) L.push(`  ${w.window} | ${pct(w.tir)} | ${w.avg}`);
-  L.push("");
-  L.push("BY DAY: day | TIR | mean | peak (time) | low | min above 180 | min below 70");
-  for (const d of x.days) L.push(`  ${d.weekday} ${d.date.slice(5)} | ${pct(d.tir)} | ${d.avg} | ${d.max} (${d.maxAt}) | ${d.min} | ${d.minutesAbove180} | ${d.minutesBelow70}`);
-  L.push("");
-  L.push(`SPIKES (${x.spikes.length}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | place context`);
-  if (x.spikes.length === 0) L.push("  none");
-  for (const s of x.spikes) {
-    const ctx = !s.after
-      ? "no visit within 30 min"
-      : s.placeRelation === "after leaving"
-        ? `after leaving ${s.after} at ${s.placeLeftAt}`
-        : s.placeRelation === "at"
-          ? `at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt})`
-          : `during a long stay at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt}; weak association)`;
-    L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${ctx}`);
+  if (x.overall.readings === 0) {
+    // No readings, so no numbers — and emphatically not this brief's numbers for no readings, which are
+    // every one of them a zero: `timeInRange([])` is 0 and `averageGlucose([])` is 0 (lib/glucose.ts), so
+    // the OVERALL line below would read "TIR 0% · mean 0 mg/dL" over an empty week. The model is asked for
+    // patterns that cite the brief, and 0% in range is a citable, alarming, invented figure.
+    //
+    // Reachable on every conversation-only run: T143 made the wrap queue one for a check-in that shared no
+    // glucose (lib/sourQueue.ts `wrapQueuesSour`), which until then only the provider page's Generate button
+    // could produce by hand. The page says the same thing to the clinician in its own words ("No glucose
+    // data was shared. This summary is from the conversation only."); this is that sentence for the model.
+    L.push("NO GLUCOSE: the patient shared no CGM readings for this visit, so there are no glucose numbers,");
+    L.push("no per-day or time-of-day tables and no spikes. Do not state or imply any glucose figure, and do");
+    L.push("not read the absence as a result. Write from the patient's own words below, and where they are");
+    L.push("thin say so in one pattern rather than inventing one.");
+    L.push("");
+  } else {
+    L.push(`OVERALL (${x.overall.days} days, ${x.overall.readings} readings): TIR ${pct(x.overall.tir)} · below 70: ${pct(x.overall.tbr)} · above 180: ${pct(x.overall.tar)} · mean ${x.overall.avg} mg/dL · GMI ${x.overall.gmi}%`);
+    L.push("");
+    L.push("BY TIME OF DAY: window | TIR | mean");
+    for (const w of x.byTimeOfDay) L.push(`  ${w.window} | ${pct(w.tir)} | ${w.avg}`);
+    L.push("");
+    L.push("BY DAY: day | TIR | mean | peak (time) | low | min above 180 | min below 70");
+    for (const d of x.days) L.push(`  ${d.weekday} ${d.date.slice(5)} | ${pct(d.tir)} | ${d.avg} | ${d.max} (${d.maxAt}) | ${d.min} | ${d.minutesAbove180} | ${d.minutesBelow70}`);
+    L.push("");
+    L.push(`SPIKES (${x.spikes.length}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | place context`);
+    if (x.spikes.length === 0) L.push("  none");
+    for (const s of x.spikes) {
+      const ctx = !s.after
+        ? "no visit within 30 min"
+        : s.placeRelation === "after leaving"
+          ? `after leaving ${s.after} at ${s.placeLeftAt}`
+          : s.placeRelation === "at"
+            ? `at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt})`
+            : `during a long stay at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt}; weak association)`;
+      L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${ctx}`);
+    }
+    L.push("");
   }
-  L.push("");
   if (x.nights.length) {
     L.push("SLEEP (night of): day | hours | recovery | late dinner out that evening");
     for (const nt of x.nights) L.push(`  ${nt.weekday} ${nt.nightOf.slice(5)} | ${nt.hours} h | ${nt.recovery ?? "–"} | ${nt.lateDinnerBefore ?? "–"}`);
