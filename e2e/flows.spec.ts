@@ -312,6 +312,11 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
   // still has a number, and it is a full one beside the sentence that says so (lib/intakeProgress.ts).
   await expect(page.locator(".sweetie-progress-card strong")).toHaveText("100%");
   await expect(page.locator(".sweetie-progress-card small")).toHaveText("Your story is ready");
+  // And the one ending that earns the strip's tick keeps it. T146 took the tick off the two endings that
+  // stopped short, and this is the state it had to leave alone: every step ticked, the last of them "Done".
+  const stepper = page.locator(".sweetie-field-progress");
+  await expect(stepper.locator("li:not(.sweetie-field-done)")).toHaveCount(0);
+  await expect(stepper.locator("li").last()).toContainText("Done");
   // T143: the claim the end of this test is about, in Sweetie's own words. With no model key the scripted
   // wrap line is what every patient reads (§6.3, lib/sweetie.ts `scripted`), and this visit has shared
   // nothing — which is exactly the state in which nobody used to produce the summary it promises.
@@ -1009,10 +1014,27 @@ test("the skip link and goodbye promise no summary to a check-in with nothing sh
   // type, the offer the goodbye just declined — and it is a statement rather than a link, so there is no
   // route from this screen to the empty summary at all.
   const doneCard = page.locator(".sweetie-done-card");
-  await expect(doneCard).toContainText(/check-in is complete/i);
+  // Its headline was unconditional, so it congratulated this patient on completing the questions they had
+  // just declined — in larger type than the goodbye and a viewport under a rail saying the opposite. The
+  // title asks `intakeEnding` now, which is the rail's own answer (T146, §2.5).
+  await expect(doneCard).toContainText(/ended early/i);
+  await expect(doneCard, "a check-in the patient stopped short is not a complete one").not.toContainText(/complete/i);
   await expect(doneCard).toContainText(/saved for your care team/i);
   await expect(doneCard, "no summary is offered where there is none").not.toContainText(/summary/i);
   await expect(page.locator(`.sweetie-conversation a[href="/patient/${booked.token}"]`)).toHaveCount(0);
+
+  // And the strip over the transcript, which is the other surface that read `finished` alone: a skip wraps
+  // the intake, so its last step took the tick and the word "Done" — with "Check-in complete" in the
+  // tooltip saying it again — one pill to the right of a step visibly still carrying its number. T66's
+  // shape for the other early ending is what it takes: a word for what happened, and no tick (T146).
+  const stepper = page.locator(".sweetie-field-progress");
+  const lastStep = stepper.locator('li[title*="ended early"]');
+  await expect(lastStep).toHaveCount(1);
+  await expect(lastStep).not.toHaveClass(/sweetie-field-done/);
+  await expect(lastStep).toContainText(/ended early/i);
+  await expect(stepper, "no step on a skipped check-in says it was finished").not.toContainText(/Done/);
+  // The unanswered field keeps its number, which is the thing the tick beside it contradicted.
+  await expect(stepper.locator("li > b", { hasText: /^\d+$/ }).first()).toBeVisible();
 
   // And the rail agrees with the rest of the screen about what just happened (T142, §2.5, §6.5). One
   // answer of two, then the skip, used to read "Conversation progress 67%" over a two-thirds-full track
