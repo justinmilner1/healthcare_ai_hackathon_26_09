@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
-import { LOADED } from "./budget";
+import { DRAINED, LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
@@ -445,9 +445,20 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   expect(stored.messages.map((m: { content: string }) => m.content).join("\n")).toContain("should I still answer the questions?");
   expect(stored.intake.flagged).toBe("cardiac_or_breathing");
   expect(stored.intake.wrapped).toBe(true);
-  // §2.5 stopped the check-in where it stood; a later message does not move the visit on from that.
-  const bundle = await (await page.request.get(`/api/patient/${booked.token}`)).json();
-  expect(bundle.visitStatus, "a message after the flag must not advance the visit").toBe("intake_done");
+  // §2.5 stopped the check-in where it stood, and a later message does not reopen it — which is what these
+  // two assertions are, in the two directions a status can move.
+  //
+  // Forwards is now T143 rather than this message. A flagged turn wraps (lib/sweetieTurn.ts), so the wrap
+  // queues the `sour.run` every wrap queues, `runSour` saves a brief from the conversation and the visit
+  // reaches `summary_ready` on its own — and on this visit that is the point of the ticket: the patient has
+  // described something urgent, shared no readings at all, and before T143 nobody told their clinician.
+  // Backwards is what must never happen, and both writers guard it with a `from` list rather than an
+  // update (app/api/sweetie/route.ts, lib/sourRun.ts `markSummaryReady`).
+  const visitStatus = async () => (await (await page.request.get(`/api/patient/${booked.token}`)).json()).visitStatus;
+  expect(["intake_done", "summary_ready"], "a message after the flag must not reopen the intake").toContain(await visitStatus());
+  await expect
+    .poll(visitStatus, { message: "the brief the wrap queued for the office", ...DRAINED })
+    .toBe("summary_ready");
 
   // §2.5 also stops the interview on the *reload*, not just in the response: the page the patient comes
   // back to must not hand them a composer again.

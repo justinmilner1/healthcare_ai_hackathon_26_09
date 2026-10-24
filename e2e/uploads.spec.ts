@@ -117,12 +117,16 @@ test("upload gates: oversized, wrong format, and empty files never reach a parse
   expect((await good.json()).count).toBeGreaterThan(0);
 });
 
-// T72 (design §7.1, §3.4): the third trigger. A visit whose intake wrapped with no readings has nothing
-// queued — the wrapping turn's trigger is gated on the data being in — so the Dexcom export the patient
-// shares afterwards is what has to queue the run. Before this ticket it deleted the saved summaries and
-// queued nothing: whoever opened the provider page next paid for the run, and `notify.summary` (§2.6), which
-// only `runSour` queues, never happened at all. Nothing here presses Generate or opens the brief until the
-// job has already reported back.
+// T72 (design §7.1, §3.4): the third trigger. The Dexcom export a patient shares after their intake has
+// wrapped is what queues the run over those readings. Before T72 it deleted the saved summaries and queued
+// nothing: whoever opened the provider page next paid for the run, and `notify.summary` (§2.6), which only
+// `runSour` queues, never happened at all. Nothing here presses Generate or opens the brief until the job
+// has already reported back.
+//
+// T143 moved the starting state of this test rather than its subject. The wrap no longer waits for data, so
+// by the time the export arrives there is already a conversation-only brief, and what the import queues is a
+// second run — over the readings, against a different input hash (lib/sourInput.ts). That is the assertion
+// below: a job row that is not the wrap's, and a brief that has numbers in it where the first one had none.
 //
 // The message itself is one step further than this suite can see: with no model key a run saves the
 // numbers-only pair and deliberately skips the notification (lib/sourRun.ts), so what the clinician is told
@@ -152,13 +156,25 @@ test("a Dexcom export shared after intake wrapped queues the summary run", async
   }
   expect(intake.wrapped, "the second answer is the turn that wraps").toBe(true);
 
-  // The state this ticket is about: the intake is done and there is no glucose data, so nothing was queued.
+  // Where the wrap left this visit (T143): the intake is done, there is no glucose, and the wrap queued and
+  // ran a brief from the conversation alone (lib/sourQueue.ts `wrapQueuesSour`).
+  //
+  // Drained before the export rather than raced with it, and that is about the product and not about the
+  // suite: one `sour.run` is in flight per visit (`sourJobKey`), so an upload landing while the wrap's run
+  // is still going joins that run instead of getting one of its own, and what the clinician ends up with is
+  // the conversation-only pair with `summaryStale` over it and §7.2's regenerate offered. Waiting here is
+  // what makes the run below unambiguously the import's.
   const clinician = await signInAsDemo(page);
-  const before = await (await page.request.get(`/api/patient/${visitId}`)).json();
-  expect(before.visitStatus).toBe("intake_done");
+  const bundleNow = async () => (await page.request.get(`/api/patient/${visitId}`)).json();
+  await expect
+    .poll(async () => (await bundleNow()).sourJob?.status ?? "none", { message: "the run the wrap queued", ...DRAINED })
+    .toBe("done");
+  const before = await bundleNow();
+  expect(before.visitStatus).toBe("summary_ready");
   expect(before.status.hasDexcom).toBe(false);
-  expect(before.sourJob, "the wrap had no readings to summarize").toBeNull();
-  expect(before.providerSummary).toBeNull();
+  expect(before.providerSummary, "the wrap's own brief, written from the conversation").toBeTruthy();
+  expect(before.providerSummary.timeInRange, "with no readings behind it").toBe(0);
+  const wrapJob: string = before.sourJob.id;
 
   // The export arrives. This is the import §7.1 asks about, through the route a Clarity upload takes.
   const shared = await request.post("/api/upload", {
@@ -168,21 +184,23 @@ test("a Dexcom export shared after intake wrapped queues the summary run", async
   expect(shared.status(), await shared.text()).toBe(200);
   expect((await shared.json()).count).toBeGreaterThan(0);
 
-  // A job, queued by the import: read through the clinician's bundle, which is where §7.2 keeps it
-  // (lib/bundle.ts, latestJobForVisit). Polled because the row is written while the upload's response is
-  // on its way back, and the inline runner may already have taken it — queued, running or done all say the
-  // import queued one, and "no job at all" is the bug.
+  // A job of the import's own: read through the clinician's bundle, which is where §7.2 keeps the newest one
+  // (lib/bundle.ts, latestJobForVisit). A row that is not `wrapJob` is the assertion, because the wrap's own
+  // row is already there — "no new job at all" is the bug T72 was filed for. Polled because the row is
+  // written while the upload's response is on its way back.
   await expect
-    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", LOADED)
-    .toMatch(/^(queued|running|done)$/);
+    .poll(async () => (await bundleNow()).sourJob?.id ?? "none", { message: "a run queued by the import", ...LOADED })
+    .not.toBe(wrapJob);
 
   // And the run finishes on its own, with nobody having opened the brief: a saved pair, the visit moved on,
   // and the job reporting done (§3.4, §4.4, §7.2).
   await expect
-    .poll(async () => (await (await page.request.get(`/api/patient/${visitId}`)).json()).sourJob?.status ?? "none", DRAINED)
+    .poll(async () => (await bundleNow()).sourJob?.status ?? "none", DRAINED)
     .toBe("done");
-  const ran = await (await page.request.get(`/api/patient/${visitId}`)).json();
+  const ran = await bundleNow();
   expect(ran.providerSummary, "the brief the clinician's link opens").toBeTruthy();
+  // The numbers the import brought, where the wrap's brief had a zero: §7.1's input hash carries every
+  // upload, so the export is a change of inputs and not something the saved pair dedupes against.
   expect(ran.providerSummary.timeInRange).toBeGreaterThan(0);
   expect(ran.visitStatus).toBe("summary_ready");
   // Why no message went out, in one assertion: this build has no model, which is the one reason
