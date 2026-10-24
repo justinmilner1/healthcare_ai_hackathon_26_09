@@ -3,6 +3,7 @@
 // lib/guard.ts (§5.2). Inviting the second person and after is lib/team.ts.
 
 import { db } from "./db";
+import { isDemoPractice } from "./demo";
 import { HttpError } from "./httpError";
 import { log } from "./log";
 import { cleanPersonName, cleanPracticeName, normalizeEmail } from "./team";
@@ -56,6 +57,18 @@ export async function upsertProvider(p: { name: string; email: string; practice?
 
 /** The provider `npm run seed` and `/demo` land on, admin of the demo practice (§13.4). */
 export const ensureDemoProvider = () => upsertProvider(DEMO);
+
+/**
+ * §13.4 Is this practice marked synthetic? One column, for the two callers that need the flag and nothing
+ * else about the practice (T145): `createVisit` (lib/visitStore.ts), which composes it into what staff are
+ * promised about the invite, and the provider page, which hands it to step 3 of the booking wizard.
+ *
+ * `practiceTeam` (lib/teamStore.ts) answers this too and loads every user in the practice to do it, which
+ * is the settings screen's question and not this one. What follows from the flag is lib/demo.ts.
+ */
+export async function practiceIsDemo(practiceId: string): Promise<boolean> {
+  return isDemoPractice(await db.practice.findUnique({ where: { id: practiceId }, select: { isDemo: true } }));
+}
 
 /**
  * The public sign-up (§2.1): a brand-new practice with its first user as admin. Create-only, because this is

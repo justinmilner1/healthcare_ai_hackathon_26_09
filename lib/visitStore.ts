@@ -14,10 +14,33 @@ import { db } from "./db";
 import { HttpError } from "./httpError";
 import { log } from "./log";
 import type { ProviderUser } from "./auth";
+import { practiceIsDemo } from "./practice";
 import { channelsFor } from "./patientSession";
+import type { SuppressionFacts } from "./suppression";
 import { channelsOf, type VisitDraft } from "./visitIntake";
 import { knownVisitType } from "./visits";
 import { newVisitToken } from "./migrateVisits";
+
+/**
+ * §13.4, §8.1 What the rows this visit was just written onto say about reaching the patient (T145): the
+ * practice's synthetic flag, the destinations as the patient row now holds them, and what a provider has
+ * told us about those two channels.
+ *
+ * Here rather than re-read by the route, because this is where those rows were in hand a moment ago, and
+ * because the destinations are the row's and not the draft's: §2.2 reuses a patient matched on phone or
+ * email, so a booking that named only a number still has whatever address that patient already had, and the
+ * `notify.invite` job will write to both. `POST /api/book` composes them with the environment's answer
+ * (`inviteReach`, lib/notify.ts) so the card staff read carries the sentence the delivery row will.
+ *
+ * Not part of the route's response: `phone` and `email` are the patient's own details and the response is
+ * ids and a link (§10.3). The route destructures this off before it answers.
+ */
+export type InviteReachRows = {
+  demo: boolean;
+  phone: string | null;
+  email: string | null;
+  suppression: SuppressionFacts;
+};
 
 /** One created visit, as the routes hand it back. No name, phone or email: the dashboard re-reads those. */
 export type CreatedVisit = {
@@ -26,6 +49,8 @@ export type CreatedVisit = {
   token: string;
   /** True when the row joined a patient the practice already had, matched on phone or email (§2.2). */
   patientReused: boolean;
+  /** The rows' own answer to "may this invite go out at all" (above). */
+  reach: InviteReachRows;
 };
 
 /**
@@ -37,7 +62,10 @@ export type CreatedVisit = {
  * a match: their data was deleted on request, and silently reattaching a new visit to that row would quietly
  * undo it.
  */
-async function patientFor(practiceId: string, draft: VisitDraft): Promise<{ id: string; reused: boolean }> {
+async function patientFor(
+  practiceId: string,
+  draft: VisitDraft,
+): Promise<{ id: string; reused: boolean; rows: Omit<InviteReachRows, "demo"> }> {
   const byPhone = draft.phone ? await db.patient.findFirst({ where: { practiceId, phone: draft.phone, deletedAt: null } }) : null;
   const existing = byPhone ?? (draft.email ? await db.patient.findFirst({ where: { practiceId, email: draft.email, deletedAt: null } }) : null);
   if (existing) {
@@ -47,13 +75,28 @@ async function patientFor(practiceId: string, draft: VisitDraft): Promise<{ id: 
     if (draft.phone && draft.phone !== existing.phone) data.phone = draft.phone;
     if (draft.email && draft.email !== existing.email) data.email = draft.email;
     if (Object.keys(data).length) await db.patient.update({ where: { id: existing.id }, data });
-    return { id: existing.id, reused: true };
+    // §8.1 rides on the patient and not on the visit, so a reused patient brings their bounce or their STOP
+    // with them (T145): this is the asymmetry that makes the route ask and step 3 not — the row may not
+    // exist yet while the step is on screen.
+    return { id: existing.id, reused: true, rows: { ...rowsOf({ ...existing, ...data }) } };
   }
   const created = await db.patient.create({
     data: { practiceId, name: draft.name, phone: draft.phone, email: draft.email },
   });
-  return { id: created.id, reused: false };
+  return { id: created.id, reused: false, rows: rowsOf(created) };
 }
+
+/** The four columns `InviteReachRows` is about, off a patient row. A brand-new patient has nothing
+ *  suppressed, which is what the empty dates say rather than a special case. */
+const rowsOf = (p: { phone: string | null; email: string | null } & SuppressionFacts): Omit<InviteReachRows, "demo"> => ({
+  phone: p.phone ?? null,
+  email: p.email ?? null,
+  suppression: {
+    emailUndeliverableAt: p.emailUndeliverableAt ?? null,
+    emailUndeliverableReason: p.emailUndeliverableReason ?? null,
+    smsOptOutAt: p.smsOptOutAt ?? null,
+  },
+});
 
 /**
  * One visit for one draft, consent recorded against the caller (§2.2). `providerUserId` is the clinician the
@@ -64,7 +107,9 @@ async function patientFor(practiceId: string, draft: VisitDraft): Promise<{ id: 
  * recorded for it. Nothing can post `optIn: true` with no consent behind it any more.
  */
 export async function createVisit(me: ProviderUser, providerUserId: string, draft: VisitDraft): Promise<CreatedVisit> {
-  const patient = await patientFor(me.practiceId, draft);
+  // §13.4's flag is on the practice rather than on the visit, and the caller's session names the practice
+  // but does not carry it (lib/auth.ts `ProviderUser`). One indexed column, in parallel with the patient.
+  const [patient, demo] = await Promise.all([patientFor(me.practiceId, draft), practiceIsDemo(me.practiceId)]);
   const consented = draft.channel !== "none" && Boolean(draft.consentMethod);
   const visit = await db.visit.create({
     data: {
@@ -94,7 +139,7 @@ export async function createVisit(me: ProviderUser, providerUserId: string, draf
     consent: draft.consentMethod ?? "none",
     reused: patient.reused,
   });
-  return { visitId: visit.id, patientId: patient.id, token: visit.token, patientReused: patient.reused };
+  return { visitId: visit.id, patientId: patient.id, token: visit.token, patientReused: patient.reused, reach: { demo, ...patient.rows } };
 }
 
 /**

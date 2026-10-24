@@ -30,11 +30,15 @@ import { withRoute } from "@/lib/log";
 import { inviteFaults } from "@/lib/notify";
 import { intakeLink } from "@/lib/sms";
 import { MAX_CSV_ROWS, parseVisitCsv, type VisitDraft } from "@/lib/visitIntake";
-import { importVisits } from "@/lib/visitStore";
+import { importVisits, type CreatedVisit } from "@/lib/visitStore";
 
 /** 500 rows of the widest plausible line, with room to spare. A bigger body is refused before it is parsed:
  *  this is a day's appointments, and anything larger is a mistake worth naming (§9.1 is the file-upload cap). */
 const MAX_CSV_BYTES = 512 * 1024;
+
+/** One created visit as this route answers with it: the ids and the token, and not the row facts
+ *  `createVisit` also reads for the invite decision. See the call site below. */
+const withoutReach = (v: CreatedVisit) => ({ visitId: v.visitId, patientId: v.patientId, token: v.token, patientReused: v.patientReused });
 
 async function postHandler(req: Request) {
   const me = await requireCapability("visits:create");
@@ -108,7 +112,10 @@ async function postHandler(req: Request) {
         warnings: r.warnings,
         // A row the database refused joins the rows the parser refused, so the screen has one list to read.
         errors: outcome?.error ? [...r.errors, outcome.error] : r.errors,
-        created: outcome?.created ? { ...outcome.created, link: intakeLink(outcome.created.token) } : null,
+        // `reach` is dropped: it carries the patient's own phone and address for the invite decision
+        // (lib/visitStore.ts `InviteReachRows`, T145), and this preview answers with ids and a link. The
+        // bulk path's own sentence about the invites is `inviteFaults` above, one per reason (T135).
+        created: outcome?.created ? { ...withoutReach(outcome.created), link: intakeLink(outcome.created.token) } : null,
       };
     }),
   });
