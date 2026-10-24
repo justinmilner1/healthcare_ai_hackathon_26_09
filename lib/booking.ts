@@ -38,7 +38,7 @@
 // from a browser bundle.
 
 import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
-import { channelLabel, channelsOf } from "./visitIntake";
+import { channelLabel, channelOf, channelsOf, type ContactChannel } from "./visitIntake";
 
 /** What POST /api/book answered, plus the name the wizard has on screen. */
 export type BookedSend = {
@@ -93,10 +93,20 @@ export function bookedOutcome({ name, queued, channel, reason, patientReused }: 
 export type PlannedSend = {
   /** The contact channel selected on the step, a `CONTACT_CHANNELS` id (lib/visitIntake.ts). */
   channel: string | null | undefined;
-  /** Why this deployment cannot send on that channel, in staff's words — `inviteSendability().reason`,
-   *  settled on the server and handed to the step as a prop (`inviteFaultByChannel`, lib/notify.ts).
-   *  Absent when it can send, and absent for `"none"`, which is a choice and not a fault. */
-  fault?: string | null;
+  /** Why this deployment cannot send, in staff's words, per channel — `inviteFaultByChannel()`, settled on
+   *  the server and handed to the step as a prop (lib/notify.ts). A channel it can send on is absent, and so
+   *  is `"none"`, which is a choice and not a fault.
+   *
+   *  The whole map rather than the one entry for the channel staff picked, because §13.4 can close half of a
+   *  `"both"` booking and the deployment then has to be asked about the half that is left (T145). Handed the
+   *  single entry, this module asked about a channel it was no longer going to use: an SMS-only office
+   *  booking a real mobile and a reserved address into a demo practice read **Add patient & send →** over
+   *  "The secure link goes to <the address>." — `inviteSendability("both")` has no fault, because the office
+   *  can text — and the press then refused, because the only channel §13.4 left open was the email one
+   *  nothing is configured behind. `inviteReach` never made that mistake; it asks
+   *  `inviteSendability(channelOf(open))`, about what is actually left. So the lookup lives here, after the
+   *  narrowing, inside the pure module where every branch is unit-tested. */
+  faults?: Partial<Record<ContactChannel, string>>;
   /** The number and the address step 1 collected. Where the link would go, and — for a demo practice —
    *  what §13.4 is a rule about: the question is asked of the destination, not of the channel (T145). */
   phone?: string | null;
@@ -149,7 +159,7 @@ const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice
  * the practice and a destination typed on step 1 — both on this screen, and neither fixable by configuring
  * anything (T145). Only then is the deployment asked whether it can serve what is left.
  */
-export function bookingPlan({ channel, fault, phone, email, demo }: PlannedSend): BookingPlan {
+export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend): BookingPlan {
   if (channel === "none") {
     return {
       lede: WILL_NOT_SEND,
@@ -176,6 +186,11 @@ export function bookingPlan({ channel, fault, phone, email, demo }: PlannedSend)
   // The destination is what is left open, so the step cannot name a number §13.4 has just refused while the
   // other channel carries the invite. Blank until step 1 has one of them, which is not a fault.
   const to = [open.includes("sms") && phone?.trim(), open.includes("email") && email?.trim()].filter(Boolean).join(" and ");
+  // And the deployment is asked about what §13.4 left open, not about what staff picked — `channelOf(open)`
+  // is the same subset `inviteReach` hands `inviteSendability`, so the forecast and the press ask one
+  // question. Asking about the unnarrowed channel is what let an SMS-only office promise a send on the email
+  // half of a `"both"` booking that §13.4 had already reduced to that half (T145).
+  const fault = faults?.[channelOf(open)];
   if (fault) {
     // The tense is the whole of this branch: the rows do not exist yet, so the sentence names the press it
     // is a forecast about — the cost of pressing the button is what the screen was missing — and stops

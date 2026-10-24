@@ -13,6 +13,7 @@ import { bookedOutcome, bookingPlan, type BookedSend } from "./booking";
 import { cannotSendYet } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import { fixture } from "./fixtures";
+import { inviteFaultByChannel, inviteReach } from "./notify";
 import { channelLabel, parseVisitCsv } from "./visitIntake";
 
 /** Anything that reads as the message being in motion. The two surfaces word it differently — "is on the
@@ -118,6 +119,10 @@ describe("bookedOutcome", () => {
  *  rather than copied in (lib/delivery.ts, via `inviteSendability`). */
 const NO_EMAIL = cannotSendYet("email");
 
+/** And the same for texts, which T145 needs because the two halves of a `"both"` booking can be answered
+ *  differently: §13.4 closing one of them leaves the deployment to be asked about the other. */
+const NO_SMS = cannotSendYet("sms");
+
 /** Anything on step 3 that reads as an invite going out. Its own pattern rather than `MOTION` above, which
  *  is written for the card's tense: the forecast's two claims are the lede's "sends their private Sweetie
  *  link" and a button offering to send, neither of which is a message already in motion. Deliberately not
@@ -131,6 +136,25 @@ const SAM = { phone: "+14155550123", email: "sam@example.com" };
 /** T145 A pair §13.4 refuses from a demo practice: neither is in the NANP's fictitious 555-01xx range nor
  *  under a reserved domain, so both are somebody's (lib/demo.ts). The number is the ticket's own. */
 const REAL = { phone: "+16505552652", email: "prospect@example-endo.com" };
+
+/** Set these for one call and put the environment back, whichever way the assertion goes — `undefined`
+ *  unsets, because a row that means "no SMS backend" has to hold whatever the shell arrived with. The same
+ *  helper lib/notify.test.ts uses, for the one test here that pairs this module with that one. */
+function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
+  const before = Object.keys(vars).map((k) => [k, process.env[k]] as const);
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of before) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
 
 describe("bookingPlan", () => {
   it("promises the send, and names where it goes, when the deployment can make it", () => {
@@ -148,7 +172,7 @@ describe("bookingPlan", () => {
   });
 
   it("says before the button that this deployment cannot send on the chosen channel (§8.1)", () => {
-    const plan = bookingPlan({ channel: "email", fault: NO_EMAIL, email: "sam@example.com" });
+    const plan = bookingPlan({ channel: "email", faults: { email: NO_EMAIL }, email: "sam@example.com" });
     assert.equal(plan.note, `No invite will be sent: ${NO_EMAIL}. Save this patient and copy the link from the dashboard and hand it over yourself.`);
     assert.equal(plan.blocked, true);
     // The address is not repeated as a destination: "The secure link goes to …" was the claim, and the whole
@@ -162,7 +186,7 @@ describe("bookingPlan", () => {
       assert.match(sendable.lede, /sends their private Sweetie link/, channel);
       assert.match(sendable.action, /& send/, channel);
 
-      const blocked = bookingPlan({ channel, fault: cannotSendYet(channel), ...SAM });
+      const blocked = bookingPlan({ channel, faults: { [channel]: cannotSendYet(channel) }, ...SAM });
       for (const line of [blocked.lede, blocked.note, blocked.action]) {
         assert.doesNotMatch(line, PROMISES_SEND, `${channel}: ${line}`);
         assert.doesNotMatch(line, MOTION, `${channel}: ${line}`);
@@ -184,7 +208,7 @@ describe("bookingPlan", () => {
     assert.equal(chosen.action, "Add patient →");
     // And it stays that row's sentence even where the deployment could not have sent anyway: a fault the
     // caller passes for "none" says nothing staff can act on, because nothing was going to be sent.
-    assert.deepEqual(bookingPlan({ channel: "none", fault: NO_EMAIL, ...SAM }), chosen);
+    assert.deepEqual(bookingPlan({ channel: "none", faults: { email: NO_EMAIL }, ...SAM }), chosen);
     // And a demo practice booking a destination §13.4 refuses still reads as the practice's own choice:
     // nothing was going to be sent, so there is no rule to explain (T145).
     assert.deepEqual(bookingPlan({ channel: "none", demo: true, phone: REAL.phone, email: REAL.email }), chosen);
@@ -198,7 +222,7 @@ describe("bookingPlan", () => {
       [undefined, true],
       [NO_EMAIL, false],
     ] as const) {
-      const plan = bookingPlan({ channel: "email", fault, email: SAM.email });
+      const plan = bookingPlan({ channel: "email", faults: fault ? { email: fault } : {}, email: SAM.email });
       const card = bookedOutcome({ name: "Sam Taylor", channel: "email", queued, reason: fault });
       assert.equal(PROMISES_SEND.test(`${plan.lede} ${plan.note} ${plan.action}`), queued, `forecast, queued=${queued}`);
       assert.equal(MOTION.test(`${card.heading} ${card.lede}`), queued, `card, queued=${queued}`);
@@ -258,15 +282,86 @@ describe("bookingPlan", () => {
     assert.equal(plan.note, `The secure link goes to ${mixed.email}.`);
     assert.equal(plan.blocked, false, "something is still going out");
     assert.doesNotMatch(plan.note, /6505552652/, "the refused number is not named as a destination");
+
+    // And the deployment is asked about that half too, which is the half of the narrowing this case used to
+    // prove nothing about: the destination was narrowed and the fault lookup was not, so the step asked
+    // whether this office could text — it could — about a booking §13.4 had already reduced to the email it
+    // cannot send. A fault on the channel the rule left open is therefore the step's to say (T145).
+    const emailLess = bookingPlan({ channel: "both", demo: true, faults: { email: NO_EMAIL }, ...mixed });
+    assert.equal(
+      emailLess.note,
+      `No invite will be sent: ${NO_EMAIL}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+    );
+    assert.equal(emailLess.blocked, true);
+    assert.equal(emailLess.action, "Add patient →");
+    // While a fault on the channel §13.4 *closed* changes nothing: nothing was going to go out that way, so
+    // there is no gap in the deployment to report. This is the asymmetry the single-entry parameter could
+    // not express, because `channelFaults["both"]` is one answer about two channels.
+    assert.deepEqual(
+      bookingPlan({ channel: "both", demo: true, faults: { sms: NO_SMS }, ...mixed }),
+      bookingPlan({ channel: "both", demo: true, ...mixed }),
+    );
   });
 
   it("asks §13.4 before the deployment's own gap, as the press does (T145)", () => {
     // `inviteReach` (lib/notify.ts) answers the press in this order, so the forecast has to: the rule is
     // the fact no amount of configuration reopens, and the one staff can act on by booking elsewhere.
-    const plan = bookingPlan({ channel: "email", fault: NO_EMAIL, demo: true, ...REAL });
+    const plan = bookingPlan({ channel: "email", faults: { email: NO_EMAIL }, demo: true, ...REAL });
     assert.match(plan.note, new RegExp(DEMO_ONLY_TEST_ADDRESSES.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(plan.note, /cannot send email yet/);
     assert.equal(plan.blocked, true);
+  });
+
+  it("asks the deployment the same question the press does, channel for channel (§13.4, T111, T145)", () => {
+    // The property criterion 3 is about, over the intersection that broke it: a deployment that can serve a
+    // channel §13.4 **blocks** but not the one it **leaves open**. There `inviteSendability` has no answer
+    // for the channel staff picked — the office can text, and "both" is satisfied by that — so a step that
+    // asked about `"both"` promised a send, and `inviteReach`, which asks about what is left, refused it one
+    // press later. The forecast and the report naming different facts about the same press is the whole bug.
+    //
+    // `inviteFaultByChannel()` is the real map the server hands the wizard, so this pairs the two functions
+    // the product pairs rather than a hand-written stand-in.
+    const RESERVED = { phone: "+14155550100", email: "sam.sample@sweetspot.local" };
+    const SMS_ONLY = { SNS_ORIGINATION_NUMBER: "+14155550199", EMAIL_FROM: undefined };
+    const EMAIL_ONLY = { SNS_ORIGINATION_NUMBER: undefined, EMAIL_FROM: "clinic@sweetspot.example" };
+    const NEITHER = { SNS_ORIGINATION_NUMBER: undefined, EMAIL_FROM: undefined };
+    const BOTH = { SNS_ORIGINATION_NUMBER: "+14155550199", EMAIL_FROM: "clinic@sweetspot.example" };
+
+    const rows = [
+      // The two the reviewer of T145 reproduced on `main`: the blocked half is the one with a backend.
+      { what: "sms-only office, real phone and reserved address", env: SMS_ONLY, demo: true, to: { phone: REAL.phone, email: RESERVED.email }, sends: false },
+      { what: "email-only office, reserved phone and real address", env: EMAIL_ONLY, demo: true, to: { phone: RESERVED.phone, email: REAL.email }, sends: false },
+      // And the controls that already agreed and must keep agreeing (criteria 4 and 5).
+      { what: "no backends at all, which is the gate's own configuration", env: NEITHER, demo: true, to: RESERVED, sends: false },
+      { what: "a practice that is not a demo one", env: BOTH, demo: false, to: REAL, sends: true },
+      { what: "a demo practice on reserved destinations", env: BOTH, demo: true, to: RESERVED, sends: true },
+      // The narrowing itself, where one half is refused and the other really does carry the invite.
+      { what: "sms-only office, real address and reserved phone", env: SMS_ONLY, demo: true, to: { phone: RESERVED.phone, email: REAL.email }, sends: true },
+    ] as const;
+
+    for (const { what, env, demo, to, sends } of rows) {
+      withEnv(env, () => {
+        const plan = bookingPlan({ channel: "both", faults: inviteFaultByChannel(), demo, ...to });
+        const reach = inviteReach({ channel: "both", demo, ...to });
+        const pressSends = reach.channels.length > 0;
+        assert.equal(pressSends, sends, `${what}: the press`);
+        // The forecast is the same answer in the other tense: a step promising a send where the press
+        // refuses one is the disagreement, whichever direction it points.
+        assert.equal(PROMISES_SEND.test(`${plan.lede} ${plan.note} ${plan.action}`), pressSends, `${what}: the forecast`);
+        assert.equal(plan.blocked, !pressSends, `${what}: whether the step marks a gap`);
+        // And when neither sends, both name the same *kind* of gap, so staff are not told the rule before
+        // the button and the deployment after it. Not byte-identical, and deliberately: `inviteReach` words
+        // its sentence for the channel staff chose (`cannotSendYet(p.channel)`), which criterion 5 freezes,
+        // while the step names the half §13.4 left open — "cannot send email yet" where the route says
+        // "cannot send this message yet". The step is the narrower of the two true sentences; what matters
+        // here is that neither of them is the other's rule.
+        if (!pressSends) {
+          assert.match(plan.note, /cannot send/, `${what}: the step names the deployment's gap`);
+          assert.match(reach.reason!, /cannot send/, `${what}: and so does the press`);
+          assert.doesNotMatch(plan.note, /only messages reserved test addresses/, `${what}: §13.4 is not the fact here`);
+        }
+      });
+    }
   });
 
   it("keeps every sentence in staff's words (§3.7, §10.6)", () => {
@@ -276,7 +371,7 @@ describe("bookingPlan", () => {
         // lib/delivery.ts: a rule staff cannot act on is as much a leak as a variable name.
         for (const demo of [false, true]) {
           for (const to of [SAM, REAL]) {
-            const plan = bookingPlan({ channel, fault, demo, ...to });
+            const plan = bookingPlan({ channel, faults: fault ? { both: fault, sms: fault, email: fault } : {}, demo, ...to });
             for (const line of [plan.lede, plan.note, plan.action]) {
               assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
             }

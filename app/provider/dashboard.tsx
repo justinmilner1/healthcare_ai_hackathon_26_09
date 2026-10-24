@@ -1004,11 +1004,16 @@ function PatientWizard({
 }) {
   // T140 (§2.2, §8.1): the lede, the note under the channel radios and the button on step 3, from one call
   // on one answer, so the screen cannot promise a send in one of the three and withdraw it in another — the
-  // way lib/booking.ts already decides the success card's two lines together (T122). The fault is the
+  // way lib/booking.ts already decides the success card's two lines together (T122). The faults are the
   // server's (`inviteFaultByChannel`, app/provider/page.tsx); where the link would go is this form's.
+  //
+  // The whole map goes down, not the entry for the channel on the radio: §13.4 below can close half of a
+  // "both" booking, and it is the half that is *left* the deployment has to be asked about. That lookup is
+  // `bookingPlan`'s, after its own narrowing, so §13.4's order lives in the pure module rather than out here
+  // (T145).
   const plan = bookingPlan({
     channel: form.channel,
-    fault: channelFaults[form.channel],
+    faults: channelFaults,
     // T145 (§13.4) And the question the deployment has no say in: a demo practice may write only to a
     // reserved address or number, so the flag is the practice's (a prop, like the faults above) and the
     // destination is this form's, asked against it as it is typed. Where the link would go is derived from
