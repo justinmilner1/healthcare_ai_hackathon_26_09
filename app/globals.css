@@ -2206,6 +2206,16 @@ textarea.ss-input {
   line-height: 1.5;
 }
 
+/* T140 (§2.2, §8.1): the same note when this deployment has no sender behind the channel just chosen.
+   Marked the way the practice settings invite hint is (.settings-invite-hint-blocked) and not amber like the
+   warning below: it is a settled fact about the deployment rather than something about this visit, and the
+   patient is still created. */
+.patient-consent-note-blocked {
+  padding-left: 11px;
+  border-left: 2px solid #e0a0a0;
+  color: var(--sour-ink);
+}
+
 /* True of the visit, and not a reason to refuse it (lib/visitIntake.ts warningsFor): amber, not the red of
    .ss-error, because the Add patient button still works. */
 .patient-consent-warning,

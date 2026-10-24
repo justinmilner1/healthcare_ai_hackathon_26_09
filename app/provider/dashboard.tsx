@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
-import { bookedOutcome, type BookedOutcome } from "@/lib/booking";
+import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { importInviteNote } from "@/lib/importNote";
@@ -109,7 +109,16 @@ const EMPTY_FORM: PatientForm = {
 
 // The signed-in provider's id comes from the session, server-side in page.tsx (design §5.1), so this
 // component never has to ask who is here and there is no practice picker to pick the wrong workspace from.
-export default function ProviderDashboard({ providerId }: { providerId: string }) {
+export default function ProviderDashboard({
+  providerId,
+  channelFaults,
+}: {
+  providerId: string;
+  /** T140 (§2.2, §8.1) Staff's words for the §2.2 contact channels this deployment has no sender behind,
+   *  per channel id and only for the ones that have a fault. Settled on the server (app/provider/page.tsx)
+   *  so the wizard's step 3 can say it before the button, with no route and no fetch of its own. */
+  channelFaults: Partial<Record<ContactChannel, string>>;
+}) {
   const [provider, setProvider] = useState<Provider | null>(null);
   const [form, setForm] = useState<PatientForm>(EMPTY_FORM);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -717,6 +726,7 @@ export default function ProviderDashboard({ providerId }: { providerId: string }
           step={addStep}
           form={form}
           setForm={setForm}
+          channelFaults={channelFaults}
           busy={busy}
           error={error}
           result={result}
@@ -965,6 +975,7 @@ function PatientWizard({
   step,
   form,
   setForm,
+  channelFaults,
   busy,
   error,
   result,
@@ -975,6 +986,7 @@ function PatientWizard({
   step: number;
   form: PatientForm;
   setForm: React.Dispatch<React.SetStateAction<PatientForm>>;
+  channelFaults: Partial<Record<ContactChannel, string>>;
   busy: boolean;
   error: string;
   result: (BookedOutcome & { link: string }) | null;
@@ -982,6 +994,16 @@ function PatientWizard({
   onBack: () => void;
   onSubmit: (e: React.FormEvent) => void;
 }) {
+  // T140 (§2.2, §8.1): the lede, the note under the channel radios and the button on step 3, from one call
+  // on one answer, so the screen cannot promise a send in one of the three and withdraw it in another — the
+  // way lib/booking.ts already decides the success card's two lines together (T122). The fault is the
+  // server's (`inviteFaultByChannel`, app/provider/page.tsx); where the link would go is this form's.
+  const plan = bookingPlan({
+    channel: form.channel,
+    fault: channelFaults[form.channel],
+    to: [form.channel !== "email" && form.phone, form.channel !== "sms" && form.email].filter(Boolean).join(" and "),
+  });
+
   const sideCopy = [
     ["START WITH A PERSON", "A warm handoff starts with the basics."],
     ["GIVE SWEETIE THE BRIEF", "The visit context shapes every question."],
@@ -1162,10 +1184,7 @@ function PatientWizard({
               <div>
                 <p className="ss-eyebrow">REVIEW & INVITE</p>
                 <h3 className="ss-title">Ready for the handoff.</h3>
-                <p className="ss-lede">
-                  Saving creates the patient and sends their private Sweetie
-                  link on the channel you choose here.
-                </p>
+                <p className="ss-lede">{plan.lede}</p>
               </div>
               <div className="patient-review-card">
                 <div className="provider-patient-avatar">
@@ -1212,10 +1231,11 @@ function PatientWizard({
                     </label>
                   ))}
                 </div>
-                <p className="patient-consent-note">
-                  {form.channel === "none"
-                    ? "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code."
-                    : `The secure link goes to ${[form.channel !== "email" && form.phone, form.channel !== "sms" && form.email].filter(Boolean).join(" and ") || "— add a number or address on the first step"}.`}
+                {/* T140 One note, three cases, and the marked one is the deployment's gap rather than the
+                    practice's choice: "Do not message" keeps the sentence it has always had, and a channel
+                    nothing can send on now says so here instead of on the card one press later. */}
+                <p className={`patient-consent-note${plan.blocked ? " patient-consent-note-blocked" : ""}`}>
+                  {plan.note}
                 </p>
                 {/* Not an error: a visit with no contact details is creatable, and the link says so honestly
                     (T08, §5.3). Staff should know at the desk rather than when the patient calls back. */}
@@ -1287,11 +1307,7 @@ function PatientWizard({
                 className="ss-button ss-button-primary"
                 disabled={busy}
               >
-                {busy
-                  ? "Adding patient…"
-                  : step === 2
-                    ? "Add patient & send →"
-                    : "Continue →"}
+                {busy ? "Adding patient…" : step === 2 ? plan.action : "Continue →"}
               </button>
             </div>
           )}
