@@ -11,14 +11,14 @@ import {
   DELIVERY_NO_PHONE,
   DELIVERY_NO_PROVIDER_EMAIL,
 } from "./delivery";
-import { demoBlockReason } from "./demo";
+import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
 import { emailConfig, sendEmail, type SendResult } from "./email";
 import { log } from "./log";
 import { canSendOrMailbox, sendOrMailbox } from "./mailer";
 import { intakeLink, sendSms, smsConfig } from "./sms";
 import { allowedChannels, suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
-import { channelsOf, CONTACT_CHANNELS, type ContactChannel } from "./visitIntake";
+import { channelOf, channelsOf, CONTACT_CHANNELS, type ContactChannel } from "./visitIntake";
 
 export type InviteResult = {
   link: string;
@@ -273,6 +273,82 @@ export function inviteSendability(channel: string | null | undefined): InviteSen
   const channels = wanted.filter((c) => !("reason" in (c === "sms" ? smsConfig() : emailConfig())));
   if (channels.length || !wanted.length) return { channels };
   return { channels, reason: cannotSendYet(channel ?? "") };
+}
+
+/**
+ * Why the rows closed this channel, in the tense a screen asking *before* the send needs — or null when the
+ * rows leave it open (T145).
+ *
+ * The same two questions `blockedBy` above asks of a send, in the same order and for the same reason: §13.4
+ * before §8.1, because a bounce says this address does not work and a demo practice says we must not try it
+ * at all. What differs is only the wording of the first: `demoBlockReason` answers with `DEMO_BLOCKED`,
+ * which is a delivery row reporting on a send that did not happen, and this is read by a wizard forecasting
+ * one, so it is the clause behind that sentence (lib/demo.ts). §8.1's own sentences need no such split —
+ * they are already clauses ("the patient texted STOP, so texts are off").
+ */
+function rowBlockReason(
+  p: { demo?: boolean; suppression?: SuppressionFacts | null; phone?: string | null; email?: string | null },
+  channel: NotifyChannel,
+): string | null {
+  if (demoBlockReason(Boolean(p.demo), channel, channel === "sms" ? p.phone : p.email)) return DEMO_ONLY_TEST_ADDRESSES;
+  return suppressedReason(p.suppression, channel);
+}
+
+/** Whether an invite can reach this patient at all, and — when it cannot — what staff read. The same shape
+ *  as `InviteSendability` above, which answers the narrower question this one contains. */
+export type InviteReach = {
+  /** The chosen channels an invite can really go out on, in `channelsOf` order. */
+  channels: NotifyChannel[];
+  /** What staff read when `channels` is empty although they chose one: the rows' own reason when the rows
+   *  closed every channel, and the deployment's when something was still open and it could not serve it.
+   *  Undefined when an invite is going out, and when staff chose to message nobody — which is the practice's
+   *  own choice with its own sentence (`NO_CONSENT_TO_MESSAGE`, T120) and not a gap in anything. */
+  reason?: string;
+};
+
+/**
+ * Can an invite reach this patient (§2.2, §8.1, §13.4, T145)?
+ *
+ * `inviteSendability` above is one of the three filters this applies, and on its own it was two thirds of a
+ * wrong answer: it asks whether the *deployment* has a sender behind the channel staff chose, and its own
+ * doc comment says what it is not asking — "a suppressed address or a demo practice closes a channel on
+ * facts that live on the row". That boundary is right for a bounce the patient has not had yet, and wrong
+ * for §13.4's demo rule, which is not history at all: it is a column on the practice the staff member is
+ * signed in to and an address they have just typed, both known before the button. So a demo practice booking
+ * a prospect's real mobile number was promised the send on step 3, told "<name> is on the way." one press
+ * later, and only the delivery row minutes afterwards said that nothing had gone out.
+ *
+ * This is `codeReach`'s composition for the invite path — the same three filters, in the same order:
+ *
+ *   §13.4  `demoBlockReason` — a demo practice may only write to a reserved address or number (lib/demo.ts)
+ *   §8.1   `allowedChannels` — a bounce, a spam report or a STOP closes the channel (lib/suppression.ts)
+ *   T111   `inviteSendability` — and then, is there a sender behind what is left
+ *
+ * The rows' two filters run before the environment's, which is what makes `reason` name the thing staff can
+ * act on rather than an order of evaluation: the rows closing every channel is a fact no amount of
+ * configuration reopens, so that is what staff are told; something still open and nothing to serve it is
+ * somebody's to fix, and keeps the sentence T111 gave it.
+ *
+ * `phone` and `email` are the destinations as the patient's row now holds them, because §13.4's rule is
+ * about the destination and not about the channel — the same pair `codeReach` takes for the same reason.
+ */
+export function inviteReach(p: {
+  channel: string | null | undefined;
+  phone?: string | null;
+  email?: string | null;
+  suppression?: SuppressionFacts | null;
+  demo?: boolean;
+}): InviteReach {
+  const wanted = channelsOf(p.channel);
+  const open = allowedChannels(wanted, p.suppression).filter((c) => !rowBlockReason(p, c));
+  const { channels } = inviteSendability(channelOf(open));
+  if (channels.length || !wanted.length) return { channels };
+  // Something the rows left open that this deployment cannot serve keeps T111's sentence. The rows closing
+  // all of it is said in the rows' own words: the first channel staff chose, in their order, and §13.4
+  // before §8.1 within it (`rowBlockReason`). One sentence either way, because that is what the card and
+  // the step have room for — the per-channel detail is on the delivery rows a few minutes later (§8.3).
+  if (open.length) return { channels, reason: cannotSendYet(p.channel ?? "") };
+  return { channels, reason: wanted.map((c) => rowBlockReason(p, c)).find(Boolean) ?? undefined };
 }
 
 /**

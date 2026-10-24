@@ -7,6 +7,7 @@ import {
   deletionTemplates,
   inviteFaultByChannel,
   inviteFaults,
+  inviteReach,
   inviteSendability,
   inviteTemplates,
   sendDeletionConfirmation,
@@ -14,6 +15,8 @@ import {
   sendSummaryEmails,
   summaryTemplates,
 } from "./notify";
+import { cannotSendYet } from "./delivery";
+import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import type { Summary } from "./types";
 
 process.env.APP_URL = "https://sweetspot.example/";
@@ -631,5 +634,120 @@ test("a credential is not a sender, so it does not make a channel sendable (T94,
   withEnv({ AWS_ACCESS_KEY_ID: "AKIAEXAMPLE", AWS_SECRET_ACCESS_KEY: "secret" }, () => {
     assert.deepEqual(inviteSendability("both").channels, []);
     assert.match(inviteSendability("email").reason!, /cannot send email yet/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T145 The whole of "can an invite reach this patient": `inviteSendability` above, plus the two filters on
+// the rows. T121 built that composition for the code path (`codeReach` above) and the invite path never got
+// it, so a demo practice booking a prospect's real mobile number was promised the send on step 3 of the
+// wizard, told "<name> is on the way." one press later, and contradicted only by the delivery row minutes
+// afterwards. Every case here configures a sender, because the gate configures none (§11.3) and without one
+// the honest "cannot send yet" wins before §13.4 could matter — which is why the bug survived.
+
+/** An office with a sender behind both channels. Not `BOTH` above, which is the *code* path's pair: an
+ *  invite's email goes through `sendEmail` and not `sendOrMailbox`, so a mailbox is not a sender for it
+ *  (lib/notify.ts `inviteSendability` against `emailConfig`, lib/email.ts). Neither value is a credential. */
+const SENDING = { EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" };
+
+/** A number and an address a demo practice may not write to: neither is in the NANP's 555-01xx range nor
+ *  under a reserved domain, so §13.4 treats both as somebody's (lib/demo.ts). The number is the one the
+ *  ticket reproduces with. */
+const REAL = { phone: "+16505552652", email: "prospect@example-endo.com" };
+
+test("a demo practice booking a real destination is told so before the send (§13.4, T145)", () => {
+  withEnv(SENDING, () => {
+    for (const channel of ["sms", "email", "both"] as const) {
+      const reach = inviteReach({ channel, ...REAL, demo: true });
+      assert.deepEqual(reach.channels, [], channel);
+      assert.equal(reach.reason, DEMO_ONLY_TEST_ADDRESSES, channel);
+      // Never the deployment's sentence: this office has both senders, and configuring a third would not
+      // reopen anything. That mix-up is what sends staff to whoever set Sweet Spot up over a rule.
+      assert.doesNotMatch(reach.reason!, /cannot send/);
+    }
+  });
+});
+
+test("and a demo practice booking a reserved destination is left exactly as it was (§13.4)", () => {
+  withEnv(SENDING, () => {
+    // SAM is the seeded patient's own pair: the fictitious number and the `.local` address. This is the
+    // walkable demo, so nothing here may close a channel.
+    const reach = inviteReach({ channel: "both", ...SAM, demo: true });
+    assert.deepEqual(reach.channels, ["sms", "email"]);
+    assert.equal(reach.reason, undefined);
+    // One of each, so neither destination is carrying the other.
+    assert.deepEqual(inviteReach({ channel: "sms", phone: SAM.phone, demo: true }).channels, ["sms"]);
+    assert.deepEqual(inviteReach({ channel: "email", email: SAM.email, demo: true }).channels, ["email"]);
+  });
+});
+
+test("a practice that is not a demo one is untouched by §13.4, whatever it books", () => {
+  withEnv(SENDING, () => {
+    const reach = inviteReach({ channel: "both", ...REAL });
+    assert.deepEqual(reach.channels, ["sms", "email"], "which is nearly every practice");
+    assert.equal(reach.reason, undefined);
+  });
+});
+
+test("a booking inherits the bounce or the STOP on the patient it reuses (§2.2, §8.1, T145)", () => {
+  // §2.2 matches an existing patient on phone or email, so the row a new visit lands on can already carry
+  // what a provider told us about it. The route is where this is asked, because the patient may not exist
+  // yet when step 3 renders — the asymmetry is deliberate.
+  withEnv(SENDING, () => {
+    const bounced = inviteReach({ channel: "email", ...REAL, suppression: BOUNCED });
+    assert.deepEqual(bounced.channels, []);
+    assert.equal(bounced.reason, "the address bounced, so email is off (design §8.1)");
+
+    const stopped = inviteReach({ channel: "sms", ...REAL, suppression: STOPPED });
+    assert.deepEqual(stopped.channels, []);
+    assert.equal(stopped.reason, "the patient texted STOP, so texts are off (design §8.1)");
+
+    // One of the two closed is a narrower invite and not a refused one, like a half-configured deployment.
+    const half = inviteReach({ channel: "both", ...REAL, suppression: BOUNCED });
+    assert.deepEqual(half.channels, ["sms"]);
+    assert.equal(half.reason, undefined);
+  });
+});
+
+test("the rows are asked before the environment, so the sentence names what configuring cannot fix (T145)", () => {
+  // The order `codeReach` settled for the code path. A demo practice in an office with no sender at all is
+  // told about §13.4, because that is the fact that survives whatever anybody configures next.
+  const unconfigured = inviteReach({ channel: "sms", ...REAL, demo: true });
+  assert.equal(unconfigured.reason, DEMO_ONLY_TEST_ADDRESSES);
+
+  withEnv(MAILBOX, () => {
+    // And the other way round: the rows leave the phone open and nothing here can text it, which is T111's
+    // sentence and somebody's to fix. Email is demo-blocked, so "both" comes down to the phone.
+    const reach = inviteReach({ channel: "both", phone: SAM.phone, email: REAL.email, demo: true });
+    assert.deepEqual(reach.channels, []);
+    assert.equal(reach.reason, cannotSendYet("both"));
+  });
+});
+
+test("`channel: \"none\"` is still the practice's own choice and not a reason of ours (T120)", () => {
+  // POST /api/book answers this one before it asks anything here (`NO_CONSENT_TO_MESSAGE`), and this must
+  // not start competing with it: nothing to send is not the same statement as nothing to send with.
+  for (const p of [{ demo: true, ...REAL }, { suppression: BOUNCED, ...REAL }, {}]) {
+    const reach = inviteReach({ channel: "none", ...p });
+    assert.deepEqual(reach.channels, []);
+    assert.equal(reach.reason, undefined);
+  }
+});
+
+test("every sentence an invite can be refused with stays in staff's words (§3.7, §10.6)", () => {
+  // The same guard the file applies to `inviteFaults`, over the two new reasons as well: these reach the
+  // success card and step 3 of the wizard, which is a practice's screen.
+  withEnv(SENDING, () => {
+    const reasons = [
+      inviteReach({ channel: "both", ...REAL, demo: true }).reason,
+      inviteReach({ channel: "email", ...REAL, suppression: BOUNCED }).reason,
+      inviteReach({ channel: "sms", ...REAL, suppression: STOPPED }).reason,
+    ];
+    for (const reason of reasons) {
+      assert.ok(reason, "each of these closes every channel");
+      assert.doesNotMatch(reason!, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, reason);
+      assert.doesNotMatch(reason!, /6505552652|prospect@/, "and names no destination (§10.3)");
+      assert.match(reason!, /^[a-z]/, "it is dropped into a sentence of the caller's");
+    }
   });
 });
