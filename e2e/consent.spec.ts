@@ -46,6 +46,17 @@ test("the consent screen is what a verified link opens, and one tap goes through
   await expect(card).toContainText(/Sweet Spot Endocrinology/);
   // Sweetie is behind it: the chat is not in the page until consent is given.
   await expect(page.locator(".sweetie-messages")).toHaveCount(0);
+
+  // T138, §2.4: the span comes from the data, not from the brand, and this screen renders before a single
+  // file exists. "What Sweetie collects" offered three uploads "so your clinician can see your week" — the
+  // span of all three is the patient's to choose, so the sentence over-described what sharing one gets a
+  // patient on the one screen §2.4 says must not put a thumb on the decision. Held on the rendered frame as
+  // well as in the module (lib/consent.test.ts), and frame-wide rather than per sentence, the same scope the
+  // connect step's spec uses (e2e/connections.spec.ts): nothing on this screen has a use for the word, so
+  // there is no legitimate span for a negative to settle in passing, and this reaches a sixth site drifting
+  // in somewhere nobody thought to name. The card is inside `main`, and so is the help text under it.
+  await expect(page.locator("main")).not.toContainText(/week/i);
+  await expect(card).toContainText(/see what you shared/i);
   // The card's 480ms entrance is finished before the shutter by e2e/shot.ts, for every shot (T77).
   await shot(page, "consent", WHOLE_PAGE);
 

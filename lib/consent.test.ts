@@ -63,6 +63,33 @@ describe("consentPoints: the four things §2.4 requires the screen to say", () =
     }
   });
 
+  // T138, the rule T100 → T114 → T116 → T123 → T132 → T136 has been taking off the patient path one screen
+  // at a time: the span comes from the data, not from the brand. The `collects` point promised "your week"
+  // for three uploads whose span the patient picks, on the screen that renders before any of them exists —
+  // the earliest surface of the claim, and the only one read before the patient has decided anything.
+  //
+  // The negative is over every point rather than that one sentence, and over the titles as well as the
+  // bodies, because the defect was a reword away from any of them and this screen has no legitimate span to
+  // protect: no day count is in scope here. Both audiences go through it since the copy interpolates, and a
+  // practice called "Week Street Diabetes" would be a false positive worth hearing about — the fixture names
+  // stay ordinary so it cannot be one silently.
+  it("names no span anywhere on the screen: it renders before a single file exists (T138, §2.4)", () => {
+    for (const practiceName of [AUDIENCE.practiceName, null, "", "   "]) {
+      for (const { id, title, body } of consentPoints({ ...AUDIENCE, practiceName })) {
+        assert.doesNotMatch(title, /\bweek\b/i, `the ${id} point's title names a week`);
+        assert.doesNotMatch(body, /\bweek\b/i, `the ${id} point's body names a week`);
+      }
+    }
+  });
+
+  // And the sentence still does the job §2.4 gives it (the assertion above cannot tell a reword from a
+  // deletion): all three sources by name, and the sharing still optional.
+  it("still names the three sources and still says the uploads are optional", () => {
+    const { body } = point("collects");
+    for (const source of ["Dexcom", "Google Timeline", "WHOOP"]) assert.match(body, new RegExp(source));
+    assert.match(body, /if you want to/i);
+  });
+
   const point = (id: (typeof CONSENT_POINT_IDS)[number]) => {
     const found = consentPoints(AUDIENCE).find((p) => p.id === id);
     assert.ok(found, `no ${id} point`);

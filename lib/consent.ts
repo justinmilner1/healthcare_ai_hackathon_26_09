@@ -38,10 +38,19 @@ export function consentPoints({ clinicianName, practiceName }: ConsentAudience):
   const practice = practiceName?.trim() || "the practice";
   return [
     {
+      // The span comes from the data, not from the brand (T100 → T114 → T116 → T123 → T132 → T136, T138).
+      // This sentence is the earliest surface of that rule on the patient path and the only one that is read
+      // before the patient has decided anything, so it names no span at all: it renders before a single file
+      // exists, and the span of all three uploads is the patient's to choose — `parseClarityCsv` keeps every
+      // row it is handed (`data/fixtures/clarity_window.csv` is one morning), `lib/whoop.ts` clips nothing,
+      // and `lib/location.ts`'s 7 days are a property of the export rather than a promise made before one.
+      // "what you shared" is the wording T123 and T132 settled on for the no-data case. The one span that
+      // stays on this path is `lib/dexcomHint.ts`'s OAuth line, because `lib/dexcom.ts` requests that window;
+      // this sentence is about uploads and names no connection.
       id: "collects",
       title: "What Sweetie collects",
       body:
-        "A few questions about how you have been, in your own words, before your visit. If you want to, you can also add a Dexcom, Google Timeline or WHOOP export so your clinician can see your week.",
+        "A few questions about how you have been, in your own words, before your visit. If you want to, you can also add a Dexcom, Google Timeline or WHOOP export so your clinician can see what you shared.",
     },
     {
       id: "optional",
