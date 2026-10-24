@@ -10,7 +10,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
-import { intakeProgressCard } from "@/lib/intakeProgress";
+import { intakeProgressCard, intakeStepperEnd, type IntakeEnding } from "@/lib/intakeProgress";
 import { checkInCompleteCopy, flaggedCardCopy, skipDestination, skipLinkLabel } from "@/lib/summaryPromise";
 import type {
   ChatMessage,
@@ -523,7 +523,6 @@ export default function SweetiePage({
   // that ends the transcript all ask it here and take their answer from lib/summaryPromise.ts (T133, T137).
   const hasGlucose = Boolean(status?.hasDexcom);
   const summaryHref = skipDestination(hasGlucose, token);
-  const complete = checkInCompleteCopy(hasGlucose);
   const stoppedCard = flaggedCardCopy(hasGlucose, token);
   // All three parts of the rail's progress card, decided together in lib/intakeProgress.ts so that the
   // label, the number and the sentence cannot answer different questions about the same check-in — which
@@ -536,6 +535,11 @@ export default function SweetiePage({
     questionsSkipped: Boolean(intake?.questionsSkipped),
     office: providerLabel(provider),
   });
+  // The other question §2.5 should have one answer to: how this check-in ended. The rail took it from
+  // `intakeEnding` and the stepper and the card below kept asking `finished` instead, so a skip was ticked
+  // "Done" on the strip and titled "Your check-in is complete" on the card, three inches from a rail
+  // reading "Check-in ended early" (T146). Both now read the ending the rail was drawn from.
+  const complete = checkInCompleteCopy(hasGlucose, progressCard.ending);
   const canVoice = support.speak && support.listen;
   const micLabel =
     mic === "listening"
@@ -705,7 +709,7 @@ export default function SweetiePage({
             )}
 
             {status && intake && fields.length > 0 && (
-              <Progress status={status} intake={intake} fields={fields} />
+              <Progress status={status} intake={intake} fields={fields} ending={progressCard.ending} />
             )}
 
             {/* The transcript scrolls, and a scrolling region a keyboard cannot reach is a serious axe
@@ -998,20 +1002,24 @@ function Progress({
   status,
   intake,
   fields,
+  ending,
 }: {
   status: IntakeStatus;
   intake: IntakeState;
   fields: IntakeFieldDef[];
+  /** How the check-in stands, from the same `intakeEnding` the rail's card is drawn from (T146). */
+  ending: IntakeEnding;
 }) {
   const filled = (id: string) => {
     const confidence = intake.fields[id]?.confidence ?? "unfilled";
     return confidence === "medium" || confidence === "high";
   };
   const finished = intake.wrapped || status.done;
-  // The safety scan wraps the intake where it stood (§2.5), so the last step is reached either way — but it
-  // was reached by stopping, not by finishing. Naming it "Done" with a tick beside a "Flagged for the
-  // office" pill told the patient both things at once (T66).
-  const flagged = Boolean(intake.flagged);
+  // Every way an intake ends wraps it (§2.5) — the questions answered, the patient skipping the rest, the
+  // safety scan stopping the interview — so the last step is reached in all three and only one of them is
+  // "Done". What the step says about that is lib/intakeProgress.ts's answer rather than a boolean of its
+  // own, which is what let the strip tick a step the card beside it called unfinished (T66, T146).
+  const end = intakeStepperEnd(ending);
   const firstOpen = fields.find((field) => !filled(field.id));
   const currentKey = finished ? "done" : (firstOpen?.id ?? "done");
   const steps = [
@@ -1020,7 +1028,7 @@ function Progress({
       label: field.label,
       done: filled(field.id),
     })),
-    { key: "done", label: flagged ? "Stopped" : "Done", done: finished && !flagged },
+    { key: "done", label: end.label, done: end.done },
   ];
 
   return (
@@ -1032,9 +1040,7 @@ function Progress({
             key={step.key}
             title={
               step.key === "done"
-                ? flagged
-                  ? "Check-in stopped early and flagged for the office"
-                  : "Check-in complete"
+                ? end.title
                 : intake.fields[step.key]?.value ??
                   fields.find((field) => field.id === step.key)?.goal
             }
