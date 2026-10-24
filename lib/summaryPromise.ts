@@ -1,11 +1,12 @@
 // Where the patient flow offers the patient their own summary, and in what words (design §2.5, §2.7).
 // Owner: sweetie.
 //
-// Three surfaces make one promise: the setup-complete step at the end of `/s/<token>/intake`, the skip
-// link in Sweetie's chat, and the goodbye the route writes when that link is pressed. Each one tells the
-// patient they can go and look at what they shared, and each one used to decide that on a condition of
-// its own — all of them weaker than the condition `/patient/<token>` renders a summary on, which is
-// `status.hasDexcom`, i.e. one glucose reading or more (lib/bundle.ts).
+// Five surfaces make one promise: the setup-complete step at the end of `/s/<token>/intake`, the skip
+// link in Sweetie's chat, the goodbye the route writes when that link is pressed, and the two cards that
+// end the transcript — the completion card (T137) and the one the safety scan stops the interview with
+// (T141). Each one tells the patient they can go and look at what they shared, and each one used to
+// decide that on a condition of its own — all of them weaker than the condition `/patient/<token>`
+// renders a summary on, which is `status.hasDexcom`, i.e. one glucose reading or more (lib/bundle.ts).
 //
 // That gap is this file. T116 (§2.5, §2.7) fixed the setup-complete step for a patient who had shared
 // *nothing*; the same false sentence survived for a patient who had shared something with no glucose in
@@ -16,7 +17,7 @@
 // your week now", same dead end (T133).
 //
 // So the condition and the words live together, in one pure module every state of which a unit test can
-// sweep (§12.1), rather than three times over in two pages and a route:
+// sweep (§12.1), rather than once per surface in two pages and a route:
 //
 // - **Offer the summary only on `hasGlucose`** — the same predicate that renders one, not a proxy for it.
 // - **Name no span, in any state.** T100 → T114 → T123 took that rule across the patient path one screen
@@ -163,5 +164,43 @@ export function checkInCompleteCopy(hasGlucose: boolean): CheckInCompleteCopy {
     detail: hasGlucose
       ? "See the summary you'll share with your doctor"
       : "What you shared is saved for your care team",
+  };
+}
+
+/** The line under §2.5's office instruction on the flagged card, and where it goes. */
+export type FlaggedCardCopy = {
+  /**
+   * Where the line leads: the summary when there is one, and `null` when there is not — in which case the
+   * page renders the words as a statement rather than wrapping them in an anchor.
+   */
+  href: string | null;
+  /** The words themselves: the offer where there is a destination, and what was kept where there is not. */
+  detail: string;
+};
+
+/**
+ * The card §2.5's safety scan ends the transcript with (T66, T141).
+ *
+ * The fifth surface of the same promise, and the last one to ask the question. T66 demoted the summary link
+ * to the second thing on this card, under the instruction to call the office, and T137 put the other four
+ * offers behind `hasGlucose` — but this card is rendered by its own branch of the same component, so the
+ * anchor stayed there on nothing but the flag. A patient who typed one sentence about chest pain, uploaded
+ * nothing, and was told to call the office was offered, underneath that, a link to a page headed "Your
+ * glucose story is ready for its first chapter" whose only button sent them back to the check-in that had
+ * just stopped talking to them.
+ *
+ * So the destination is this module's `skipDestination` rather than a fifth predicate, and the words are
+ * read off it: wherever there is an offer there is somewhere to go, and wherever there is not there is
+ * neither. The no-glucose state is not silence — the patient has just described something urgent and needs
+ * to know it reached their clinician — so it keeps `checkInCompleteCopy(false)`'s sentence, which says
+ * exactly that and promises nothing to look at.
+ */
+export function flaggedCardCopy(hasGlucose: boolean, token: string): FlaggedCardCopy {
+  const href = skipDestination(hasGlucose, token);
+  return {
+    href,
+    // T66's wording, unchanged, where there is something to see. §2.5's instruction stays the headline
+    // either way; this is only the line under it.
+    detail: href ? "See what you've shared so far" : checkInCompleteCopy(false).detail,
   };
 }

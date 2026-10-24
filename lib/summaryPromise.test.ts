@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   checkInCompleteCopy,
+  flaggedCardCopy,
   setupCompleteCopy,
   skipDestination,
   skipGoodbye,
@@ -127,5 +128,41 @@ test("the completion card ends the transcript with the same promise as the rest 
   for (const said of [glucose, none]) {
     assert.doesNotMatch(said.title, SPAN, said.title);
     assert.doesNotMatch(said.detail, SPAN, said.detail);
+  }
+});
+
+test("the flagged card offers the summary on the same condition as the rest of the page (T141)", () => {
+  // The fifth surface, and the one T137 could not reach: the card the safety scan ends the transcript with
+  // is a different branch of the same component, and its anchor to `/patient/<token>` was there on nothing
+  // but the flag. With glucose it is T66's line, unchanged; without it there is nowhere to send anyone.
+  const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
+  const glucose = flaggedCardCopy(true, "tok-141");
+  const none = flaggedCardCopy(false, "tok-141");
+  assert.equal(glucose.href, "/patient/tok-141");
+  assert.equal(none.href, null, "nothing to view, so the card offers nowhere to go");
+  assert.equal(glucose.detail, "See what you've shared so far", "T66's wording is not what T141 changes");
+  // Not silence: the patient has just been told to call someone, so what reached their care team is the
+  // one thing the card can still tell them. The same sentence the completion card uses, said once.
+  assert.equal(none.detail, checkInCompleteCopy(false).detail);
+  assert.match(none.detail, /saved for your care team/i);
+  assert.doesNotMatch(none.detail, /summary|see what/i, "without glucose the card offers nothing to look at");
+  for (const said of [glucose, none]) assert.doesNotMatch(said.detail, SPAN, said.detail);
+});
+
+test("every surface of the promise holds the invariant: an offer where there is a destination (T133, T137, T141)", () => {
+  // Said once for the whole module rather than per surface, because a sixth surface is how the last three
+  // tickets each arrived: wherever one of these says the patient can go and look, `skipDestination` has
+  // somewhere for them to go, and wherever it does not, nothing on the page does either.
+  for (const hasGlucose of [true, false]) {
+    const destination = skipDestination(hasGlucose, "tok-141");
+    const where = `hasGlucose=${hasGlucose}`;
+    const offers = destination !== null;
+    assert.equal(setupCompleteCopy({ hasConnections: true, hasGlucose }).action !== null, offers, `${where}: the setup step`);
+    assert.equal(/view/i.test(skipLinkLabel(hasGlucose)), offers, `${where}: the skip link`);
+    assert.equal(/you can view/i.test(skipGoodbye(hasGlucose)), offers, `${where}: the goodbye`);
+    assert.equal(/summary/i.test(checkInCompleteCopy(hasGlucose).detail), offers, `${where}: the completion card`);
+    assert.equal(flaggedCardCopy(hasGlucose, "tok-141").href !== null, offers, `${where}: the flagged card`);
+    // And the words the flagged card leads with are an offer exactly when there is one behind them.
+    assert.equal(/see what/i.test(flaggedCardCopy(hasGlucose, "tok-141").detail), offers, `${where}: its words`);
   }
 });

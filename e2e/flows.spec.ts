@@ -350,6 +350,21 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   await expect(flaggedCard).toBeVisible(LOADED);
   await expect(flaggedCard.locator("strong")).toContainText(/call .+'s office today/i);
 
+  // T141, §2.5 and §2.7: nothing was uploaded here, so `/patient/<token>` has no summary to render and the
+  // card may not offer one. It used to, unconditionally — the one surface T137 did not reach — and the
+  // press landed on "Your glucose story is ready for its first chapter" over a button back to this very
+  // check-in, the one that has just stopped talking to them. Asserted across the whole transcript rather
+  // than inside the card, because the round trip is the defect wherever the anchor is drawn.
+  await expect(
+    page.locator(`.sweetie-conversation a[href="/patient/${booked.token}"]`),
+    "a stopped check-in with nothing shared offers no summary (T141)",
+  ).toHaveCount(0);
+  // Not silence either: what the patient did tell Sweetie reached their care team, and the card says so
+  // where the link was. §2.5's instruction is still the first thing on it.
+  await expect(flaggedCard.locator(".sweetie-flagged-kept")).toHaveText("What you shared is saved for your care team");
+  const flaggedOrder = await flaggedCard.locator("div > *").allTextContents();
+  expect(flaggedOrder[0], "§2.5's instruction is the headline, as T66 left it").toMatch(/call .+'s office today/i);
+
   // The composer is gone, and what stands in its place says why, in a live region rather than as a disabled
   // control that announces nothing (§6.4). The mic and Send go with the input: all three or none.
   await expect(page.getByLabel("Reply to Sweetie")).toHaveCount(0);
@@ -398,6 +413,66 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   await expect(page.locator(".sweetie-flagged-card")).toBeVisible(LOADED);
   await expect(page.getByLabel("Reply to Sweetie")).toHaveCount(0);
   await expect(page.locator(".sweetie-composer-stopped")).toBeVisible();
+});
+
+/**
+ * The other state of the same card: with glucose it still reaches the summary (T141, design §2.5, §2.7).
+ *
+ * §2.5 "ends with the patient's summary link" and T66 put that link on this card, second to the office
+ * instruction. T141 is only about the condition, so the path that was always right is asserted beside the
+ * one that was not — a fix that simply dropped the anchor would satisfy the test above and take §2.5's
+ * link with it, silently. This is the pairing e2e/flows.spec.ts already holds the skip link to.
+ */
+test("a flagged check-in with glucose still offers the summary §2.5 ends with", async ({ page }) => {
+  await signInAsDemo(page);
+  const email = patientEmail("E2E Flagged Glucose");
+  const booked = await (
+    await postJson(page.request, "/api/book", { name: "E2E Flagged Glucose", email, visitType: "follow_up", reason: "mornings running high", channel: "none" })
+  ).json();
+  expect(booked.token, "the visit's invite token").toBeTruthy();
+  await signOutOfBrowser(page);
+
+  await verifyLink(page, booked.token, email);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+
+  // The one difference from the test above: this visit has readings. clarity_window.csv is the fixture the
+  // single-day test uses — 84 of them inside one day. Multipart, so postJson does not fit; the header is
+  // the one it would have added (§10.8). The reload brings the new status into the page, since the upload
+  // went round the back of it rather than through the Dexcom button.
+  const uploaded = await page.request.post("/api/upload", {
+    headers: { "x-csrf-token": await csrfToken(page.request) },
+    multipart: {
+      token: booked.token,
+      kind: "dexcom",
+      file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: readFileSync("data/fixtures/clarity_window.csv") },
+    },
+  });
+  expect(uploaded.ok(), `POST /api/upload: ${await uploaded.text()}`).toBeTruthy();
+  await page.reload();
+
+  const input = page.getByLabel("Reply to Sweetie");
+  await input.fill("I had chest pain yesterday evening and it really scared me.");
+  await input.press("Enter");
+
+  const flaggedCard = page.locator(".sweetie-flagged-card");
+  await expect(flaggedCard).toBeVisible(LOADED);
+  // §2.5's instruction is still the headline, and the summary is still the second thing on the card (T66).
+  await expect(flaggedCard.locator("strong")).toContainText(/call .+'s office today/i);
+  await expect(flaggedCard.locator(".sweetie-flagged-kept")).toHaveCount(0);
+  const summary = flaggedCard.getByRole("link", { name: /shared so far/i });
+  await expect(summary).toHaveAttribute("href", `/patient/${booked.token}`);
+  await expectTranscriptUncut(page, "the stopped check-in with glucose");
+  await shot(page, "sweetie-flagged-stopped-glucose", WHOLE_PAGE);
+
+  // And it lands on the glucose the patient shared rather than on the invitation to go and share some,
+  // which is the round trip the whole module exists to prevent.
+  await summary.click();
+  await expect(page).toHaveURL(new RegExp(`/patient/${booked.token}$`), LOADED);
+  await expect(EYEBROW(page)).toBeVisible(LOADED);
+  await expect(page.locator(".patient-summary-content")).not.toContainText(/first chapter/i);
+  await expect(
+    page.locator(".patient-report-card", { has: page.getByRole("heading", { name: "Your glucose", exact: true }) }),
+  ).toBeVisible();
 });
 
 // T41 (design §2.7, §6): every visit type, not just the one the flow above books. The labels are written out

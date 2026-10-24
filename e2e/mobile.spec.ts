@@ -148,8 +148,12 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   const headline = flaggedCard.locator("strong");
   await expect(headline).toContainText(/call .+'s office today/i);
   await expect(headline).toContainText(/911/);
-  // §2.5 still "ends with the patient's summary link" (§2.7) — second on the card, not the headline.
-  await expect(flaggedCard.getByRole("link", { name: /shared so far/i })).toHaveAttribute("href", `/patient/${token}`);
+  // §2.5 "ends with the patient's summary link" (§2.7) when there is one, second on the card rather than
+  // as the headline — and nothing has been uploaded here, so there is not (T141). The card says what did
+  // reach the care team instead of sending the patient to the empty summary and back.
+  await expect(flaggedCard.getByRole("link", { name: /shared so far/i })).toHaveCount(0);
+  await expect(page.locator(`.sweetie-conversation a[href="/patient/${token}"]`)).toHaveCount(0);
+  await expect(flaggedCard.locator(".sweetie-flagged-kept")).toContainText(/saved for your care team/i);
   // And the rail no longer reads a percentage next to a finished check-in.
   const progressCard = page.locator(".sweetie-progress-card");
   await expect(progressCard).toContainText(/Check-in stopped/i);

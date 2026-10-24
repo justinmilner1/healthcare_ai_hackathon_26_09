@@ -10,7 +10,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
-import { checkInCompleteCopy, skipDestination, skipLinkLabel } from "@/lib/summaryPromise";
+import { checkInCompleteCopy, flaggedCardCopy, skipDestination, skipLinkLabel } from "@/lib/summaryPromise";
 import type {
   ChatMessage,
   IntakeFieldDef,
@@ -523,6 +523,7 @@ export default function SweetiePage({
   const hasGlucose = Boolean(status?.hasDexcom);
   const summaryHref = skipDestination(hasGlucose, token);
   const complete = checkInCompleteCopy(hasGlucose);
+  const stoppedCard = flaggedCardCopy(hasGlucose, token);
   const totalSteps = fields.length + 1;
   const completedSteps = completeFields + (finished && !flagged ? 1 : 0);
   const progress = totalSteps
@@ -756,17 +757,25 @@ export default function SweetiePage({
                 {/* A flagged intake has just been told to call someone; §2.5 is that instruction, so it is
                     the headline, in the same words and with the same name as Sweetie's own message. The
                     summary link stays (§2.5 "ends with the patient's summary link", §2.7) as the second thing
-                    on the card rather than the first (T66). */}
+                    on the card rather than the first (T66) — on the same condition as every other offer on
+                    this page, which is the one thing T66 could not have known to ask (T137, T141). Without
+                    glucose the line under the instruction is a statement instead of an anchor: a patient who
+                    has just described chest pain and shared no readings was being sent, from here, to a page
+                    whose only button brought them back to a check-in that had stopped talking to them. */}
                 {finished && flagged && (
                   <div className="sweetie-flagged-card">
                     <span aria-hidden="true">!</span>
                     <div>
                       <strong>{officeAction(provider)}</strong>
                       <small>If you can&apos;t reach them, go to urgent care.</small>
-                      <a href={`/patient/${token}`}>
-                        See what you&apos;ve shared so far
-                        <b aria-hidden="true"> →</b>
-                      </a>
+                      {stoppedCard.href ? (
+                        <a href={stoppedCard.href}>
+                          {stoppedCard.detail}
+                          <b aria-hidden="true"> →</b>
+                        </a>
+                      ) : (
+                        <small className="sweetie-flagged-kept">{stoppedCard.detail}</small>
+                      )}
                     </div>
                   </div>
                 )}

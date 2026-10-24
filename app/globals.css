@@ -3944,6 +3944,14 @@ textarea.ss-input {
   border-color: #d79a73;
 }
 
+/* The same line with nothing at the other end of it: a flagged check-in with no glucose has no summary to
+   offer, so it says what became of what the patient did share instead (T141, §2.5). Set off from the
+   urgent-care line above it, which is advice about the instruction rather than about their data. */
+.sweetie-flagged-card .sweetie-flagged-kept {
+  margin-top: 8px;
+  font-weight: 600;
+}
+
 .sweetie-composer {
   display: flex;
   gap: 8px;
