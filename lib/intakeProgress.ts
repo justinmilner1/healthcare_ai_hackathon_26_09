@@ -92,7 +92,8 @@ export function intakeProgressCard(input: IntakeProgressInput): IntakeProgressCa
   switch (ending) {
     case "flagged":
       // T66's card, unchanged: §2.5 has sent the patient to a person, and a part-full track beside that is
-      // the wrong pair of facts.
+      // the wrong pair of facts. The sentence is §2.5's own instruction, naming the practice, and it reaches
+      // the phone under the same rule as the skipped card's (T147).
       return {
         ending,
         label: "Check-in stopped",
@@ -101,7 +102,9 @@ export function intakeProgressCard(input: IntakeProgressInput): IntakeProgressCa
       };
     case "skipped":
       // The same shape for the other early ending. The sentence is what the card has instead of the number,
-      // so §6.5 asks it to survive at 375px as well — app/globals.css un-hides it for this state.
+      // so §6.5 asks it to survive at 375px as well. What un-hides it there is `percent === null` itself:
+      // app/globals.css keys the exception on the card having no number rather than on either ending by
+      // name, so an ending that drops the number takes the sentence with it (T147).
       return {
         ending,
         label: "Check-in ended early",

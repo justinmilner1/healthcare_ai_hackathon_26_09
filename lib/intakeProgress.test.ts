@@ -106,6 +106,25 @@ test("every state has a sentence, because §6.5 now shows it at 375px too", () =
   }
 });
 
+test("exactly the endings that stopped short have no number, which is what the 375px rule keys on (T147)", () => {
+  // app/globals.css hides the sentence at 375px and un-hides it for `.sweetie-progress-card--no-number`,
+  // which page.tsx puts on from `percent === null`. So this is the set of cards whose line survives the
+  // phone, and it has to be the set whose line is all the card has. It was the skipped ending alone before
+  // T147, and the flagged card — the other one with no number — was a heading over nothing at 375px.
+  const noNumber = new Set<IntakeEnding>();
+  for (const [ending, input] of [
+    ["open", OPEN],
+    ["answered", ANSWERED],
+    ["skipped", SKIPPED],
+    ["flagged", FLAGGED],
+  ] as [IntakeEnding, IntakeProgressInput][]) {
+    const card = intakeProgressCard(input);
+    assert.equal(card.ending, ending, "the fixture is not the state it is named for");
+    if (card.percent === null) noNumber.add(ending);
+  }
+  assert.deepEqual([...noNumber].sort(), ["flagged", "skipped"]);
+});
+
 test("a check-in answered to the end is unchanged: 100% beside 'Your story is ready'", () => {
   const card = intakeProgressCard(ANSWERED);
   assert.equal(card.label, "Conversation progress");
