@@ -5708,12 +5708,20 @@ button.sweetie-agent-badge {
     display: none;
   }
 
-  /* Except where the sentence is the card. A skipped check-in has no percentage and no track above it
-     (T142, lib/intakeProgress.ts), so hiding the line leaves a labelled empty box — and before T142 it was
-     worse than empty: the phone showed a two-thirds-full track labelled 67% on a check-in that was over,
-     with nothing anywhere on the screen to explain it. §6.5 asks for the state, not for the desktop's half
-     of it. */
-  .sweetie-progress-card--skipped small {
+  /* Except where the sentence is the card. An ending that stopped short has no percentage and no track
+     above it (lib/intakeProgress.ts), so hiding the line leaves a labelled empty box — and before T142 it
+     was worse than empty: the phone showed a two-thirds-full track labelled 67% on a check-in that was
+     over, with nothing anywhere on the screen to explain it. §6.5 asks for the state, not for the
+     desktop's half of it.
+
+     Both those endings, not one. T142 carved this exception for the skipped card and left the flagged one
+     to the rule above, because its own criterion asked for that ending untouched — so at 375px "Check-in
+     stopped" stood over nothing, and the sentence missing was §2.5's own instruction naming the practice
+     (T147). Two exceptions to one rule is a selector: the modifier is the card having no number, which is
+     the property that makes the sentence all there is, and page.tsx puts it on from the same
+     `percent === null` it drops the number and the track from. A card that still has them keeps the line
+     hidden, which is what `display: none` is here for. */
+  .sweetie-progress-card--no-number small {
     display: block;
   }
 

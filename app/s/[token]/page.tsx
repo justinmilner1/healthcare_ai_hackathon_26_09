@@ -615,11 +615,16 @@ export default function SweetiePage({
                 ended short: it stopped at whatever was answered, so the card says that and drops the
                 number and the bar rather than drawing a part-full track next to it. T66 did that for the
                 flagged ending; T142 gives the skipped one the same shape, and the modifier class is what
-                keeps the sentence on the screen at 375px, where it is all the card has (§2.5, §6.5). */}
+                keeps the sentence on the screen at 375px, where it is all the card has (§2.5, §6.5).
+
+                The modifier asks the same `percent === null` the number and the track are drawn from, so
+                it cannot name a different set of cards than the ones the sentence is all of. It used to
+                name the skipped ending alone, and the flagged card — the other one with no number — was a
+                heading over nothing at 375px (T147). */}
             <div
               className={
-                progressCard.ending === "skipped"
-                  ? "sweetie-progress-card sweetie-progress-card--skipped"
+                progressCard.percent === null
+                  ? "sweetie-progress-card sweetie-progress-card--no-number"
                   : "sweetie-progress-card"
               }
             >
