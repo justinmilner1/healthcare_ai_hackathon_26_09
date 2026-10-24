@@ -279,16 +279,19 @@ test("a demo practice is told before the button that this number will not be mes
   const name = uniqueName("Demo Prospect");
   const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
 
-  /** Steps 1 and 2 of the wizard, for one number. Step 3 is the subject, so getting there is not. */
-  const toStep3 = async (phone: string, patient: string) => {
+  /** Steps 1 and 2 of the wizard, for one number. Step 3 is the subject, so getting there is not. An
+   *  address and a channel are optional, for the "both" booking case 4 below needs: §13.4 is a question
+   *  about each destination, so a booking can have one of them refused and the other allowed. */
+  const toStep3 = async (phone: string, patient: string, also?: { email: string; channel: string }) => {
     await page.goto(`http://localhost:${SENDABLE_PORT}/provider`);
     await page.getByRole("button", { name: /Add patient/i }).first().click();
     await wizard.getByLabel("Patient name").fill(patient);
     await wizard.getByLabel("Mobile number").fill(phone);
+    if (also) await wizard.getByLabel("Email", { exact: true }).fill(also.email);
     await wizard.getByRole("button", { name: /Continue/i }).click();
     await wizard.getByText("Follow-up", { exact: true }).click();
     await wizard.getByRole("button", { name: /Continue/i }).click();
-    await wizard.getByText("Text message", { exact: true }).click();
+    await wizard.getByText(also?.channel ?? "Text message", { exact: true }).click();
     return wizard.locator(".patient-consent-note").first();
   };
 
@@ -341,6 +344,31 @@ test("a demo practice is told before the button that this number will not be mes
   );
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient & send \u2192");
   await shot(page, "provider-add-visit-demo-reserved", MODAL);
+
+  // 4. The intersection of §13.4 and T111, which the first landing of this ticket left open: a booking on
+  //    **both** channels where the rule closes the one this office can serve and leaves the one it cannot.
+  //    The number is somebody's, so §13.4 refuses the text; the address is reserved, so the invite is down
+  //    to email — and this server has no email backend. The step used to ask `inviteSendability("both")`,
+  //    which is satisfied by the origination number, and so promised a send on the email half that nothing
+  //    could carry; the press then refused it. `bookingPlan` now looks the fault up after its own narrowing,
+  //    about what §13.4 actually left (`faults[channelOf(open)]`, lib/booking.ts), so the two agree.
+  //
+  //    Read and not pressed: the point is the forecast, and `inviteReach` answering the same way is
+  //    lib/booking.test.ts's pairing test and lib/notify.test.ts's to hold.
+  const mixed = await toStep3(`+16505554${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`, uniqueName("Demo Mixed"), {
+    email: `demo.mixed.${Date.now()}@example.com`,
+    channel: "Text and email",
+  });
+  await expect(mixed).toHaveText(
+    "No invite will be sent: Sweet Spot cannot send email yet — ask whoever set it up for your office. Save this patient and copy the link from the dashboard and hand it over yourself.",
+    LOADED,
+  );
+  await expect(mixed).toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+  const mixedStep = await wizard.innerText();
+  expect(mixedStep, "nothing on the step offers a send neither channel can carry").not.toMatch(PROMISES_SEND);
+  expect(mixedStep, "and no destination is named as where the link goes").not.toMatch(/goes to/);
+  await shot(page, "provider-add-visit-demo-mixed", MODAL);
 });
 
 // T111 The other half of that sentence: an office whose deployment *can* send is still told the invite is on
