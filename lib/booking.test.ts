@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { bookedOutcome, bookingPlan, type BookedSend } from "./booking";
 import { cannotSendYet } from "./delivery";
+import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import { fixture } from "./fixtures";
 import { channelLabel, parseVisitCsv } from "./visitIntake";
 
@@ -123,9 +124,17 @@ const NO_EMAIL = cannotSendYet("email");
  *  applied to the "Do not message" row, whose note promises a six-digit code and not an invite. */
 const PROMISES_SEND = /\bsends\b|& send/i;
 
+/** A number and an address step 1 collected. Both channels have one, so a case about the channel is not
+ *  quietly also a case about a missing contact detail. */
+const SAM = { phone: "+14155550123", email: "sam@example.com" };
+
+/** T145 A pair §13.4 refuses from a demo practice: neither is in the NANP's fictitious 555-01xx range nor
+ *  under a reserved domain, so both are somebody's (lib/demo.ts). The number is the ticket's own. */
+const REAL = { phone: "+16505552652", email: "prospect@example-endo.com" };
+
 describe("bookingPlan", () => {
   it("promises the send, and names where it goes, when the deployment can make it", () => {
-    const plan = bookingPlan({ channel: "both", to: "+14155550123 and sam@example.com" });
+    const plan = bookingPlan({ channel: "both", phone: "+14155550123", email: "sam@example.com" });
     assert.equal(plan.lede, "Saving creates the patient and sends their private Sweetie link on the channel you choose here.");
     assert.equal(plan.note, "The secure link goes to +14155550123 and sam@example.com.");
     assert.equal(plan.action, "Add patient & send →");
@@ -133,13 +142,13 @@ describe("bookingPlan", () => {
   });
 
   it("asks for a contact detail where step 1 left both blank, which is not a fault", () => {
-    const plan = bookingPlan({ channel: "sms", to: "" });
+    const plan = bookingPlan({ channel: "sms" });
     assert.equal(plan.note, "The secure link goes to — add a number or address on the first step.");
     assert.equal(plan.blocked, false, "nothing is wrong with the deployment");
   });
 
   it("says before the button that this deployment cannot send on the chosen channel (§8.1)", () => {
-    const plan = bookingPlan({ channel: "email", fault: NO_EMAIL, to: "sam@example.com" });
+    const plan = bookingPlan({ channel: "email", fault: NO_EMAIL, email: "sam@example.com" });
     assert.equal(plan.note, `No invite will be sent: ${NO_EMAIL}. Save this patient and copy the link from the dashboard and hand it over yourself.`);
     assert.equal(plan.blocked, true);
     // The address is not repeated as a destination: "The secure link goes to …" was the claim, and the whole
@@ -149,11 +158,11 @@ describe("bookingPlan", () => {
 
   it("keeps the three lines agreeing: either all of them expect a send or none of them does", () => {
     for (const channel of ["both", "sms", "email"] as const) {
-      const sendable = bookingPlan({ channel, to: "sam@example.com" });
+      const sendable = bookingPlan({ channel, ...SAM });
       assert.match(sendable.lede, /sends their private Sweetie link/, channel);
       assert.match(sendable.action, /& send/, channel);
 
-      const blocked = bookingPlan({ channel, fault: cannotSendYet(channel), to: "sam@example.com" });
+      const blocked = bookingPlan({ channel, fault: cannotSendYet(channel), ...SAM });
       for (const line of [blocked.lede, blocked.note, blocked.action]) {
         assert.doesNotMatch(line, PROMISES_SEND, `${channel}: ${line}`);
         assert.doesNotMatch(line, MOTION, `${channel}: ${line}`);
@@ -163,7 +172,7 @@ describe("bookingPlan", () => {
   });
 
   it("leaves \"Do not message\" the practice's own choice and not a gap in the deployment (T120)", () => {
-    const chosen = bookingPlan({ channel: "none", to: "sam@example.com" });
+    const chosen = bookingPlan({ channel: "none", ...SAM });
     // Word for word what the step has always said on this row: T140 had to reach it on the other rows, not
     // reword it.
     assert.equal(
@@ -175,7 +184,10 @@ describe("bookingPlan", () => {
     assert.equal(chosen.action, "Add patient →");
     // And it stays that row's sentence even where the deployment could not have sent anyway: a fault the
     // caller passes for "none" says nothing staff can act on, because nothing was going to be sent.
-    assert.deepEqual(bookingPlan({ channel: "none", fault: NO_EMAIL }), chosen);
+    assert.deepEqual(bookingPlan({ channel: "none", fault: NO_EMAIL, ...SAM }), chosen);
+    // And a demo practice booking a destination §13.4 refuses still reads as the practice's own choice:
+    // nothing was going to be sent, so there is no rule to explain (T145).
+    assert.deepEqual(bookingPlan({ channel: "none", demo: true, phone: REAL.phone, email: REAL.email }), chosen);
   });
 
   it("says nothing on the step that the card would then retract (T111, T122)", () => {
@@ -186,19 +198,89 @@ describe("bookingPlan", () => {
       [undefined, true],
       [NO_EMAIL, false],
     ] as const) {
-      const plan = bookingPlan({ channel: "email", fault, to: "sam@example.com" });
+      const plan = bookingPlan({ channel: "email", fault, email: SAM.email });
       const card = bookedOutcome({ name: "Sam Taylor", channel: "email", queued, reason: fault });
       assert.equal(PROMISES_SEND.test(`${plan.lede} ${plan.note} ${plan.action}`), queued, `forecast, queued=${queued}`);
       assert.equal(MOTION.test(`${card.heading} ${card.lede}`), queued, `card, queued=${queued}`);
     }
+
+    // T145 And the pair the *ticket* is about, in an office that can send: the step and the card for one
+    // demo practice booking one prospect's real number, which disagreed for a month. `reason` is what
+    // `inviteReach` hands POST /api/book, so the two lines are quoting one sentence.
+    const demo = bookingPlan({ channel: "sms", demo: true, ...REAL });
+    const demoCard = bookedOutcome({ name: "Sam Taylor", channel: "sms", queued: false, reason: DEMO_ONLY_TEST_ADDRESSES });
+    assert.doesNotMatch(`${demo.lede} ${demo.note} ${demo.action}`, PROMISES_SEND);
+    assert.doesNotMatch(`${demoCard.heading} ${demoCard.lede}`, MOTION);
+    assert.equal(demoCard.lede, `Patient added. No invite sent: ${DEMO_ONLY_TEST_ADDRESSES}. Share the link below.`);
+  });
+
+  it("says before the button that a demo practice will not write to this destination (§13.4, T145)", () => {
+    // The ticket's own screen: a demo practice, a prospect's real mobile number, and an office that can
+    // text. No fault is passed, because there is nothing wrong with the deployment — which is exactly how
+    // this branch used to be missed.
+    for (const channel of ["both", "sms", "email"] as const) {
+      const plan = bookingPlan({ channel, demo: true, ...REAL });
+      assert.equal(
+        plan.note,
+        `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+        channel,
+      );
+      assert.equal(plan.blocked, true, channel);
+      assert.equal(plan.action, "Add patient →", channel);
+      assert.doesNotMatch(plan.lede, PROMISES_SEND, channel);
+      // Not the deployment's sentence: nobody has anything to configure, and sending staff to whoever set
+      // Sweet Spot up over a rule is the next ticket in this family.
+      assert.doesNotMatch(plan.note, /cannot send|ask whoever/, channel);
+      // And the destination is not repeated as one, like the fault branch above.
+      assert.doesNotMatch(plan.note, /goes to/, channel);
+    }
+  });
+
+  it("leaves a demo practice booking a reserved destination exactly as it was (§13.4)", () => {
+    // The walkable demo: the fictitious number and the `.local` address §13.4 allows. This is the screen a
+    // salesperson is on most of the time, so nothing about it may change.
+    const reserved = { phone: "+14155550100", email: "sam.sample@sweetspot.local" };
+    const plan = bookingPlan({ channel: "both", demo: true, ...reserved });
+    assert.equal(plan.note, `The secure link goes to ${reserved.phone} and ${reserved.email}.`);
+    assert.equal(plan.blocked, false);
+    assert.equal(plan.action, "Add patient & send →");
+    // And a practice that is not a demo one is untouched by the rule, whatever it books — nearly every one.
+    assert.deepEqual(bookingPlan({ channel: "both", ...REAL }), bookingPlan({ channel: "both", ...REAL, demo: false }));
+    assert.equal(bookingPlan({ channel: "both", ...REAL }).note, `The secure link goes to ${REAL.phone} and ${REAL.email}.`);
+  });
+
+  it("names only the destination the invite can still reach (§13.4, T145)", () => {
+    // One of the two refused is a narrower invite and not a refused one, the way one configured backend of
+    // two is (T111). The step used to name both destinations off the form, so it promised a text to a
+    // number §13.4 was about to refuse.
+    const mixed = { phone: REAL.phone, email: "sam.sample@sweetspot.local" };
+    const plan = bookingPlan({ channel: "both", demo: true, ...mixed });
+    assert.equal(plan.note, `The secure link goes to ${mixed.email}.`);
+    assert.equal(plan.blocked, false, "something is still going out");
+    assert.doesNotMatch(plan.note, /6505552652/, "the refused number is not named as a destination");
+  });
+
+  it("asks §13.4 before the deployment's own gap, as the press does (T145)", () => {
+    // `inviteReach` (lib/notify.ts) answers the press in this order, so the forecast has to: the rule is
+    // the fact no amount of configuration reopens, and the one staff can act on by booking elsewhere.
+    const plan = bookingPlan({ channel: "email", fault: NO_EMAIL, demo: true, ...REAL });
+    assert.match(plan.note, new RegExp(DEMO_ONLY_TEST_ADDRESSES.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(plan.note, /cannot send email yet/);
+    assert.equal(plan.blocked, true);
   });
 
   it("keeps every sentence in staff's words (§3.7, §10.6)", () => {
     for (const channel of ["both", "sms", "email", "none"] as const) {
       for (const fault of [undefined, cannotSendYet(channel)]) {
-        const plan = bookingPlan({ channel, fault, to: "sam@example.com" });
-        for (const line of [plan.lede, plan.note, plan.action]) {
-          assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
+        // T145 Every demo arm as well, where the sentence is quoted from lib/demo.ts rather than
+        // lib/delivery.ts: a rule staff cannot act on is as much a leak as a variable name.
+        for (const demo of [false, true]) {
+          for (const to of [SAM, REAL]) {
+            const plan = bookingPlan({ channel, fault, demo, ...to });
+            for (const line of [plan.lede, plan.note, plan.action]) {
+              assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
+            }
+          }
         }
       }
     }

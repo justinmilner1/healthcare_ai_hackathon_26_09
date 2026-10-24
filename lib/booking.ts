@@ -23,12 +23,22 @@
 // retract it. So this module owns both tenses of one claim — the forecast and the report — the way
 // lib/importNote.ts owns both of the CSV import's: neither can be reworded without the other being looked at.
 //
+// T145 is the third of these, on the branch that is not about the deployment at all: a demo practice (§13.4)
+// booking a prospect's real mobile number read "Saving creates the patient and sends their private Sweetie
+// link …", "The secure link goes to +16505552652." and **Add patient & send →**, and nothing said otherwise
+// until the delivery row did, minutes after the press. The fact was a column on the practice staff were
+// signed in to the whole time, which is why this branch is the forecast's and not only the route's.
+//
 // Pure, and in lib/ rather than in the wizard, so every branch is held to in a unit test (§12.1). The words
-// for *why* nothing went out are not here: they are the route's `reason`, which comes from lib/notify.ts
-// and is spelled in lib/delivery.ts, staff's words for a gap in the deployment and never a variable name
-// (§3.7, §10.6). The dashboard is a client component, so nothing here may pull in Prisma.
+// for *why* nothing went out are mostly not here: the deployment's are the route's `reason`, which comes
+// from lib/notify.ts and is spelled in lib/delivery.ts, staff's words for a gap in the deployment and never
+// a variable name (§3.7, §10.6). §13.4's are quoted from lib/demo.ts, which owns that rule and its sentence,
+// for the same reason: one set of words per rule, wherever it is said. The dashboard is a client component,
+// so nothing here may pull in Prisma — lib/demo.ts has no imports at all, which is what makes it quotable
+// from a browser bundle.
 
-import { channelLabel } from "./visitIntake";
+import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
+import { channelLabel, channelsOf } from "./visitIntake";
 
 /** What POST /api/book answered, plus the name the wizard has on screen. */
 export type BookedSend = {
@@ -87,9 +97,14 @@ export type PlannedSend = {
    *  settled on the server and handed to the step as a prop (`inviteFaultByChannel`, lib/notify.ts).
    *  Absent when it can send, and absent for `"none"`, which is a choice and not a fault. */
   fault?: string | null;
-  /** Where the link would go: the number and/or address step 1 collected, joined for reading. Blank until
-   *  one of them has been typed, which the note says in the words the step has always used. */
-  to?: string | null;
+  /** The number and the address step 1 collected. Where the link would go, and — for a demo practice —
+   *  what §13.4 is a rule about: the question is asked of the destination, not of the channel (T145). */
+  phone?: string | null;
+  email?: string | null;
+  /** §13.4 Whether the practice this visit is being booked into is marked synthetic, which closes every
+   *  channel whose destination is not itself reserved. Settled on the server and handed down as a prop, the
+   *  way `fault` is: `Practice.isDemo` is a column and the dashboard is a client component (T145). */
+  demo?: boolean;
 };
 
 /** The three things step 3 says about the invite, decided together. */
@@ -127,11 +142,14 @@ const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice
  * button all read from the same answer, so the screen cannot promise a send in one of the three and retract
  * it in another. Which was the bug — across the press rather than across the screen, but the same bug.
  *
- * The order is the order of the two questions. "Do not message" is asked first because it is the practice's
- * own choice and keeps its own sentence whatever the deployment can do (`NO_CONSENT_TO_MESSAGE`, T120); only
- * then is the deployment asked whether it can serve the channel staff did choose.
+ * The order is the order of the three questions, and it is `inviteReach`'s (lib/notify.ts), so the forecast
+ * and the press cannot disagree about which fact to name. "Do not message" is asked first because it is the
+ * practice's own choice and keeps its own sentence whatever anything else says (`NO_CONSENT_TO_MESSAGE`,
+ * T120). Then §13.4: a demo practice may write only to a reserved address or number, which is a column on
+ * the practice and a destination typed on step 1 — both on this screen, and neither fixable by configuring
+ * anything (T145). Only then is the deployment asked whether it can serve what is left.
  */
-export function bookingPlan({ channel, fault, to }: PlannedSend): BookingPlan {
+export function bookingPlan({ channel, fault, phone, email, demo }: PlannedSend): BookingPlan {
   if (channel === "none") {
     return {
       lede: WILL_NOT_SEND,
@@ -140,6 +158,24 @@ export function bookingPlan({ channel, fault, to }: PlannedSend): BookingPlan {
       action: "Add patient →",
     };
   }
+  // §13.4 before the deployment's own gap, which is the order `inviteReach` answers the press in
+  // (lib/notify.ts) and the reason the two cannot disagree. A demo practice may only write to a reserved
+  // address or number, so the destinations typed on step 1 are what decides it — and a channel it may not
+  // write to is closed however well this office is configured, which is what the sentence has to say.
+  // `channelsOf` is empty only for "none", which returned above, so an empty `open` here means §13.4 closed
+  // every channel staff chose — the case the route answers `queued: false` for.
+  const open = channelsOf(channel).filter((c) => !demoBlockReason(Boolean(demo), c, c === "sms" ? phone : email));
+  if (!open.length) {
+    return {
+      lede: WILL_NOT_SEND,
+      note: `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Save this patient and ${HAND_IT_OVER}.`,
+      blocked: true,
+      action: "Add patient →",
+    };
+  }
+  // The destination is what is left open, so the step cannot name a number §13.4 has just refused while the
+  // other channel carries the invite. Blank until step 1 has one of them, which is not a fault.
+  const to = [open.includes("sms") && phone?.trim(), open.includes("email") && email?.trim()].filter(Boolean).join(" and ");
   if (fault) {
     // The tense is the whole of this branch: the rows do not exist yet, so the sentence names the press it
     // is a forecast about — the cost of pressing the button is what the screen was missing — and stops
@@ -155,7 +191,7 @@ export function bookingPlan({ channel, fault, to }: PlannedSend): BookingPlan {
   return {
     lede: WILL_SEND,
     // Blank until step 1 has a number or an address, which is not a fault and is said where it happens.
-    note: `The secure link goes to ${to?.trim() || "— add a number or address on the first step"}.`,
+    note: `The secure link goes to ${to || "— add a number or address on the first step"}.`,
     blocked: false,
     action: "Add patient & send →",
   };

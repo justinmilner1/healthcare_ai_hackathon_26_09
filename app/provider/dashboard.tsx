@@ -112,12 +112,17 @@ const EMPTY_FORM: PatientForm = {
 export default function ProviderDashboard({
   providerId,
   channelFaults,
+  isDemo,
 }: {
   providerId: string;
   /** T140 (§2.2, §8.1) Staff's words for the §2.2 contact channels this deployment has no sender behind,
    *  per channel id and only for the ones that have a fault. Settled on the server (app/provider/page.tsx)
    *  so the wizard's step 3 can say it before the button, with no route and no fetch of its own. */
   channelFaults: Partial<Record<ContactChannel, string>>;
+  /** T145 (§13.4) Whether this practice is marked synthetic, which closes every channel whose destination is
+   *  not itself reserved. A column on the practice (`Practice.isDemo`), so it arrives the same way
+   *  `channelFaults` does — settled on the server, handed down as a prop, no route and no fetch. */
+  isDemo: boolean;
 }) {
   const [provider, setProvider] = useState<Provider | null>(null);
   const [form, setForm] = useState<PatientForm>(EMPTY_FORM);
@@ -727,6 +732,7 @@ export default function ProviderDashboard({
           form={form}
           setForm={setForm}
           channelFaults={channelFaults}
+          isDemo={isDemo}
           busy={busy}
           error={error}
           result={result}
@@ -976,6 +982,7 @@ function PatientWizard({
   form,
   setForm,
   channelFaults,
+  isDemo,
   busy,
   error,
   result,
@@ -987,6 +994,7 @@ function PatientWizard({
   form: PatientForm;
   setForm: React.Dispatch<React.SetStateAction<PatientForm>>;
   channelFaults: Partial<Record<ContactChannel, string>>;
+  isDemo: boolean;
   busy: boolean;
   error: string;
   result: (BookedOutcome & { link: string }) | null;
@@ -1001,7 +1009,13 @@ function PatientWizard({
   const plan = bookingPlan({
     channel: form.channel,
     fault: channelFaults[form.channel],
-    to: [form.channel !== "email" && form.phone, form.channel !== "sms" && form.email].filter(Boolean).join(" and "),
+    // T145 (§13.4) And the question the deployment has no say in: a demo practice may write only to a
+    // reserved address or number, so the flag is the practice's (a prop, like the faults above) and the
+    // destination is this form's, asked against it as it is typed. Where the link would go is derived from
+    // the same pair, so the step cannot name a number §13.4 has just refused.
+    demo: isDemo,
+    phone: form.phone,
+    email: form.email,
   });
 
   const sideCopy = [
