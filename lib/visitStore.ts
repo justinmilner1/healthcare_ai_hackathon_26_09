@@ -14,8 +14,8 @@ import { db } from "./db";
 import { HttpError } from "./httpError";
 import { log } from "./log";
 import type { ProviderUser } from "./auth";
-import { practiceIsDemo } from "./practice";
 import { channelsFor } from "./patientSession";
+import { practiceIsDemo } from "./practice";
 import type { SuppressionFacts } from "./suppression";
 import { channelsOf, type VisitDraft } from "./visitIntake";
 import { knownVisitType } from "./visits";
@@ -78,7 +78,7 @@ async function patientFor(
     // §8.1 rides on the patient and not on the visit, so a reused patient brings their bounce or their STOP
     // with them (T145): this is the asymmetry that makes the route ask and step 3 not — the row may not
     // exist yet while the step is on screen.
-    return { id: existing.id, reused: true, rows: { ...rowsOf({ ...existing, ...data }) } };
+    return { id: existing.id, reused: true, rows: rowsOf({ ...existing, ...data }) };
   }
   const created = await db.patient.create({
     data: { practiceId, name: draft.name, phone: draft.phone, email: draft.email },
