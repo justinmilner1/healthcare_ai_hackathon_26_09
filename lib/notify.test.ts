@@ -5,6 +5,7 @@ import {
   codeReach,
   codeTemplates,
   deletionTemplates,
+  inviteFaultByChannel,
   inviteFaults,
   inviteSendability,
   inviteTemplates,
@@ -468,6 +469,44 @@ test("a configured deployment reports no fault for a file at all (T135)", () => 
   });
   withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
     assert.deepEqual(inviteFaults(["sms", "email", "both", "none"]), [], "nothing to say about a deployment that can send");
+  });
+});
+
+// T140 The same question asked of all four of §2.2's channels at once, because step 3 of the booking wizard
+// has to say it while the radio is still being chosen. The record is the faults and nothing else: a channel
+// with a sender behind it and "Do not message" are both absent, for different reasons that the step keeps
+// apart (lib/booking.ts `bookingPlan`).
+
+test("an office with no backend at all has a sentence for every channel it could choose (T140)", () => {
+  const faults = inviteFaultByChannel();
+  assert.deepEqual(faults, {
+    both: "Sweet Spot cannot send this message yet — ask whoever set it up for your office",
+    sms: "Sweet Spot cannot send texts yet — ask whoever set it up for your office",
+    email: "Sweet Spot cannot send email yet — ask whoever set it up for your office",
+  });
+  // Not a key with an undefined value: "Do not message" is the practice's own choice, and the step reads
+  // the absence of a key as "nothing is wrong here" (T120).
+  assert.equal("none" in faults, false);
+});
+
+test("each channel gets its own sentence, so a half-configured office is not told it can send nothing (T140)", () => {
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example" }, () => {
+    // Email sends, so "both" is a narrower invite and not a refused one — the judgement `inviteSendability`
+    // already makes one channel at a time, and the wizard's default lands on it.
+    assert.deepEqual(inviteFaultByChannel(), {
+      sms: "Sweet Spot cannot send texts yet — ask whoever set it up for your office",
+    });
+  });
+  withEnv({ SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
+    assert.deepEqual(inviteFaultByChannel(), {
+      email: "Sweet Spot cannot send email yet — ask whoever set it up for your office",
+    });
+  });
+});
+
+test("a configured deployment has nothing to say on the step at all (T140)", () => {
+  withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
+    assert.deepEqual(inviteFaultByChannel(), {});
   });
 });
 

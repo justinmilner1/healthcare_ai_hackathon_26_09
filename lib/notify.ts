@@ -18,7 +18,7 @@ import { canSendOrMailbox, sendOrMailbox } from "./mailer";
 import { intakeLink, sendSms, smsConfig } from "./sms";
 import { allowedChannels, suppressedReason, type NotifyChannel, type SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
-import { channelsOf } from "./visitIntake";
+import { channelsOf, CONTACT_CHANNELS, type ContactChannel } from "./visitIntake";
 
 export type InviteResult = {
   link: string;
@@ -302,6 +302,32 @@ export function inviteFaults(channels: Iterable<string | null | undefined>): str
     if (reason) faults.add(reason);
   }
   return [...faults];
+}
+
+/**
+ * The same question again, asked of every channel the wizard offers rather than of the one staff have
+ * already chosen (§2.2, §8.1, T140): the fault sentence per `CONTACT_CHANNELS` id, for the ids that have one.
+ *
+ * `inviteSendability` above is asked by `POST /api/book` about a channel that has been picked, which is one
+ * press too late for the screen the picking happens on. Step 3 of the booking wizard asks it while the radio
+ * is still being chosen, so it needs all four answers at once — and it cannot ask for them, because it is in
+ * a client component (app/provider/dashboard.tsx) and this module reaches lib/email.ts and lib/sms.ts. So
+ * the answer is settled on the server in app/provider/page.tsx and handed down as a prop, the way T131 hands
+ * `canSendOrMailbox()` to the practice-settings invite card: no new route, no fetch, and nothing of the
+ * deployment's internals in the client bundle (§10.6).
+ *
+ * A channel this deployment can send on is absent rather than null, and so is `"none"`: staff choosing to
+ * message nobody is the practice's own choice and not a gap in the deployment, which is the distinction
+ * `NO_CONSENT_TO_MESSAGE` keeps elsewhere (lib/delivery.ts, T120). So the record holds faults and nothing
+ * else, which is what `bookingPlan` (lib/booking.ts) branches on.
+ */
+export function inviteFaultByChannel(): Partial<Record<ContactChannel, string>> {
+  const faults: Partial<Record<ContactChannel, string>> = {};
+  for (const { id } of CONTACT_CHANNELS) {
+    const { reason } = inviteSendability(id);
+    if (reason) faults[id] = reason;
+  }
+  return faults;
 }
 
 export async function sendIntakeInvite(p: {
