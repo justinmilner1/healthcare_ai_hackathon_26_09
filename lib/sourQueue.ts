@@ -39,11 +39,16 @@ export const queueSour = (visitId: string, client?: JobClient): Promise<EnqueueR
  * than by weakening the sentence. Naming the field here is what lets lib/sourQueue.test.ts assert that a
  * no-glucose wrap still queues, instead of leaving it to whatever the route happens not to check.
  *
- * A wrap is never empty, so this never queues a run over nothing: the field-driven wrap has answers behind
- * it, and the skip path refuses outright with nothing answered and nothing uploaded
- * (app/api/sweetie/route.ts). A flagged turn wraps too (lib/sweetieTurn.ts), which is the case this most
- * changes: a patient who described something urgent and shared no readings now reaches their clinician as
- * a brief rather than as a row nobody was told about.
+ * A wrap is never empty *of what the patient said*, so this never queues a run over nothing to write
+ * about: the field-driven wrap has answers behind it, the skip path refuses outright with nothing answered
+ * and nothing uploaded (app/api/sweetie/route.ts), and a flagged wrap has the red flag and the message that
+ * fired it (lib/sweetieTurn.ts, §2.5). That is a different emptiness from the clinician's surfaces', which
+ * is `visitNotStarted` in lib/sourState.ts — no answer, no glucose, no wrap — and the two parting company
+ * is what T148 was: a flag on the patient's first message wraps with every field `unfilled`, so this queued
+ * a run, `runSour` saved both summaries and §2.6 emailed the link, while the page read `answered === 0`
+ * with no `wrapped` in its own predicate and told the clinician to wait for a patient who had just
+ * described chest pain. `visitNotStarted` is now false for every visit this returns true for, which is the
+ * invariant the two sentences have to keep: anything worth queueing a run for is worth rendering.
  */
 export function wrapQueuesSour(turn: { wrapped: boolean; wasWrapped: boolean; hasDexcom: boolean }): boolean {
   return turn.wrapped && !turn.wasWrapped;

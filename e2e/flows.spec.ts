@@ -487,6 +487,47 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   await expect(page.locator(".sweetie-flagged-card")).toBeVisible(LOADED);
   await expect(page.getByLabel("Reply to Sweetie")).toHaveCount(0);
   await expect(page.locator(".sweetie-composer-stopped")).toBeVisible();
+
+  // T148, §2.6: the other end of the handover, and the whole reason this ticket exists. The wrap above
+  // queued the run, `runSour` saved both summaries and the visit is `summary_ready` — so the clinician
+  // follows the link in their email to this page. It used to read "Waiting on the patient / Nothing to
+  // summarize until the patient has talked to Sweetie", with Generate disabled, over a saved brief about a
+  // patient who had just described chest pain: `isEmptyVisit` was `answered === 0 && !hasDexcom` and the
+  // flag fires before any extraction, so every field stayed `unfilled`. The predicate now has the wrap in
+  // it (lib/sourState.ts `visitNotStarted`).
+  //
+  // The patient's session goes first: the clinician's half of a bundle is not a patient's to receive
+  // (§5.2, §10.6), so signOutOfBrowser is what lets one test be two identities (e2e/auth.ts).
+  await signOutOfBrowser(page);
+  const clinician = await signInAsDemo(page);
+  await page.goto(`/provider/${clinician.id}?visit=${booked.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Flagged", LOADED);
+  // The run the wrap queued, reported by the job's own state rather than inferred from the page (§7.2).
+  // Nothing here presses Generate — and before this ticket it could not: the button was disabled on the
+  // same predicate as the card. `ready` or `stale` rather than one of them, because the post-flag message
+  // above is itself an input change (it increments `turns`, lib/sweetieTurn.ts) and whether it landed
+  // before or after the queued run drained decides which of the two §7.1 calls this. Both are a brief that
+  // exists; `none` is the answer that would say the wrap queued nothing, and it is the one this excludes.
+  await expect
+    .poll(() => page.locator(".sour-job-state").getAttribute("data-phase"), { message: "the brief the wrap queued, on the clinician's page", ...DRAINED })
+    .toMatch(/^(ready|stale)$/);
+  // The card that was wrong, gone — and the brief that was already saved, on the screen.
+  await expect(page.locator(".sour-waiting"), "a wrapped visit is never 'Waiting on the patient' (T148)").toHaveCount(0);
+  const brief = page.locator(".sour-brief");
+  await expect(brief).not.toContainText(/Nothing to summarize/i);
+  await expect(brief).not.toContainText(/Waiting on the patient/i);
+  // §2.6's red flag at the top, which always did reach them — it is outside the branch — asserted here so
+  // the fix cannot be a swap of one for the other.
+  await expect(page.locator(".sour-safety-flag")).toContainText("cardiac or breathing");
+  // What the brief has to say for a check-in with no readings and no answered field: the conversation-only
+  // notice, and the patient's own words as `renderNotes` left them for Sour to read (lib/sweetie.ts).
+  await expect(page.locator(".sour-no-glucose-note")).toContainText("This summary is from the conversation only.");
+  await expect(brief, "the flag reaches the clinician in the brief as well as the banner").toContainText(/Patient was told to call the office/i);
+  await expect(brief, "and not the card's line about nobody having talked to Sweetie").not.toContainText(/has talked to Sweetie/i);
+  // And Generate agrees with the branch: there is no visit this page refuses to render *and* refuses to
+  // regenerate (T148's third criterion).
+  await expect(page.getByRole("button", { name: /Regenerate|Generate/ })).toBeEnabled();
+  await shot(page, "provider-sour-flagged-no-answers", { ...SCREENFUL, scrollTo: ".sour-safety-flag", block: "start" });
 });
 
 /**

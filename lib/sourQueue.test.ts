@@ -10,6 +10,7 @@ import { afterEach, describe, it } from "node:test";
 import type { JobClient } from "./jobs";
 import { setLogSink } from "./log";
 import { INTAKE_SETTLED_STATUSES, intakeSettled, queueSour, queueSourAfterImport, sourJobKey, wrapQueuesSour } from "./sourQueue";
+import { visitNotStarted } from "./sourState";
 
 type Created = { kind: string; payload: string; idempotencyKey: string | null; runAfter: Date };
 
@@ -94,6 +95,32 @@ describe("wrapQueuesSour", () => {
       // Not reachable through lib/sweetieTurn.ts (`wrapped` only ever goes true), and still not a queue:
       // "wrapped now, not wrapped before" is the whole condition.
       assert.equal(wrapQueuesSour({ wrapped: false, wasWrapped: true, hasDexcom }), false);
+    }
+  });
+
+  // T148: the invariant this trigger and the clinician's surfaces have to keep between them. Both have an
+  // idea of an empty visit and they are not the same idea — a wrap is never empty of what the patient said,
+  // `visitNotStarted` is about whether there is anything to render — so the one thing that must hold is the
+  // direction between them: anything worth queueing a run for is worth rendering. It did not hold. A flag
+  // on the patient's first message wraps with every field `unfilled` (lib/sweetieTurn.ts, §2.5), so this
+  // queued the run, `runSour` saved both summaries and §2.6 emailed the clinician a link — to a page whose
+  // predicate had no `wrapped` in it and told them to wait for a patient who had described chest pain.
+  // Asserted here rather than in lib/sourState.test.ts, which is pure and has no business importing a
+  // module that reaches the Job table.
+  it("never queues a run for a visit the clinician's surfaces would call not started", () => {
+    for (const wrapped of [true, false]) {
+      for (const wasWrapped of [true, false]) {
+        for (const hasDexcom of [true, false]) {
+          for (const answered of [0, 1, 2]) {
+            if (!wrapQueuesSour({ wrapped, wasWrapped, hasDexcom })) continue;
+            assert.equal(
+              visitNotStarted({ intake: { wrapped }, status: { answered, hasDexcom } }),
+              false,
+              `queued a run the page would refuse to render: answered=${answered} hasDexcom=${hasDexcom}`,
+            );
+          }
+        }
+      }
     }
   });
 

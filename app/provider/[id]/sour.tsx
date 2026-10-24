@@ -25,7 +25,7 @@ import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { countOf } from "@/lib/plural";
-import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
+import { emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
 import { clinicianChartCaption } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
@@ -37,10 +37,11 @@ const SUMMARY_POLLS = 20;
 const SUMMARY_POLL_MS = 1500;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** A visit with nothing for Sour to read: no glucose and no answers. The one state this page neither
- *  generates for nor offers the button on — everything else has a brief, including a check-in that shared
- *  no readings, whose brief is the conversation (T143, §2.6, §7.1). */
-const isEmptyVisit = (b: PatientBundle) => !b.status.hasDexcom && b.status.answered === 0;
+/** A visit the patient never started: nothing answered, no glucose, and no wrap behind it. The one state
+ *  this page neither generates for nor offers the button on — everything else has a brief, including a
+ *  check-in that shared no readings, whose brief is the conversation (T143), and one the §2.5 scan stopped
+ *  before a single field was filled, whose brief is the flag and the patient's own words (T148). The
+ *  predicate is lib/sourState.ts, which the printed one-pager asks too (§2.6, §7.1). */
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
 type Provider = { name: string; practice: string | null; visits: Row[] };
@@ -179,9 +180,9 @@ export default function SourView({ id }: { id: string }) {
       // trigger carried (lib/sourQueue.ts `wrapQueuesSour`), so the two agreed only in being wrong together:
       // a visit that wrapped with no glucose had nothing queued for it and nothing generated on first open
       // either, and sat on "No summary yet." until a clinician found the Generate button. The empty branch
-      // below still holds the one visit with nothing at all to say — no glucose and no answers — which is
-      // also what the Generate button is disabled on.
-      if (activeVisit.current === selected && b && !b.providerSummary && !isEmptyVisit(b) && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
+      // below still holds the one visit with nothing at all to say — no glucose, no answers and no wrap
+      // (T148) — which is also what the Generate button is disabled on.
+      if (activeVisit.current === selected && b && !b.providerSummary && !visitNotStarted(b) && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
@@ -369,7 +370,7 @@ export default function SourView({ id }: { id: string }) {
                     {reviewing ? "Marking…" : "Mark reviewed"}
                   </button>
                 )}
-                <button onClick={() => generate(bundle.visitId)} disabled={busy || jobBusy || isEmptyVisit(bundle)} className="ss-button ss-button-primary">
+                <button onClick={() => generate(bundle.visitId)} disabled={busy || jobBusy || visitNotStarted(bundle)} className="ss-button ss-button-primary">
                   {busy || jobBusy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
@@ -419,7 +420,7 @@ export default function SourView({ id }: { id: string }) {
               </div>
             )}
 
-            {isEmptyVisit(bundle) ? (
+            {visitNotStarted(bundle) ? (
               <EmptyIntake bundle={bundle} />
             ) : (
               <>

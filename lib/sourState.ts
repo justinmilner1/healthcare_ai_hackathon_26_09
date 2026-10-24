@@ -9,7 +9,7 @@
 // Precedence is deliberate: a job that is in flight or has failed outranks whatever summary is on screen,
 // because what the clinician needs to know first is whether anything is still coming.
 
-import type { NarrativeMissing, SourJobState } from "./types";
+import type { IntakeState, IntakeStatus, NarrativeMissing, SourJobState } from "./types";
 
 export type SummaryPhase = "none" | "queued" | "running" | "failed" | "ready" | "stale";
 
@@ -85,6 +85,42 @@ export function summaryState({ job, hasSummary, stale, summaryAt }: SummaryState
   if (hasSummary) return { phase: "ready", label: "Ready", detail: "Written", at: summaryAt, canRetry: false, busy: false };
   return { phase: "none", label: "Not generated", detail: "Nothing has been summarized for this visit yet.", at: null, canRetry: false, busy: false };
 }
+
+/**
+ * Has the patient not started this visit at all? (design §2.6, T143, T148)
+ *
+ * The one state the provider page has nothing to render and nothing to generate: a visit that was booked and
+ * then sat there. Both of the clinician's surfaces ask it — the brief
+ * (app/provider/[id]/sour.tsx, which shows `EmptyIntake` and disables Generate on it) and the printed
+ * one-pager (app/provider/visit/[id]/print/page.tsx, "Nothing to summarize yet") — so it is one function
+ * here rather than the same expression written twice, which is how the two drifted from the queue's own
+ * idea of empty (lib/sourQueue.ts `wrapQueuesSour`).
+ *
+ * `wrapped` is the part T148 added, and it is the whole of the bug. A check-in the §2.5 safety scan flagged
+ * on the patient's *first* message wraps (lib/sweetieTurn.ts) with every field still `unfilled`, so
+ * `answered` is 0; with no upload either, the predicate without `wrapped` called that visit empty — while
+ * the wrap had queued a `sour.run`, `runSour` had saved both summaries and §2.6's "the clinician is emailed
+ * a link" had already gone out. The clinician followed that link to "Waiting on the patient / Nothing to
+ * summarize until the patient has talked to Sweetie", over a brief that existed, about a patient who had
+ * described chest pain. A wrap is Sweetie's goodbye: whatever is behind it is what the visit has to say, and
+ * the brief written from it is what §2.6 puts in front of the clinician, however thin. A skip wraps too
+ * (lib/sweetie.ts sets `questionsSkipped` *and* `wrapped`), so this covers that ending with no second flag
+ * to read.
+ *
+ * `hasDexcom` is the data half and stays as it was: glucose is what a brief is mostly made of, and a visit
+ * with readings has one whether anybody talked to Sweetie or not. The other two exports are not in it for
+ * the same reason they are not in the brief's own branches — a Timeline with no readings to match against
+ * is nothing for Sour to say anything about.
+ *
+ * Deliberately not `visitStatus`: `invited` and `verified` are the statuses this is true in, but a patient
+ * mid-interview is `in_intake` with an answer or two in, which is not empty, and the wrap's own status write
+ * is a different commit from the intake it wraps (app/api/sweetie/route.ts). The fields and the uploads are
+ * what the two surfaces render, so they are what decides whether there is anything to render.
+ */
+export const visitNotStarted = (b: {
+  intake: Pick<IntakeState, "wrapped">;
+  status: Pick<IntakeStatus, "answered" | "hasDexcom">;
+}): boolean => !b.intake.wrapped && b.status.answered === 0 && !b.status.hasDexcom;
 
 /**
  * Why this summary has no patterns and no questions, for the line beside the chip (§6.3, §7.2, §11.3).

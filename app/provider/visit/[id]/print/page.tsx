@@ -29,7 +29,7 @@ import { recordVisitRead } from "@/lib/auditStore";
 import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
 import { countOf } from "@/lib/plural";
-import { emptyNarrativeText, narrativeNote } from "@/lib/sourState";
+import { emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
 import { clinicianChartCaption } from "@/lib/spikePlaces";
 import { clinicianLine, findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
@@ -71,7 +71,10 @@ export default async function PrintPage({
     .join(" · ");
   // Nothing has arrived from the patient at all. The sheet still prints — a clinician who asked for it
   // should get a page that says so, with the name and the date on it, rather than a blank one.
-  const empty = !bundle.status.hasDexcom && bundle.status.answered === 0;
+  // The same predicate the screen branches on (lib/sourState.ts), so the sheet and the brief cannot
+  // disagree about whether this visit has anything to show: before T148 both read a check-in the §2.5 scan
+  // stopped on its first message as empty, and printed "Nothing to summarize yet" over a saved brief.
+  const empty = visitNotStarted(bundle);
   const printedAt = new Date().toISOString();
 
   return (

@@ -4,10 +4,13 @@
 // failure that will be retried, the backoff wait, giving up, the retry that works — and asserts on the three
 // things the page does with each: the word in the chip, whether the reason is in front of the clinician, and
 // whether Generate is offered, withheld, or replaced by Retry.
+//
+// `visitNotStarted` at the bottom is the other decision the same two surfaces make from the same bundle
+// (T148): not where a summary got to, but whether there is anything to show at all.
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emptyNarrativeText, narrativeNote, summaryState } from "./sourState";
+import { emptyNarrativeText, narrativeNote, summaryState, visitNotStarted } from "./sourState";
 import type { SourJobState } from "./types";
 
 const JOB: SourJobState = {
@@ -169,5 +172,39 @@ describe("narrativeNote", () => {
     assert.equal(emptyNarrativeText(undefined, "None found."), "None found.");
     assert.equal(emptyNarrativeText("unconfigured", "None found."), "Not generated.");
     assert.equal(emptyNarrativeText("unavailable", "None."), "Not generated.");
+  });
+});
+
+// T148, design §2.6 and §2.5. The predicate the clinician's two surfaces branch on, and the bug it had:
+// a check-in the safety scan stopped on the patient's first message wraps with every field still
+// `unfilled`, so `answered` is 0 — and without `wrapped` in the predicate both surfaces called that visit
+// empty while a brief was saved for it and the clinician had been emailed a link to read it.
+describe("visitNotStarted", () => {
+  const not = (over: { wrapped?: boolean; answered?: number; hasDexcom?: boolean } = {}) =>
+    visitNotStarted({
+      intake: { wrapped: over.wrapped ?? false },
+      status: { answered: over.answered ?? 0, hasDexcom: over.hasDexcom ?? false },
+    });
+
+  it("is the card's own case: booked, invited, and nothing has come back", () => {
+    assert.equal(not(), true, "no answer, no glucose, no wrap — the one state with nothing to render");
+  });
+
+  it("is false for a wrap the safety scan stopped before a single field was filled", () => {
+    // The T148 case, measured on the visit e2e/flows.spec.ts books as `E2E Flagged`: flagged on the first
+    // message, two turns, both fields `unfilled`, nothing uploaded, and two Summary rows saved.
+    assert.equal(not({ wrapped: true }), false, "a flagged wrap has a brief: the flag and the patient's own words");
+  });
+
+  it("is false for every other wrap, with or without glucose", () => {
+    // A skip sets `questionsSkipped` *and* `wrapped` (lib/sweetie.ts), so it is covered by the same flag.
+    assert.equal(not({ wrapped: true, answered: 1 }), false);
+    assert.equal(not({ wrapped: true, hasDexcom: true }), false);
+    assert.equal(not({ wrapped: true, answered: 2, hasDexcom: true }), false);
+  });
+
+  it("is false as soon as the patient has said or shared anything, wrap or no wrap", () => {
+    assert.equal(not({ answered: 1 }), false, "mid-interview: one answer is a brief worth writing");
+    assert.equal(not({ hasDexcom: true }), false, "readings with no conversation are still readings");
   });
 });
