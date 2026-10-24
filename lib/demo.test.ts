@@ -7,7 +7,16 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEMO_BLOCKED, DEMO_BLOCKED_LABEL, demoBlockReason, isDemoBlocked, isDemoPractice, isSyntheticEmail, isSyntheticPhone } from "./demo";
+import {
+  DEMO_BLOCKED,
+  DEMO_BLOCKED_LABEL,
+  DEMO_ONLY_TEST_ADDRESSES,
+  demoBlockReason,
+  isDemoBlocked,
+  isDemoPractice,
+  isSyntheticEmail,
+  isSyntheticPhone,
+} from "./demo";
 import { formatLine, markDemoPractice, runWithRequestContext } from "./log";
 
 const REQUEST = { requestId: "11111111-2222-4333-8444-555555555555", route: "GET /x" };
@@ -98,6 +107,19 @@ describe("demo practices (§13.4)", () => {
       assert.equal(isDemoBlocked("sns: The security token included in the request is invalid."), false);
       assert.equal(isDemoBlocked(null), false);
       assert.equal(DEMO_BLOCKED_LABEL.length < 60, true, "it goes under a pill in a table cell");
+    });
+
+    it("says the rule once, in whichever tense is speaking (T145)", () => {
+      // The delivery row reports on a send that did not happen, so it opens with "not sent:". The booking
+      // wizard forecasts one two screens earlier and drops the clause into a sentence of its own, where that
+      // prefix would stutter ("No invite sent: not sent: …"). One set of words either way.
+      assert.equal(DEMO_BLOCKED, `not sent: ${DEMO_ONLY_TEST_ADDRESSES}`);
+      assert.equal(DEMO_ONLY_TEST_ADDRESSES.startsWith("not sent"), false, "it is a clause, not a sentence");
+      assert.match(DEMO_ONLY_TEST_ADDRESSES, /^[a-z]/, "it continues somebody else's sentence");
+      // And it is still staff's words wherever it is said: no address, no variable, no backend (§10.3, §10.6).
+      for (const words of [DEMO_BLOCKED, DEMO_BLOCKED_LABEL, DEMO_ONLY_TEST_ADDRESSES]) {
+        assert.doesNotMatch(words, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend|@/, words);
+      }
     });
 
     it("blocks everything else, with a reason that names no address", () => {

@@ -82,10 +82,24 @@ export function isSyntheticPhone(number: string | null | undefined): boolean {
   return /^[2-9]\d{2}55501\d{2}$/.test(national);
 }
 
+/**
+ * §13.4's rule as a clause rather than a sentence, so a screen asking *before* a send can say it too (T145).
+ *
+ * `DEMO_BLOCKED` below is the report: it is written to a `VisitDelivery.error` once the send did not happen,
+ * so it opens with "not sent:". The booking wizard asks the same question two screens earlier — step 3's
+ * forecast and the success card's `reason` — where that prefix would stutter against the sentence it is
+ * dropped into ("No invite sent: not sent: …"). So the words are written once, here, and the tense belongs
+ * to whoever is speaking: the same shape as `HAND_IT_OVER` in lib/booking.ts, which two branches say in two
+ * positions in their sentence.
+ *
+ * No address in it, like every other reason in this family: it reaches staff's screen and the log (§10.3).
+ */
+export const DEMO_ONLY_TEST_ADDRESSES = "a demo practice only messages reserved test addresses (design §13.4)";
+
 /** Why a demo practice did not send on this channel. One sentence, no address in it: it is written to a
  *  `VisitDelivery.error` staff read on the dashboard (§8.3) and to the log (§10.3). The dashboard compares
  *  against this constant rather than matching on words, which is why it is exported. */
-export const DEMO_BLOCKED = "not sent: a demo practice only messages reserved test addresses (design §13.4)";
+export const DEMO_BLOCKED = `not sent: ${DEMO_ONLY_TEST_ADDRESSES}`;
 
 /** What the dashboard prints under the pill when that is the reason (app/provider/dashboard.tsx). Shorter,
  *  and in the practice's own terms: staff looking at a demo row want to know the app is working. */
