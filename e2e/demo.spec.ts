@@ -13,6 +13,11 @@ import { shot } from "./shot";
 // nightly and has no screen at all, so it is asserted in lib/retentionStore.test.ts against a real database,
 // and the alarm label in lib/log.test.ts and lib/demo.test.ts.
 //
+// The address rule has a second screen since T145 — the booking wizard, which says before the button what
+// this file reads off the dashboard afterwards. It is asserted in e2e/visits.spec.ts, on the one server in
+// the suite with a sender behind a channel, because the claim it corrects only exists in an office that can
+// send.
+//
 // `/demo` gets a server of its own (port+4, playwright.config.ts): DEMO_SIGN_IN is what turns the shortcut
 // on, and the main server deliberately leaves it off so e2e/signin.spec.ts can see the default — the sign-in
 // form with the address filled in.

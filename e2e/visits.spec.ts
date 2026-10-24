@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { cannotSendYet } from "../lib/delivery";
+import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
 import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
@@ -48,6 +49,17 @@ const PROMISES_SEND = /\bsends\b|& send/i;
  * way to find that out.
  */
 const uniquePhone = () => `+1415555${String(Math.floor(Math.random() * 9000) + 1000)}`;
+
+/**
+ * The same, from the NANP's fictitious 555-0100 to 555-0199 range (T145).
+ *
+ * Every test in this file books into the seeded practice, which `npm run seed` marks a demo one (§13.4), and
+ * since T145 that means the destination decides whether an invite may go out at all: `uniquePhone` above is
+ * outside the reserved range, so it is a number §13.4 refuses. A test about anything *else* on step 3 needs
+ * a number the rule lets through, or it is quietly a test about the rule. Area code 650 is e2e/demo.spec.ts's
+ * and is left to it.
+ */
+const reservedPhone = () => `+141555501${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
 
 test("staff add a visit in the wizard, with a channel and a recorded consent", async ({ page }) => {
   await signInAsDemo(page);
@@ -205,7 +217,10 @@ test("an office that can text is told so on the step, and still told what it can
   // Scoped to the dialog throughout: this books into the demo practice, whose table behind the wizard
   // carries every visit the run has made, so "Email" and "Follow-up" are two elements unscoped.
   const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
-  const phone = uniquePhone();
+  // From the reserved range, so §13.4 is not what this test measures: the seeded practice is a demo one and
+  // a number outside that range is one a demo practice may not write to, whatever the deployment can do
+  // (T145, and the test below is that case). The address is under `example.com`, which is reserved too.
+  const phone = reservedPhone();
   await wizard.getByLabel("Patient name").fill(uniqueName("Sendable Patient"));
   await wizard.getByLabel("Mobile number").fill(phone);
   await wizard.getByLabel("Email", { exact: true }).fill("sendable.patient@example.com");
@@ -239,6 +254,93 @@ test("an office that can text is told so on the step, and still told what it can
   await wizard.getByText("Text message", { exact: true }).click();
   await expect(note).toHaveText(`The secure link goes to ${phone}.`);
   await expect(note).not.toHaveClass(/patient-consent-note-blocked/);
+});
+
+// T145 (§13.4, §8.1, §2.2) The third thing that closes a channel, and the only one on this screen that is
+// neither the practice's choice nor the deployment's gap: a demo practice may write only to the reserved
+// addresses and numbers nobody can own (lib/demo.ts), and the booking path was never asking.
+//
+// On the same seventh server, because the bug only exists in an office that *can* send: this gate configures
+// no sender (§11.3), so the honest "Sweet Spot cannot send texts yet" won before §13.4 could matter and the
+// screen looked right for a month. With a sender behind the channel, a demo practice booking a prospect's
+// real mobile number read "The secure link goes to +16505552652." over **Add patient & send →** and
+// "<name> is on the way." one press later, and only the delivery row said otherwise.
+//
+// This one does press the button, which the test above deliberately does not — and it is the §13.4 branch
+// that makes that safe: the `notify.invite` job refuses the number before any backend is reached, so the
+// suite still makes no outbound SNS call. The reserved arm is read and not pressed, for exactly that reason.
+test("a demo practice is told before the button that this number will not be messaged", async ({ page }) => {
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  // Area code 650 like e2e/demo.spec.ts's, so the two files' patients cannot be matched onto each other by
+  // §2.2, and neither is in the 555-01xx range: both are numbers somebody could own.
+  const real = `+16505553${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
+  const name = uniqueName("Demo Prospect");
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+
+  /** Steps 1 and 2 of the wizard, for one number. Step 3 is the subject, so getting there is not. */
+  const toStep3 = async (phone: string, patient: string) => {
+    await page.goto(`http://localhost:${SENDABLE_PORT}/provider`);
+    await page.getByRole("button", { name: /Add patient/i }).first().click();
+    await wizard.getByLabel("Patient name").fill(patient);
+    await wizard.getByLabel("Mobile number").fill(phone);
+    await wizard.getByRole("button", { name: /Continue/i }).click();
+    await wizard.getByText("Follow-up", { exact: true }).click();
+    await wizard.getByRole("button", { name: /Continue/i }).click();
+    await wizard.getByText("Text message", { exact: true }).click();
+    return wizard.locator(".patient-consent-note").first();
+  };
+
+  // 1. The number somebody could own. Nothing is wrong with this office — it can text — so the sentence is
+  //    §13.4's own, in lib/demo.ts's words, and it is marked the way a blocked note is.
+  const blocked = await toStep3(real, name);
+  await expect(blocked).toHaveText(
+    `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+    LOADED,
+  );
+  await expect(blocked).toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
+  );
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+  // The whole step, because the next literal promising a send would be somewhere else on it — and because
+  // the number must not be named as a destination by a screen that has just refused it.
+  const step = await wizard.innerText();
+  expect(step, "nothing on the step offers a send §13.4 forbids").not.toMatch(PROMISES_SEND);
+  expect(step, "and the refused number is not named as where the link goes").not.toMatch(/goes to \+1650/);
+  // Nobody is sent looking for a sender over a rule: this office has one (§3.7, §10.6).
+  expect(step, "not the deployment's sentence").not.toMatch(/cannot send texts yet|ask whoever set/);
+  await shot(page, "provider-add-visit-demo-real", MODAL);
+
+  // 2. And the press, which is the half this ticket is named for: the card used to say the patient was on
+  //    the way. `bookedOutcome` was already right — it branches on `queued`, which is what was lying.
+  await wizard.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
+  await wizard.getByRole("button", { name: SAVE }).click();
+  const card = page.locator(".patient-wizard-success");
+  await expect(card.locator(".ss-title")).toHaveText(`${name} is ready for Sweetie.`, LOADED);
+  await expect(card.locator(".ss-lede")).toHaveText(
+    `Patient added. No invite sent: ${DEMO_ONLY_TEST_ADDRESSES}. Share the link below.`,
+  );
+  expect(await card.innerText(), "nothing on the card claims the invite is going anywhere").not.toMatch(
+    /on (?:the|its) way/i,
+  );
+  // §8.1's fallback: the link is on the screen that just refused to send it, which is the whole answer here.
+  await expect(page.locator(".patient-link-card")).toContainText("/s/");
+  await shot(page, "provider-add-visit-demo-blocked-card", MODAL);
+
+  // 3. The destination §13.4 does allow, on the same screen in the same practice: this is the walkable demo
+  //    a salesperson is on most of the time, and it reads exactly as it did before this ticket. Read and not
+  //    pressed — a press here is the one booking in the suite a real SNS call could leave on.
+  const reserved = reservedPhone();
+  const promised = await toStep3(reserved, uniqueName("Demo Reserved"));
+  await expect(promised).toHaveText(`The secure link goes to ${reserved}.`, LOADED);
+  await expect(promised).not.toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and sends their private Sweetie link on the channel you choose here.",
+  );
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient & send \u2192");
+  await shot(page, "provider-add-visit-demo-reserved", MODAL);
 });
 
 // T111 The other half of that sentence: an office whose deployment *can* send is still told the invite is on
