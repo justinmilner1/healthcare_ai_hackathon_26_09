@@ -37,6 +37,11 @@ const SUMMARY_POLLS = 20;
 const SUMMARY_POLL_MS = 1500;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A visit with nothing for Sour to read: no glucose and no answers. The one state this page neither
+ *  generates for nor offers the button on — everything else has a brief, including a check-in that shared
+ *  no readings, whose brief is the conversation (T143, §2.6, §7.1). */
+const isEmptyVisit = (b: PatientBundle) => !b.status.hasDexcom && b.status.answered === 0;
+
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
 type Provider = { name: string; practice: string | null; visits: Row[] };
 
@@ -166,10 +171,17 @@ export default function SourView({ id }: { id: string }) {
     watched.current = { jobId: null, polls: 0 };
     void loadFollowUps(selected).catch(() => {});
     load(selected).then((b) => {
-      // First open with data but no summary: generate without asking. Not when the last `sour.run` job gave
-      // up, though — that one is the clinician's to retry (§7.2), and opening the page again should not quietly
+      // First open with no summary: generate without asking. Not when the last `sour.run` job gave up,
+      // though — that one is the clinician's to retry (§7.2), and opening the page again should not quietly
       // spend three more attempts on whatever broke.
-      if (activeVisit.current === selected && b && !b.providerSummary && b.status.hasDexcom && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
+      //
+      // `status.hasDexcom` used to be in this condition and is not (T143). It was the same gate the wrap
+      // trigger carried (lib/sourQueue.ts `wrapQueuesSour`), so the two agreed only in being wrong together:
+      // a visit that wrapped with no glucose had nothing queued for it and nothing generated on first open
+      // either, and sat on "No summary yet." until a clinician found the Generate button. The empty branch
+      // below still holds the one visit with nothing at all to say — no glucose and no answers — which is
+      // also what the Generate button is disabled on.
+      if (activeVisit.current === selected && b && !b.providerSummary && !isEmptyVisit(b) && b.sourJob?.status !== "failed" && autoTried.current !== selected) {
         autoTried.current = selected;
         generate(selected);
       }
@@ -357,7 +369,7 @@ export default function SourView({ id }: { id: string }) {
                     {reviewing ? "Marking…" : "Mark reviewed"}
                   </button>
                 )}
-                <button onClick={() => generate(bundle.visitId)} disabled={busy || jobBusy || (!bundle.status.hasDexcom && bundle.status.answered === 0)} className="ss-button ss-button-primary">
+                <button onClick={() => generate(bundle.visitId)} disabled={busy || jobBusy || isEmptyVisit(bundle)} className="ss-button ss-button-primary">
                   {busy || jobBusy ? "Summarizing…" : s ? "Regenerate" : "Generate"}
                 </button>
               </div>
@@ -407,7 +419,7 @@ export default function SourView({ id }: { id: string }) {
               </div>
             )}
 
-            {!bundle.status.hasDexcom && bundle.status.answered === 0 ? (
+            {isEmptyVisit(bundle) ? (
               <EmptyIntake bundle={bundle} />
             ) : (
               <>
@@ -474,7 +486,7 @@ export default function SourView({ id }: { id: string }) {
                 </section>
 
                 {!bundle.status.hasDexcom && (
-                  <p className="ss-notice">No glucose data was shared. This summary is from the conversation only.</p>
+                  <p className="ss-notice sour-no-glucose-note">No glucose data was shared. This summary is from the conversation only.</p>
                 )}
                 {st && bundle.status.hasDexcom && (
                   <section className="sour-card sour-metrics-card">
