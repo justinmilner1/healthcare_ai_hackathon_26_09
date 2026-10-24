@@ -198,8 +198,16 @@ export function backstop(state: IntakeState, askedId: string | null | undefined,
 
 // ---- Direction ----------------------------------------------------------------------------------------
 
+/**
+ * What a turn is aimed at. The two kinds `nextTarget` can return, and no more (T144).
+ *
+ * There was a third, `upload`, left over from the flow before `aa8a331` ("Sweetie: two exchanges for the
+ * demo", 2026-09-26) took the data question out of the interview. Design §2.5 gives the asking to the
+ * optional data panel on the page, so nothing has built an `upload` target for a month: its goal, its two
+ * scripted offers and its sandbox short-circuits were patient-facing copy no patient could reach, and two
+ * tickets were spent rewording them. Adding a kind here means adding the thing that returns it.
+ */
 export type Target =
-  | { kind: "upload"; which: "dexcom" | "timeline" | "whoop" }
   | { kind: "field"; def: IntakeFieldDef }
   | { kind: "wrap" };
 
@@ -222,8 +230,6 @@ export const EXPORT_HELP: Record<"dexcom" | "timeline" | "whoop", string> = {
 // ---- What Sweetie says ----------------------------------------------------------------------------------
 
 export type VisitContext = { visitType: string | null; reason: string | null; isSandbox?: boolean };
-
-export const SANDBOX_CONNECT_HELP = "Use the Connect Dexcom sandbox link above to import demo glucose readings. File uploads are disabled for this synthetic-data demo.";
 
 export type SpeakInput = {
   firstName: string;
@@ -251,18 +257,9 @@ export type SpeakInput = {
 export function speakSystem(p: Omit<SpeakInput, "transcript">): string {
   const { target } = p;
   const goal =
-    target.kind === "upload"
-      ? // No span (T139, §2.5). This is the sentence that *asks*, and it runs before any file exists, so
-        // nothing on this turn knows how much data there will be: `parseClarityCsv` (lib/glucose.ts) keeps
-        // every EGV row it is handed and clips nothing, and data/fixtures/clarity_window.csv — 84 readings
-        // inside one morning — is a supported upload. It promised "the week in numbers", which T123 and
-        // T132 had already taken off every rendered line on the patient path; it now names what the upload
-        // buys in their words instead. Keep the scripted stand-in below saying the same thing: without a
-        // key that line is the whole product (§6.3).
-        `Offer, once and lightly, that if ${p.firstName} has a Dexcom export handy they can add it with the optional Dexcom button on this page, and it helps the doctor see their glucose readings. Make clear it is optional and a no is completely fine; if they decline or don't have it, thank them and move on.`
-      : target.kind === "field"
-        ? `Ask ONE question to learn: ${target.def.goal}. Do not ask about anything else, and do not chase small missing details; a broad answer is enough to move on.`
-        : // The one-page summary is a promise, and it is kept rather than hedged (T143, §2.6, §7.1): the turn
+    target.kind === "field"
+      ? `Ask ONE question to learn: ${target.def.goal}. Do not ask about anything else, and do not chase small missing details; a broad answer is enough to move on.`
+      : // The one-page summary is a promise, and it is kept rather than hedged (T143, §2.6, §7.1): the turn
         // that wraps queues the `sour.run` for every visit, with or without glucose, so there is a brief and
         // a clinician's link behind this sentence by the time the patient has read it (lib/sourQueue.ts
         // `wrapQueuesSour`, which is where the reasoning is). The gate this used to sit behind made the
@@ -283,7 +280,6 @@ Now: ${goal}`;
 }
 
 export async function speak(p: SpeakInput): Promise<string> {
-  if (p.visit.isSandbox && p.target.kind === "upload") return SANDBOX_CONNECT_HELP;
   return ask(speakSystem(p), `Conversation so far:\n${p.transcript}\n\nWrite Sweetie's next message.`, { effort: "low" });
 }
 
@@ -293,20 +289,7 @@ export function scripted(p: { isSandbox?: boolean; firstName: string; target: Ta
   if (p.uploadEvent) parts.push(`Got your ${p.uploadEvent.kind} file, ${p.uploadEvent.count.toLocaleString()} rows${p.uploadEvent.days ? ` over about ${p.uploadEvent.days} days` : ""}. Thank you!`);
   if (p.exportHelp && !p.isSandbox) parts.push(EXPORT_HELP[p.exportHelp]);
   const t = p.target;
-  if (p.isSandbox && t.kind === "upload") return SANDBOX_CONNECT_HELP;
-  if (t.kind === "upload") {
-    parts.push(
-      t.which === "dexcom"
-        ? // The same offer, span-free for the same reason as the model's goal above (T139): without
-          // `OPENAI_API_KEY` this line is not a rarely-seen fallback, it is what the check script, the demo
-          // and every offline deployment actually say (§6.3, §11.3). "your glucose readings" is the wording
-          // T123 and T132 settled on for a file whose range the patient picks.
-          `One optional thing: if you have your Dexcom export handy, you can add it with the Dexcom button and your doctor can see your glucose readings. Totally fine to skip. Would you like to?`
-        : t.which === "timeline"
-          ? `Next, your Google Maps Timeline export with the Timeline button, so we can connect meals to places. If you don't have it, just say so.`
-          : `If you use WHOOP, the sleep export helps too. Totally optional.`,
-    );
-  } else if (t.kind === "field") parts.push(t.def.fallbackQuestion);
+  if (t.kind === "field") parts.push(t.def.fallbackQuestion);
   // The same promise as the model's wrap goal above, and true for the same reason (T143): §6.3 makes this
   // line the product on an offline deployment, so what it claims has to be what the wrap actually does.
   else parts.push(`That's everything I need, ${p.firstName}. Your doctor will see a one-page summary before your visit. See you soon!`);

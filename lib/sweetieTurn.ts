@@ -135,7 +135,6 @@ export async function runTurn(input: TurnInput, store: TurnStore, model: TurnMod
       const ex = await model.extract(state, defs, transcript, input.message, askedId);
       state = merge(state, ex);
       exportHelp = ex.asks_export_help;
-      state = noteDecline(state, askedTarget, input.message);
     } catch (e) {
       // A gateway that is unavailable is a path the design plans for (§6.3). Anything else is a bug, and is
       // allowed to escape: the patient's message is already stored, nothing else has been written, and a
@@ -143,7 +142,6 @@ export async function runTurn(input: TurnInput, store: TurnStore, model: TurnMod
       if (!(e instanceof LLMUnavailable)) throw e;
       fallbackAt = "extract";
       exportHelp = guessExportHelp(input.message);
-      state = noteDecline(state, askedTarget, input.message);
     }
     state = backstop(state, askedId, input.message);
   }
@@ -173,14 +171,6 @@ export async function runTurn(input: TurnInput, store: TurnStore, model: TurnMod
   // 7. One write, so there is no state in which the patient can read a question the intake has not caught up to.
   await store.commit(reply, state);
   return { state, reply, fellBack: fallbackAt !== null, fallbackAt, target, flagged: state.flagged, held: false };
-}
-
-/** A "no" to the data offer counts even when the extractor missed it, or never ran. */
-function noteDecline(state: IntakeState, asked: Target, message: string): IntakeState {
-  if (asked.kind !== "upload") return state;
-  if (state.skipped.includes(asked.which)) return state;
-  if (!/\b(no|not|rather not|don'?t|skip|pass)\b/i.test(message)) return state;
-  return { ...state, skipped: [...state.skipped, asked.which] };
 }
 
 /** The extractor's `asks_export_help`, worked out from the words when there is no extractor to ask. */

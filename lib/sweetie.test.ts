@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { answeredCount, backstop, emptyIntake, fieldsFor, flaggedHoldReply, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, SANDBOX_CONNECT_HELP, scanRedFlags, scripted, skipQuestions, speakSystem, VISIT_TYPES } from "./sweetie";
+import { answeredCount, backstop, emptyIntake, fieldsFor, flaggedHoldReply, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, scanRedFlags, scripted, skipQuestions, speakSystem, VISIT_TYPES } from "./sweetie";
 import type { Target } from "./sweetie";
 import type { IntakeStatus } from "./types";
 
@@ -127,60 +127,12 @@ test("the sandbox opener says what the demo can and cannot do, and asks the firs
   }
 });
 
-test("the scripted upload offer names its button and places nothing", () => {
-  const dexcom = scripted({ firstName: "Ada", target: { kind: "upload", which: "dexcom" }, exportHelp: null });
-  assert.match(dexcom, /the Dexcom button/);
-  const timeline = scripted({ firstName: "Ada", target: { kind: "upload", which: "timeline" }, exportHelp: null });
-  assert.match(timeline, /the Timeline button/);
-  for (const text of [dexcom, timeline]) assert.doesNotMatch(text, /on the left|to the left|on the right/);
-});
-
 const NOTHING_SHARED: IntakeStatus = { hasDexcom: false, hasLocation: false, hasWhoop: false, answered: 0, done: false };
 
 /** `speakSystem`'s input for a turn aimed at `target`, with nothing shared and no file just arrived. */
 function promptFor(target: Target) {
   return speakSystem({ firstName: "Ada", providerName: "James", visit, state: emptyIntake(defs), defs, status: NOTHING_SHARED, target, exportHelp: null });
 }
-
-const UPLOADS: Target[] = [
-  { kind: "upload", which: "dexcom" },
-  { kind: "upload", which: "timeline" },
-  { kind: "upload", which: "whoop" },
-];
-
-test("no upload offer promises a span, scripted or in the prompt (T139, §2.5)", () => {
-  // The offer runs before a file exists, so nothing on the turn knows the span: `parseClarityCsv` keeps
-  // every EGV row it is handed (data/fixtures/clarity_window.csv is 84 readings inside one morning), and
-  // `lib/whoop.ts` and `lib/location.ts` clip nothing either. Both halves said "the week in numbers" and a
-  // patient who answered yes with one morning got "YOUR DAY WITH SWEETIE" over a HISTORY tile reading
-  // "1 day". §6.3 is why the scripted line is held to the same rule rather than treated as a fallback:
-  // without `OPENAI_API_KEY` it is what the check script, the demo and every offline deployment say.
-  const spans = [/\bweek\b/i, /\b7 days\b/i, /\bseven days\b/i, /\blast \d+ days\b/i, /\bfortnight\b/i];
-  for (const target of UPLOADS) {
-    const said = scripted({ firstName: "Ada", target, exportHelp: null });
-    const prompt = promptFor(target);
-    for (const span of spans) {
-      assert.doesNotMatch(said, span, `the scripted ${target.kind === "upload" ? target.which : ""} offer names a span: ${said}`);
-      assert.doesNotMatch(prompt, span, `the prompt's ${target.kind === "upload" ? target.which : ""} goal names a span`);
-    }
-  }
-  // And the two sentences still say what the upload buys, in the words T123 and T132 settled on, so this
-  // passes by naming the readings rather than by saying nothing at all.
-  assert.match(scripted({ firstName: "Ada", target: UPLOADS[0], exportHelp: null }), /see your glucose readings/);
-  assert.match(promptFor(UPLOADS[0]), /see their glucose readings/);
-});
-
-test("the Dexcom offer still reads as optional and still names its control (T139)", () => {
-  // The span is the only thing T139 took out. §2.5 makes the upload optional and the system prompt's own
-  // rule makes it a name rather than a position, so both have to survive the reword.
-  const said = scripted({ firstName: "Ada", target: UPLOADS[0], exportHelp: null });
-  const prompt = promptFor(UPLOADS[0]);
-  assert.match(said, /optional/i);
-  assert.match(said, /fine to skip/i);
-  assert.match(said, /the Dexcom button/);
-  assert.match(prompt, /optional Dexcom button/);
-  assert.match(prompt, /it is optional and a no is completely fine/);
-});
 
 test("the wrap-up's Dexcom clause names no span either, and still offers the button (T139)", () => {
   // Out of scope for T139 as a change and in scope as a check: this clause already named none, and the
@@ -197,21 +149,35 @@ test("the prompt's own §6.5 rule reaches the model, not just the module (T139)"
   // lib/sweetie.test.ts's source read below catches a placement written anywhere in the file; this is the
   // same rule on the string the model is actually handed, for every target, which is what makes it a guard
   // on the prompt rather than on the file.
-  for (const target of [...UPLOADS, { kind: "wrap" } as Target, { kind: "field", def: defs[0] } as Target]) {
+  for (const target of [{ kind: "wrap" } as Target, { kind: "field", def: defs[0] } as Target]) {
     const prompt = promptFor(target);
     assert.match(prompt, /Call the upload controls by their names/);
     for (const placement of [/on the left/, /to the left/, /on the right/, /to the right/]) assert.doesNotMatch(prompt, placement);
   }
 });
 
-test("the sandbox branches T134 settled are untouched by the span sweep (T139)", () => {
-  // The synthetic demonstration patient has its own copy, which names no file upload at all. T139 is about
-  // the real offer; these two are asserted here so a reword of it cannot reach them.
-  assert.equal(scripted({ firstName: "Demo", target: UPLOADS[0], exportHelp: null, isSandbox: true }), SANDBOX_CONNECT_HELP);
-  assert.match(SANDBOX_CONNECT_HELP, /Connect Dexcom sandbox link/);
+test("the sandbox wrap clause offers the sandbox link and never a file upload (T139, T144)", () => {
+  // The synthetic demonstration patient has its own copy of the goodbye, which names no file upload at
+  // all. Sweetie's two other sandbox sentences were the `upload` target's, which T144 removed as
+  // unreachable; what the sandbox patient is told about glucose is now said by the page itself
+  // (app/s/[token]/page.tsx, held by the test below). This clause is the whole of Sweetie's half.
   const sandboxWrap = speakSystem({ firstName: "Demo", providerName: "James", visit: { ...visit, isSandbox: true }, state: emptyIntake(defs), defs, status: NOTHING_SHARED, target: { kind: "wrap" }, exportHelp: null });
   assert.match(sandboxWrap, /optional Connect Dexcom sandbox link for synthetic readings, not a file upload/);
   assert.doesNotMatch(sandboxWrap, /Dexcom export handy/);
+});
+
+test("the synthetic patient is told about the sandbox link by the page, since nothing else says it (T134, T144)", () => {
+  // T134 settled where the sandbox patient learns how to get readings in, and Sweetie carried half of that
+  // decision in `SANDBOX_CONNECT_HELP` — a sentence only an `upload` target could reach, so no patient ever
+  // heard it. T144 removed it. The page's own branch is now the only place the link is named, which makes
+  // it the thing worth holding: it renders for `sandboxPatient === true`, and the upload buttons do not.
+  const page = readFileSync(path.join(import.meta.dirname, "..", "app", "s", "[token]", "page.tsx"), "utf8");
+  const branch = page.match(/sandboxPatient === true && \(([\s\S]*?)\n {8}\)}/);
+  assert.ok(branch, "app/s/[token]/page.tsx has no `sandboxPatient === true` branch");
+  assert.match(branch[1], /Connect Dexcom sandbox/);
+  assert.match(branch[1], /href=\{`\/s\/\$\{token\}\/intake`\}/);
+  // And the file uploads stay off for that patient, which is the other half of what Sweetie used to say.
+  assert.match(page, /sandboxPatient === false && \(/);
 });
 
 test("no Sweetie copy, scripted or model prompt, places a control on the screen", () => {
@@ -226,7 +192,6 @@ test("no Sweetie copy, scripted or model prompt, places a control on the screen"
 
 test("sandbox fallback suppresses unavailable export instructions", () => {
   assert.equal(scripted({ firstName: "Demo", target: { kind: "field", def: defs[0] }, isSandbox: true, exportHelp: "timeline" }), defs[0].fallbackQuestion);
-  assert.equal(scripted({ firstName: "Demo", target: { kind: "upload", which: "dexcom" }, isSandbox: true, exportHelp: null }), SANDBOX_CONNECT_HELP);
 });
 
 test("legacy intake still follows the normal question flow", () => {
