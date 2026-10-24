@@ -56,10 +56,26 @@ const uniquePhone = () => `+1415555${String(Math.floor(Math.random() * 9000) + 1
  * Every test in this file books into the seeded practice, which `npm run seed` marks a demo one (§13.4), and
  * since T145 that means the destination decides whether an invite may go out at all: `uniquePhone` above is
  * outside the reserved range, so it is a number §13.4 refuses. A test about anything *else* on step 3 needs
- * a number the rule lets through, or it is quietly a test about the rule. Area code 650 is e2e/demo.spec.ts's
- * and is left to it.
+ * a number the rule lets through, or it is quietly a test about the rule.
+ *
+ * The *area code* is where the uniqueness comes from, which `uniquePhone` gets from the subscriber digits:
+ * the reserved range is only 555-0100 to 555-0199, so one area code holds a hundred numbers, and §2.2
+ * matches an existing patient on phone. A caller that presses the button therefore has about a one-in-a-
+ * hundred chance of joining another patient per draw — against the seeded `+14155550100`, against
+ * e2e/audit.spec.ts's `+14155550199`, and against the other project running the same test — which is a
+ * flake rather than a feature. Three area codes are left to the specs that pin them: 415 to the seed and to
+ * e2e/audit.spec.ts, 650 to e2e/demo.spec.ts, 206 to e2e/verify.spec.ts. Nothing validates an area code
+ * beyond its shape (`normalizePhone`, lib/visitIntake.ts), and `isSyntheticPhone` asks only for `[2-9]` and
+ * two digits in front of the reserved block (lib/demo.ts).
  */
-const reservedPhone = () => `+141555501${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
+const PINNED_AREA_CODES = new Set(["415", "650", "206"]);
+const reservedPhone = () => {
+  let area = "";
+  do {
+    area = `${Math.floor(Math.random() * 8) + 2}${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
+  } while (PINNED_AREA_CODES.has(area));
+  return `+1${area}55501${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`;
+};
 
 test("staff add a visit in the wizard, with a channel and a recorded consent", async ({ page }) => {
   await signInAsDemo(page);
@@ -70,7 +86,13 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
 
   // Step 1: who the visit is for.
   await page.getByLabel("Patient name").fill(name);
-  await page.getByLabel("Mobile number").fill(uniquePhone());
+  // A number §13.4 lets through, because this test is about the step's other two answers and not about the
+  // rule: it signs in to the seeded demo practice, so `uniquePhone()` here would close the text channel and
+  // leave the booking an email one — which is what the assertions below would then be about. T145 moved the
+  // sibling test on SENDABLE_PORT for the same reason; this one read correctly until `bookingPlan` began
+  // asking the deployment about the channel §13.4 leaves open rather than the one staff picked, which is
+  // exactly the narrowing that makes the distinction visible. The address is under `example.com`, reserved too.
+  await page.getByLabel("Mobile number").fill(reservedPhone());
   await page.getByLabel("Email", { exact: true }).fill(`${name.replace(/\s+/g, ".").toLowerCase()}@example.com`);
   await page.getByRole("button", { name: /Continue/i }).click();
 
