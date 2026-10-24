@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { JobClient } from "./jobs";
 import { setLogSink } from "./log";
-import { INTAKE_SETTLED_STATUSES, intakeSettled, queueSour, queueSourAfterImport, sourJobKey } from "./sourQueue";
+import { INTAKE_SETTLED_STATUSES, intakeSettled, queueSour, queueSourAfterImport, sourJobKey, wrapQueuesSour } from "./sourQueue";
 
 type Created = { kind: string; payload: string; idempotencyKey: string | null; runAfter: Date };
 
@@ -69,6 +69,46 @@ describe("queueSour", () => {
     assert.equal(deduped, true);
     assert.equal(job.id, "job-in-flight");
     assert.equal(created.length, 0);
+  });
+});
+
+describe("wrapQueuesSour", () => {
+  // T143, the whole point of it: the gate was `bundle?.status.hasDexcom`, so a check-in that wrapped with
+  // nothing to graph queued no run, and Sweetie had just told the patient their doctor would see a one-page
+  // summary before the visit (lib/sweetie.ts, both the prompt and the scripted line). §2.6 and §7.1 name
+  // the trigger as the wrap with no data condition on it, and the conversation-only brief is one the
+  // provider page already renders.
+  it("queues the run on a wrap with no glucose, the same as on a wrap with it", () => {
+    for (const hasDexcom of [true, false]) {
+      assert.equal(wrapQueuesSour({ wrapped: true, wasWrapped: false, hasDexcom }), true, `hasDexcom=${hasDexcom}`);
+    }
+  });
+
+  it("queues once per wrap, and not on the turns either side of it", () => {
+    for (const hasDexcom of [true, false]) {
+      // Mid-intake: nothing has wrapped yet.
+      assert.equal(wrapQueuesSour({ wrapped: false, wasWrapped: false, hasDexcom }), false);
+      // A later message on a visit that wrapped earlier — the patient adding a line after the goodbye. The
+      // run it needs is the import trigger's or the clinician's, not a second one per turn for ever.
+      assert.equal(wrapQueuesSour({ wrapped: true, wasWrapped: true, hasDexcom }), false);
+      // Not reachable through lib/sweetieTurn.ts (`wrapped` only ever goes true), and still not a queue:
+      // "wrapped now, not wrapped before" is the whole condition.
+      assert.equal(wrapQueuesSour({ wrapped: false, wasWrapped: true, hasDexcom }), false);
+    }
+  });
+
+  it("is the same answer for both glucose states in every one of its four states", () => {
+    // Said as one assertion as well as four, because what T143 removed was a data condition: the way this
+    // regresses is someone adding one back, and that shows up here as the two columns disagreeing.
+    for (const wrapped of [true, false]) {
+      for (const wasWrapped of [true, false]) {
+        assert.equal(
+          wrapQueuesSour({ wrapped, wasWrapped, hasDexcom: true }),
+          wrapQueuesSour({ wrapped, wasWrapped, hasDexcom: false }),
+          `wrapped=${wrapped} wasWrapped=${wasWrapped}`,
+        );
+      }
+    }
   });
 });
 

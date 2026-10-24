@@ -20,7 +20,7 @@ import { log, withRoute } from "@/lib/log";
 import { enforceIpLimit, enforceVisitLimit } from "@/lib/ratelimit";
 import { fieldsFor, flaggedHoldReply, greeting, parseIntake, renderNotes, skipQuestions } from "@/lib/sweetie";
 import type { VisitContext } from "@/lib/sweetie";
-import { queueSour } from "@/lib/sourQueue";
+import { queueSour, wrapQueuesSour } from "@/lib/sourQueue";
 import { skipGoodbye } from "@/lib/summaryPromise";
 import { runTurn } from "@/lib/sweetieTurn";
 import type { TurnStore } from "@/lib/sweetieTurn";
@@ -177,7 +177,9 @@ async function respond(visitId: string, state: IntakeState, reply: string, wasWr
   // while the patient is still reading Sweetie's goodbye. Once per wrap — and a queued row rather than work
   // done in `after()`, because the patient's last turn must not be the only chance Sour ever gets: a crash
   // between the reply and the summary used to lose it silently, and now it is a row with three attempts.
-  if (state.wrapped && !wasWrapped && bundle?.status.hasDexcom) {
+  // Every wrap, with or without glucose: the condition this used to carry is T143, and the reasoning for
+  // dropping it is `wrapQueuesSour` (lib/sourQueue.ts), which is also where it is under test.
+  if (wrapQueuesSour({ wrapped: state.wrapped, wasWrapped, hasDexcom: Boolean(bundle?.status.hasDexcom) })) {
     try {
       const { job } = await queueSour(visitId);
       log.info("sour_queued", { visitId, jobId: job.id });

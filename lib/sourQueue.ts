@@ -6,13 +6,13 @@
 // The key lives here rather than being spelled out at each call site, because the triggers are only correct
 // as a set: a summary needs the intake *and* the readings, and either one can be the last to arrive.
 //
-//   intake wraps      queues when the visit already has Dexcom data   (app/api/sweetie/route.ts)
+//   intake wraps      queues on every wrap, with or without glucose  (wrapQueuesSour below)
 //   data arrives      queues when the intake is already done          (queueSourAfterImport below)
 //   Generate          queues whatever the state is — a clinician asked (app/api/sour/route.ts)
 //
-// The two patient-side triggers are each other's mirror image, which is what makes "whichever half lands
-// second queues the run" true without either of them knowing about the other, and what keeps the pair from
-// queueing twice when they land together.
+// The import trigger's gate on the intake is the one data condition here, and it is about ordering rather
+// than about content: a run before the intake has had its say writes a brief from half an interview. The
+// wrap has no such condition, because nothing about a wrap is provisional — see `wrapQueuesSour`.
 
 import { enqueue, type EnqueueResult, type JobClient } from "./jobs";
 import { log } from "./log";
@@ -24,6 +24,30 @@ export const sourJobKey = (visitId: string) => `sour.run:${visitId}`;
  *  with no scheduler drains it (docs/JOBS.md); that needs `after` from next/server and stays in the route. */
 export const queueSour = (visitId: string, client?: JobClient): Promise<EnqueueResult> =>
   enqueue({ kind: "sour.run", payload: { visitId }, idempotencyKey: sourJobKey(visitId) }, client);
+
+/**
+ * §7.1's "when intake wraps": does this turn queue the run? (§2.6, §7.1, T143)
+ *
+ * Exactly twice — wrapped now, not wrapped before — and on nothing else. `hasDexcom` is in the input and
+ * deliberately not in the answer, which is the whole of T143: the route used to require it, so a check-in
+ * that wrapped with no glucose queued no run, `runSour` never reached `markSummaryReady`, and the
+ * `notify.summary` job that carries §2.6's "the clinician is emailed a link" was never enqueued — while
+ * Sweetie's own last sentence told the patient their doctor would see a one-page summary before the visit
+ * (lib/sweetie.ts). §2.6 and §7.1 both name the trigger as the wrap with no data condition on it, and the
+ * conversation-only brief is a brief the product already renders (app/provider/[id]/sour.tsx: "No glucose
+ * data was shared. This summary is from the conversation only."), so the promise is kept by running rather
+ * than by weakening the sentence. Naming the field here is what lets lib/sourQueue.test.ts assert that a
+ * no-glucose wrap still queues, instead of leaving it to whatever the route happens not to check.
+ *
+ * A wrap is never empty, so this never queues a run over nothing: the field-driven wrap has answers behind
+ * it, and the skip path refuses outright with nothing answered and nothing uploaded
+ * (app/api/sweetie/route.ts). A flagged turn wraps too (lib/sweetieTurn.ts), which is the case this most
+ * changes: a patient who described something urgent and shared no readings now reaches their clinician as
+ * a brief rather than as a row nobody was told about.
+ */
+export function wrapQueuesSour(turn: { wrapped: boolean; wasWrapped: boolean; hasDexcom: boolean }): boolean {
+  return turn.wrapped && !turn.wasWrapped;
+}
 
 /**
  * Visit statuses in which the intake has had its say (§4.4), so newly arrived glucose data is the last
