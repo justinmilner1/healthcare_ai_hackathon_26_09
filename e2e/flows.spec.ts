@@ -424,6 +424,22 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   await expect(stoppedNote).toContainText(/call .+'s office today/i);
   await expect(page.locator(".sweetie-done-card")).toHaveCount(0);
 
+  // And the rail, which is the one part of the screen whose job is to say where the check-in stands. This
+  // ending has no percentage and no track (T66, lib/intakeProgress.ts), so the sentence is the whole card
+  // — and at 375px the mobile rule hid it, leaving "Check-in stopped" over nothing while the desktop card
+  // carried §2.5's instruction (T147). Asserted on both projects, with `toBeVisible()` rather than
+  // `toContainText`, because the defect was a `display: none` on a line that was in the document all
+  // along. T142 asserted the skipped card the same way, three states to the left of the same rule.
+  const stoppedRail = page.locator(".sweetie-progress-card");
+  await expect(stoppedRail).toContainText(/Check-in stopped/i);
+  await expect(stoppedRail, "no percentage beside a check-in the scan stopped").not.toContainText(/%/);
+  await expect(page.locator(".sweetie-progress-track"), "and so no track either").toHaveCount(0);
+  const stoppedNoteInRail = stoppedRail.locator("small");
+  await expect(stoppedNoteInRail).toBeVisible();
+  await expect(stoppedNoteInRail).toContainText(/we stopped early/i);
+  // Naming the practice, as §2.5 asks and as the desktop card has always done.
+  await expect(stoppedNoteInRail).toContainText(/Dr\. Demo Endo/);
+
   // The transcript glides to the newest message rather than jumping (§6.4), so the card being in the
   // document is not the same moment as all of it being on screen: the first desktop shot of this screen
   // caught the glide in flight and cut the instruction off at the bottom of the region. This waits the

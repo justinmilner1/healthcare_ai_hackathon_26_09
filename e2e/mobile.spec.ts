@@ -159,6 +159,10 @@ test("Sweetie fits a 375px phone, and her stepper fits without scrolling", async
   await expect(progressCard).toContainText(/Check-in stopped/i);
   await expect(progressCard).not.toContainText(/%/);
   await expect(page.locator(".sweetie-progress-track")).toHaveCount(0);
+  // With nothing above it, the sentence is the whole card — so the width that drops the sentence leaves a
+  // heading over nothing, which is what the shot at the bottom of this test used to show (T147, §6.5).
+  await expect(progressCard.locator("small"), "the flagged card is a labelled empty box at 375px").toBeVisible();
+  await expect(progressCard.locator("small")).toContainText(/we stopped early/i);
   const lastStep = page.locator('.sweetie-field-progress > li[title*="stopped early"]');
   await expect(lastStep).toHaveCount(1);
   await expect(lastStep).not.toHaveClass(/sweetie-field-done/);
