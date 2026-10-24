@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { intakeProgressCard, type IntakeEnding, type IntakeProgressInput } from "./intakeProgress";
 import {
   checkInCompleteCopy,
   flaggedCardCopy,
@@ -117,17 +118,58 @@ test("the completion card ends the transcript with the same promise as the rest 
   // under "See the summary you'll share with your doctor", on `wrapped` alone — the offer the goodbye
   // above it declines, one line later and in larger type.
   const SPAN = /\b(hours?|days?|weeks?|months?)\b/i;
-  const glucose = checkInCompleteCopy(true);
-  const none = checkInCompleteCopy(false);
+  const glucose = checkInCompleteCopy(true, "answered");
+  const none = checkInCompleteCopy(false, "answered");
   assert.match(glucose.detail, /summary/i, "with glucose there is one, and the card may say so");
   assert.doesNotMatch(none.detail, /summary/i, "without glucose the card offers nothing to look at");
   assert.match(none.detail, /saved for your care team/i, "what the patient did share is still acknowledged");
-  // The check-in is over in both states, and that is not what the data decides.
+  // The check-in is over in both states, and that is not what the data decides — the ending is (T146).
   assert.equal(glucose.title, none.title);
   assert.match(none.title, /check-in is complete/i);
   for (const said of [glucose, none]) {
     assert.doesNotMatch(said.title, SPAN, said.title);
     assert.doesNotMatch(said.detail, SPAN, said.detail);
+  }
+});
+
+test("the card ending the transcript does not call a check-in that stopped short complete (T146, §2.5)", () => {
+  // The defect: the title was unconditional, so the one state the card is rendered in that is *not* a
+  // completed check-in — the patient pressed "Skip the rest of the questions" with one of two answered —
+  // was headlined "Your check-in is complete", a viewport under a rail reading "Check-in ended early".
+  for (const hasGlucose of [true, false]) {
+    const where = `hasGlucose=${hasGlucose}`;
+    const skipped = checkInCompleteCopy(hasGlucose, "skipped");
+    assert.doesNotMatch(skipped.title, /complete/i, `${where}: a skipped check-in is not complete`);
+    assert.match(skipped.title, /ended early/i, `${where}: it says what happened instead`);
+    // The sub-line was already right for the skip and is not what T146 changes: it answers the other
+    // question, whether there is anything to go and look at.
+    assert.equal(skipped.detail, checkInCompleteCopy(hasGlucose, "answered").detail, `${where}: the sub-line`);
+    // Answered to the end is the state T137 wrote the card for, and it is untouched.
+    assert.match(checkInCompleteCopy(hasGlucose, "answered").title, /check-in is complete/i, where);
+  }
+});
+
+test("the card's title agrees with the rail on every ending it is rendered for (T142, T146)", () => {
+  // Said over the endings rather than on the one that had it, because the bug was two surfaces reading one
+  // state differently — and the rail is the surface T142 already made right. Wherever the rail drops the
+  // percentage because the check-in stopped short, the card does not say "complete"; wherever the rail
+  // reads 100%, it does. `open` is not in the sweep: the page renders this card only once the intake has
+  // wrapped, so the title has no state to agree with while Sweetie is still asking.
+  const TEMPLATE = { totalFields: 2, office: "Dr. Demo Endo" };
+  const states: [IntakeEnding, IntakeProgressInput][] = [
+    ["answered", { ...TEMPLATE, completeFields: 2, finished: true, flagged: false, questionsSkipped: false }],
+    ["skipped", { ...TEMPLATE, completeFields: 1, finished: true, flagged: false, questionsSkipped: true }],
+    ["flagged", { ...TEMPLATE, completeFields: 1, finished: true, flagged: true, questionsSkipped: false }],
+  ];
+  for (const [ending, input] of states) {
+    const rail = intakeProgressCard(input);
+    assert.equal(rail.ending, ending, `${ending}: the fixture is the state it is named after`);
+    const title = checkInCompleteCopy(false, ending).title;
+    assert.equal(
+      /complete/i.test(title),
+      rail.percent === 100,
+      `${ending}: the card says "${title}" and the rail reads ${rail.percent}%`,
+    );
   }
 });
 
@@ -143,7 +185,7 @@ test("the flagged card offers the summary on the same condition as the rest of t
   assert.equal(glucose.detail, "See what you've shared so far", "T66's wording is not what T141 changes");
   // Not silence: the patient has just been told to call someone, so what reached their care team is the
   // one thing the card can still tell them. The same sentence the completion card uses, said once.
-  assert.equal(none.detail, checkInCompleteCopy(false).detail);
+  assert.equal(none.detail, checkInCompleteCopy(false, "flagged").detail);
   assert.match(none.detail, /saved for your care team/i);
   assert.doesNotMatch(none.detail, /summary|see what/i, "without glucose the card offers nothing to look at");
   for (const said of [glucose, none]) assert.doesNotMatch(said.detail, SPAN, said.detail);
@@ -160,7 +202,7 @@ test("every surface of the promise holds the invariant: an offer where there is 
     assert.equal(setupCompleteCopy({ hasConnections: true, hasGlucose }).action !== null, offers, `${where}: the setup step`);
     assert.equal(/view/i.test(skipLinkLabel(hasGlucose)), offers, `${where}: the skip link`);
     assert.equal(/you can view/i.test(skipGoodbye(hasGlucose)), offers, `${where}: the goodbye`);
-    assert.equal(/summary/i.test(checkInCompleteCopy(hasGlucose).detail), offers, `${where}: the completion card`);
+    assert.equal(/summary/i.test(checkInCompleteCopy(hasGlucose, "answered").detail), offers, `${where}: the completion card`);
     assert.equal(flaggedCardCopy(hasGlucose, "tok-141").href !== null, offers, `${where}: the flagged card`);
     // And the words the flagged card leads with are an offer exactly when there is one behind them.
     assert.equal(/see what/i.test(flaggedCardCopy(hasGlucose, "tok-141").detail), offers, `${where}: its words`);

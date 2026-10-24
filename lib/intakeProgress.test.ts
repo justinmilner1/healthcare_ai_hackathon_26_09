@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { intakeEnding, intakeProgressCard, type IntakeProgressInput } from "./intakeProgress";
+import {
+  intakeEnding,
+  intakeProgressCard,
+  intakeStepperEnd,
+  type IntakeEnding,
+  type IntakeProgressInput,
+} from "./intakeProgress";
 
 /** The two-field template `fieldsFor` builds for a follow-up, which is what the product ships (§2.5). */
 const TEMPLATE = { totalFields: 2, office: "Dr. Demo Endo" };
@@ -122,4 +128,65 @@ test("the card survives the moment before GET /api/sweetie has answered with the
   const card = intakeProgressCard({ ...OPEN, totalFields: 0, completeFields: 0 });
   assert.equal(card.percent, 0);
   assert.equal(card.detail, "0 of — questions answered");
+});
+
+test("the stepper's last step is ticked only by a check-in that answered the questions (T146, §2.5)", () => {
+  // The defect in one assertion: a skip sets `questionsSkipped` *and* `wrapped` (lib/sweetie.ts), so the
+  // step's old `finished && !flagged` was true and the strip read "✓ Why you're here · 2 Since last visit
+  // · ✓ Done" — a tick on the right of a step still carrying its number.
+  assert.equal(intakeStepperEnd("skipped").done, false);
+  assert.equal(intakeStepperEnd("skipped").label, "Ended early");
+  assert.doesNotMatch(intakeStepperEnd("skipped").label, /done/i);
+  // The tooltip said it a second time, so it has to agree a second time.
+  assert.doesNotMatch(intakeStepperEnd("skipped").title, /complete/i);
+  assert.match(intakeStepperEnd("skipped").title, /ended early/i);
+});
+
+test("the two endings that stopped short are the two with no tick, and say which they are (T66, T146)", () => {
+  // The invariant rather than the state: whatever words these get later, an ending that left questions
+  // unanswered does not take the tick, and the two are not told apart by the same word.
+  const short = [intakeStepperEnd("skipped"), intakeStepperEnd("flagged")];
+  for (const step of short) {
+    assert.equal(step.done, false, step.label);
+    assert.doesNotMatch(step.label, /done/i, step.label);
+    assert.notEqual(step.label.trim(), "", "a word for what happened, not a blank pill");
+  }
+  assert.notEqual(short[0].label, short[1].label, "a skip and a flag are not the same thing");
+  // T66's step, down to the tooltip e2e/mobile.spec.ts finds it by.
+  assert.equal(intakeStepperEnd("flagged").label, "Stopped");
+  assert.equal(intakeStepperEnd("flagged").title, "Check-in stopped early and flagged for the office");
+});
+
+test("a check-in answered to the end keeps its tick, and one still going has not earned one", () => {
+  const answered = intakeStepperEnd("answered");
+  assert.deepEqual(answered, { label: "Done", done: true, title: "Check-in complete" });
+  // Open is the step ahead of the patient: named, not ticked, and unchanged by T146.
+  assert.deepEqual(intakeStepperEnd("open"), { label: "Done", done: false, title: "Check-in complete" });
+});
+
+test("the strip and the rail cannot disagree, because they are the same ending (T142, T146)", () => {
+  // The whole point of routing both through `intakeEnding`: swept over the four states, the step is ticked
+  // exactly where the card reads 100%, and the step says so in words wherever the card drops the number.
+  for (const [name, input] of [
+    ["open", OPEN],
+    ["answered", ANSWERED],
+    ["skipped", SKIPPED],
+    ["flagged", FLAGGED],
+  ] as [string, IntakeProgressInput][]) {
+    const card = intakeProgressCard(input);
+    const step = intakeStepperEnd(card.ending);
+    assert.equal(step.done, card.percent === 100, `${name}: the tick and the percentage disagree`);
+    if (card.percent === null) {
+      assert.doesNotMatch(step.label, /done/i, `${name}: a card with no number beside a step saying "Done"`);
+      assert.doesNotMatch(step.title, /^Check-in complete$/, `${name}: and the tooltip says it again`);
+    }
+  }
+});
+
+test("every ending has a step, so none of them falls through to a blank pill", () => {
+  for (const ending of ["open", "answered", "skipped", "flagged"] as IntakeEnding[]) {
+    const step = intakeStepperEnd(ending);
+    assert.notEqual(step.label.trim(), "", ending);
+    assert.notEqual(step.title.trim(), "", ending);
+  }
 });

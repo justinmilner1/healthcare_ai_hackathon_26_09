@@ -123,3 +123,51 @@ export function intakeProgressCard(input: IntakeProgressInput): IntakeProgressCa
     }
   }
 }
+
+/** The last step of the intake stepper: what it is called, whether it is ticked, and its tooltip. */
+export type IntakeStepperEnd = {
+  /** The word on the pill — what happened, not what was hoped for. */
+  label: string;
+  /** Whether the step takes the tick. Only a check-in that answered the questions earns one. */
+  done: boolean;
+  /** The step's `title`, which says the same thing a second time and so has to agree with the first. */
+  title: string;
+};
+
+/**
+ * The stepper's last step, from the same ending the card above is drawn from (T146, §2.5).
+ *
+ * This is the fourth expression over how the check-in ended and the second this module owns, for the same
+ * reason the card's three parts are decided in one branch: the strip sits three inches from the card, and
+ * the two of them asked different questions. The strip asked `finished && !flagged`, which a skip answers
+ * "done" to — a skip sets `questionsSkipped` *and* `wrapped` (lib/sweetie.ts) — so a patient who answered
+ * one of two questions and pressed "Skip the rest of the questions" read
+ *
+ *     ✓ Why you're here · 2 Since last visit · ✓ Done
+ *
+ * with "Check-in complete" in the tooltip, next to a card that said "Check-in ended early". A tick on the
+ * right of a step that is visibly outstanding.
+ *
+ * T66 settled the shape for the other early ending — a word for what happened, no tick — and a skip takes
+ * it: the two states that stopped short are the two with no tick, and the one word differs because what
+ * happened differs. `open` keeps the unticked "Done" it has always had, because there the word is the step
+ * the patient is walking towards rather than a claim about a check-in that is over.
+ */
+export function intakeStepperEnd(ending: IntakeEnding): IntakeStepperEnd {
+  switch (ending) {
+    case "flagged":
+      // T66's step, unchanged, down to the tooltip e2e/mobile.spec.ts finds it by.
+      return { label: "Stopped", done: false, title: "Check-in stopped early and flagged for the office" };
+    case "skipped":
+      return {
+        label: "Ended early",
+        done: false,
+        title: "Check-in ended early with questions unanswered",
+      };
+    case "answered":
+      return { label: "Done", done: true, title: "Check-in complete" };
+    default:
+      // Still being asked: the step is ahead of the patient, so it is named and not ticked.
+      return { label: "Done", done: false, title: "Check-in complete" };
+  }
+}

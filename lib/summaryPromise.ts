@@ -28,6 +28,13 @@
 //
 // The destination's own words are what the offer is written from: `/patient/<token>` heads its chart card
 // "Your glucose" (app/patient/[id]/page.tsx), which is exactly what `hasGlucose` guarantees is there.
+//
+// One of the five asks a second question as well. The completion card is a headline over that offer, and a
+// headline has to be true of the check-in and not only of the data: "Your check-in is complete" over a
+// check-in the patient stopped short is wrong however honest the sentence under it is. So that title turns
+// on `intakeEnding` (lib/intakeProgress.ts) — the rail's and the stepper's answer, not a new one (T146).
+
+import type { IntakeEnding } from "./intakeProgress";
 
 /** What this visit has, as the two conditions the copy below turns on. */
 export type SummaryPromise = {
@@ -142,7 +149,10 @@ export function skipDestination(hasGlucose: boolean, token: string): string | nu
 
 /** The card that ends the transcript once the intake has wrapped. */
 export type CheckInCompleteCopy = {
-  /** The headline. The check-in is over either way, so this does not turn on the data. */
+  /**
+   * The headline. The check-in is over either way, so this does not turn on the data — but *how* it ended
+   * is a different question, and one the card used not to ask at all (T146).
+   */
   title: string;
   /** The line under it — the one that either offers the summary or says what was kept instead. */
   detail: string;
@@ -158,9 +168,16 @@ export type CheckInCompleteCopy = {
  * card asks the same question as everything else here: with glucose it is the link it was, and without it
  * it is a statement — `skipDestination` returns `null` and the page renders no anchor around this copy.
  */
-export function checkInCompleteCopy(hasGlucose: boolean): CheckInCompleteCopy {
+export function checkInCompleteCopy(hasGlucose: boolean, ending: IntakeEnding): CheckInCompleteCopy {
+  // Only a check-in that reached the end of the template is complete. The title was unconditional, so a
+  // skip — which wraps the intake like any other ending — was congratulated on completing the questions it
+  // had just declined, one viewport below a rail reading "Check-in ended early" (T146). The ending comes
+  // from lib/intakeProgress.ts rather than from a fifth expression over `wrapped` here, so §2.5 has one
+  // answer to "how did this check-in end" and the card says it in the same words the rail and the stepper
+  // do. The sub-line is a different question — is there anything to look at — and keeps its own.
+  const endedEarly = ending === "skipped" || ending === "flagged";
   return {
-    title: "Your check-in is complete",
+    title: endedEarly ? "Check-in ended early" : "Your check-in is complete",
     detail: hasGlucose
       ? "See the summary you'll share with your doctor"
       : "What you shared is saved for your care team",
@@ -201,6 +218,6 @@ export function flaggedCardCopy(hasGlucose: boolean, token: string): FlaggedCard
     href,
     // T66's wording, unchanged, where there is something to see. §2.5's instruction stays the headline
     // either way; this is only the line under it.
-    detail: href ? "See what you've shared so far" : checkInCompleteCopy(false).detail,
+    detail: href ? "See what you've shared so far" : checkInCompleteCopy(false, "flagged").detail,
   };
 }
