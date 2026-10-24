@@ -157,6 +157,20 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(page.locator(".sour-called-about")).toContainText("going high overnight");
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
   await shot(page, "provider-sour");
+
+  // T148's other half, on the visit this test booked a moment ago: nothing answered, nothing uploaded and
+  // no wrap, which is the one state `EmptyIntake` was written for and the only one the predicate still
+  // calls empty (lib/sourState.ts `visitNotStarted`). Asserted because the flagged test below asserts the
+  // opposite: a fix that simply stopped rendering the card would satisfy that one and take this screen
+  // with it, silently.
+  await page.goto(`/provider/${demo.id}?visit=${booked.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Patient", LOADED);
+  const waiting = page.locator(".sour-waiting");
+  await expect(waiting).toContainText("Waiting on the patient");
+  await expect(waiting).toContainText("Nothing to summarize until the patient has talked to Sweetie");
+  // And Generate stays shut on it, which is the same predicate the card is behind (§7.1).
+  await expect(page.getByRole("button", { name: /^Generate$/ })).toBeDisabled();
+  await shot(page, "provider-sour-not-started", { ...SCREENFUL, scrollTo: waiting, block: "start" });
 });
 
 // T04 (design §3.4, §7.1): the summary is written by a `sour.run` job, not by the request that asks for it.
@@ -528,6 +542,16 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   // regenerate (T148's third criterion).
   await expect(page.getByRole("button", { name: /Regenerate|Generate/ })).toBeEnabled();
   await shot(page, "provider-sour-flagged-no-answers", { ...SCREENFUL, scrollTo: ".sour-safety-flag", block: "start" });
+
+  // §7.4's sheet is the same brief on paper and it carried the same expression, so it told the clinician
+  // the same wrong thing: "Nothing to summarize yet" over the summary they had just read on the screen.
+  // Both surfaces now ask lib/sourState.ts, and the never-started sheet that card was written for is held
+  // where it is taken (e2e/print.spec.ts, `provider-print-no-clinician`).
+  const sheet = await page.goto(`/provider/visit/${booked.visitId}/print`);
+  expect(sheet?.status()).toBe(200);
+  await expect(page.locator(".sour-print-clinician"), "the sheet rendered").toBeVisible(LOADED);
+  await expect(page.locator(".sour-print-empty"), "the sheet branches on the same predicate as the screen").toHaveCount(0);
+  await expect(page.locator(".sour-safety-flag"), "§2.6 puts the flag at the top in red, on the sheet too").toContainText("cardiac or breathing");
 });
 
 /**
