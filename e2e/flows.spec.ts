@@ -298,6 +298,10 @@ test("patient flow: Sweetie two questions in scripted mode, then summary", async
   // The card that ends the check-in is the last thing in the transcript, so it is the message T83's second
   // criterion is about: on the phone this shot was of a completion card with its first line sliced off.
   await expectTranscriptUncut(page, "the end of the check-in");
+  // The ending T142 left alone, asserted so it stays left alone: answered to the end is the one state that
+  // still has a number, and it is a full one beside the sentence that says so (lib/intakeProgress.ts).
+  await expect(page.locator(".sweetie-progress-card strong")).toHaveText("100%");
+  await expect(page.locator(".sweetie-progress-card small")).toHaveText("Your story is ready");
   await shot(page, "sweetie-done", WHOLE_PAGE);
 
   // page.request, not request: the verified session lives in the browser's cookie jar (§5.3).
@@ -960,6 +964,23 @@ test("the skip link and goodbye promise no summary to a check-in with nothing sh
   await expect(doneCard).toContainText(/saved for your care team/i);
   await expect(doneCard, "no summary is offered where there is none").not.toContainText(/summary/i);
   await expect(page.locator(`.sweetie-conversation a[href="/patient/${booked.token}"]`)).toHaveCount(0);
+
+  // And the rail agrees with the rest of the screen about what just happened (T142, §2.5, §6.5). One
+  // answer of two, then the skip, used to read "Conversation progress 67%" over a two-thirds-full track
+  // over "Your story is ready" — the number saying a third was outstanding, the track drawing it, and the
+  // sentence saying it was done. T66 settled the shape for the other early ending; all three parts come
+  // from lib/intakeProgress.ts now, so they cannot disagree. Asserted on both projects, because at 375px
+  // the sentence was the part that was not rendered at all and the bare 67% was the whole card.
+  const rail = page.locator(".sweetie-progress-card");
+  await expect(rail).toContainText(/Check-in ended early/i);
+  await expect(rail, "no percentage beside a check-in that stopped short").not.toContainText(/%/);
+  await expect(page.locator(".sweetie-progress-track"), "and so no track either").toHaveCount(0);
+  await expect(rail).not.toContainText(/your story is ready/i);
+  // The sentence is what the card has instead of the number, so §6.5 wants it on the phone as well.
+  const railNote = rail.locator("small");
+  await expect(railNote).toBeVisible();
+  await expect(railNote).toContainText(/skipped the rest/i);
+  await expect(railNote).toContainText(/saved for your care team/i);
 
   await shot(page, "sweetie-skip-no-glucose", WHOLE_PAGE);
 

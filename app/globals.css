@@ -5708,6 +5708,15 @@ button.sweetie-agent-badge {
     display: none;
   }
 
+  /* Except where the sentence is the card. A skipped check-in has no percentage and no track above it
+     (T142, lib/intakeProgress.ts), so hiding the line leaves a labelled empty box — and before T142 it was
+     worse than empty: the phone showed a two-thirds-full track labelled 67% on a check-in that was over,
+     with nothing anywhere on the screen to explain it. §6.5 asks for the state, not for the desktop's half
+     of it. */
+  .sweetie-progress-card--skipped small {
+    display: block;
+  }
+
   .sweetie-progress-track {
     margin-top: 5px;
   }

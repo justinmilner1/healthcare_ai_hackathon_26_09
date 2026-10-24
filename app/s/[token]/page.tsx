@@ -10,6 +10,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import { apiFetch } from "@/lib/csrf";
 import DexcomDemoLink from "@/components/DexcomDemoLink";
 import { type DexcomEnv, isDexcomEnv } from "@/lib/dexcomEnv";
+import { intakeProgressCard } from "@/lib/intakeProgress";
 import { checkInCompleteCopy, flaggedCardCopy, skipDestination, skipLinkLabel } from "@/lib/summaryPromise";
 import type {
   ChatMessage,
@@ -524,11 +525,17 @@ export default function SweetiePage({
   const summaryHref = skipDestination(hasGlucose, token);
   const complete = checkInCompleteCopy(hasGlucose);
   const stoppedCard = flaggedCardCopy(hasGlucose, token);
-  const totalSteps = fields.length + 1;
-  const completedSteps = completeFields + (finished && !flagged ? 1 : 0);
-  const progress = totalSteps
-    ? Math.round((completedSteps / totalSteps) * 100)
-    : 0;
+  // All three parts of the rail's progress card, decided together in lib/intakeProgress.ts so that the
+  // label, the number and the sentence cannot answer different questions about the same check-in — which
+  // is how a skipped one came to read "Conversation progress 67%" over "Your story is ready" (T142, §2.5).
+  const progressCard = intakeProgressCard({
+    totalFields: fields.length,
+    completeFields,
+    finished,
+    flagged,
+    questionsSkipped: Boolean(intake?.questionsSkipped),
+    office: providerLabel(provider),
+  });
   const canVoice = support.speak && support.listen;
   const micLabel =
     mic === "listening"
@@ -600,26 +607,28 @@ export default function SweetiePage({
               />
             </div>
 
-            {/* A percentage beside "your story is ready" is the wrong pair of facts for a flagged
-                check-in: it stopped at whatever was answered, so the card says that and drops the number
-                and the bar rather than drawing a part-full track next to it (T66, §2.5). */}
-            <div className="sweetie-progress-card">
+            {/* A percentage beside "your story is ready" is the wrong pair of facts for a check-in that
+                ended short: it stopped at whatever was answered, so the card says that and drops the
+                number and the bar rather than drawing a part-full track next to it. T66 did that for the
+                flagged ending; T142 gives the skipped one the same shape, and the modifier class is what
+                keeps the sentence on the screen at 375px, where it is all the card has (§2.5, §6.5). */}
+            <div
+              className={
+                progressCard.ending === "skipped"
+                  ? "sweetie-progress-card sweetie-progress-card--skipped"
+                  : "sweetie-progress-card"
+              }
+            >
               <div>
-                <span>{flagged ? "Check-in stopped" : "Conversation progress"}</span>
-                {!flagged && <strong>{progress}%</strong>}
+                <span>{progressCard.label}</span>
+                {progressCard.percent !== null && <strong>{progressCard.percent}%</strong>}
               </div>
-              {!flagged && (
+              {progressCard.percent !== null && (
                 <div className="sweetie-progress-track">
-                  <span style={{ width: `${progress}%` }} />
+                  <span style={{ width: `${progressCard.percent}%` }} />
                 </div>
               )}
-              <small>
-                {flagged
-                  ? `We stopped early so ${providerLabel(provider)} can look at this now.`
-                  : finished
-                    ? "Your story is ready"
-                    : `${completeFields} of ${fields.length || "—"} questions answered`}
-              </small>
+              <small>{progressCard.detail}</small>
             </div>
 
             {/* Skipping only makes sense once there is something to show. Until the patient has answered
