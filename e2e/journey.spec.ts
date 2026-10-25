@@ -394,7 +394,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // and useful thing to tell a reader who knows what lib/match.ts does. This is the handover asserted from
   // the other end — the two pages read the same spikes and are deliberately not written alike.
   // T157 (§2.6): and the heading over that card is the first thing to say so. It was the constant "Spikes
-  // linked to places" over five rows that matched none, beside a stat tile reading "0 linked to a place" —
+  // linked to places" over five rows that matched none, beside a stat tile then reading "0 linked to a
+  // place" — which T160 below turned into a statement about the missing source —
   // so the card is found here by the table it holds rather than by a heading that is now a function of the
   // spikes (lib/spikePlaces.ts `clinicianSpikeCardHeading`).
   const places = page.locator(".sour-card", { has: page.getByRole("columnheader", { name: "Place" }) });
@@ -402,8 +403,18 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(places.getByRole("heading"), "a link no rise in this card has").not.toContainText(/linked/i);
   await expect(places.getByRole("columnheader")).toHaveText(["When", "Rise", "Place"]);
   await expect(places).toContainText("no matching visit");
-  // The stat tile beside it, which has carried the honest count since T60: the card now agrees with it.
-  await expect(page.locator(".sour-metrics-card")).toContainText("0 linked to a place");
+  // T160 (§2.6, §2.5): and the stat tile beside it, which was the last element of that row to state
+  // something about places without asking first. This patient shared Dexcom and WHOOP and no Timeline, so
+  // the hint names the missing source the way the Sleep tile names its own — it does not report a zero over
+  // a file nobody sent. The matched count is asserted on the seeded visit, which has a Timeline
+  // (e2e/print.spec.ts).
+  const metrics = page.locator(".sour-metrics-card");
+  await expect(metrics).toContainText("no Timeline data");
+  await expect(metrics, "a count of places over an export this visit never had").not.toContainText(/linked to a place/);
+  // The pair the ticket is about, read across the row: this patient shared WHOOP, so the Sleep tile reports
+  // the nights it read. Both branches of the same rule in one row — a source that is there is measured, a
+  // source that is not is named. The both-absent pair is asserted on the Dexcom-only visit (e2e/flags.spec.ts).
+  await expect(metrics, "the Sleep tile still reports the WHOOP this patient did share").toContainText("h/night");
   // T99 (§2.6): and the chart beside that card says the same thing about the same five rises. The caption
   // used to call every red marker a place; with no Timeline shared, every label on it is a peak mg/dL.
   const caption = page.locator(".sour-chart-caption");
@@ -420,6 +431,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // five "no matching visit" rows is the subject of the ticket, so it gets a frame of its own.
   await parkPointer(page);
   await shot(page, "12-sour-spikes-unplaced", { ...SCREENFUL, scrollTo: places });
+  // T160 (§12.3): the metrics row itself, which is the subject of that ticket and is read across rather
+  // than down — the Spikes tile and the Sleep tile have to be in one frame to see that they now agree. The
+  // desktop project shoots the document, so the brief's own frame holds the row; this gives it a readable
+  // one at both widths.
+  await shot(page, "12-sour-metrics-no-timeline", { ...SCREENFUL, scrollTo: metrics });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
     shot(page, `12-sour-brief-tooltip-${chart}`, SCREENFUL),
@@ -483,6 +499,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(printPlaces.getByRole("heading")).toHaveText("Spikes over 180");
   await expect(printPlaces.getByRole("heading"), "a link no rise on this sheet has").not.toContainText(/linked/i);
   await expect(printPlaces).toContainText("no matching visit");
+  // T160 (§7.4): the stat tile on the paper, for the reason the heading above is asserted here — the sheet
+  // is what a clinician carries into the room, and it read the same unconditional count the screen did.
+  const printNumbers = page.locator(".sour-print-numbers");
+  await expect(printNumbers).toContainText("no Timeline data");
+  await expect(printNumbers, "a count of places on a sheet whose visit has no Timeline").not.toContainText(/linked to a place/);
+  await expect(printNumbers, "the Sleep tile on paper, over the WHOOP this patient did share").toContainText("h/night");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   // The patient's own words at the bottom of the frame, with the patterns and the questions above them
   // (T109, design §12.3): the sheet at 375px is several phone screens, and unanchored this shot was the
@@ -493,6 +515,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // about is in no committed picture of the paper.
   await parkPointer(page);
   await shot(page, "15-print-spikes-unplaced", { ...SCREENFUL, scrollTo: printPlaces });
+  // T160 (§12.3): the same row on paper, anchored for the same reason the brief's is — the sheet is
+  // anchored on the patient's words above, so without this frame the two tiles this ticket is about are in
+  // no committed picture of the printed one-pager.
+  await shot(page, "15-print-metrics-no-timeline", { ...SCREENFUL, scrollTo: printNumbers });
   // And the third (§7.4). The sheet is read on screen before it is sent to paper, so its charts have
   // tooltips like the other two; nothing here is about what the printer puts on the page.
   await expectChartTooltipsLabelled(page, "the printed sheet");

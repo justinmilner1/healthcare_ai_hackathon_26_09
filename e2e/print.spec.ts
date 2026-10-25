@@ -101,6 +101,13 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   // Timeline export, so rises *are* linked to places and the card says so — the same string it has always
   // carried, now out of lib/spikePlaces.ts. The unplaced case is asserted in e2e/journey.spec.ts.
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
+  // T160 (§7.4): the stat tile over that card, and the half of *that* change which had to stay as it was.
+  // A Timeline was shared here, so the count is a reading taken and the tile keeps it — the ticket is only
+  // about a visit with no Timeline at all, where the zero was a measurement over nothing
+  // (lib/spikePlaces.ts `clinicianSpikePlacesHint`).
+  const placesTile = page.locator(".sour-print-numbers");
+  await expect(placesTile).toContainText(/\d+ linked to a place/);
+  await expect(placesTile, "a source this visit did share").not.toContainText("no Timeline data");
   // T62: this visit has a Timeline export and no hand-labelled place list beside it, which is all a patient
   // can actually send (§9.3). Every place on the sheet is therefore the visit's own coordinates — Google's
   // internal place id is not a place name, and a clinician holding this paper cannot read one.

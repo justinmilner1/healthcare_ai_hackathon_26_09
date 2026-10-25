@@ -179,6 +179,16 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expect(flaggedComposer).toHaveAttribute("placeholder", /glucose spikes/i);
   await expect(flaggedComposer).not.toHaveAttribute("placeholder", /sleep/i);
 
+  // T160 (§2.6, §2.5): the same visit read one row up. Readings and neither optional source, so the metrics
+  // row is the ticket's pair side by side — the Spikes tile names the Timeline it never got, in the register
+  // the Sleep tile has always used for WHOOP. It used to report "0 linked to a place" here: a measurement
+  // over a file nobody sent, beside a tile naming the same absence (lib/spikePlaces.ts
+  // `clinicianSpikePlacesHint`).
+  const flaggedMetrics = page.locator(".sour-metrics-card");
+  await expect(flaggedMetrics).toContainText("no Timeline data");
+  await expect(flaggedMetrics).toContainText("no WHOOP data");
+  await expect(flaggedMetrics, "a count of places over an export this visit has not got").not.toContainText(/linked to a place/);
+
   await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 
   // §7.4's sheet is the same brief on paper, so the same two blocks are on it, above the same numbers. The
@@ -198,6 +208,12 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expectAbove(page, ".sour-glucose-flags", ".sour-print-numbers", "the sheet");
   await expectRed(printIntake, "the sheet's intake flag");
   await expectRed(printGlucose, "the sheet's glucose flags");
+  // T160 (§7.4): and the same row on the paper, out of the same function, so the sheet cannot count places
+  // the screen declines to.
+  const printMetrics = page.locator(".sour-print-numbers");
+  await expect(printMetrics).toContainText("no Timeline data");
+  await expect(printMetrics).toContainText("no WHOOP data");
+  await expect(printMetrics, "a count of places on a sheet whose visit has no Timeline").not.toContainText(/linked to a place/);
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for before the
   // shutter opens — the same wait e2e/print.spec.ts takes before its own shot of this page.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
