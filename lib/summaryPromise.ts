@@ -199,9 +199,10 @@ export function checkInCompleteCopy(hasGlucose: boolean, ending: IntakeEnding): 
     // safety ending, which sends the patient to a person, and borrowing it here would make a patient who
     // simply had no more to say read their own card as the urgent one. A dash claims nothing in either
     // direction, which is exactly the state of a check-in whose questions were left unanswered, and it is
-    // distinguishable from both the other two at the 30px the tile draws it at. The tile itself stays the
-    // green one: what the patient did share *is* saved for their care team, and the sub-line below says
-    // so — only the claim to completeness was wrong.
+    // distinguishable from both the other two at the 30px the tile draws it at. The card itself stays the
+    // green one — what the patient did share *is* saved for their care team, which is the sub-line below —
+    // and app/globals.css mutes the tile this mark sits in, keyed on the same ending. Only the claim to
+    // completeness was wrong.
     glyph: endedEarly ? "–" : "✓",
     detail: hasGlucose
       ? "See the summary you'll share with your doctor"
