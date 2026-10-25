@@ -196,7 +196,17 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const link = await page.locator(".patient-link-card a").innerText();
   const token = link.split("/s/")[1]?.trim();
   expect(token, `a /s/<token> link on the success card, got ${link}`).toBeTruthy();
-  await shot(page, "04-invite-sent", MODAL);
+  // Anchored on the card for the same reason the step above it is, rather than for the same gap (T151):
+  // this step is short enough that one 375px frame holds all of it, but the dialog keeps the scroll
+  // position step 3 left it at, so the frame began mid-word in the hero at whatever height the last
+  // interaction happened to leave. e2e/visits.spec.ts' SUCCESS_CARD is this anchor with the measurements
+  // behind it; it is the last shot of this dialog that was still taking a bare MODAL.
+  await shot(page, "04-invite-sent", {
+    ...MODAL,
+    scrollTo: ".patient-wizard-success",
+    block: "end",
+    wholeRows: ".patient-link-card, .patient-wizard-success .ss-title",
+  });
 
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
   const row = page.locator(".provider-table tbody tr", { hasText: email });
