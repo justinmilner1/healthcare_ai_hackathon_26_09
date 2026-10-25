@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { cannotSendYet } from "../lib/delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
 import { SENDABLE_PORT } from "../playwright.config";
@@ -68,6 +68,89 @@ const SUCCESS_CARD: ShotOptions = {
   block: "end",
   wholeRows: ".patient-link-card, .patient-wizard-success .ss-title",
 };
+
+/**
+ * Step 3 scrolls under a finger, from its title to its button and back (T155, design §6.5, §2.2).
+ *
+ * The bug this pins is layout, which is why it is here and not in `lib/`. `.patient-wizard` is a grid, and
+ * at 375px `grid-template-columns: 1fr` left its two children in *implicit* rows — and an implicit row is
+ * an `auto` track, sized to its own content rather than to what is left of the dialog. So the grid grew
+ * past its own `max-height: 94svh` and `overflow: hidden` cut about 300px off: the step's title above the
+ * top edge, the **Add patient** row below the bottom one. Meanwhile `.patient-wizard-content`'s
+ * `overflow-y: auto` had been handed exactly its content's height and so had nothing to scroll, and
+ * `.patient-wizard-actions`' `position: sticky` had no scrolling ancestor to resolve against and did
+ * nothing at all. On the step where §2.2 asks staff to confirm the patient, the channel and the consent,
+ * most of what they were confirming was behind an edge.
+ *
+ * Two measurements, because either one alone passes on the broken tree:
+ *
+ * - **The dialog itself must not be the over-full box.** It is the one with `overflow: hidden`, so what is
+ *   past its edge is cut rather than scrolled and no gesture brings it back. 281 to 308 pixels were.
+ * - **The gesture is a wheel, not `scrollIntoView`.** `overflow: hidden` keeps a box programmatically and
+ *   focus scrollable while refusing touch and wheel, so a programmatic scroll is exactly what a test must
+ *   not use here: it moved the broken dialog too, which is how the suite's own anchored frames kept working
+ *   while a finger could not reach the button.
+ *
+ * And the sticky row is asserted where it was written to matter: **Add patient** is in the frame at the top
+ * of the scroll as well as at the end of it, so the fields can go past it rather than taking it with them.
+ *
+ * The desktop dialog is two columns in one row and overflows nothing, so there is nothing there to scroll;
+ * the width that has something to prove says so rather than both of them sharing a weaker assertion.
+ */
+async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Add a booked patient" });
+  const content = dialog.locator(".patient-wizard-content");
+  const actions = dialog.locator(".patient-wizard-actions");
+  const title = dialog.locator(".patient-wizard-step .ss-title");
+  const frame: ShotOptions = { ...MODAL, wholeRows: ".patient-wizard-actions" };
+
+  expect(
+    await dialog.evaluate((element) => element.scrollHeight - element.clientHeight),
+    "`.patient-wizard` is the box with overflow: hidden, so whatever is past its edge is cut and no gesture reaches it (T155)",
+  ).toBe(0);
+
+  // The top of the step, which is where the title and the patient card are.
+  const room = await content.evaluate((element) => {
+    element.scrollTop = 0;
+    return element.scrollHeight - element.clientHeight;
+  });
+  await expect(title, "the step's own title, at the top of its scroll").toBeInViewport(LOADED);
+  await expect(actions, "the save row is on screen before anything has been scrolled").toBeInViewport(LOADED);
+  await shot(page, `${name}-scroll-top`, frame);
+
+  if (test.info().project.name !== "mobile") {
+    // 38% / 62%, one row, nothing overflowing: the desktop dialog holds the whole step at once, and the
+    // frame above is already the bottom of it. Asserted rather than skipped, because a desktop dialog that
+    // started overflowing would be a regression this helper is the only thing watching for.
+    expect(room, "the desktop dialog holds the whole step, so its content row has nothing to scroll").toBe(0);
+    await shot(page, `${name}-scroll-bottom`, frame);
+    return;
+  }
+
+  expect(
+    room,
+    "the 375px step is taller than the dialog by its own design, so its content row has to be the scroller (T155)",
+  ).toBeGreaterThan(0);
+
+  // A wheel over the dialog: the gesture `overflow: hidden` refuses, and the one a person has.
+  const box = await content.boundingBox();
+  expect(box, "the step is on screen to be scrolled").toBeTruthy();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.wheel(0, room + 200);
+  await expect
+    .poll(async () => content.evaluate((element) => element.scrollTop), LOADED)
+    .toBeGreaterThanOrEqual(room - 1);
+  await expect(actions, "and still on screen at the end of the scroll").toBeInViewport(LOADED);
+  await shot(page, `${name}-scroll-bottom`, frame);
+
+  // And back: the title the frame above cannot hold is a wheel away, which is the half of the §2.2 review
+  // a person had no way to return to.
+  await page.mouse.wheel(0, -(room + 200));
+  await expect
+    .poll(async () => content.evaluate((element) => element.scrollTop), LOADED)
+    .toBeLessThanOrEqual(1);
+  await expect(title, "a wheel back up returns the step's title, which is half of what §2.2 asks staff to confirm").toBeInViewport(LOADED);
+}
 
 /** A name nothing else in the run will use: two Playwright projects share one database. */
 const uniqueName = (prefix: string) => `${prefix} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -166,6 +249,12 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   await expect(step3.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   // The whole step, because the next literal would be somewhere else on it.
   expect(await step3.innerText(), "nothing on the step offers a send this office cannot make").not.toMatch(PROMISES_SEND);
+
+  // T155 (§6.5, §2.2) And a person on a phone can reach all of it, which the anchored frame below cannot
+  // say: it is one viewport of a step that is taller than one, so it chooses. This is the scroll that makes
+  // the rest of the step reachable, and the two frames it leaves are the step's top and its bottom.
+  await expectStepThreeScrolls(page, "provider-add-visit-step3");
+
   await shot(page, "provider-add-visit-consent", STEP_3);
 
   // And "Do not message" is still the practice's own choice rather than a gap in the deployment (T120): the

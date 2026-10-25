@@ -5513,10 +5513,19 @@ button.sweetie-agent-badge {
     padding: 0;
   }
 
+  /* T155 (design §6.5, §2.2): one column means two *implicit* rows, and an implicit row is an `auto`
+     track sized to its own content — so the grid grew past `max-height` and `overflow: hidden` cut about
+     300px off, including the row with **Add patient**, with nothing on the page able to scroll it back.
+     Naming the rows gives the content row what is left of the dialog instead; `minmax(0, 1fr)` rather
+     than a plain `1fr`, because an `fr` track keeps an automatic minimum of its content's min-content
+     size and would stay over-full. `.patient-wizard-content` is then the scroller its `overflow-y: auto`
+     has always asked for, and `.patient-wizard-actions`' `position: sticky` below has a scrolling
+     ancestor to resolve against. The desktop rule is one row and overflows nothing, so it is untouched. */
   .patient-wizard {
     width: 100%;
     max-height: 94svh;
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     border-radius: 24px 24px 0 0;
   }
 
