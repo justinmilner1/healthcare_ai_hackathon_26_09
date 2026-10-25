@@ -162,7 +162,9 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   // this is the one shape in which "Summaries ready" is a true claim (lib/sourState.ts
   // `summaryListHeading`), with the tick on the active row to match.
   await expect(page.locator(".sour-sidebar-label")).toHaveText("Summaries ready", LOADED);
-  await expect(page.locator(".sour-patient-list .sour-patient-active i")).toBeVisible(LOADED);
+  // By count, not by visibility: the mobile project hides the whole sidebar list (app/globals.css), and
+  // the heading above is in the document either way. Its no-summary twin below counts the same element.
+  await expect(page.locator(".sour-patient-list .sour-patient-active i"), "the active row is ticked once its summary is in").toHaveCount(1, LOADED);
   await shot(page, "provider-sour");
 
   // T148's other half, on the visit this test booked a moment ago: nothing answered, nothing uploaded and
