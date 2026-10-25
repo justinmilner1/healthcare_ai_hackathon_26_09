@@ -149,6 +149,41 @@ test("the card ending the transcript does not call a check-in that stopped short
   }
 });
 
+test("the mark on the card says what the card's title says, over every ending (T152, §2.5)", () => {
+  // T146's bug, one element over. The title asked `intakeEnding`; the glyph beside it was a literal ✓ in
+  // both arms of the page's render and conditional on nothing, so the card that ends a skipped check-in
+  // read "✓ Check-in ended early" — and, not being hidden, read the tick out first.
+  //
+  // The two endings the card is rendered for are swept together rather than the skip asserted alone,
+  // because the defect was one of the pair not moving when the other did. `open` is not here: the page
+  // renders this card only once the intake has wrapped. `flagged` is not either: the safety scan ends the
+  // transcript with its own card and its own "!" (T66, T141), which this module does not decide.
+  const TICK = "✓";
+  for (const hasGlucose of [true, false]) {
+    const where = `hasGlucose=${hasGlucose}`;
+    const answered = checkInCompleteCopy(hasGlucose, "answered");
+    const skipped = checkInCompleteCopy(hasGlucose, "skipped");
+    // The ending T137 wrote the card for, unchanged: the tick is what a completed check-in has always had.
+    assert.equal(answered.glyph, TICK, `${where}: the answered card keeps its tick`);
+    assert.notEqual(skipped.glyph, TICK, `${where}: a check-in that stopped short does not get the tick`);
+    // Distinguishable from the flagged card's mark as well, which is the other thing the patient could
+    // mistake it for — and the wrong one to borrow, since that ending is the one that sends them to a
+    // person (§2.5).
+    assert.notEqual(skipped.glyph, "!", `${where}: a skip is not the safety ending`);
+    // One character, because the tile it is drawn in is 30px square (app/globals.css).
+    assert.equal([...skipped.glyph].length, 1, `${where}: the mark is one character`);
+    // And said as the invariant rather than as two literals: the mark is the tick exactly where the title
+    // claims the check-in is complete. A fifth expression over how it ended cannot satisfy both.
+    for (const said of [answered, skipped]) {
+      assert.equal(
+        said.glyph === TICK,
+        /is complete/i.test(said.title),
+        `${where}: "${said.glyph}" beside "${said.title}"`,
+      );
+    }
+  }
+});
+
 test("the card's title agrees with the rail on every ending it is rendered for (T142, T146)", () => {
   // Said over the endings rather than on the one that had it, because the bug was two surfaces reading one
   // state differently — and the rail is the surface T142 already made right. Wherever the rail drops the

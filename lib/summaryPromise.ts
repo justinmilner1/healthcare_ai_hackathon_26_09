@@ -156,6 +156,18 @@ export type CheckInCompleteCopy = {
   title: string;
   /** The line under it — the one that either offers the summary or says what was kept instead. */
   detail: string;
+  /**
+   * The mark in the tile to the left of the title, which has to say what the title says (T152).
+   *
+   * It is here rather than in the page because it is the title's own fact in one character: a card headed
+   * "Check-in ended early" beside a glyph meaning "done" is the contradiction T146 took off the stepper,
+   * one element over. Returning the two from one branch is what stops them drifting again, and is the
+   * shape `intakeStepperEnd` already uses for the strip's last step (lib/intakeProgress.ts).
+   *
+   * The page renders it `aria-hidden`, so this is decoration of the title and never part of the card's
+   * accessible name.
+   */
+  glyph: string;
 };
 
 /**
@@ -178,6 +190,19 @@ export function checkInCompleteCopy(hasGlucose: boolean, ending: IntakeEnding): 
   const endedEarly = ending === "skipped" || ending === "flagged";
   return {
     title: endedEarly ? "Check-in ended early" : "Your check-in is complete",
+    // The same branch as the title, because it is the same claim (T152). §2.5 now has three endings in
+    // every element on this screen, and this is the last one that was answering the retired question: the
+    // tick was a literal in both arms of the page's render, so "Check-in ended early" wore the glyph that
+    // means complete and — not being hidden — read it out first.
+    //
+    // An en dash rather than the flagged card's "!": a skip is not an alarm. The exclamation is §2.5's
+    // safety ending, which sends the patient to a person, and borrowing it here would make a patient who
+    // simply had no more to say read their own card as the urgent one. A dash claims nothing in either
+    // direction, which is exactly the state of a check-in whose questions were left unanswered, and it is
+    // distinguishable from both the other two at the 30px the tile draws it at. The tile itself stays the
+    // green one: what the patient did share *is* saved for their care team, and the sub-line below says
+    // so — only the claim to completeness was wrong.
+    glyph: endedEarly ? "–" : "✓",
     detail: hasGlucose
       ? "See the summary you'll share with your doctor"
       : "What you shared is saved for your care team",
