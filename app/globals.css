@@ -2055,11 +2055,16 @@ textarea.ss-input {
   backdrop-filter: blur(8px);
 }
 
+/* T158 The side and bottom padding are named here rather than written into the shorthand, because at 375px
+   `.patient-wizard-actions` sticks to the bottom of this box and has to cancel exactly these two numbers to
+   reach the scrollport's edges. One declaration per width, read by both rules. */
 .patient-wizard-content {
+  --wizard-pad-x: 46px;
+  --wizard-pad-b: 28px;
   display: flex;
   min-width: 0;
   flex-direction: column;
-  padding: 38px 46px 28px;
+  padding: 38px var(--wizard-pad-x) var(--wizard-pad-b);
   overflow-y: auto;
 }
 
@@ -5580,7 +5585,9 @@ button.sweetie-agent-badge {
   }
 
   .patient-wizard-content {
-    padding: 25px 22px 20px;
+    --wizard-pad-x: 22px;
+    --wizard-pad-b: 20px;
+    padding: 25px var(--wizard-pad-x) var(--wizard-pad-b);
   }
 
   .patient-wizard-step {
@@ -5599,6 +5606,27 @@ button.sweetie-agent-badge {
     position: sticky;
     bottom: 0;
     background: white;
+  }
+
+  /* T158 (design §6.5, §2.2): `bottom: 0` resolves against the scroll container's *content* box, so the row
+     T155 made stick came to rest `--wizard-pad-b` above the dialog's bottom edge and inset by
+     `--wizard-pad-x` at each side — and the form scrolled through all three gaps, which reads as a bar that
+     has come loose from the dialog it belongs to. Bleeding it back out by the scroller's own padding puts
+     its edges on the scrollport's, and giving it that padding back as its own leaves **Back** and **Add
+     patient** where they were. The offsets are `.patient-wizard-content`'s two custom properties rather
+     than a second copy of the numbers, so the pair cannot drift apart.
+
+     Scoped to `.patient-wizard` as well, because `.import-dialog` shares this class and sets a different
+     padding (18px at this width). It is not the scroller there — `.import-scroll` is, and the row is a
+     `flex: 0 0 auto` sibling of it — so it has nothing to bleed into, and the rule above is all it wants. */
+  .patient-wizard .patient-wizard-actions {
+    bottom: calc(-1 * var(--wizard-pad-b));
+    margin-right: calc(-1 * var(--wizard-pad-x));
+    margin-bottom: calc(-1 * var(--wizard-pad-b));
+    margin-left: calc(-1 * var(--wizard-pad-x));
+    padding-right: var(--wizard-pad-x);
+    padding-bottom: var(--wizard-pad-b);
+    padding-left: var(--wizard-pad-x);
   }
 
   .sour-summary-layout {
