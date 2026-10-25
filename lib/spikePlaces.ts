@@ -165,3 +165,41 @@ export function clinicianSpikeCardHeading(spikes: Spike[]): string {
   if (anyPlaceKnown(spikes)) return "Spikes linked to places";
   return spikes.length === 0 ? "Spikes" : "Spikes over 180";
 }
+
+/**
+ * The hint under the "Spikes > 180" stat tile on the two clinician surfaces: the brief (§2.6) and the
+ * printed one-pager (§7.4). One function, for the reason `clinicianSpikeCardHeading` above is one (T160).
+ *
+ * It was the template literal `${n} linked to a place` on both, which made it the last element of that
+ * metrics row to say something about places without first asking whether any place data exists. §2.5 leaves
+ * the Timeline export to the patient page's optional data panel and Sweetie never asks for it (T144), so the
+ * ordinary visit has none — and the row then read:
+ *
+ * ```
+ * Spikes > 180  5 · 0 linked to a place   <- a measured zero, over a source nobody shared
+ * Sleep         — · no WHOOP data         <- the same absence, named
+ * ```
+ *
+ * A clinician reading that zero cannot tell which of three things happened: a Timeline was shared and no
+ * rise matched a stop, one was shared and the patient went nowhere, or none was ever shared. The tile beside
+ * it answers exactly that question about the other optional source, and T82 settled the same point for the
+ * patient's §2.7 page: an absence of optional data is not a measurement.
+ *
+ * So the decision is `IntakeStatus.hasLocation` (lib/bundle.ts: the visit has a Timeline export at all), the
+ * exact sibling of the `hasWhoop` the Sleep tile is branched on — and deliberately **not** `anyPlaceKnown`,
+ * which answers "did any rise match" and so cannot separate "shared and nothing matched" from "never
+ * shared". Only the second is this ticket's: a visit that shared a Timeline keeps its count, zero included,
+ * because there the zero is a reading taken.
+ */
+export function clinicianSpikePlacesHint(spikes: Spike[], { hasLocation }: { hasLocation: boolean }): string {
+  if (!hasLocation) return NO_TIMELINE_HINT;
+  return `${spikes.filter((s) => s.visit).length} linked to a place`;
+}
+
+/**
+ * How the tile names the missing source, in the words the tile beside it uses for its own ("no WHOOP data").
+ *
+ * "Timeline" is what both clinician surfaces already call this export in their sources line
+ * (app/provider/[id]/sour.tsx, app/provider/visit/[id]/print/page.tsx), so the hint borrows no new noun.
+ */
+export const NO_TIMELINE_HINT = "no Timeline data";

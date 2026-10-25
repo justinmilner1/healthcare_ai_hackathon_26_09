@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { placeLabel } from "./location";
-import { anyPlaceKnown, clinicianChartCaption, clinicianSpikeCardHeading, markerLabel, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -223,4 +223,58 @@ test("the heading never speaks the matcher's vocabulary at the patient (T157)", 
   for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
     assert.doesNotMatch(clinicianSpikeCardHeading(spikes), MATCHER);
   }
+});
+
+// T160 (§2.6, §7.4, §2.5): the stat tile beside that card, which was the last element of the metrics row
+// to state something about places without first asking whether any place data exists. Three states, and
+// the point of the ticket is that two of them used to read alike.
+
+test("the tile names the missing source rather than counting over it (T160)", () => {
+  // The §12.2 journey visit, which §2.5 makes the ordinary one: Dexcom shared, Timeline not (T144). Five
+  // rises, no Timeline — so there is no count to report, only the absence, as the Sleep tile reports its own.
+  const hint = clinicianSpikePlacesHint([spike(), spike(), spike(), spike(), spike()], { hasLocation: false });
+  assert.equal(hint, NO_TIMELINE_HINT);
+  assert.equal(hint, "no Timeline data");
+  // Not a number, which is the whole bug: "0 linked to a place" is a measurement over a source nobody read.
+  assert.doesNotMatch(hint, /\d/, hint);
+  assert.doesNotMatch(hint, /linked/i, hint);
+});
+
+test("a Timeline that matched nothing keeps its zero (T160)", () => {
+  // The case the ticket is careful about: this patient *did* share the export, so the zero is a reading
+  // taken — no rise of theirs started near a stop — and reads differently from never having shared one.
+  const hint = clinicianSpikePlacesHint([spike(), spike()], { hasLocation: true });
+  assert.equal(hint, "0 linked to a place");
+  assert.notEqual(hint, clinicianSpikePlacesHint([spike(), spike()], { hasLocation: false }));
+});
+
+test("and a Timeline that matched some keeps its count (T160)", () => {
+  // The acceptance criterion that is about nothing changing: desktop-provider-print.png is this visit.
+  assert.equal(
+    clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike()], { hasLocation: true }),
+    "3 linked to a place",
+  );
+  assert.equal(clinicianSpikePlacesHint([spike(somewhere("Noe Cafe"))], { hasLocation: true }), "1 linked to a place");
+});
+
+test("an empty card still answers about the source, not with a count (T160)", () => {
+  // No rises at all: with a Timeline there is a zero to state, without one there is still nothing read.
+  assert.equal(clinicianSpikePlacesHint([], { hasLocation: true }), "0 linked to a place");
+  assert.equal(clinicianSpikePlacesHint([], { hasLocation: false }), NO_TIMELINE_HINT);
+});
+
+test("the tile asks `hasLocation`, never `anyPlaceKnown` (T160)", () => {
+  // Written as a property because the two predicates agree on three of the four combinations, and the one
+  // they differ on is exactly the case the ticket exists for. `anyPlaceKnown` false with `hasLocation` true
+  // is "shared, nothing matched" and must keep its count; false with false is "never shared".
+  const unmatched = [spike(), spike(), spike()];
+  assert.equal(anyPlaceKnown(unmatched), false);
+  assert.match(clinicianSpikePlacesHint(unmatched, { hasLocation: true }), /^\d+ linked to a place$/);
+  assert.equal(clinicianSpikePlacesHint(unmatched, { hasLocation: false }), NO_TIMELINE_HINT);
+});
+
+test("the tile and the Sleep tile beside it name an absence the same way (T160)", () => {
+  // §2.6's row, read across: the two optional sources, two tiles, one register. "no WHOOP data" is written
+  // in the pages; this is the half that is decidable here.
+  assert.match(NO_TIMELINE_HINT, /^no \S+ data$/);
 });
