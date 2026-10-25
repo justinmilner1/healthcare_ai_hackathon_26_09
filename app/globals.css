@@ -3856,6 +3856,19 @@ textarea.ss-input {
   background: #5da36f;
 }
 
+/* The same tile on the card that ends a check-in the patient stopped short (T152, design §2.5). The card
+   stays the green one — what they did share is saved for their care team, which is the line under the
+   title — so what changes is the mark in the tile and the weight it is drawn at: lib/summaryPromise.ts
+   returns an en dash there instead of the tick, and a dash at the tick's weight is a hairline in a 30px
+   square. The tile is muted with it, which is the one piece of chrome that tells the two completed-card
+   endings apart at a glance; the flagged ending keeps its own amber card and its "!", because a skip is
+   not an alarm. Keyed on the ending rather than on a class of its own, so the colour and the glyph come
+   from the one answer the rest of this screen is drawn from (lib/intakeProgress.ts). */
+.sweetie-done-card[data-ending="skipped"] > span {
+  background: #6d8a79;
+  font-weight: 700;
+}
+
 .sweetie-done-card strong,
 .sweetie-done-card small {
   display: block;

@@ -802,10 +802,16 @@ export default function SweetiePage({
                     §2.7). Without glucose the card is the same box with no anchor and no arrow: a patient
                     who skipped the rest reads the goodbye above it and is not invited, one line later,
                     into the empty summary the goodbye had just declined to promise. */}
+                {/* The glyph is `complete.glyph` in both arms and `aria-hidden` in both, as the arrow
+                    beside it already was (T152, §12.5). It was a literal ✓ either way, so the card that
+                    ends a skipped check-in wore the mark for "done" over the words "Check-in ended early"
+                    — and read the mark out first, which is the half of it a screen reader met. The tile's
+                    colour is keyed on the ending for the same reason the mark is: one expression, so the
+                    chrome cannot drift from the title again. */}
                 {finished && !flagged && (
                   summaryHref ? (
-                    <a href={summaryHref} className="sweetie-done-card">
-                      <span>✓</span>
+                    <a href={summaryHref} className="sweetie-done-card" data-ending={progressCard.ending}>
+                      <span aria-hidden="true">{complete.glyph}</span>
                       <div>
                         <strong>{complete.title}</strong>
                         <small>{complete.detail}</small>
@@ -813,8 +819,11 @@ export default function SweetiePage({
                       <b aria-hidden="true">→</b>
                     </a>
                   ) : (
-                    <div className="sweetie-done-card sweetie-done-card-static">
-                      <span>✓</span>
+                    <div
+                      className="sweetie-done-card sweetie-done-card-static"
+                      data-ending={progressCard.ending}
+                    >
+                      <span aria-hidden="true">{complete.glyph}</span>
                       <div>
                         <strong>{complete.title}</strong>
                         <small>{complete.detail}</small>
