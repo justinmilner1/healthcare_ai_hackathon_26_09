@@ -52,10 +52,21 @@ const UNSENDABLE_PORT = PORT + 5;
 // staff chose — whose answer is settled on the server and handed down as a prop (app/provider/page.tsx), so
 // no `page.route` stub can stand in for a configured office the way e2e/visits.spec.ts stubs POST /api/book's
 // answer for the success card. The number is the DEXCOM_ENV fixture's trick: real-looking and never used for
-// a request, because the spec that uses this server reads the step and does not press the button, and
-// nothing on it enqueues a job (`nudge` runs on POST routes only, lib/jobs.ts). Email is left unconfigured,
-// which is what makes the same screen answer differently per channel. e2e/visits.spec.ts is the only spec
-// that uses it.
+// a request, because nothing on this server ever runs a send: its queue is drained elsewhere, below. Email
+// is left unconfigured, which is what makes the same screen answer differently per channel.
+//
+// T150 made it a server a test may press a button on. The rule was "read the step, do not press it", because
+// a press enqueues a `notify.invite` job and `nudge` drains it inline a moment later (lib/jobs.ts) — which on
+// the one server with an origination number is the suite's only outbound SNS call, from a box with ambient
+// AWS credentials. §13.4's own branch is safe, which is the half e2e/visits.spec.ts presses: the job refuses
+// the number before any backend is reached. The destination §13.4 *allows* is not, and the resend path has no
+// forecast on screen to read instead, so covering it means pressing it.
+//
+// So this server is given JOBS_SECRET, which is what `jobsRunner()` reads: `nudge` is a no-op on it and it
+// drains nothing of its own (§3.4). The job is still enqueued, and still drained — by the next inline server
+// to be posted to, none of which has a sender at all, so the send is `skipped` and no backend is reached from
+// anywhere. What a press here can be asked about is the answer the route gives while staff are on the screen,
+// which is what both tickets are about. e2e/visits.spec.ts and e2e/invite.spec.ts are the specs that use it.
 const SENDABLE_PORT = PORT + 6;
 
 /**
@@ -284,6 +295,11 @@ export default defineConfig({
         // What makes this the one server that can text anybody: since T94 the origination number is also
         // what selects the SNS backend (lib/sms.ts). Registered with nobody — see the comment above.
         SNS_ORIGINATION_NUMBER: "+15550000100",
+        // And what keeps it from ever reaching for it (T150): with a runner secret set, `jobsRunner()` is
+        // "scheduled", so `nudge` drains nothing here and a test may press a button that enqueues a send.
+        // The same secret as the runner server's below, which is the one build in the suite that serves
+        // POST /api/jobs/run; nothing in the suite posts that route against this port.
+        JOBS_SECRET: RUNNER_SECRET,
       },
     },
     {

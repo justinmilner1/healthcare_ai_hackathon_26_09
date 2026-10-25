@@ -63,12 +63,13 @@ const uniquePhone = () => `+1415555${String(Math.floor(Math.random() * 9000) + 1
  * matches an existing patient on phone. A caller that presses the button therefore has about a one-in-a-
  * hundred chance of joining another patient per draw — against the seeded `+14155550100`, against
  * e2e/audit.spec.ts's `+14155550199`, and against the other project running the same test — which is a
- * flake rather than a feature. Three area codes are left to the specs that pin them: 415 to the seed and to
- * e2e/audit.spec.ts, 650 to e2e/demo.spec.ts, 206 to e2e/verify.spec.ts. Nothing validates an area code
+ * flake rather than a feature. Four area codes are left to the specs that pin them: 415 to the seed and to
+ * e2e/audit.spec.ts, 650 to e2e/demo.spec.ts, 206 to e2e/verify.spec.ts, 312 to e2e/invite.spec.ts (T150).
+ * Nothing validates an area code
  * beyond its shape (`normalizePhone`, lib/visitIntake.ts), and `isSyntheticPhone` asks only for `[2-9]` and
  * two digits in front of the reserved block (lib/demo.ts).
  */
-const PINNED_AREA_CODES = new Set(["415", "650", "206"]);
+const PINNED_AREA_CODES = new Set(["415", "650", "206", "312"]);
 const reservedPhone = () => {
   let area = "";
   do {

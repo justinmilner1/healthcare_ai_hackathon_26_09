@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { cannotSendYet, NO_CONSENT_TO_MESSAGE } from "../lib/delivery";
+import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
+import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
@@ -27,6 +29,13 @@ import { SCREENFUL, shot } from "./shot";
 // wrong — it is what staff reach for when the first invite did not arrive, which is already the case where
 // nothing can send, and it kills the link the patient may still have in hand — so it is pinned here, beside
 // the pair it has to agree with.
+//
+// T150 (§13.4, §8.1) finished the claim. `queued` was still only the deployment's third of it, and the two
+// thirds that live on the rows are what close a channel in an office that *can* send: a demo practice
+// pressing **Send link** for a patient whose number is a real one read "Sending now", and §13.4 had refused
+// it before any backend was reached. Every test above runs on this gate's own deployment, which has no
+// sender at all (§11.3) and therefore refuses every invite honestly — so the last test in this file is on
+// the one server in the suite with a sender behind a channel, which is where the claim could be false.
 
 /** A name, number and address nothing else in the run will use: two Playwright projects share one database,
  *  and §2.2 matches an existing patient on phone or email. */
@@ -74,9 +83,10 @@ async function recordCopies(page: Parameters<typeof signInAsDemo>[0]) {
   return () => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
 }
 
-/** One visit of the signed-in provider's, on both channels, with the consent §2.2 wants behind it. */
-async function book(page: Parameters<typeof signInAsDemo>[0], providerId: string, prefix: string, channel = "both") {
-  const who = unique(prefix);
+/** One visit of the signed-in provider's, on both channels, with the consent §2.2 wants behind it.
+ *  `to` overrides the destinations where the test is about which of them §13.4 allows (T150). */
+async function book(page: Parameters<typeof signInAsDemo>[0], providerId: string, prefix: string, channel = "both", to?: { phone?: string }) {
+  const who = { ...unique(prefix), ...to };
   const res = await postJson(page.request, "/api/book", {
     ...who,
     providerId,
@@ -273,4 +283,91 @@ test("a visit nobody consented to message reads differently from one nothing can
     expect(answer.link).toContain("/s/");
     expect(answer.jobId).toBeTruthy();
   }
+});
+
+// T150 (§13.4, §8.1, §5.5) The two thirds of that claim the deployment does not decide, on the resend path.
+//
+// On the seventh server in playwright.config.ts, for the reason T145's sibling test gives in
+// e2e/visits.spec.ts: this gate configures no sender (§11.3), so the honest "Sweet Spot cannot send texts
+// yet" won every one of the tests above before §13.4 could matter, and that is why the bug outlived T120 by
+// a month. With a sender behind the channel, the row read "Sending now" for a number §13.4 forbids.
+//
+// Both buttons are pressed here, and nothing in the suite reaches a backend for it: that server drains
+// nothing of its own since this ticket (`JOBS_SECRET`, playwright.config.ts), and the queue is emptied by the
+// servers that have no sender at all.
+//
+// Area code 312 is this spec's own, like 650 is e2e/demo.spec.ts's: a number shared with another spec would
+// be a shared patient row (§2.2 matches on phone), and the subscriber digits are what §13.4 reads, so the
+// uniqueness has to come from somewhere else. Both numbers are twelve characters and neither is a substring
+// of the other — the rows are found by number, because a patient booked twice keeps the name their first
+// booking gave them.
+const twoDigits = () => String(Math.floor(Math.random() * 100)).padStart(2, "0");
+/** From the NANP's fictitious 555-0100 to 555-0199, which §13.4 lets a demo practice write to. */
+const reservedIn312 = () => `+131255501${twoDigits()}`;
+/** And a number from the same area code that is not: one somebody could own. */
+const realIn312 = () => `+13125552${twoDigits()}${Math.floor(Math.random() * 10)}`;
+
+test("a demo practice's resend is refused by §13.4, and the destination it allows still goes out", async ({ page }) => {
+  const copies = await recordCopies(page);
+  const demo = await signInAsDemo(page);
+  // Booked on this gate's own server, where §13.4 already refuses them (T145): what is under test is the
+  // resend, which is the button staff reach for when the first invite did not land.
+  const real = realIn312();
+  const reserved = reservedIn312();
+  await book(page, demo.id, "Invite Demo Real", "sms", { phone: real });
+  await book(page, demo.id, "Invite Demo Reserved", "sms", { phone: reserved });
+
+  await page.goto(`http://localhost:${SENDABLE_PORT}/provider`);
+  const rowFor = (phone: string) => page.locator(".provider-table tbody tr", { hasText: phone }).first();
+  const noteOf = (phone: string) => rowFor(phone).locator(".provider-row-note");
+
+  // 1. The number somebody could own. Nothing is wrong with this office — it can text — so the sentence is
+  //    §13.4's own, in lib/demo.ts's words, and §8.1's fallback is the row's own Copy intake.
+  const blocked = rowFor(real);
+  await expect(blocked).toContainText("Invited", LOADED);
+  await blocked.getByRole("button", { name: /^Send link$/ }).click();
+  const note = noteOf(real);
+  await expect(note).toContainText(`No invite sent: ${DEMO_ONLY_TEST_ADDRESSES}`, LOADED);
+  await expect(note, "the claim this ticket was filed for").not.toContainText(/Sending now/i);
+  // Nobody is sent looking for a sender over a rule: this office has one (§3.7, §10.6).
+  await expect(note, "not the deployment's sentence").not.toContainText(/cannot send|ask whoever set/i);
+  await expect(note, "§8.1's fallback has to be reachable from the sentence that refuses").toContainText("Copy intake");
+  await shot(page, "provider-row-invite-demo-blocked", {
+    ...SCREENFUL,
+    scrollTo: note,
+    block: "center",
+    inline: "end",
+  });
+
+  // 2. §5.5 is untouched by any of it: the old link is dead before the route asks anything about reaching
+  //    anybody, and Copy intake hands over the token that replaced it — which is the whole answer here,
+  //    because the link on screen is the fallback for the send that did not happen.
+  await blocked.getByRole("button", { name: /Copy intake/ }).click();
+  await expect(note).toContainText("Intake link copied", LOADED);
+  page.once("dialog", (dialog) => dialog.accept());
+  await blocked.getByRole("button", { name: /^New link$/ }).click();
+  await expect(note, "the half that is true either way, and first").toContainText("The old link no longer works", LOADED);
+  await expect(note).toContainText(`No invite sent: ${DEMO_ONLY_TEST_ADDRESSES}`);
+  await expect(note, "T129's claim, in the deployment where §13.4 is what refuses").not.toContainText(/New link sent/i);
+  await blocked.getByRole("button", { name: /Copy intake/ }).click();
+  await expect(note).toContainText("Intake link copied", LOADED);
+  const [before, after] = await copies();
+  expect(before, "the link the patient had").toContain("/s/");
+  expect(after, "and the one Copy intake gives them now").not.toBe(before);
+
+  // 3. The destination §13.4 does allow, in the same practice on the same screen: the walkable demo, which
+  //    reads exactly as it did before this ticket. This is the arm that fails if the rows are asked about
+  //    something they do not decide.
+  const open = rowFor(reserved);
+  await expect(open).toContainText("Invited", LOADED);
+  await open.getByRole("button", { name: /^Send link$/ }).click();
+  const openNote = noteOf(reserved);
+  await expect(openNote).toContainText("Sending now", LOADED);
+  await expect(openNote).not.toContainText(/No invite sent/i);
+  await shot(page, "provider-row-invite-demo-reserved", {
+    ...SCREENFUL,
+    scrollTo: openNote,
+    block: "center",
+    inline: "end",
+  });
 });
