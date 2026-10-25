@@ -24,8 +24,23 @@
 // one quotation, no note above it and no context beside it, exactly as the brief has rendered it since §2.6
 // was built.
 
-import { notesHaveAnswers } from "./sweetie";
 import type { IntakeFieldDef, IntakeState } from "./types";
+
+/**
+ * Whether `renderNotes` (lib/sweetie.ts) put an answer of the patient's into `Visit.notes`.
+ *
+ * Its loop over the filled fields is the only line of the notes that comes from the patient; every other
+ * one is written by `renderNotes` itself or typed by staff into the booking form. So a wrap with no field
+ * filled leaves the notes entirely machine-written — which is what the §2.5 scan produces when it fires on
+ * the patient's first message, and the whole of this module's branch.
+ *
+ * Here rather than beside `renderNotes` because lib/sweetie.ts reaches lib/llm.ts and lib/log.ts, which do
+ * not build in a browser bundle (`node:async_hooks`), and the provider brief that calls this is a client
+ * component. lib/visits.ts is the same split for the same reason; lib/sweetie.ts re-exports this.
+ */
+export function notesHaveAnswers(state: IntakeState, defs: IntakeFieldDef[]): boolean {
+  return defs.some((f) => Boolean(state.fields[f.id]?.value));
+}
 
 /**
  * How many of the patient's messages the block quotes. The interview is six questions long

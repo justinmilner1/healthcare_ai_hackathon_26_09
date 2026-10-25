@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_QUOTES, moreMessagesLine, patientWords } from "./patientWords";
+import { MAX_QUOTES, moreMessagesLine, notesHaveAnswers, patientWords } from "./patientWords";
 import { emptyIntake, fieldsFor, renderNotes } from "./sweetie";
 import type { IntakeFieldDef, IntakeState } from "./types";
 
@@ -28,6 +28,19 @@ const withState = (state: IntakeState, messages: string[]) => ({
 });
 
 const FLAG_SENTENCE = "I had chest pain yesterday evening and it really scared me.";
+
+describe("notesHaveAnswers", () => {
+  it("is false exactly when nothing in the notes came from the patient", () => {
+    // Also asserted from lib/sweetie.test.ts, which is where the notes it is about are rendered. Here
+    // because this is the module it lives in — it is out of lib/sweetie.ts so that the provider brief, a
+    // client component, can import this one without pulling lib/llm.ts into the browser bundle.
+    const empty = emptyIntake(DEFS);
+    assert.equal(notesHaveAnswers(empty, DEFS), false);
+    assert.equal(notesHaveAnswers({ ...empty, flagged: "cardiac_or_breathing", turns: 1, wrapped: true }, DEFS), false);
+    const filled = { ...empty, fields: { ...empty.fields, [DEFS[0].id]: { value: "worse since August", confidence: "high" as const } } };
+    assert.equal(notesHaveAnswers(filled, DEFS), true);
+  });
+});
 
 describe("a flag on the patient's first message", () => {
   // Exactly what lib/sweetieTurn.ts commits: the scan runs before any extraction, so the state wraps with

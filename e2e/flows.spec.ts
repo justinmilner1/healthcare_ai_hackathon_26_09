@@ -400,6 +400,9 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
  * interview even when something posts anyway. It runs in both projects, so the flagged screen is shot at
  * 1280px as well as at the 375px e2e/mobile.spec.ts measures.
  */
+/** The one of lib/sweetie.ts's red flags this test posts, asserted on three surfaces (T154). */
+const FLAG_SENTENCE = "I had chest pain yesterday evening and it really scared me.";
+
 test("a flagged check-in stops: no composer, and a later message is not interviewed", async ({ page }) => {
   await signInAsDemo(page);
   const email = patientEmail("E2E Flagged");
@@ -414,7 +417,7 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
 
   // One of lib/sweetie.ts's red flags, in a sentence a patient would actually write.
   const input = page.getByLabel("Reply to Sweetie");
-  await input.fill("I had chest pain yesterday evening and it really scared me.");
+  await input.fill(FLAG_SENTENCE);
   await input.press("Enter");
 
   // §2.5's instruction, as the card that ends the transcript (T66 built this part).
@@ -545,14 +548,38 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   // the fix cannot be a swap of one for the other.
   await expect(page.locator(".sour-safety-flag")).toContainText("cardiac or breathing");
   // What the brief has to say for a check-in with no readings and no answered field: the conversation-only
-  // notice, and the patient's own words as `renderNotes` left them for Sour to read (lib/sweetie.ts).
+  // notice, and the flag line, which reaches the clinician in the body as well as in the banner.
   await expect(page.locator(".sour-no-glucose-note")).toContainText("This summary is from the conversation only.");
   await expect(brief, "the flag reaches the clinician in the brief as well as the banner").toContainText(/Patient was told to call the office/i);
   await expect(brief, "and not the card's line about nobody having talked to Sweetie").not.toContainText(/has talked to Sweetie/i);
+
+  // T154, §2.6: what the patient actually wrote, on the clinician's page. This is the ending where it
+  // matters most and the one where it was missing — the §2.5 scan fires before any extraction, so the wrap
+  // filled no field, `renderNotes` had nothing of the patient's to emit, and "In the patient's words" held
+  // the flag line and the reason staff typed into the booking form while the sentence that caused the flag
+  // reached no clinician surface at all. The clinician got the category and the instruction with no account
+  // of the symptom, before the visit the flag is telling them to prepare for.
+  const words = page.locator(".sour-words");
+  const quotes = words.locator(".sour-words-quote");
+  await expect(quotes.first(), "the sentence that fired the flag, verbatim").toHaveText(FLAG_SENTENCE);
+  // And what the patient sent after it, which §2.5 took the composer away for: both of their messages, in
+  // the order they sent them, and neither of Sweetie's.
+  await expect(quotes).toHaveCount(2);
+  await expect(quotes.nth(1)).toContainText("should I still answer the questions?");
+  await expect(words, "Sweetie's half of the conversation is not the patient's words").not.toContainText(/office today/i);
+  // The machine-written lines are still in front of the clinician, below the quotation rather than inside
+  // it: nothing in this block is presented as something the patient said when it is not.
+  const context = words.locator(".sour-words-context");
+  await expect(context).toContainText(/Patient was told to call the office/i);
+  await expect(context).toContainText("Called about: tired all the time");
+  await expect(words.locator(".sour-words-note"), "and the block says why these are raw words").toContainText(/safety scan stopped the check-in/i);
   // And Generate agrees with the branch: there is no visit this page refuses to render *and* refuses to
   // regenerate (T148's third criterion).
   await expect(page.getByRole("button", { name: /Regenerate|Generate/ })).toBeEnabled();
   await shot(page, "provider-sour-flagged-no-answers", { ...SCREENFUL, scrollTo: ".sour-safety-flag", block: "start" });
+  // T154's own frame: the block, rather than the banner above it. One screenful at either width, anchored
+  // on the block, so the quotation and the context under it are both in the picture.
+  await shot(page, "provider-sour-flagged-words", { ...SCREENFUL, scrollTo: ".sour-words", block: "center" });
 
   // §7.4's sheet is the same brief on paper and it carried the same expression, so it told the clinician
   // the same wrong thing: "Nothing to summarize yet" over the summary they had just read on the screen.
@@ -563,6 +590,14 @@ test("a flagged check-in stops: no composer, and a later message is not intervie
   await expect(page.locator(".sour-print-clinician"), "the sheet rendered").toBeVisible(LOADED);
   await expect(page.locator(".sour-print-empty"), "the sheet branches on the same predicate as the screen").toHaveCount(0);
   await expect(page.locator(".sour-safety-flag"), "§2.6 puts the flag at the top in red, on the sheet too").toContainText("cardiac or breathing");
+  // §7.4's sheet is the brief on paper, so T154 is the same block here: the sentence the clinician carries
+  // into the room, not two machine-written lines quoted as the patient's.
+  const sheetWords = page.locator(".sour-print-words");
+  await expect(sheetWords.locator(".sour-words-quote").first(), "the patient's own sentence, on paper").toHaveText(FLAG_SENTENCE);
+  await expect(sheetWords.locator(".sour-words-context"), "with the flag line kept outside the quotation").toContainText(/Patient was told to call the office/i);
+  // Not WHOLE_PAGE: a phone shot of a whole sheet is a 5,489-pixel column the §12.3 size gate stops
+  // (T109, docs/ROUTINES.md), so this takes the per-project default anchored on the block it is about.
+  await shot(page, "provider-print-flagged-words", { scrollTo: ".sour-print-words", block: "end" });
 });
 
 /**

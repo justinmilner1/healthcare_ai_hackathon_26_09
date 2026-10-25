@@ -337,17 +337,12 @@ export function renderNotes(state: IntakeState, defs: IntakeFieldDef[], visit: V
   return lines.join("\n");
 }
 
-/**
- * Whether `renderNotes` put an answer of the patient's into the notes.
- *
- * The loop above is the only line of it that comes from the patient; every other line is written here or
- * typed by staff into the booking form. So a wrap with no field filled leaves `Visit.notes` entirely
- * machine-written — which is what the §2.5 scan produces when it fires on the patient's first message, and
- * what the clinician's brief must not quote as the patient's words (T154, lib/patientWords.ts).
- */
-export function notesHaveAnswers(state: IntakeState, defs: IntakeFieldDef[]): boolean {
-  return defs.some((f) => Boolean(state.fields[f.id]?.value));
-}
+// `notesHaveAnswers` is the predicate over what the loop above emitted, and it lives in lib/patientWords.ts
+// rather than here for the reason lib/visits.ts exists: the provider brief is a client component, so
+// anything it imports that reaches this file drags lib/llm.ts and lib/log.ts into the browser bundle, and
+// `node:async_hooks` does not build there. Re-exported because it is Sweetie's vocabulary even so, the way
+// the visit-type words below are.
+export { notesHaveAnswers } from "./patientWords";
 
 export { LLMUnavailable };
 // Re-exported so server code that already thinks of these as Sweetie's vocabulary keeps working. Client
