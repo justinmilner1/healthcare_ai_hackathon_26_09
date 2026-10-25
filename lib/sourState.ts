@@ -162,3 +162,31 @@ export function narrativeNote(missing: NarrativeMissing | undefined): string | n
  *  narrative has not looked (§6.3). */
 export const emptyNarrativeText = (missing: NarrativeMissing | undefined, found: string): string =>
   missing ? "Not generated." : found;
+
+/**
+ * What the "Discuss with Sour" composer offers to be asked about (design §2.6, §7.5, T153).
+ *
+ * The placeholder was a constant naming both exports, so a conversation-only brief read
+ * "No glucose data was shared. This summary is from the conversation only." four elements above a box
+ * inviting a question about "the glucose spikes or sleep data" — the page contradicting itself in one
+ * screenful. Every other element of the brief already branches on `bundle.status`: the no-glucose notice,
+ * the metrics card, the chart, the spike and sleep pair (app/provider/[id]/sour.tsx). This was the one that
+ * did not, which is why the wording is a function of the same two booleans rather than a string in the JSX —
+ * it cannot drift from what the page shows.
+ *
+ * It is worth branching rather than generalising because of what §7.5 does with the answer: a suggested
+ * question about data the visit does not have is one Sour can only answer with "there is no glucose data",
+ * and that exchange is then kept on the visit and shown to the practice. With neither export the material is
+ * what the patient said — which is the whole of a conversation-only brief — so that is what the box offers
+ * instead of an upload the visit never had.
+ *
+ * `hasLocation` is deliberately not one of the two. A Timeline with no readings to match against is nothing
+ * for Sour to say anything about (the same reason `visitNotStarted` above leaves it out), and its places
+ * reach the clinician as the place beside a spike rather than as a subject of their own.
+ */
+export function askSourPlaceholder(status: Pick<IntakeStatus, "hasDexcom" | "hasWhoop">): string {
+  if (status.hasDexcom && status.hasWhoop) return "Ask about the glucose spikes or sleep data…";
+  if (status.hasDexcom) return "Ask about the glucose spikes…";
+  if (status.hasWhoop) return "Ask about the sleep data…";
+  return "Ask about what the patient said…";
+}

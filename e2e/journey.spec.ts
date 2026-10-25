@@ -385,6 +385,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(caption).toContainText("peak mg/dL");
   await expect(caption).toContainText("no place matched");
   await expect(caption, "a place promised over markers that are numbers").not.toContainText("the place the patient had just left");
+  // T153: the visit that has both exports, so the composer still offers both — the half of that change
+  // that had to stay as it was (lib/sourState.ts `askSourPlaceholder`). The conversation-only and
+  // Dexcom-only briefs are asserted where they are shot (e2e/flows.spec.ts, e2e/flags.spec.ts).
+  await expect(page.getByLabel("Message Sour")).toHaveAttribute("placeholder", /glucose spikes or sleep data/i);
   await shot(page, "12-sour-brief");
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>

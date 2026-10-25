@@ -375,6 +375,12 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
   await expect(page.locator(".sour-brief")).not.toContainText(/No summary yet/i);
   // What the clinician gets is the brief the product already had for this state, and it says what it has.
   await expect(page.locator(".sour-no-glucose-note")).toContainText("This summary is from the conversation only.");
+  // T153: and the composer below it does not then invite a question about the glucose this visit has none
+  // of. The notice and the placeholder read the same two booleans (lib/sourState.ts `askSourPlaceholder`),
+  // so the one screenful cannot contradict itself.
+  const composer = page.getByLabel("Message Sour");
+  await expect(composer).not.toHaveAttribute("placeholder", /glucose|sleep/i);
+  await expect(composer).toHaveAttribute("placeholder", /what the patient said/i);
   // The handover §2.6 is about: the patient's own words, on the clinician's page, from a check-in with no
   // numbers in it at all.
   await expect(page.locator(".sour-brief")).toContainText("Exhausted for six weeks");

@@ -173,6 +173,12 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   // did — passes. The phone still is one screenful and still is judged against the window; the anchor lands
   // on or below its top edge at 375px, so nothing had to be loosened for it. So the shot now asserts on
   // everything it was taken to show rather than on the half below the anchor.
+  // T153, the third of the four combinations: readings and no WHOOP, so the composer must not offer sleep
+  // data on a page whose Sleep tile reads "no WHOOP data" (lib/sourState.ts `askSourPlaceholder`).
+  const flaggedComposer = page.getByLabel("Message Sour");
+  await expect(flaggedComposer).toHaveAttribute("placeholder", /glucose spikes/i);
+  await expect(flaggedComposer).not.toHaveAttribute("placeholder", /sleep/i);
+
   await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 
   // §7.4's sheet is the same brief on paper, so the same two blocks are on it, above the same numbers. The

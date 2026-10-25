@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emptyNarrativeText, narrativeNote, summaryState, visitNotStarted } from "./sourState";
+import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryState, visitNotStarted } from "./sourState";
 import type { SourJobState } from "./types";
 
 const JOB: SourJobState = {
@@ -206,5 +206,46 @@ describe("visitNotStarted", () => {
   it("is false as soon as the patient has said or shared anything, wrap or no wrap", () => {
     assert.equal(not({ answered: 1 }), false, "mid-interview: one answer is a brief worth writing");
     assert.equal(not({ hasDexcom: true }), false, "readings with no conversation are still readings");
+  });
+});
+
+// T153, design §2.6 and §7.5. The one element of the brief that did not read `bundle.status`: the composer's
+// placeholder named both exports on every visit, including the one whose own notice four elements above says
+// there is no glucose. All four combinations are pinned, because the bug was a constant and a constant passes
+// any one of them.
+describe("askSourPlaceholder", () => {
+  const ph = (hasDexcom: boolean, hasWhoop: boolean) => askSourPlaceholder({ hasDexcom, hasWhoop });
+
+  it("offers both sources when the visit has both", () => {
+    assert.equal(ph(true, true), "Ask about the glucose spikes or sleep data…");
+  });
+
+  it("does not offer sleep data beside a Sleep card reading \"No sleep data.\"", () => {
+    const text = ph(true, false);
+    assert.doesNotMatch(text, /sleep/i, text);
+    assert.match(text, /glucose/i, text);
+  });
+
+  it("does not offer glucose on a brief that has just said there is none", () => {
+    // The `desktop-provider-sour-conversation-only.png` case, and the WHOOP-only one beside it: a suggested
+    // question about data the visit does not have is one Sour can only answer with "there is no glucose
+    // data", and §7.5 keeps that exchange on the visit for the practice to read.
+    for (const text of [ph(false, true), ph(false, false)]) {
+      assert.doesNotMatch(text, /glucose/i, text);
+    }
+    assert.match(ph(false, true), /sleep/i);
+  });
+
+  it("points at what the patient said when there is no upload to point at", () => {
+    const text = ph(false, false);
+    assert.match(text, /patient said/i, text);
+    assert.doesNotMatch(text, /glucose|sleep|upload|file/i, text);
+  });
+
+  it("reads as a prompt for a question in every combination", () => {
+    for (const [d, w] of [[true, true], [true, false], [false, true], [false, false]] as const) {
+      const text = ph(d, w);
+      assert.match(text, /^Ask about .+…$/u, `${d}/${w}: ${text}`);
+    }
   });
 });

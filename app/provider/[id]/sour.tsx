@@ -25,7 +25,7 @@ import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { countOf } from "@/lib/plural";
-import { emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
+import { askSourPlaceholder, emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
 import { clinicianChartCaption } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
@@ -575,7 +575,7 @@ export default function SourView({ id }: { id: string }) {
                   {asking && <p role="status" className="sour-chat-status">Sour is reviewing your question…</p>}
                   {chatError && <p role="alert" className="ss-error">{chatError}</p>}
                   <form onSubmit={askSour}>
-                    <input aria-label="Message Sour" maxLength={4000} className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about the glucose spikes or sleep data…" disabled={asking} />
+                    <input aria-label="Message Sour" maxLength={4000} className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={askSourPlaceholder(bundle.status)} disabled={asking} />
                     <button className="ss-button ss-button-accent" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Send →"}</button>
                   </form>
                 </section>
