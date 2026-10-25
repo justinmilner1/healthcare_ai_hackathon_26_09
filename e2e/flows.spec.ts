@@ -156,6 +156,10 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(page.locator(".sour-brief-header")).toContainText("Follow-up");
   await expect(page.locator(".sour-called-about")).toContainText("going high overnight");
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
+  // T156: the ready half of the sidebar heading. Every row in the list has a summary here — the visit
+  // booked above is not in it — so this is the one shape in which "Summaries ready" is a true claim
+  // (lib/sourState.ts `summaryListHeading`).
+  await expect(page.locator(".sour-sidebar-label")).toHaveText("Summaries ready");
   await shot(page, "provider-sour");
 
   // T148's other half, on the visit this test booked a moment ago: nothing answered, nothing uploaded and
@@ -170,6 +174,19 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(waiting).toContainText("Nothing to summarize until the patient has talked to Sweetie");
   // And Generate stays shut on it, which is the same predicate the card is behind (§7.1).
   await expect(page.getByRole("button", { name: /^Generate$/ })).toBeDisabled();
+  // T156: the sidebar beside that panel. This visit is in the list because it is the selected one, not
+  // because it has a summary, so the heading over the list must not claim one — it used to read the
+  // constant "Summaries ready" over this very row, with only the missing tick to say otherwise.
+  // "Summaries ready" on its own is a claim about every row, so it may not be the whole heading here; what
+  // it reads instead names this visit as well as the summarized ones.
+  const sidebarHeading = page.locator(".sour-sidebar-label");
+  await expect(sidebarHeading).not.toHaveText("Summaries ready");
+  await expect(sidebarHeading).toContainText("This visit");
+  // The row itself is still there and still active: dropping it from the list is not the fix (§7.2 sends
+  // the clinician here from Summarize, and they have to see which visit they are on).
+  const selectedRow = page.locator(".sour-patient-list .sour-patient-active");
+  await expect(selectedRow).toContainText("E2E Patient");
+  await expect(selectedRow.locator("i"), "no tick on a visit with no summary").toHaveCount(0, LOADED);
   await shot(page, "provider-sour-not-started", { ...SCREENFUL, scrollTo: waiting, block: "start" });
 });
 

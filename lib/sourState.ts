@@ -190,3 +190,38 @@ export function askSourPlaceholder(status: Pick<IntakeStatus, "hasDexcom" | "has
   if (status.hasWhoop) return "Ask about the sleep data…";
   return "Ask about what the patient said…";
 }
+
+/**
+ * The heading over the Sour sidebar's visit list (design §7.2, §2.6, T156).
+ *
+ * The list is "every visit with a summary, plus the one you are looking at" — the second half is there so a
+ * clinician sent here by the dashboard's **Summarize** button can see which visit they are on
+ * (app/provider/dashboard.tsx offers that link on any visit with a Dexcom export or an answered question,
+ * which is exactly a visit with no summary). The heading over it was the constant "Summaries ready", so that
+ * ordinary click produced a sidebar headed SUMMARIES READY whose first row was a visit the panel beside it
+ * called NOT GENERATED. The only thing marking the row was the *absence* of the tick.
+ *
+ * Same shape as T153's placeholder one element over: a claim about the page written as a constant while
+ * everything around it branches. So the wording is a function of the list — of the same `hasSummary` the
+ * rows and the tick read — and cannot drift from what is under it.
+ *
+ * Four readings, because the list has four shapes. At most one row can lack a summary (only the selected
+ * visit joins the list without one), so the mixed heading can name it in the singular:
+ *
+ * | the list | heading |
+ * |---|---|
+ * | every row has a summary | `Summaries ready` |
+ * | the selected row has none, others do | `This visit · summaries ready` |
+ * | the selected row is the only row, and has none | `This visit` |
+ * | empty | `Summaries` |
+ *
+ * The empty case is a heading over the sentence at the foot of the list ("No summaries yet."), which says
+ * the state already and keeps saying it; the heading above it just stops claiming the opposite.
+ */
+export function summaryListHeading(rows: readonly { hasSummary: boolean }[]): string {
+  if (rows.length === 0) return "Summaries";
+  const ready = rows.filter((r) => r.hasSummary).length;
+  if (ready === rows.length) return "Summaries ready";
+  if (ready === 0) return "This visit";
+  return "This visit · summaries ready";
+}

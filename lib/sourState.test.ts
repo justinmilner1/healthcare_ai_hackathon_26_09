@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryState, visitNotStarted } from "./sourState";
+import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, summaryState, visitNotStarted } from "./sourState";
 import type { SourJobState } from "./types";
 
 const JOB: SourJobState = {
@@ -247,5 +247,55 @@ describe("askSourPlaceholder", () => {
       const text = ph(d, w);
       assert.match(text, /^Ask about .+…$/u, `${d}/${w}: ${text}`);
     }
+  });
+});
+
+describe("summaryListHeading", () => {
+  // The sidebar's rows, in the shapes `visible` in app/provider/[id]/sour.tsx can take: every visit with a
+  // summary, plus the selected one whether or not it has one.
+  const rows = (...hasSummary: boolean[]) => hasSummary.map((h) => ({ hasSummary: h }));
+
+  it("claims readiness when every row in the list is ready", () => {
+    assert.equal(summaryListHeading(rows(true, true, true)), "Summaries ready");
+    assert.equal(summaryListHeading(rows(true)), "Summaries ready");
+  });
+
+  it("does not claim a summary for the selected visit that has none", () => {
+    // The `provider-sour-not-started` case: the dashboard's Summarize button lands here, so the visit you
+    // are looking at is in the list without a summary while the others have one. The heading accounts for
+    // it in words instead of leaving it to the missing tick.
+    const text = summaryListHeading(rows(false, true, true, true));
+    assert.notEqual(text, "Summaries ready", "one row in this list has no summary");
+    assert.match(text, /this visit/i, text);
+  });
+
+  it("still names the ready ones when they are in the list beside it", () => {
+    assert.equal(summaryListHeading(rows(false, true)), "This visit · summaries ready");
+  });
+
+  it("says only what is there when the selected visit is alone and unsummarized", () => {
+    const text = summaryListHeading(rows(false));
+    assert.equal(text, "This visit");
+    assert.doesNotMatch(text, /summar/i, "nothing in this list is summarized");
+  });
+
+  it("claims nothing over an empty list", () => {
+    // The sentence at the foot of the list already says "No summaries yet."; the heading just stops
+    // contradicting it.
+    const text = summaryListHeading([]);
+    assert.doesNotMatch(text, /ready/i, text);
+    assert.equal(text, "Summaries");
+  });
+
+  it("is the bare claim only when the whole list earns it, whatever the order", () => {
+    // The property the ticket is actually about: "Summaries ready" on its own is a statement about every
+    // row, so it may be the whole heading only when every row has a summary. Row order cannot change that,
+    // and a list with one unsummarized row reads the same wherever that row sits.
+    for (const shape of [[], [true], [false], [true, false], [false, true], [true, true], [false, true, true], [true, false, true]]) {
+      const text = summaryListHeading(rows(...shape));
+      const allReady = shape.length > 0 && shape.every(Boolean);
+      assert.equal(text === "Summaries ready", allReady, `${JSON.stringify(shape)}: ${text}`);
+    }
+    assert.equal(summaryListHeading(rows(true, false, true)), summaryListHeading(rows(false, true, true)));
   });
 });

@@ -27,7 +27,7 @@ import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
-import { askSourPlaceholder, emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
+import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted } from "@/lib/sourState";
 import { clinicianChartCaption } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
@@ -277,6 +277,10 @@ export default function SourView({ id }: { id: string }) {
     }
   }
 
+  // Every visit with a summary, plus the one on screen whether or not it has one — the second half is what
+  // keeps the dashboard's Summarize button able to show you which visit you landed on (T148, §7.2). The
+  // heading over the list therefore reads the same `hasSummary` the rows and the tick below read, rather
+  // than claiming readiness for all of them (T156).
   const visible = (provider?.visits ?? []).filter((v) => v.hasSummary || v.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
@@ -296,7 +300,7 @@ export default function SourView({ id }: { id: string }) {
           <h1>{provider?.name ?? "…"}</h1>
           <p>{provider?.practice}</p>
         </div>
-        <p className="sour-sidebar-label">Summaries ready</p>
+        <p className="sour-sidebar-label">{summaryListHeading(visible)}</p>
         <ul className="sour-patient-list">
           {visible.map((v) => (
             <li key={v.id}>
