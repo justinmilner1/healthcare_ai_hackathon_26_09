@@ -357,7 +357,10 @@ test("a demo practice is told before the button that this number will not be mes
 
   // 3. The destination §13.4 does allow, on the same screen in the same practice: this is the walkable demo
   //    a salesperson is on most of the time, and it reads exactly as it did before this ticket. Read and not
-  //    pressed — a press here is the one booking in the suite a real SNS call could leave on.
+  //    pressed, because the forecast is this test's subject; the press on this destination is
+  //    e2e/invite.spec.ts's, on the resend path that has no forecast to read instead. The hazard that used
+  //    to be the reason here is gone: since T150 this server is given JOBS_SECRET, so `nudge` is a no-op on
+  //    it (playwright.config.ts) and nothing drains a send on the one build with an origination number.
   const reserved = reservedPhone();
   const promised = await toStep3(reserved, uniqueName("Demo Reserved"));
   await expect(promised).toHaveText(`The secure link goes to ${reserved}.`, LOADED);
