@@ -5530,7 +5530,12 @@ button.sweetie-agent-badge {
      than a plain `1fr`, because an `fr` track keeps an automatic minimum of its content's min-content
      size and would stay over-full. `.patient-wizard-content` is then the scroller its `overflow-y: auto`
      has always asked for, and `.patient-wizard-actions`' `position: sticky` below has a scrolling
-     ancestor to resolve against. The desktop rule is one row and overflows nothing, so it is untouched. */
+     ancestor to resolve against. The desktop rule is untouched, because T155 was explicit that it stays
+     as it is — not because it is clean: its single row is implicit and `auto` in the same way, and
+     measured at 1280 x 720 on step 3 the dialog clips 25px of `.patient-wizard-content`'s own 28px of
+     bottom padding. No content is behind that edge, which is why nobody has seen it; the measurement is
+     in `expectStepThreeScrolls` in e2e/visits.spec.ts and the fix, if it is taken up, is this same
+     `minmax(0, 1fr)` on the base rule's one row. */
   .patient-wizard {
     width: 100%;
     max-height: 94svh;
