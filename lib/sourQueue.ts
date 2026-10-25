@@ -9,16 +9,45 @@
 //   intake wraps      queues on every wrap, with or without glucose  (wrapQueuesSour below)
 //   data arrives      queues when the intake is already done          (queueSourAfterImport below)
 //   Generate          queues whatever the state is — a clinician asked (app/api/sour/route.ts)
+//   inputs moved      a finishing run queues its own successor        (queueSourSuccessor below)
 //
 // The import trigger's gate on the intake is the one data condition here, and it is about ordering rather
 // than about content: a run before the intake has had its say writes a brief from half an interview. The
 // wrap has no such condition, because nothing about a wrap is provisional — see `wrapQueuesSour`.
+//
+// The fourth is not a fourth trigger: it is what the first three need when one of them arrives during a run
+// (T149). `enqueue` collapses a second `sour.run` while the first is in flight, and `loadSourContext` reads
+// the uploads when the job runs — so an export shared while the wrap's run is mid-flight joins a run that
+// read its inputs before the file existed, and nothing queues the readings afterwards. `runSour` closes
+// that by comparing fingerprints on its way out; `queueSourSuccessor` is the row it writes.
 
 import { enqueue, type EnqueueResult, type JobClient } from "./jobs";
 import { log } from "./log";
 
 /** One in-flight `sour.run` per visit (lib/jobs.ts: the key is released when the job finishes). */
 export const sourJobKey = (visitId: string) => `sour.run:${visitId}`;
+
+/**
+ * The key a finishing run's successor is queued under (T149, §7.1).
+ *
+ * Deliberately *not* `sourJobKey`. The run that discovers its inputs have moved is still `running`, so it
+ * still holds that key, and a successor queued under it would collapse into the very job it is meant to
+ * follow — which is the bug, one layer down. The fingerprint it is queued *for* is what makes this key
+ * right rather than merely different: two runs of the same visit that both end up looking at the same new
+ * inputs queue one job between them, and a fingerprint that is not moving cannot mint a new key, so the
+ * chain stops when the data does (lib/sourRun.ts states the whole termination argument).
+ */
+export const sourSuccessorKey = (visitId: string, inputHash: string) => `sour.run:${visitId}:after:${inputHash}`;
+
+/**
+ * Queue the run that reads the inputs this one missed (T149).
+ *
+ * Called by `runSour` on its way out, never by a route: it is not a fourth trigger but the repair of the
+ * other three, for the window in which `enqueue`'s dedupe is the wrong answer. `inputHash` is the visit's
+ * fingerprint as it stands now — what the successor will be summarizing, and the key it is held under.
+ */
+export const queueSourSuccessor = (visitId: string, inputHash: string, client?: JobClient): Promise<EnqueueResult> =>
+  enqueue({ kind: "sour.run", payload: { visitId }, idempotencyKey: sourSuccessorKey(visitId, inputHash) }, client);
 
 /** Put a `sour.run` on the queue for this visit. The caller still has to `nudge(after)` so a deployment
  *  with no scheduler drains it (docs/JOBS.md); that needs `after` from next/server and stays in the route. */

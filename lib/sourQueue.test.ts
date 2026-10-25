@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { JobClient } from "./jobs";
 import { setLogSink } from "./log";
-import { INTAKE_SETTLED_STATUSES, intakeSettled, queueSour, queueSourAfterImport, sourJobKey, wrapQueuesSour } from "./sourQueue";
+import { INTAKE_SETTLED_STATUSES, intakeSettled, queueSour, queueSourAfterImport, queueSourSuccessor, sourJobKey, sourSuccessorKey, wrapQueuesSour } from "./sourQueue";
 import { visitNotStarted } from "./sourState";
 
 type Created = { kind: string; payload: string; idempotencyKey: string | null; runAfter: Date };
@@ -46,6 +46,54 @@ describe("sourJobKey", () => {
   it("is one in-flight run per visit", () => {
     assert.equal(sourJobKey("v1"), "sour.run:v1");
     assert.notEqual(sourJobKey("v1"), sourJobKey("v2"));
+  });
+});
+
+describe("sourSuccessorKey", () => {
+  // T149. The successor exists because the run that queues it is still `running` and still holds
+  // `sourJobKey`, so the one property that makes it work at all is that the two keys cannot be the same
+  // string: a successor under the plain key would collapse into the job it is meant to follow, which is the
+  // bug one layer down.
+  it("is never the key the finishing run is still holding", () => {
+    const hash = "a".repeat(64);
+    assert.notEqual(sourSuccessorKey("v1", hash), sourJobKey("v1"));
+    assert.ok(sourSuccessorKey("v1", hash).startsWith(`${sourJobKey("v1")}:`), sourSuccessorKey("v1", hash));
+  });
+
+  it("is per visit and per fingerprint: one successor for one set of new inputs", () => {
+    const a = "a".repeat(64);
+    const b = "b".repeat(64);
+    // Two runs of one visit that both see the same new inputs queue one job between them...
+    assert.equal(sourSuccessorKey("v1", a), sourSuccessorKey("v1", a));
+    // ...and nothing else shares it.
+    assert.notEqual(sourSuccessorKey("v1", a), sourSuccessorKey("v1", b));
+    assert.notEqual(sourSuccessorKey("v1", a), sourSuccessorKey("v2", a));
+  });
+});
+
+describe("queueSourSuccessor", () => {
+  it("queues a sour.run for the visit under the successor key, not the in-flight one", async () => {
+    captureLog();
+    const { client, created } = fakeJobs();
+    const hash = "c".repeat(64);
+    const { job, deduped } = await queueSourSuccessor("v1", hash, client);
+    assert.equal(deduped, false);
+    assert.equal(job.kind, "sour.run");
+    assert.equal(created.length, 1);
+    // Same kind and same payload as every other trigger's row — it is an ordinary run, and the handler and
+    // lib/bundle.ts's `latestJobForVisit` must not be able to tell it apart (§7.2).
+    assert.equal(created[0].payload, JSON.stringify({ visitId: "v1" }));
+    assert.equal(created[0].idempotencyKey, sourSuccessorKey("v1", hash));
+    assert.notEqual(created[0].idempotencyKey, sourJobKey("v1"));
+  });
+
+  it("joins a successor already queued for the same new inputs", async () => {
+    captureLog();
+    const { client, created } = fakeJobs({ conflict: true });
+    const { job, deduped } = await queueSourSuccessor("v1", "d".repeat(64), client);
+    assert.equal(deduped, true);
+    assert.equal(job.id, "job-in-flight");
+    assert.equal(created.length, 0);
   });
 });
 

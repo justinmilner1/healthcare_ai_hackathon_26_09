@@ -13,6 +13,7 @@ import { spanNoun } from "./plural";
 import { patientSummarySystem, sourSystem } from "./prompts";
 import { buildSourInput, renderSourInput, safetyFlags } from "./sour";
 import { narrativeSource, sourInputHash, sourInputsFor, type SourUploadRef } from "./sourInput";
+import { queueSourSuccessor } from "./sourQueue";
 import type { GlucoseReading, NarrativeMissing, PatientBundle, Summary } from "./types";
 import { findVisit } from "./visit";
 
@@ -59,6 +60,22 @@ export async function uploadRefs(visitId: string, client: SummaryClient = db): P
   return client.upload.findMany({ where: { visitId }, select: { id: true, kind: true, parsedRows: true } });
 }
 
+/**
+ * The fingerprint of a visit's inputs as they stand *now* (§7.1) — the same four columns and the same upload
+ * refs `loadSourContext` hashed on the way in, read again.
+ *
+ * Its one caller is the check `runSour` makes on its way out (T149), and the only thing that makes that check
+ * meaningful is that this reads nothing `runSour` writes: not the summaries, not `Visit.status`, not the
+ * `notify.summary` row. A run therefore cannot change its own fingerprint, so a difference here is always
+ * something that arrived from outside while the run was in the air. Null for a visit that is gone — a
+ * deletion (§10.5) mid-run has nothing left to summarize.
+ */
+export async function currentInputHash(visitId: string): Promise<string | null> {
+  const visit = await db.visit.findUnique({ where: { id: visitId }, select: { intake: true, notes: true, visitType: true, reason: true } });
+  if (!visit) return null;
+  return sourInputHash(sourInputsFor(visit, await uploadRefs(visitId), narrativeSource(llmStatus().configured)));
+}
+
 /** The parts of the client the saved-summary lookup uses, so a test can hand it one pointed at a fixture
  *  schema (lib/sourRun.test.ts) the way the queue tests do. */
 export type SummaryClient = Pick<PrismaClient, "summary" | "upload">;
@@ -101,6 +118,9 @@ export type SourRunResult = {
   notified: { queued: string } | { skipped: string };
   /** True when the inputs had not changed, so the saved pair came back instead of two model calls (§7.1). */
   reused: boolean;
+  /** The run queued because the visit's inputs moved while this one was in flight (§7.1, T149), or null —
+   *  which is every run in the ordinary sequence. */
+  successor: { jobId: string; inputHash: string } | null;
 };
 
 export type RunSourOptions = {
@@ -119,6 +139,9 @@ export type Narrator = (c: SourContext) => Promise<{ provider: Narrative; patien
  * Idempotent per visit and input hash (§7.1): if the intake and the uploads are exactly what the saved
  * summary was made from, that pair comes straight back. No second pair of rows, no second pair of model
  * calls, and no second "your summary is ready" email for a summary the clinician was already told about.
+ *
+ * The same fingerprint is read once more on the way out, which is the other half of that rule and the whole
+ * of T149: see `queueSuccessorIfInputsMoved`.
  */
 export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Promise<SourRunResult> {
   const c = opts.ctx ?? (await loadSourContext(idOrToken));
@@ -129,7 +152,13 @@ export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Pro
   if (saved) {
     log.info("sour_reused", { visitId: c.visitId, summaryId: saved.summaryIds[0] });
     await markSummaryReady(c.visitId);
-    return { provider: saved.provider, patient: saved.patient, notified: { skipped: "Inputs unchanged: the saved summary was reused" }, reused: true };
+    return {
+      provider: saved.provider,
+      patient: saved.patient,
+      notified: { skipped: "Inputs unchanged: the saved summary was reused" },
+      reused: true,
+      successor: await queueSuccessorIfInputsMoved(c),
+    };
   }
 
   let provider: Summary;
@@ -172,7 +201,50 @@ export async function runSour(idOrToken: string, opts: RunSourOptions = {}): Pro
     const { job } = await enqueue({ kind: "notify.summary", payload: { visitId: c.visitId }, idempotencyKey: `notify.summary:${c.visitId}` });
     notified = { queued: job.id };
   }
-  return { provider, patient, notified, reused: false };
+  return { provider, patient, notified, reused: false, successor: await queueSuccessorIfInputsMoved(c) };
+}
+
+/**
+ * Did the visit's inputs move while this run was reading them? (§7.1, T149)
+ *
+ * `loadSourContext` reads the uploads when the job *runs*, and `enqueue` collapses a second `sour.run` while
+ * the first is in flight — right for a double-pressed Generate, wrong for the one sequence that carries
+ * genuinely new inputs. The patient answers the last question, the wrap queues a run (T143: every wrap), and
+ * while that run is in the air — two model calls, each bounded at 20 seconds with a retry (§3.5) — they
+ * upload the Dexcom export from the panel still on the screen. `queueSourAfterImport` fires and joins the
+ * run that read its inputs before the file existed. Nothing is queued for the readings, and §2.6's email
+ * links the clinician to a brief with no numbers in it for a patient who shared a week of them. `summaryStale`
+ * marks the pair and §7.2 offers Regenerate, so it is not silent — but nothing but a person noticing ever
+ * puts those readings in front of the clinician.
+ *
+ * So the run looks once more before it leaves: the visit's fingerprint now against the one this pair was
+ * written from. Different means something arrived mid-run, and what is saved already describes inputs the
+ * visit no longer has — so a successor is queued over the current ones. The two model calls the race cost
+ * are not reclaimable; what matters is that the readings get summarized without anyone pressing anything.
+ *
+ * **It cannot loop.** The successor is keyed by the fingerprint it is queued *for* (`sourSuccessorKey`), and
+ * §7.1's hash covers the intake, the visit's type and reason and every upload — none of which `runSour`
+ * writes. So a run cannot invalidate its own inputs, an unchanged fingerprint queues nothing at all (every
+ * run in the ordinary sequence), and the chain is as long as the number of times the data really changed.
+ * The successor that finds the data settled is the last one: it re-reads the same fingerprint it ran with.
+ */
+async function queueSuccessorIfInputsMoved(c: SourContext): Promise<SourRunResult["successor"]> {
+  const inputHash = await currentInputHash(c.visitId);
+  if (!inputHash || inputHash === c.inputHash) return null;
+  try {
+    const { job, deduped } = await queueSourSuccessor(c.visitId, inputHash);
+    // One event name for "a summary did not happen", the same one lib/sourQueue.ts writes (docs/JOBS.md);
+    // `sour_inputs_moved` above it is the reason this row exists and not one of the three triggers'.
+    log.info("sour_inputs_moved", { visitId: c.visitId, jobId: job.id });
+    if (!deduped) log.info("sour_queued", { visitId: c.visitId, jobId: job.id });
+    return { jobId: job.id, inputHash };
+  } catch (e) {
+    // The pair is saved and the visit has moved on. A queue that will not take this row must not undo either
+    // or spend one of the job's three attempts (§3.4) on work that is already done — §7.2's Regenerate is
+    // still on the page, which is the fallback this check exists to make unnecessary rather than to replace.
+    log.error("sour_enqueue_failed", { visitId: c.visitId, error: e });
+    return null;
+  }
 }
 
 /**

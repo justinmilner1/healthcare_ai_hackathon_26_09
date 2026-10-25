@@ -27,11 +27,13 @@ import type { GlucoseReading, Summary } from "./types";
 
 let fx: FixtureSchema | undefined;
 let sourInput: typeof import("./sourInput");
+let sourQueue: typeof import("./sourQueue");
 let sourRun: typeof import("./sourRun");
 
 before(async () => {
   if (SKIP_WITHOUT_DB === false) fx = await fixtureSchema("sourruntest", { useAsDefault: true });
   sourInput = await import("./sourInput");
+  sourQueue = await import("./sourQueue");
   sourRun = await import("./sourRun");
 });
 
@@ -320,6 +322,156 @@ describe("runSour", { skip: SKIP_WITHOUT_DB }, () => {
     assert.equal(again.reused, false);
     assert.equal(calls.length, 2);
     assert.equal((await rows()).length, 4, "the new pair is saved beside the old one; the page reads the newest");
+  });
+
+  // T149, design §7.1 and §3.4. The window is `enqueue` collapsing a second `sour.run` while the first is
+  // in flight, against `loadSourContext` reading the uploads when the job *runs*: the patient answers the
+  // last question (the wrap queues a run, T143), and while the two model calls are in the air they upload
+  // the export from the panel still on the screen. That import joins a run that read its inputs before the
+  // file existed, and before this nothing ever queued the readings — §7.2's Regenerate was the only thing
+  // that would, and only if a person noticed.
+  //
+  // Staged here rather than in the e2e suite because the window *is* the model calls, and the suite's build
+  // deliberately has none (§6.3, §11.3): the run finishes inside the upload request's own round trip, so
+  // there is nothing to race against from outside the app. The injected narrator is that window, held open
+  // for exactly as long as the test needs — and the `sour.run` row it races against is written `running`,
+  // which is the state that matters: a `queued` one has not read anything yet and will see the upload by
+  // itself.
+  describe("when the inputs move mid-run (T149)", () => {
+    /** The visit as the wrap leaves it when the patient shared nothing: intake done, no uploads. */
+    const clearUploads = async () => {
+      await db.uploadData.deleteMany({});
+      await db.upload.deleteMany({ where: { visitId: ids.visit } });
+    };
+
+    /** The export arriving. Returns what the import trigger did with it. */
+    const shareExport = async () => {
+      const upload = await db.upload.create({ data: { visitId: ids.visit, kind: "dexcom", filename: "Clarity_export.csv", parsedRows: 288 } });
+      await db.uploadData.create({ data: { uploadId: upload.id, parsed: JSON.stringify(readings()) } });
+      const visit = await db.visit.findUniqueOrThrow({ where: { id: ids.visit } });
+      return sourQueue.queueSourAfterImport({ id: visit.id, status: visit.status });
+    };
+
+    /** The row the drain leaves behind while the handler is inside `runSour`: `running`, holding the key. */
+    const inFlightJob = () =>
+      db.job.create({
+        data: {
+          kind: "sour.run",
+          payload: JSON.stringify({ visitId: ids.visit }),
+          status: "running",
+          attempts: 1,
+          startedAt: new Date(),
+          idempotencyKey: sourQueue.sourJobKey(ids.visit),
+        },
+      });
+
+    it("queues a successor over the export that arrived while it was writing, so nobody has to press Regenerate", async () => {
+      await clearUploads();
+      const jobA = await inFlightJob();
+
+      let imported: Awaited<ReturnType<typeof sourQueue.queueSourAfterImport>> | null = null;
+      const result = await sourRun.runSour(ids.visit, {
+        narrate: async () => {
+          imported = await shareExport();
+          return { provider: narrative, patient: narrative };
+        },
+      });
+
+      // The import's own enqueue is still collapsed into the run in flight — that is the window, and
+      // undoing it is not the fix: one in-flight run per visit is what keeps a double-pressed Generate
+      // honest (lib/jobs.ts, lib/sourQueue.ts).
+      assert.deepEqual(imported, { queued: true, jobId: jobA.id, deduped: true });
+
+      // The brief this run saved is the conversation-only one, written before the file existed...
+      assert.equal(result.reused, false);
+      assert.equal(result.provider.timeInRange, 0, "no readings were in front of this run");
+
+      // ...so the run queues its own successor on the way out, over the inputs as they now stand.
+      assert.ok(result.successor, "the readings must not be left waiting on a clinician noticing");
+      const successor = await db.job.findUniqueOrThrow({ where: { id: result.successor.jobId } });
+      assert.notEqual(successor.id, jobA.id, "a row of its own, not the run it could not join");
+      assert.equal(successor.kind, "sour.run");
+      assert.equal(successor.status, "queued");
+      assert.deepEqual(JSON.parse(successor.payload), { visitId: ids.visit }, "no clinical text is ever queued (§10.3)");
+      assert.equal(successor.idempotencyKey, sourQueue.sourSuccessorKey(ids.visit, result.successor.inputHash));
+    });
+
+    it("and the successor is the brief with the readings in it, and queues nothing after itself", async () => {
+      await clearUploads();
+      await inFlightJob();
+      const first = await sourRun.runSour(ids.visit, {
+        narrate: async () => {
+          await shareExport();
+          return { provider: narrative, patient: narrative };
+        },
+      });
+      assert.ok(first.successor);
+
+      // What the runner does with that row (lib/jobHandlers.ts: `sour.run` is `runSour` and nothing else).
+      const { calls, narrate } = narrator(narrative);
+      const second = await sourRun.runSour(ids.visit, { narrate });
+      assert.equal(calls.length, 1, "the successor really runs: the saved pair does not describe these inputs");
+      assert.equal(second.reused, false);
+      assert.ok(second.provider.timeInRange > 0, "the week of readings the patient shared, summarized");
+      assert.equal(second.successor, null, "and the chain stops: the data stopped moving");
+      assert.equal(await db.job.count({ where: { kind: "sour.run", status: "queued" } }), 1, "no second successor");
+    });
+
+    it("queues nothing when the inputs did not move, which is every run in the ordinary sequence", async () => {
+      // The no-busy-loop property, said as the thing that would break it: a run must not be able to
+      // invalidate its own inputs. Everything `runSour` writes — the two summaries, `Visit.status`, the
+      // `notify.summary` row — is deliberately outside §7.1's fingerprint, so this holds for the first run
+      // and for the reuse behind it.
+      const first = await sourRun.runSour(ids.visit, { narrate: narrator(narrative).narrate });
+      assert.equal(first.successor, null);
+      const again = await sourRun.runSour(ids.visit, { narrate: narrator(narrative).narrate });
+      assert.equal(again.reused, true);
+      assert.equal(again.successor, null);
+      assert.equal(await db.job.count({ where: { kind: "sour.run" } }), 0, "nothing queued a run after either");
+    });
+
+    it("notices from the reused path too, which never calls the narrator at all", async () => {
+      // The same window one step earlier: a context read before the export arrived, handed to a run that
+      // starts after it. §7.1's reuse answers from the saved pair without a model call, so the narrator is
+      // no seam here — and the pair it hands back is just as out of date.
+      await sourRun.runSour(ids.visit, { narrate: narrator(narrative).narrate });
+      const ctx = (await sourRun.loadSourContext(ids.visit))!;
+      await db.job.deleteMany({});
+      await shareExport();
+
+      const again = await sourRun.runSour(ids.visit, { ctx, narrate: narrator(narrative).narrate });
+      assert.equal(again.reused, true, "those inputs are exactly what the saved pair was written from");
+      assert.ok(again.successor, "but they are not the visit's any more");
+      assert.equal(again.successor.inputHash, await sourRun.currentInputHash(ids.visit));
+    });
+
+    it("joins the successor another run already queued for the same new inputs", async () => {
+      // The other half of the termination argument, and the reason the key carries the fingerprint: two
+      // runs of one visit that both end up looking at the same new data owe one run between them, not one
+      // each. Here the row is planted; in the product it is the Generate a clinician pressed a second
+      // before the export landed, finishing beside the wrap's run.
+      await clearUploads();
+      await inFlightJob();
+      let planted = "";
+      const result = await sourRun.runSour(ids.visit, {
+        narrate: async () => {
+          await shareExport();
+          const hash = (await sourRun.currentInputHash(ids.visit))!;
+          planted = (
+            await db.job.create({
+              data: { kind: "sour.run", payload: JSON.stringify({ visitId: ids.visit }), status: "queued", idempotencyKey: sourQueue.sourSuccessorKey(ids.visit, hash) },
+            })
+          ).id;
+          return { provider: narrative, patient: narrative };
+        },
+      });
+      assert.ok(result.successor);
+      assert.equal(result.successor.jobId, planted, "joined the row already owed rather than queueing beside it");
+      assert.equal(await db.job.count({ where: { kind: "sour.run", status: "queued" } }), 1, "one successor, not two");
+      // The pair this run wrote is saved and the visit has moved on, whichever row ends up running next.
+      assert.equal((await rows()).length, 2);
+      assert.equal((await db.visit.findUniqueOrThrow({ where: { id: ids.visit } })).status, "summary_ready");
+    });
   });
 
   describe("when the model is not there (§6.3)", () => {
