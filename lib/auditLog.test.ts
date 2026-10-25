@@ -305,6 +305,7 @@ test("the text filters are trimmed, and capped so a filter cannot be a payload",
 const bundle = (over: Record<string, unknown> = {}) => ({
   status: { hasDexcom: false, hasLocation: false, hasWhoop: false, answered: 0 },
   patient: { notes: null },
+  patientMessages: [] as string[],
   providerSummary: null,
   patientSummary: null,
   ...over,
@@ -318,6 +319,15 @@ test("each part is recorded only when the response really carried it", () => {
   assert.deepEqual(visitPartsRead(bundle({ status: { hasDexcom: false, hasLocation: false, hasWhoop: false, answered: 2 } })), ["intake"]);
   assert.deepEqual(visitPartsRead(bundle({ patient: { notes: "Ate late twice this week." } })), ["messages"]);
   assert.deepEqual(visitPartsRead(bundle({ patient: { notes: "   " } })), [], "blank notes are not a transcript");
+  // T154: the provider is handed the chat rows as well as the notes, so either one is §10.2's read. This is
+  // the ending that made the distinction matter — a flag on the first message fills no field, so the notes
+  // are machine-written and the patient's sentence is the only thing of theirs on the brief.
+  assert.deepEqual(
+    visitPartsRead(bundle({ patientMessages: ["I had chest pain yesterday evening."] })),
+    ["messages"],
+    "the patient's own chat rows are a transcript read with no notes behind them",
+  );
+  assert.deepEqual(visitPartsRead(bundle({ patientMessages: ["  ", ""] })), [], "blank chat rows are not a transcript either");
   assert.deepEqual(visitPartsRead(bundle({ patientSummary: { timeInRange: 0.7 } })), ["summary"]);
   for (const source of ["hasDexcom", "hasLocation", "hasWhoop"]) {
     const status = { hasDexcom: false, hasLocation: false, hasWhoop: false, answered: 0, [source]: true };

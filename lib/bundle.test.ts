@@ -118,6 +118,7 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.equal(b.sourJob, null);
       assert.equal(b.summaryStale, false, "no summary yet is not a stale one");
       assert.equal(b.review, null);
+      assert.deepEqual(b.patientMessages, [], "and nobody has said anything yet (T154)");
     });
 
     it("reads each upload kind, downsamples the chart series, and caps the spikes at five", async () => {
@@ -166,6 +167,27 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.equal(b.intake.turns, 3);
       assert.equal(b.status.answered, 1);
       assert.equal(b.status.done, false, "one of two required fields is not done");
+    });
+
+    // T154 (§2.6): the patient's own half of the transcript, which the clinician's brief quotes where the
+    // notes hold no answer of theirs. Sweetie's half is deliberately not in it — the clinician is reading
+    // what the patient said — and the order is the order they said it in, because the first message is
+    // where a §2.5 flag fires.
+    it("carries the patient's own messages, oldest first, and not Sweetie's", async () => {
+      for (const [role, content] of [
+        ["sweetie", "Hi, I'm Sweetie. What's bringing you in?"],
+        ["patient", "I had chest pain yesterday evening and it really scared me."],
+        ["sweetie", "Please call the office today."],
+        ["patient", "Should I still answer the questions?"],
+      ] as const) {
+        await fx.db.message.create({ data: { visitId: ids.visit, role, content } });
+        await new Promise((r) => setTimeout(r, 2));
+      }
+      const b = (await bundle.loadBundle(ids.visit))!;
+      assert.deepEqual(b.patientMessages, [
+        "I had chest pain yesterday evening and it really scared me.",
+        "Should I still answer the questions?",
+      ]);
     });
 
     // T118 (§2.5, §2.7): the bundle carries which connect control /s/<token> has for this visit, so the
@@ -374,6 +396,7 @@ const BUNDLE: PatientBundle = {
   status: { hasDexcom: true, hasLocation: false, hasWhoop: false, answered: 2, done: true },
   intake: { fields: {}, skipped: [], flagged: null, turns: 2, wrapped: true },
   intakeFields: [],
+  patientMessages: ["Pasta most nights, and I ate out twice."],
   providerSummary: summaryWith(["3 of 4 overnight highs followed dinners out after 8pm"], ["2 readings below 54 mg/dL"]),
   providerSummaryAt: "2026-10-11T12:05:00.000Z",
   patientSummary: summaryWith(["Your evenings out ran high"]),
@@ -402,7 +425,10 @@ describe("patientView", () => {
 
   it("keeps everything the patient's own page renders", async () => {
     const view = await viewOf();
-    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "stats", "status", "intake", "intakeFields", "patientSummary", "patientSummaryAt", "dexcomConnect"] as const) {
+    // `patientMessages` is in this list rather than the one below: it is the patient's own half of their
+    // own transcript (T154), which they can already read at GET /api/sweetie, and not the clinician's
+    // material §5.2 keeps from them.
+    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "dexcomConnect"] as const) {
       assert.deepEqual(view[key], BUNDLE[key], `${key} is the patient's own`);
     }
   });

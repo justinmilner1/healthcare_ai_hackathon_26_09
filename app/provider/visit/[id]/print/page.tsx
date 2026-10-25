@@ -19,6 +19,7 @@
 import { notFound, redirect } from "next/navigation";
 import Disclaimer from "@/components/Disclaimer";
 import GlucoseChart from "@/components/GlucoseChart";
+import PatientWordsBody from "@/components/PatientWordsBody";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
@@ -28,6 +29,7 @@ import { visitPartsRead } from "@/lib/auditLog";
 import { recordVisitRead } from "@/lib/auditStore";
 import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
+import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
 import { clinicianChartCaption } from "@/lib/spikePlaces";
@@ -235,16 +237,12 @@ export default async function PrintPage({
 
               {/* Named, like .sour-print-numbers and .sour-print-grid above, because it is the part of the
                   sheet §12.2's handover is about: what the patient told Sweetie, on the clinician's paper.
-                  e2e/journey.spec.ts scrolls its phone shot of the sheet to it (T109, §12.3). */}
-              <div className="sour-print-words mt-4">
+                  e2e/journey.spec.ts scrolls its phone shot of the sheet to it (T109, §12.3). What goes in
+                  it is the same decision the screen makes (lib/patientWords.ts, T154): §7.4's sheet is the
+                  brief on paper, so it cannot quote a different thing. */}
+              <div className="sour-print-words sour-words mt-4">
                 <h2>In the patient&apos;s words</h2>
-                {bundle.patient.notes ? (
-                  <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-black/15 pl-3 text-sm italic text-[var(--viz-ink-2)]">
-                    {bundle.patient.notes}
-                  </blockquote>
-                ) : (
-                  <p className="mt-1 text-sm text-[var(--viz-muted)]">Sweetie has not collected answers yet.</p>
-                )}
+                <PatientWordsBody words={patientWords(bundle)} />
               </div>
             </section>
 

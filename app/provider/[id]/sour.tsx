@@ -18,12 +18,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Disclaimer from "@/components/Disclaimer";
 import GlucoseChart from "@/components/GlucoseChart";
+import PatientWordsBody from "@/components/PatientWordsBody";
 import PersonaBrand from "@/components/PersonaBrand";
 import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
+import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { askSourPlaceholder, emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
 import { clinicianChartCaption } from "@/lib/spikePlaces";
@@ -475,13 +477,12 @@ export default function SourView({ id }: { id: string }) {
                   </div>
                 </div>
 
-                <div className="mt-4">
+                {/* §2.6, T154: what belongs in this block is lib/patientWords.ts's decision, not the
+                    notes string — on the ending the §2.5 scan produces, the notes are machine-written and
+                    the patient's own sentence is in their chat rows. */}
+                <div className="sour-words mt-4">
                   <h3 className="text-sm font-semibold">In the patient&apos;s words</h3>
-                  {bundle.patient.notes ? (
-                    <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-black/15 pl-3 text-sm italic text-[var(--viz-ink-2)]">{bundle.patient.notes}</blockquote>
-                  ) : (
-                    <p className="mt-1 text-sm text-[var(--viz-muted)]">Sweetie has not collected answers yet.</p>
-                  )}
+                  <PatientWordsBody words={patientWords(bundle)} />
                 </div>
                   </div>
                 </section>

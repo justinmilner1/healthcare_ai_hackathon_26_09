@@ -337,6 +337,18 @@ export function renderNotes(state: IntakeState, defs: IntakeFieldDef[], visit: V
   return lines.join("\n");
 }
 
+/**
+ * Whether `renderNotes` put an answer of the patient's into the notes.
+ *
+ * The loop above is the only line of it that comes from the patient; every other line is written here or
+ * typed by staff into the booking form. So a wrap with no field filled leaves `Visit.notes` entirely
+ * machine-written — which is what the §2.5 scan produces when it fires on the patient's first message, and
+ * what the clinician's brief must not quote as the patient's words (T154, lib/patientWords.ts).
+ */
+export function notesHaveAnswers(state: IntakeState, defs: IntakeFieldDef[]): boolean {
+  return defs.some((f) => Boolean(state.fields[f.id]?.value));
+}
+
 export { LLMUnavailable };
 // Re-exported so server code that already thinks of these as Sweetie's vocabulary keeps working. Client
 // components import them from lib/visits.ts instead; see the note at the top of that file.

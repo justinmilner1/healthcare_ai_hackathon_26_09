@@ -152,6 +152,12 @@ export type PatientBundle = {
   status: IntakeStatus;
   intake: IntakeState;
   intakeFields: IntakeFieldDef[]; // the template Sweetie is working from for this visit
+  /** What the patient themselves typed or said during the check-in, oldest first — their chat rows, not
+   *  Sweetie's half of the conversation and not `Visit.notes`' rendering of them. The clinician's brief
+   *  quotes these when the notes hold no answer of the patient's, which is the ending the §2.5 scan
+   *  produces (§2.6, T154; lib/patientWords.ts decides). Their own words, so `patientView` keeps them the
+   *  way it keeps the patient's summary and uploads; the page at /patient/[id] reads them from nowhere. */
+  patientMessages: string[];
   providerSummary: Summary | null;
   providerSummaryAt: string | null;
   patientSummary: Summary | null;

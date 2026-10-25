@@ -99,6 +99,10 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     status,
     intake,
     intakeFields,
+    // §2.6, T154: the patient's own half of the transcript, for the brief's "In the patient's words" block.
+    // Sweetie's half is not in it — the clinician is reading what the patient said, not what was asked —
+    // and the rows are already in the query above, so this costs nothing.
+    patientMessages: visit.messages.filter((m) => m.role === "patient").map((m) => m.content),
     providerSummary: prov ? parseOr<Summary | null>(prov.json, null) : null,
     providerSummaryAt: prov?.createdAt.toISOString() ?? null,
     patientSummary: pat ? parseOr<Summary | null>(pat.json, null) : null,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { answeredCount, backstop, emptyIntake, fieldsFor, flaggedHoldReply, greeting, knownVisitType, merge, nextTarget, parseIntake, redFlagReply, renderNotes, requiredCount, scanRedFlags, scripted, skipQuestions, speakSystem, VISIT_TYPES } from "./sweetie";
+import { answeredCount, backstop, emptyIntake, fieldsFor, flaggedHoldReply, greeting, knownVisitType, merge, nextTarget, notesHaveAnswers, parseIntake, redFlagReply, renderNotes, requiredCount, scanRedFlags, scripted, skipQuestions, speakSystem, VISIT_TYPES } from "./sweetie";
 import type { Target } from "./sweetie";
 import type { IntakeStatus } from "./types";
 
@@ -396,4 +396,15 @@ test("the notes Sour reads carry the flag, the visit and the answers, in that or
   assert.equal(lines.at(-1), "Data not shared: whoop.");
   // An untouched intake still names the visit, and claims nothing about the patient.
   assert.equal(renderNotes(emptyIntake(defs), defs, visit), "Visit: Follow-up");
+});
+
+test("notesHaveAnswers says which of those lines came from the patient (T154)", () => {
+  // The predicate the clinician's brief branches on (lib/patientWords.ts): whether the notes hold anything
+  // the patient actually said, or only the lines renderNotes and the booking form wrote.
+  const flaggedFirstMessage = { ...emptyIntake(defs), flagged: "cardiac_or_breathing", turns: 1, wrapped: true };
+  assert.equal(notesHaveAnswers(flaggedFirstMessage, defs), false, "the §2.5 scan fires before any extraction");
+  assert.match(renderNotes(flaggedFirstMessage, defs, visit), /Patient was told to call the office/, "and the notes are all machine");
+  assert.equal(notesHaveAnswers(emptyIntake(defs), defs), false);
+  assert.equal(notesHaveAnswers(skipQuestions(emptyIntake(defs)), defs), false, "skipping is not an answer");
+  assert.equal(notesHaveAnswers(backstop(emptyIntake(defs), "purpose", "Exhausted for six weeks"), defs), true);
 });

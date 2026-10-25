@@ -102,9 +102,13 @@ export const readAction = (part: VisitPart): AuditAction => `${part}.read` as Au
  * Which parts of a visit a `PatientBundle` actually carried (lib/bundle.ts), so the rows say what was seen
  * rather than what the screen has room for: a visit with no uploads records no `uploads.read`.
  *
- * `messages` is the transcript as a provider reads it. They are not handed the chat rows; they are handed
- * `Visit.notes`, which is those rows in the words Sweetie rendered for Sour (AGENTS.md, lib/sweetie.ts
- * renderNotes) — the patient's own account of their week either way, so reading it is reading the chat.
+ * `messages` is the transcript as a provider reads it, and since T154 that is *both* of the two things it
+ * could mean, so the row is recorded for either. `Visit.notes` is the patient's answers in the words
+ * Sweetie rendered for Sour (AGENTS.md, lib/sweetie.ts `renderNotes`). The patient's chat rows themselves
+ * are handed over too, in `patientMessages`: the brief quotes them verbatim wherever the notes hold no
+ * answer of the patient's (§2.6, lib/patientWords.ts), which is where the old reading of this comment was
+ * false — the flag line alone is non-empty notes, so §10.2 was recording a `messages.read` against a
+ * clinician who had been shown none of the patient's words.
  *
  * Typed structurally rather than against PatientBundle, so this module stays free of imports (see the top of
  * the file); a PatientBundle satisfies it.
@@ -112,12 +116,13 @@ export const readAction = (part: VisitPart): AuditAction => `${part}.read` as Au
 export function visitPartsRead(bundle: {
   status: { hasDexcom: boolean; hasLocation: boolean; hasWhoop: boolean; answered: number };
   patient: { notes: string | null };
+  patientMessages: string[];
   providerSummary: unknown;
   patientSummary: unknown;
 }): VisitPart[] {
   const parts: VisitPart[] = [];
   if (bundle.status.answered > 0) parts.push("intake");
-  if (bundle.patient.notes?.trim()) parts.push("messages");
+  if (bundle.patient.notes?.trim() || bundle.patientMessages.some((m) => m.trim())) parts.push("messages");
   if (bundle.providerSummary || bundle.patientSummary) parts.push("summary");
   if (bundle.status.hasDexcom || bundle.status.hasLocation || bundle.status.hasWhoop) parts.push("uploads");
   return parts;
