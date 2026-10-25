@@ -404,7 +404,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // T157 (§12.3): the card itself, at both widths. The desktop project shoots the document, so the brief's
   // own frame already holds it; at 375px it is several screens below the fold, and the heading over those
   // five "no matching visit" rows is the subject of the ticket, so it gets a frame of its own.
-  await shot(page, "12-sour-spikes-unplaced", { scrollTo: places, fullPage: false });
+  await shot(page, "12-sour-spikes-unplaced", { ...SCREENFUL, scrollTo: places });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
     shot(page, `12-sour-brief-tooltip-${chart}`, SCREENFUL),
@@ -476,7 +476,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // T157 (§12.3), for the reason the brief's own card got a frame: the sheet is anchored on the patient's
   // words above, so at 375px the spike card is off the bottom of that one and the heading this ticket is
   // about is in no committed picture of the paper.
-  await shot(page, "15-print-spikes-unplaced", { scrollTo: printPlaces, fullPage: false });
+  await shot(page, "15-print-spikes-unplaced", { ...SCREENFUL, scrollTo: printPlaces });
   // And the third (§7.4). The sheet is read on screen before it is sent to paper, so its charts have
   // tooltips like the other two; nothing here is about what the printer puts on the page.
   await expectChartTooltipsLabelled(page, "the printed sheet");
