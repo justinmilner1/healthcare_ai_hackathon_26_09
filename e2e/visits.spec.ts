@@ -128,6 +128,8 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   await expect(title, "the step's own title, at the top of its scroll").toBeInViewport(LOADED);
   await expect(actions, "the save row is on screen before anything has been scrolled").toBeInViewport(LOADED);
   await shot(page, `${name}-scroll-top`, frame);
+  // T158 And the row that is on screen is flush with the dialog, not floating inside it.
+  await expectActionsReachScrollportEdges(page, "at the top of the scroll");
 
   if (test.info().project.name !== "mobile") {
     // The desktop dialog holds the whole step in one 38% / 62% row, so there is nothing here for a finger
@@ -155,6 +157,7 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
     .poll(async () => content.evaluate((element) => element.scrollTop), LOADED)
     .toBeGreaterThanOrEqual(room - 1);
   await expect(actions, "and still on screen at the end of the scroll").toBeInViewport(LOADED);
+  await expectActionsReachScrollportEdges(page, "at the end of the scroll");
   await shot(page, `${name}-scroll-bottom`, frame);
 
   // And back: the title the frame above cannot hold is a wheel away, which is the half of the §2.2 review
@@ -164,6 +167,49 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
     .poll(async () => content.evaluate((element) => element.scrollTop), LOADED)
     .toBeLessThanOrEqual(1);
   await expect(title, "a wheel back up returns the step's title, which is half of what §2.2 asks staff to confirm").toBeInViewport(LOADED);
+}
+
+/**
+ * And the sticky row reaches the dialog's edges, rather than floating inside them (T158, design §6.5, §2.2).
+ *
+ * `position: sticky; bottom: 0` resolves against the scroll container's **content** box, so the row T155
+ * made stick came to rest `.patient-wizard-content`'s `padding-bottom` above the bottom of the scrollport
+ * and inset by its `padding-inline` at each side — 20px and 22px at this width. Nothing was unreachable,
+ * which is why T155's own assertions passed over it; what the step looked like was a white bar with the
+ * form running past it on three sides, on the one screen §2.2 asks staff to read carefully.
+ *
+ * Measured against the scrollport's padding box rather than against the viewport, because that is the box
+ * `bottom` resolves against and the box the gaps were in. A pixel of slack for sub-pixel layout; the bug
+ * this pins was twenty.
+ *
+ * Phone only: the desktop dialog does not scroll, so the row is in the flow there and T155 left it alone.
+ */
+async function expectActionsReachScrollportEdges(page: Page, where: string): Promise<void> {
+  if (test.info().project.name !== "mobile") return;
+
+  const dialog = page.getByRole("dialog", { name: "Add a booked patient" });
+  const content = dialog.locator(".patient-wizard-content");
+  const actions = dialog.locator(".patient-wizard-actions");
+
+  const gaps = await content.evaluate((element, selector) => {
+    const row = element.querySelector(selector) as HTMLElement;
+    const style = getComputedStyle(element);
+    const port = element.getBoundingClientRect();
+    const bar = row.getBoundingClientRect();
+    return {
+      left: bar.left - (port.left + parseFloat(style.borderLeftWidth)),
+      right: port.right - parseFloat(style.borderRightWidth) - bar.right,
+      bottom: port.bottom - parseFloat(style.borderBottomWidth) - bar.bottom,
+    };
+  }, ".patient-wizard-actions");
+
+  await expect(actions, "the row is the thing being measured").toBeVisible();
+  expect(gaps.left, `no gap to the left of the save row (${where})`).toBeLessThanOrEqual(1);
+  expect(gaps.right, `no gap to the right of the save row (${where})`).toBeLessThanOrEqual(1);
+  expect(gaps.bottom, `no gap under the save row (${where})`).toBeLessThanOrEqual(1);
+  expect(gaps.left, `the save row is not pushed past the left edge (${where})`).toBeGreaterThanOrEqual(-1);
+  expect(gaps.right, `the save row is not pushed past the right edge (${where})`).toBeGreaterThanOrEqual(-1);
+  expect(gaps.bottom, `the save row is not pushed past the bottom edge (${where})`).toBeGreaterThanOrEqual(-1);
 }
 
 /** A name nothing else in the run will use: two Playwright projects share one database. */
