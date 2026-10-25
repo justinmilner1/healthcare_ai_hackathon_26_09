@@ -157,7 +157,16 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
     `No invite will be sent: ${cannotSendYet("email")}.`,
   );
   await expect(beforeTheButton.locator(".ss-lede")).not.toContainText(/sends their private Sweetie link/);
-  await shot(page, "03-add-visit", MODAL);
+  // Anchored on the actions row, because at 375px this step is taller than the dialog can show and the
+  // frame otherwise began wherever the last radio click scrolled it (T151): the button is the lower of the
+  // two halves the note above it is read against, so ending the frame on it brings both. e2e/visits.spec.ts'
+  // STEP_3 is the same anchor with the measurements behind it.
+  await shot(page, "03-add-visit", {
+    ...MODAL,
+    scrollTo: ".patient-wizard-actions",
+    block: "end",
+    wholeRows: ".patient-consent-note, .patient-wizard-actions",
+  });
   await page.getByRole("button", { name: /^Add patient/ }).click();
 
   // T111 (§2.2, §2.3, §8.1) The wizard's own claim about the send, which is the first thing staff are told
