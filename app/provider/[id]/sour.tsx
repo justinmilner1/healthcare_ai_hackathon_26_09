@@ -28,7 +28,7 @@ import StatTile from "@/components/StatTile";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted } from "@/lib/sourState";
-import { clinicianChartCaption } from "@/lib/spikePlaces";
+import { clinicianChartCaption, clinicianSpikeCardHeading } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
@@ -544,7 +544,9 @@ export default function SourView({ id }: { id: string }) {
                 {bundle.status.hasDexcom && (
                 <div className="sour-card-grid">
                   <section className="sour-card">
-                    <h3 className="text-sm font-semibold">Spikes linked to places</h3>
+                    {/* Not a constant: whether any rise is linked to a place is the question
+                        lib/spikePlaces.ts answers, for the caption above and the rows below too (T157, §2.6). */}
+                    <h3 className="text-sm font-semibold">{clinicianSpikeCardHeading(bundle.spikes)}</h3>
                     <div className="mt-2">
                       <SpikeTable spikes={bundle.spikes} />
                     </div>

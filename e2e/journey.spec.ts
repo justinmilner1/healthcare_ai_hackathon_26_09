@@ -379,9 +379,17 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // patient's page drops the column; the clinician's keeps it and says "no matching visit", which is a true
   // and useful thing to tell a reader who knows what lib/match.ts does. This is the handover asserted from
   // the other end — the two pages read the same spikes and are deliberately not written alike.
-  const places = page.locator(".sour-card", { has: page.getByRole("heading", { name: "Spikes linked to places" }) });
+  // T157 (§2.6): and the heading over that card is the first thing to say so. It was the constant "Spikes
+  // linked to places" over five rows that matched none, beside a stat tile reading "0 linked to a place" —
+  // so the card is found here by the table it holds rather than by a heading that is now a function of the
+  // spikes (lib/spikePlaces.ts `clinicianSpikeCardHeading`).
+  const places = page.locator(".sour-card", { has: page.getByRole("columnheader", { name: "Place" }) });
+  await expect(places.getByRole("heading")).toHaveText("Spikes over 180");
+  await expect(places.getByRole("heading"), "a link no rise in this card has").not.toContainText(/linked/i);
   await expect(places.getByRole("columnheader")).toHaveText(["When", "Rise", "Place"]);
   await expect(places).toContainText("no matching visit");
+  // The stat tile beside it, which has carried the honest count since T60: the card now agrees with it.
+  await expect(page.locator(".sour-metrics-card")).toContainText("0 linked to a place");
   // T99 (§2.6): and the chart beside that card says the same thing about the same five rises. The caption
   // used to call every red marker a place; with no Timeline shared, every label on it is a peak mg/dL.
   const caption = page.locator(".sour-chart-caption");
@@ -393,6 +401,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // Dexcom-only briefs are asserted where they are shot (e2e/flows.spec.ts, e2e/flags.spec.ts).
   await expect(page.getByLabel("Message Sour")).toHaveAttribute("placeholder", /glucose spikes or sleep data/i);
   await shot(page, "12-sour-brief");
+  // T157 (§12.3): the card itself, at both widths. The desktop project shoots the document, so the brief's
+  // own frame already holds it; at 375px it is several screens below the fold, and the heading over those
+  // five "no matching visit" rows is the subject of the ticket, so it gets a frame of its own.
+  await shot(page, "12-sour-spikes-unplaced", { scrollTo: places, fullPage: false });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
     shot(page, `12-sour-brief-tooltip-${chart}`, SCREENFUL),
@@ -449,11 +461,22 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(printCaption).toContainText("peak mg/dL");
   await expect(printCaption).toContainText("no place matched");
   await expect(printCaption).not.toContainText("the place the patient had just left");
+  // T157 (§7.4): and the heading over the spike card, which is the half of that bug the brief did not have
+  // to itself — this is the copy a clinician carries into the room. Same function as the screen, so the two
+  // cannot say different things about the same five rises (lib/spikePlaces.ts).
+  const printPlaces = page.locator(".sour-card", { has: page.getByRole("columnheader", { name: "Where" }) });
+  await expect(printPlaces.getByRole("heading")).toHaveText("Spikes over 180");
+  await expect(printPlaces.getByRole("heading"), "a link no rise on this sheet has").not.toContainText(/linked/i);
+  await expect(printPlaces).toContainText("no matching visit");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   // The patient's own words at the bottom of the frame, with the patterns and the questions above them
   // (T109, design §12.3): the sheet at 375px is several phone screens, and unanchored this shot was the
   // title block and two stat tiles — a picture of the one part of the handover nobody is checking.
   await shot(page, "15-print-sheet", { scrollTo: ".sour-print-words", block: "end" });
+  // T157 (§12.3), for the reason the brief's own card got a frame: the sheet is anchored on the patient's
+  // words above, so at 375px the spike card is off the bottom of that one and the heading this ticket is
+  // about is in no committed picture of the paper.
+  await shot(page, "15-print-spikes-unplaced", { scrollTo: printPlaces, fullPage: false });
   // And the third (§7.4). The sheet is read on screen before it is sent to paper, so its charts have
   // tooltips like the other two; nothing here is about what the printer puts on the page.
   await expectChartTooltipsLabelled(page, "the printed sheet");

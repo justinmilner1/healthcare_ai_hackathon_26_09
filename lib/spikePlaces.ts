@@ -133,3 +133,35 @@ export function clinicianChartCaption(spikes: Spike[]): string {
     ? `${TARGET_BAND} Red markers are spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.`
     : `${TARGET_BAND} Red markers are spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.`;
 }
+
+/**
+ * The heading over the spike card on the two clinician surfaces: the brief (§2.6) and the printed one-pager
+ * (§7.4). One function, for the reason `clinicianChartCaption` above is one (T99, T157).
+ *
+ * It was the constant "Spikes linked to places" on both, while whether anything is linked is the question
+ * this module exists to answer. §2.5 leaves the Timeline export to the patient page's optional data panel
+ * and Sweetie never asks for it (T144), so the ordinary visit is Dexcom-only and nothing in that card is
+ * linked to anywhere. The brief then said the same thing three ways and contradicted itself once: the stat
+ * tile beside the card read "0 linked to a place", the caption under the chart read "no place matched any
+ * of these rises", every row of the card read "no matching visit" — and the heading over them claimed the
+ * opposite. On paper too, which is the copy a clinician carries into the room.
+ *
+ * So the heading reads the same `anyPlaceKnown` the caption does and the rows do, and cannot drift from
+ * them. Three readings, because the card has three shapes:
+ *
+ * | the card | heading |
+ * |---|---|
+ * | some rise matched a place | `Spikes linked to places` |
+ * | rises, none of them matched | `Spikes over 180` |
+ * | no rises at all | `Spikes` |
+ *
+ * The middle one is the card's own subject with the half it cannot deliver dropped — the `Place` column
+ * stays, because "no matching visit" is a true and useful thing to tell a reader who knows what lib/match.ts
+ * does (T82), and this is the heading no longer promising it will say otherwise. The last is a heading over
+ * SpikeTable's "No spikes over 180 detected.", which says the state already: naming the threshold above it
+ * would read as though some had cleared it.
+ */
+export function clinicianSpikeCardHeading(spikes: Spike[]): string {
+  if (anyPlaceKnown(spikes)) return "Spikes linked to places";
+  return spikes.length === 0 ? "Spikes" : "Spikes over 180";
+}

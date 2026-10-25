@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { placeLabel } from "./location";
-import { anyPlaceKnown, clinicianChartCaption, markerLabel, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, clinicianChartCaption, clinicianSpikeCardHeading, markerLabel, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -164,5 +164,62 @@ test("the clinician's marker label keeps T62's coordinates — both sides of the
   for (const patient of [true, false]) {
     assert.equal(markerLabel(spike(somewhere("Home")), { patient }), "Home");
     assert.equal(markerLabel(spike(), { patient }), "214");
+  }
+});
+
+// T157 (§2.6, §7.4): the heading over the card those captions sit beside, which was the one unconditional
+// claim left in that row of the brief.
+
+test("the card is not headed with a link no rise in it has (T157)", () => {
+  // The §12.2 journey visit again, which is the ordinary one: Dexcom shared, Timeline not (§2.5, T144).
+  const heading = clinicianSpikeCardHeading([spike(), spike(), spike(), spike(), spike()]);
+  assert.doesNotMatch(heading, /linked/i, heading);
+  assert.doesNotMatch(heading, /place/i, heading);
+  // Still the card's own subject: five rises over 180 are what is in it.
+  assert.equal(heading, "Spikes over 180");
+});
+
+test("and keeps the heading it has always had where a place did match (T157)", () => {
+  // The acceptance criterion that is about nothing changing: desktop-provider-sour.png is this visit.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()]), "Spikes linked to places");
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Home"))]), "Spikes linked to places");
+});
+
+test("claims nothing over an empty card (T157)", () => {
+  // SpikeTable's body already reads "No spikes over 180 detected."; naming the threshold above it would
+  // read as though some rise had cleared it.
+  const heading = clinicianSpikeCardHeading([]);
+  assert.equal(heading, "Spikes");
+  assert.doesNotMatch(heading, /linked|180/i, heading);
+});
+
+test("the heading, the caption and the rows are one decision (T157)", () => {
+  // The property the ticket is actually about: "linked to places" is a claim about the card, so it may be
+  // the heading only when `anyPlaceKnown` is true -- the same predicate `clinicianChartCaption` branches on
+  // and the same one SpikeTable's rows read. Written as an equivalence so neither side can be changed alone.
+  for (const spikes of [
+    [],
+    [spike()],
+    [spike(), spike()],
+    [spike(somewhere("Home"))],
+    [spike(), spike(somewhere("Noe Cafe"))],
+    [spike(somewhere("Noe Cafe")), spike()],
+    [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))],
+  ]) {
+    const heading = clinicianSpikeCardHeading(spikes);
+    assert.equal(/linked to places/.test(heading), anyPlaceKnown(spikes), heading);
+    // And it says the same thing as the caption beside it, which is why both live in this module. The
+    // matched caption also carries the words "no place matched" -- of the individual label that has none --
+    // so the clause to compare against is the one that speaks about the rises as a set.
+    assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes)), heading);
+  }
+});
+
+test("the heading never speaks the matcher's vocabulary at the patient (T157)", () => {
+  // §2.7 is untouched by this: its card is headed "Your biggest rises" and reads the patient's own
+  // functions. This is the assertion that the clinician's heading did not become a third thing the patient
+  // page might be tempted to borrow (T82).
+  for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
+    assert.doesNotMatch(clinicianSpikeCardHeading(spikes), MATCHER);
   }
 });

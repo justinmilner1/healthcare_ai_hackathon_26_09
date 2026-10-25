@@ -1,4 +1,7 @@
-// Spikes linked to places. The table twin of the markers on GlucoseChart.
+// The spikes a visit's readings hold, with the place each one was matched to where there is one. The table
+// twin of the markers on GlucoseChart. The card's heading is not written here: it is a function of these
+// same spikes on the clinician's surfaces (lib/spikePlaces.ts `clinicianSpikeCardHeading`, T157) and the
+// patient's own words on theirs ("Your biggest rises", §2.7).
 
 import { anyPlaceKnown, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE } from "@/lib/spikePlaces";
 import type { Spike } from "@/lib/types";

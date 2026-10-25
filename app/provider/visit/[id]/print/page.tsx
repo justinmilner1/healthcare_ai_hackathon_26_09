@@ -32,7 +32,7 @@ import { loadBundle } from "@/lib/bundle";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
-import { clinicianChartCaption } from "@/lib/spikePlaces";
+import { clinicianChartCaption, clinicianSpikeCardHeading } from "@/lib/spikePlaces";
 import { clinicianLine, findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
 import PrintControls from "./controls";
@@ -259,7 +259,9 @@ export default async function PrintPage({
             {bundle.status.hasDexcom && (
               <div className="sour-print-grid">
                 <section className="sour-card">
-                  <h2>Spikes linked to places</h2>
+                  {/* The screen's heading, out of lib/spikePlaces.ts, so the paper cannot claim a link
+                      the brief does not -- the same bargain as the caption above it (T157, §7.4). */}
+                  <h2>{clinicianSpikeCardHeading(bundle.spikes)}</h2>
                   <div className="mt-2">
                     <SpikeTable spikes={bundle.spikes} compact />
                   </div>

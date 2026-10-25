@@ -97,6 +97,9 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(narrativeNote).toContainText(/ask whoever set Sweet Spot up for your office/i);
   await expect(narrativeNote).not.toContainText(/administrator|turn it on/i);
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
+  // T157 (§7.4): the other branch of the heading, and the one that had to stay as it was. This visit has a
+  // Timeline export, so rises *are* linked to places and the card says so — the same string it has always
+  // carried, now out of lib/spikePlaces.ts. The unplaced case is asserted in e2e/journey.spec.ts.
   await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
   // T62: this visit has a Timeline export and no hand-labelled place list beside it, which is all a patient
   // can actually send (§9.3). Every place on the sheet is therefore the visit's own coordinates — Google's
