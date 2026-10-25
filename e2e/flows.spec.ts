@@ -319,6 +319,11 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
   const doneCard = page.locator(".sweetie-done-card");
   await expect(doneCard).toContainText(/check-in is complete/i, LOADED);
   await expect(doneCard).toBeInViewport();
+  // The ending T152 had to leave alone: a check-in answered to the end is the one the tick belongs to.
+  // Hidden from assistive technology all the same — the title says it in words (§12.5).
+  const doneGlyph = doneCard.locator("span");
+  await expect(doneGlyph).toHaveText("✓");
+  await expect(doneGlyph).toHaveAttribute("aria-hidden", "true");
   // The card that ends the check-in is the last thing in the transcript, so it is the message T83's second
   // criterion is about: on the phone this shot was of a completion card with its first line sliced off.
   await expectTranscriptUncut(page, "the end of the check-in");
@@ -1100,6 +1105,16 @@ test("the skip link and goodbye promise no summary to a check-in with nothing sh
   // title asks `intakeEnding` now, which is the rail's own answer (T146, §2.5).
   await expect(doneCard).toContainText(/ended early/i);
   await expect(doneCard, "a check-in the patient stopped short is not a complete one").not.toContainText(/complete/i);
+  // And the mark beside that title, which was the last element on this screen still answering the retired
+  // question: a literal ✓ in both arms of the card's render, so the words said the check-in stopped short
+  // and the glyph said it was done (T152, §2.5). It comes from the same branch as the title now
+  // (lib/summaryPromise.ts), and it is `aria-hidden` as the arrow beside it already was, so a screen
+  // reader meets the title and the sub-line and nothing else (§12.5).
+  const doneGlyph = doneCard.locator("span");
+  await expect(doneGlyph).toHaveCount(1);
+  await expect(doneGlyph, "the tick is the mark for a check-in that finished").not.toHaveText("✓");
+  await expect(doneGlyph, "nor the safety ending's mark, which sends the patient to a person").not.toHaveText("!");
+  await expect(doneGlyph).toHaveAttribute("aria-hidden", "true");
   await expect(doneCard).toContainText(/saved for your care team/i);
   await expect(doneCard, "no summary is offered where there is none").not.toContainText(/summary/i);
   await expect(page.locator(`.sweetie-conversation a[href="/patient/${booked.token}"]`)).toHaveCount(0);
