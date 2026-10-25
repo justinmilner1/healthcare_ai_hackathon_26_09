@@ -5,7 +5,7 @@ import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
-import { MODAL, SCREENFUL, shot } from "./shot";
+import { MODAL, SCREENFUL, shot, type ShotOptions } from "./shot";
 
 // T07 (design §2.2, §4.4, §8.3): the two ways a practice creates visits, driven through the screens staff
 // actually use. One at a time in the wizard, with the contact channel and the recorded consent §2.2 asks for;
@@ -24,6 +24,50 @@ import { MODAL, SCREENFUL, shot } from "./shot";
  * e2e/shot.ts grows the window for the shot and hands it straight back.
  */
 const IMPORT_WINDOW = 1000;
+
+/**
+ * Step 3 of the booking wizard, framed on the forecast rather than on wherever the last click left it (T151).
+ *
+ * `MODAL` is one viewport, which at 375px is less than this step: the dialog is `max-height: 94svh` with its
+ * rows sized to their content (app/globals.css), so about 300px of it is behind the bottom edge and what the
+ * frame held was decided by the browser scrolling the last-clicked radio into view. The three demo frames
+ * disagreed with each other because the three cases click different radios — `-demo-real` and `-demo-reserved`
+ * caught the note and lost the button, `-demo-mixed` lost both — and a reviewer cannot tell a reframing from a
+ * regression in a picture that moves on its own (docs/ROUTINES.md, "What is in a screenshot").
+ *
+ * The forecast §13.4 is a rule about has two halves, the consent note and the button's label, and the anchor
+ * is the lower of them: `scrollIntoView({ block: "end" })` on the actions row puts the button flush against
+ * the bottom of the dialog from any starting scroll, and the note — 96px above it whether it runs to one line
+ * or three — comes with it. Anchoring the note instead would leave the button's position to the note's own
+ * height. `wholeRows` then refuses a frame that cuts either half, which is the check the three frames failed.
+ *
+ * It costs the step's title, which no 375px frame can hold at the same time as the button: the two are 648px
+ * apart in a dialog with 627px to show them in. The desktop frames are untouched — that dialog does not
+ * overflow its window, so there is nothing for the anchor to scroll (measured: `scrollHeight - clientHeight`
+ * is 0 on the desktop project and 281 to 308 on the phone).
+ */
+const STEP_3: ShotOptions = {
+  ...MODAL,
+  scrollTo: ".patient-wizard-actions",
+  block: "end",
+  wholeRows: ".patient-consent-note, .patient-wizard-actions",
+};
+
+/**
+ * And the card one press later, anchored for the same reason rather than for the same gap (T151).
+ *
+ * This step is short enough that one phone frame holds all of it — the heading, the sentence, §8.1's link and
+ * the button — so nothing was going missing. What was not settled is *where*: the dialog keeps the scroll
+ * position step 3 left it at, clamped to this shorter step, so the frame began mid-word in the hero panel at
+ * whatever height the last interaction happened to leave. Anchoring the card itself makes the frame the
+ * card's own, from any starting scroll, and leaves the desktop frames alone the way the anchor above does.
+ */
+const SUCCESS_CARD: ShotOptions = {
+  ...MODAL,
+  scrollTo: ".patient-wizard-success",
+  block: "end",
+  wholeRows: ".patient-link-card, .patient-wizard-success .ss-title",
+};
 
 /** A name nothing else in the run will use: two Playwright projects share one database. */
 const uniqueName = (prefix: string) => `${prefix} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -122,7 +166,7 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   await expect(step3.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   // The whole step, because the next literal would be somewhere else on it.
   expect(await step3.innerText(), "nothing on the step offers a send this office cannot make").not.toMatch(PROMISES_SEND);
-  await shot(page, "provider-add-visit-consent", MODAL);
+  await shot(page, "provider-add-visit-consent", STEP_3);
 
   // And "Do not message" is still the practice's own choice rather than a gap in the deployment (T120): the
   // sentence it has always carried, word for word, and unmarked.
@@ -155,7 +199,7 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
     /on (?:the|its) way/i,
   );
   await expect(page.locator(".patient-link-card"), "§8.1's fallback, on the screen that just refused").toContainText("/s/");
-  await shot(page, "provider-add-visit-unsent", MODAL);
+  await shot(page, "provider-add-visit-unsent", SUCCESS_CARD);
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
   // The row carries §4.4's status, the chosen channels and the consent behind them.
@@ -261,7 +305,7 @@ test("an office that can text is told so on the step, and still told what it can
   await expect(note).toHaveText(`The secure link goes to ${phone} and sendable.patient@example.com.`);
   await expect(note).not.toHaveClass(/patient-consent-note-blocked/);
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient & send \u2192");
-  await shot(page, "provider-add-visit-sendable", MODAL);
+  await shot(page, "provider-add-visit-sendable", STEP_3);
 
   // 2. And the channel this office has not set up, on the same screen a radio later: the answer is per
   //    channel, which is the whole point of settling it from the environment rather than from a literal.
@@ -337,7 +381,7 @@ test("a demo practice is told before the button that this number will not be mes
   expect(step, "and the refused number is not named as where the link goes").not.toMatch(/goes to \+1650/);
   // Nobody is sent looking for a sender over a rule: this office has one (§3.7, §10.6).
   expect(step, "not the deployment's sentence").not.toMatch(/cannot send texts yet|ask whoever set/);
-  await shot(page, "provider-add-visit-demo-real", MODAL);
+  await shot(page, "provider-add-visit-demo-real", STEP_3);
 
   // 2. And the press, which is the half this ticket is named for: the card used to say the patient was on
   //    the way. `bookedOutcome` was already right — it branches on `queued`, which is what was lying.
@@ -353,7 +397,7 @@ test("a demo practice is told before the button that this number will not be mes
   );
   // §8.1's fallback: the link is on the screen that just refused to send it, which is the whole answer here.
   await expect(page.locator(".patient-link-card")).toContainText("/s/");
-  await shot(page, "provider-add-visit-demo-blocked-card", MODAL);
+  await shot(page, "provider-add-visit-demo-blocked-card", SUCCESS_CARD);
 
   // 3. The destination §13.4 does allow, on the same screen in the same practice: this is the walkable demo
   //    a salesperson is on most of the time, and it reads exactly as it did before this ticket. Read and not
@@ -369,7 +413,7 @@ test("a demo practice is told before the button that this number will not be mes
     "Saving creates the patient and sends their private Sweetie link on the channel you choose here.",
   );
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient & send \u2192");
-  await shot(page, "provider-add-visit-demo-reserved", MODAL);
+  await shot(page, "provider-add-visit-demo-reserved", STEP_3);
 
   // 4. The intersection of §13.4 and T111, which the first landing of this ticket left open: a booking on
   //    **both** channels where the rule closes the one this office can serve and leaves the one it cannot.
@@ -394,7 +438,7 @@ test("a demo practice is told before the button that this number will not be mes
   const mixedStep = await wizard.innerText();
   expect(mixedStep, "nothing on the step offers a send neither channel can carry").not.toMatch(PROMISES_SEND);
   expect(mixedStep, "and no destination is named as where the link goes").not.toMatch(/goes to/);
-  await shot(page, "provider-add-visit-demo-mixed", MODAL);
+  await shot(page, "provider-add-visit-demo-mixed", STEP_3);
 });
 
 // T111 The other half of that sentence: an office whose deployment *can* send is still told the invite is on
@@ -449,7 +493,7 @@ test("a deployment with a sender still tells staff the invite is on its way", as
   // printed whatever the answer was: a deployment with a sender still reads "<name> is on the way."
   await expect(card.locator(".ss-title"), "unchanged where a send really is happening").toHaveText(`${name} is on the way.`);
   await expect(page.locator(".patient-link-card"), "§8.1's link is on this screen either way").toContainText("/s/");
-  await shot(page, "provider-add-visit-sent", MODAL);
+  await shot(page, "provider-add-visit-sent", SUCCESS_CARD);
 });
 
 test("a day of visits imports from a CSV, one error per bad row", async ({ page }, testInfo) => {
