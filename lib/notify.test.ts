@@ -17,6 +17,7 @@ import {
 } from "./notify";
 import { cannotSendYet } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
+import type { SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
 
 process.env.APP_URL = "https://sweetspot.example/";
@@ -750,4 +751,89 @@ test("every sentence an invite can be refused with stays in staff's words (§3.7
       assert.match(reason!, /^[a-z]/, "it is dropped into a sentence of the caller's");
     }
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T150 The same composition asked by the *resend* path (`POST /api/invite`, §13.4, §8.1, §5.5). T145 wired
+// `inviteReach` into the booking route, which hands it four fields assembled a moment earlier
+// (`InviteReachRows`, lib/visitStore.ts); the resend route has no such assembly and no query of its own —
+// it passes the patient row the guard already loaded, whole, as `suppression`. So what is pinned here is
+// that shape: a row with the three §8.1 columns on it among everything else a `Patient` carries, and with
+// the two of them that are usually empty really empty, which is what a patient nobody has bounced looks
+// like.
+
+/** A patient row as Prisma hands it back, pared to what any of this reads: the two destinations, the three
+ *  §8.1 columns, and one field that is none of its business, because the route passes the row whole. */
+const patientRow = (p: { phone?: string | null; email?: string | null } & Partial<SuppressionFacts>) => ({
+  id: "pat_1",
+  name: "Demo Prospect",
+  phone: p.phone ?? null,
+  email: p.email ?? null,
+  emailUndeliverableAt: p.emailUndeliverableAt ?? null,
+  emailUndeliverableReason: p.emailUndeliverableReason ?? null,
+  smsOptOutAt: p.smsOptOutAt ?? null,
+});
+
+/** What the route composes, off that row and its practice — the four arguments of `app/api/invite/route.ts`
+ *  in one place, so a test reads the same thing the route does. */
+const resend = (channel: string, row: ReturnType<typeof patientRow>, demo: boolean) =>
+  inviteReach({ channel, phone: row.phone, email: row.email, suppression: row, demo });
+
+test("a resend from a demo practice to a real number is refused by §13.4, not promised (T150)", () => {
+  withEnv(SENDING, () => {
+    // The bug as the ticket reproduces it: an office that *can* text, a demo practice, a number somebody
+    // could own. `inviteSendability` on its own is satisfied by the origination number and said yes.
+    const row = patientRow({ phone: REAL.phone });
+    assert.deepEqual(inviteSendability("sms").channels, ["sms"], "the third of the question that said yes");
+    const reach = resend("sms", row, true);
+    assert.deepEqual(reach.channels, []);
+    assert.equal(reach.reason, DEMO_ONLY_TEST_ADDRESSES);
+    // Both destinations somebody's, which is the "both" resend of the same bug.
+    assert.equal(resend("both", patientRow(REAL), true).reason, DEMO_ONLY_TEST_ADDRESSES);
+  });
+});
+
+test("and a resend the rows leave open reads exactly as it did before T150", () => {
+  withEnv(SENDING, () => {
+    // The walkable demo: the seeded patient's own fictitious number and `.local` address, on a row with
+    // nothing suppressed. Nothing closes, so **Send link** still promises the send.
+    const open = resend("both", patientRow(SAM), true);
+    assert.deepEqual(open.channels, ["sms", "email"]);
+    assert.equal(open.reason, undefined);
+    // And the practice that is not a demo one — nearly every practice — with the number §13.4 refused above.
+    const ordinary = resend("both", patientRow(REAL), false);
+    assert.deepEqual(ordinary.channels, ["sms", "email"]);
+    assert.equal(ordinary.reason, undefined);
+  });
+});
+
+test("a resend reads §8.1 off the row it was handed, dates and all (T150)", () => {
+  withEnv(SENDING, () => {
+    // The columns are `Date`s on a Prisma row rather than the strings a wire would carry, and they are on
+    // the row among its other fields: this is the asymmetry the resend path has and the booking path does
+    // not — the patient exists, so what a provider has told us about them is already on it.
+    const stopped = resend("sms", patientRow({ phone: SAM.phone, ...STOPPED }), true);
+    assert.deepEqual(stopped.channels, []);
+    assert.equal(stopped.reason, "the patient texted STOP, so texts are off (design §8.1)");
+    // §13.4 before §8.1 within one row, the order `rowBlockReason` fixes: a number we must not try at all
+    // is not a number that said stop.
+    assert.equal(resend("sms", patientRow({ phone: REAL.phone, ...STOPPED }), true).reason, DEMO_ONLY_TEST_ADDRESSES);
+    // One channel closed is a narrower resend and not a refused one.
+    const half = resend("both", patientRow({ ...SAM, ...BOUNCED }), true);
+    assert.deepEqual(half.channels, ["sms"]);
+    assert.equal(half.reason, undefined);
+  });
+});
+
+test("a resend the rows leave open keeps the deployment's own sentence (T111, T150)", () => {
+  // The order that makes the sentence honest, on the route this ticket is about: nothing configured here, so
+  // the phone the rows left open is somebody's to fix and says so — and the demo practice's real address in
+  // the same booking is not what staff are sent after.
+  withEnv(MAILBOX, () => {
+    const reach = resend("both", patientRow({ phone: SAM.phone, email: REAL.email }), true);
+    assert.deepEqual(reach.channels, []);
+    assert.equal(reach.reason, cannotSendYet("both"));
+  });
+  // And with every channel closed by the rows, the row's own reason wins whatever the environment is.
+  assert.equal(resend("sms", patientRow({ phone: REAL.phone }), true).reason, DEMO_ONLY_TEST_ADDRESSES);
 });
