@@ -156,10 +156,13 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   await expect(page.locator(".sour-brief-header")).toContainText("Follow-up");
   await expect(page.locator(".sour-called-about")).toContainText("going high overnight");
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible(LOADED);
-  // T156: the ready half of the sidebar heading. Every row in the list has a summary here — the visit
-  // booked above is not in it — so this is the one shape in which "Summaries ready" is a true claim
-  // (lib/sourState.ts `summaryListHeading`).
-  await expect(page.locator(".sour-sidebar-label")).toHaveText("Summaries ready");
+  // T156: the ready half of the sidebar heading. Only the selected visit can be in this list without a
+  // summary, and the one on screen has just been generated — which is also the moment the row for it is
+  // reconciled against the bundle, since `/api/provider` is read once at mount. So every row is ready and
+  // this is the one shape in which "Summaries ready" is a true claim (lib/sourState.ts
+  // `summaryListHeading`), with the tick on the active row to match.
+  await expect(page.locator(".sour-sidebar-label")).toHaveText("Summaries ready", LOADED);
+  await expect(page.locator(".sour-patient-list .sour-patient-active i")).toBeVisible(LOADED);
   await shot(page, "provider-sour");
 
   // T148's other half, on the visit this test booked a moment ago: nothing answered, nothing uploaded and

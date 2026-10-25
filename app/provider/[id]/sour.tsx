@@ -99,6 +99,17 @@ export default function SourView({ id }: { id: string }) {
       if (activeVisit.current === visitId) {
         setBundle(b);
         bundleSummaryAt.current = b.providerSummaryAt;
+        // The sidebar's rows come from one `/api/provider` read at mount, so without this the row for the
+        // visit on screen keeps whatever it said then — and this page is the thing that changes it. A first
+        // open that auto-generates, a Generate, a retry, a run another clinician queued: each lands a
+        // summary in the panel while the row beside it stays unticked. The OAuth callback deletes a saved
+        // summary (lib/sourQueue.ts) and goes the other way. Every one of those paths loads the bundle, so
+        // the bundle is what the row is reconciled against (T156).
+        setProvider((prev) =>
+          prev?.visits.some((v) => v.id === visitId && v.hasSummary !== Boolean(b.providerSummary))
+            ? { ...prev, visits: prev.visits.map((v) => (v.id === visitId ? { ...v, hasSummary: Boolean(b.providerSummary) } : v)) }
+            : prev,
+        );
         // A sign-off is forward-only (lib/review.ts), so a poll that started before the button was pressed
         // must not take the record back off the screen.
         setReview((prev) => b.review ?? prev);
