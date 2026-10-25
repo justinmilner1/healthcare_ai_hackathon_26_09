@@ -6,7 +6,7 @@ deletion.
 
 | Kind | Enqueued by | Does |
 |---|---|---|
-| `sour.run` | the turn that wraps intake (`/api/sweetie`), a completed Dexcom import (`/api/dexcom/callback`, or a Clarity export through `/api/upload`) when the intake is done, the Generate button (`/api/sour`) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
+| `sour.run` | the turn that wraps intake (`/api/sweetie`), a completed Dexcom import (`/api/dexcom/callback`, or a Clarity export through `/api/upload`) when the intake is done, the Generate button (`/api/sour`), and a finishing run whose inputs moved under it (`runSour`, T149) | `runSour`: both summaries, visit → `summary_ready`, then queues `notify.summary` |
 | `notify.invite` | adding a patient with consent (`/api/book`), a CSV import (`/api/visits/import`), Send link (`/api/invite`) | the presigned `/s/<token>` link, on the channels the visit consented to (§2.2); what each channel did is recorded on the visit (§8.3) |
 | `notify.code` | opening a patient link (`/api/verify`), and the Resend button on the code screen | the six-digit verification code by SMS and email (§2.3, §5.3). The code is minted *by the handler*, so the payload is a visit id and the plaintext is stored nowhere |
 | `notify.summary` | `runSour`, once both summaries are saved | "your summary is ready", a link each to the clinician and the patient |
@@ -37,6 +37,22 @@ against newly imported readings — and the queued run is what puts a current on
 opening the page to pay for it. The Clarity upload path makes no such promise and deletes nothing: the saved
 pair stays on the provider page, `lib/bundle.ts` marks it `summaryStale` so neither the page nor a fresh run
 can read it as current, and the run that upload queued replaces it within seconds.
+
+**The fourth row, which is not a fourth trigger (T149).** The key is one in-flight `sour.run` per visit, and
+`loadSourContext` reads the uploads when the job *runs* — so an import that lands while the visit's run is
+mid-flight joins a run that read its inputs before the file existed, and before T149 nothing ever queued the
+readings. After T143 that is the ordinary sequence rather than a rare one: every wrap starts a run, and the
+export the patient was told was optional arrives from the panel still on the screen, with the two model calls
+holding the window open for as long as they take. So `runSour` compares §7.1's fingerprint on its way out —
+the visit as it now stands against the pair it just wrote — and queues a successor over the current inputs
+when they differ (`queueSourSuccessor`). Undoing the dedupe was the other option and is the wrong one: one
+in-flight run per visit is what keeps a double-pressed Generate from paying for two pairs of model calls.
+
+It cannot loop, and the reason is worth stating rather than trusting. Nothing `runSour` writes — the two
+`Summary` rows, `Visit.status`, the `notify.summary` row — is in the fingerprint, so a run cannot invalidate
+its own inputs; an unchanged fingerprint queues nothing at all, which is every run in the ordinary sequence;
+and the successor's key carries the fingerprint it is queued *for*, so two runs that end up looking at the
+same new data owe one row between them. The chain is as long as the number of times the data really changed.
 
 **No payload holds PHI.** Every payload is `{ visitId }` — or, for `patient.delete`, a patient id and the
 opaque user id of whoever asked; the handler reads the rest back. The row outlives the request, so nothing in

@@ -159,11 +159,17 @@ test("a Dexcom export shared after intake wrapped queues the summary run", async
   // Where the wrap left this visit (T143): the intake is done, there is no glucose, and the wrap queued and
   // ran a brief from the conversation alone (lib/sourQueue.ts `wrapQueuesSour`).
   //
-  // Drained before the export rather than raced with it, and that is about the product and not about the
-  // suite: one `sour.run` is in flight per visit (`sourJobKey`), so an upload landing while the wrap's run
-  // is still going joins that run instead of getting one of its own, and what the clinician ends up with is
-  // the conversation-only pair with `summaryStale` over it and §7.2's regenerate offered. Waiting here is
-  // what makes the run below unambiguously the import's.
+  // Drained before the export rather than raced with it, so the run below is unambiguously the import's.
+  // The raced sequence is a case of its own and it is not staged here: one `sour.run` is in flight per
+  // visit (`sourJobKey`), so an upload landing while the wrap's run is still going joins that run rather
+  // than getting a row of its own, and T149 is what then puts the readings in front of the clinician —
+  // the finishing run compares §7.1's fingerprint against the pair it just wrote and queues a successor
+  // over the current inputs. That window is the two model calls, and this build deliberately has none
+  // (§6.3, §11.3): the wrap's run finishes inside the upload request's own round trip, so there is nothing
+  // here to race against and nothing a spec could hold open from outside the app. It is staged where the
+  // window can be held open for exactly as long as the assertion needs — `lib/sourRun.test.ts`, "when the
+  // inputs move mid-run (T149)", with the import enqueued against a `running` row. What this test owes
+  // T149 is the other half: that the ordinary sequence queues no successor at all (below).
   const clinician = await signInAsDemo(page);
   const bundleNow = async () => (await page.request.get(`/api/patient/${visitId}`)).json();
   await expect
@@ -206,6 +212,14 @@ test("a Dexcom export shared after intake wrapped queues the summary run", async
   // Why no message went out, in one assertion: this build has no model, which is the one reason
   // `runSour` skips `notify.summary` — not a run that never happened (§6.3, §11.3, T63).
   expect(ran.providerSummary.narrativeMissing).toBe("unconfigured");
+
+  // And nothing is queued behind it (T149): the no-busy-loop half, end to end. The successor row is written
+  // *before* the run that queues it reports done, so a run that re-queued itself over inputs it had not
+  // changed would leave a newer `sour.run` here on the next read — and would keep doing it. Two sequential
+  // reads naming the same row, over a pair the fingerprint calls current, is that not happening.
+  const settled = await bundleNow();
+  expect(settled.sourJob.id, "the import's run is the last one: a run whose inputs did not move queues none").toBe(ran.sourJob.id);
+  expect(settled.summaryStale, "and the saved pair describes the inputs the visit now has").toBe(false);
 
   // And the screen behind it: the brief is ready on first open, with the chip reading Ready rather than the
   // page having queued the run itself (§7.2, app/provider/[id]/sour.tsx).
