@@ -104,14 +104,22 @@ const SUCCESS_CARD: ShotOptions = {
  * And the sticky row is asserted where it was written to matter: **Add patient** is in the frame at the top
  * of the scroll as well as at the end of it, so the fields can go past it rather than taking it with them.
  *
- * Both measurements are the phone's, because 375px is where §6.5 and the bug are. The desktop dialog is
- * two columns in **one** row, and that row is implicit and `auto` the same way — measured on this tree at
- * 1280 x 720 on this step, `.patient-wizard`'s `scrollHeight - clientHeight` is **25**, so the desktop
- * dialog clips 25px of `.patient-wizard-content`'s own 28px of bottom padding. No content is behind that
- * edge and nothing on the screen moves, which is why nobody has seen it, and T155 was explicit that the
- * desktop layout stays as it is — so it is reported on the issue rather than changed here, and this
- * helper's frames are all the desktop gets. The one-line fix, if the finding is taken up, is the same
- * `minmax(0, 1fr)` on the base rule's single row.
+ * The wheel and the room are the phone's, because 375px is where §6.5 is and where the step is taller than
+ * the dialog by design. **The first measurement is both widths' (T159).** The desktop dialog is two columns
+ * in one row, and that row was implicit and `auto` the same way — measured at 1280 x 720 on this step with
+ * that rule put back, `.patient-wizard`'s `scrollHeight - clientHeight` is 25 on the step as it stands, so
+ * the dialog clipped the last of `.patient-wizard-content`'s own 28px of bottom padding. No content was
+ * behind that edge and nothing on screen moved, which is why nobody saw it for as long as the step happened
+ * to fit; the phone bug was this one after 300px of growth. T155 was explicit that the desktop layout stayed
+ * as it was, so it was reported on the issue and this helper asserted nothing at that width. Now the base
+ * rule names its row and the helper holds both widths to the same thing: the box with `overflow: hidden` is
+ * not the over-full one.
+ *
+ * At desktop the helper also sweeps the consent note through one, two and three lines, because the note's
+ * height is content the product writes — it wraps on a long practice name — and §2.2's list of things to
+ * confirm is not finished growing. A dialog that is 0 only at the height the seed happens to produce is the
+ * bug waiting for the next sentence. The sweep writes into the note's text node and puts the original back,
+ * so React's next render has nothing to undo and the frame below is the real step's.
  */
 async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Add a booked patient" });
@@ -131,18 +139,21 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   // T158 And the row that is on screen is flush with the dialog, not floating inside it.
   await expectActionsReachScrollportEdges(page, "at the top of the scroll");
 
+  const clipped = await dialog.evaluate((element) => element.scrollHeight - element.clientHeight);
+  expect(
+    clipped,
+    "`.patient-wizard` is the box with overflow: hidden, so whatever is past its edge is cut and no gesture reaches it (T155, T159)",
+  ).toBe(0);
+
   if (test.info().project.name !== "mobile") {
     // The desktop dialog holds the whole step in one 38% / 62% row, so there is nothing here for a finger
     // to move and the frame above is already the bottom of it. The pair is still taken at this width,
     // because §12.3 asks for the step at both and "unchanged" is a claim a picture can carry.
+    await expectDialogBoundsLongerNotes(page);
     await shot(page, `${name}-scroll-bottom`, frame);
     return;
   }
 
-  expect(
-    await dialog.evaluate((element) => element.scrollHeight - element.clientHeight),
-    "`.patient-wizard` is the box with overflow: hidden, so whatever is past its edge is cut and no gesture reaches it (T155)",
-  ).toBe(0);
   expect(
     room,
     "the 375px step is taller than the dialog by its own design, so its content row has to be the scroller (T155)",
@@ -167,6 +178,62 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
     .poll(async () => content.evaluate((element) => element.scrollTop), LOADED)
     .toBeLessThanOrEqual(1);
   await expect(title, "a wheel back up returns the step's title, which is half of what §2.2 asks staff to confirm").toBeInViewport(LOADED);
+}
+
+/**
+ * And the desktop dialog stays bounded as the consent note wraps (T159, design §2.2).
+ *
+ * What was behind the edge grew with the note: 11, 25 and 38 pixels at one, two and three lines, measured at
+ * 1280 x 720 with the old implicit row put back. So the number that matters is not one reading but the shape
+ * of the box: with its row named `minmax(0, 1fr)` the dialog cannot be the over-full one at any note height,
+ * and `.patient-wizard-content`'s `overflow-y: auto` takes the growth instead — 8, 22 and 35 pixels of its
+ * own bottom padding, the same division of labour as at 375px and nothing of the step itself.
+ *
+ * Grown by writing text into the note and measuring, rather than by a fixture with a long practice name: the
+ * line count is what the assertion is about, and a sentence that wraps to three lines in this font at this
+ * width is a measurement, not a constant to guess. The original text goes back before the function returns,
+ * inside the same evaluate, so nothing downstream sees the substitute.
+ */
+async function expectDialogBoundsLongerNotes(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Add a booked patient" });
+
+  const readings = await dialog.evaluate((element) => {
+    const note = element.querySelector(".patient-consent-note") as HTMLElement | null;
+    if (!note) return null;
+    const original = note.textContent ?? "";
+    const lineHeight = Number.parseFloat(getComputedStyle(note).lineHeight);
+    const lines = () => Math.round(note.getBoundingClientRect().height / lineHeight);
+    const out: { lines: number; clipped: number; room: number }[] = [];
+    const content = element.querySelector(".patient-wizard-content") as HTMLElement;
+
+    let text = "The secure link goes to a number.";
+    note.textContent = text;
+    for (const target of [1, 2, 3]) {
+      // One short word at a time, so the note cannot cross two line breaks in one step and skip a count;
+      // bounded, so a note that somehow refuses to wrap fails the line assertion below rather than spinning.
+      for (let guard = 0; guard < 600 && lines() < target; guard += 1) {
+        text += " consent";
+        note.textContent = text;
+      }
+      out.push({
+        lines: lines(),
+        clipped: element.scrollHeight - element.clientHeight,
+        room: content.scrollHeight - content.clientHeight,
+      });
+    }
+
+    note.textContent = original;
+    return out;
+  });
+
+  expect(readings, "step 3 carries the §2.2 consent note the sweep grows").toBeTruthy();
+  for (const [index, reading] of readings!.entries()) {
+    expect(reading.lines, `the note was grown to ${index + 1} line(s)`).toBe(index + 1);
+    expect(
+      reading.clipped,
+      `with the consent note at ${reading.lines} line(s) the dialog is not the over-full box (T159), and its content row has ${reading.room}px to scroll`,
+    ).toBe(0);
+  }
 }
 
 /**

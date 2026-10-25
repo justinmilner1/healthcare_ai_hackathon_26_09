@@ -1947,8 +1947,9 @@ textarea.ss-input {
    and no `grid-template-rows` left this one row *implicit*, and an implicit row is an `auto` track sized to
    its own content rather than to what is left of the dialog — so the grid outgrew `max-height` and
    `overflow: hidden` cut the difference off with no scrollbar and no gesture to bring it back. Measured at
-   1280 x 720 on step 3 before the fix, `scrollHeight - clientHeight` was 7 with the consent note at two
-   lines and 25 at three; after it is 0 at one, two and three. `minmax(0, 1fr)` rather than a plain `1fr`,
+   1280 x 720 on step 3, `scrollHeight - clientHeight` was 11, 25 and 38 with the consent note at one, two
+   and three lines, and 25 on the seeded step as it stands; after, it is 0 at all of them and the 8, 22 and
+   35px go to `.patient-wizard-content`'s scroll instead. `minmax(0, 1fr)` rather than a plain `1fr`,
    because an `fr` track keeps an automatic minimum of its content's min-content size and would stay
    over-full — the trap T155 names.
 
@@ -5554,7 +5555,7 @@ button.sweetie-agent-badge {
 
      T159 The base rule now names its one row the same way, so this block is the width-specific half of a
      fix both widths share rather than the only place it is done. T155 left the desktop rule as it was, on
-     the ticket's own terms, having measured it clipping 7 to 25px of `.patient-wizard-content`'s 28px of
+     the ticket's own terms, having measured it clipping the last of `.patient-wizard-content`'s 28px of
      bottom padding at 1280 x 720 — no content behind the edge, which is why nobody had seen it. Both rules
      now bound their content row; what differs here is the single column, the two rows it needs, and the
      `94svh` cap. */
