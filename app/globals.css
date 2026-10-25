@@ -1943,12 +1943,27 @@ textarea.ss-input {
   }
 }
 
+/* T159 (design §2.2, §6.5): the row is named for the same reason T155 named the two at 375px. Two columns
+   and no `grid-template-rows` left this one row *implicit*, and an implicit row is an `auto` track sized to
+   its own content rather than to what is left of the dialog — so the grid outgrew `max-height` and
+   `overflow: hidden` cut the difference off with no scrollbar and no gesture to bring it back. Measured at
+   1280 x 720 on step 3 before the fix, `scrollHeight - clientHeight` was 7 with the consent note at two
+   lines and 25 at three; after it is 0 at one, two and three. `minmax(0, 1fr)` rather than a plain `1fr`,
+   because an `fr` track keeps an automatic minimum of its content's min-content size and would stay
+   over-full — the trap T155 names.
+
+   What was behind that edge was the last of `.patient-wizard-content`'s 28px of `padding-bottom`, so
+   nothing on screen moved and nobody saw it. It was still the phone bug 300px earlier: the step's height is
+   content the product writes (the note wraps to three lines on a long practice name) and §2.2's list of
+   things to confirm is not finished growing. Bounded, the content row is the scroller its `overflow-y: auto`
+   has always asked for, at this width as at 375px. */
 .patient-wizard {
   display: grid;
   width: min(960px, 100%);
   min-height: 620px;
   max-height: calc(100svh - 48px);
   grid-template-columns: 38% 62%;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   animation: wizardIn 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -5535,12 +5550,14 @@ button.sweetie-agent-badge {
      than a plain `1fr`, because an `fr` track keeps an automatic minimum of its content's min-content
      size and would stay over-full. `.patient-wizard-content` is then the scroller its `overflow-y: auto`
      has always asked for, and `.patient-wizard-actions`' `position: sticky` below has a scrolling
-     ancestor to resolve against. The desktop rule is untouched, because T155 was explicit that it stays
-     as it is — not because it is clean: its single row is implicit and `auto` in the same way, and
-     measured at 1280 x 720 on step 3 the dialog clips 25px of `.patient-wizard-content`'s own 28px of
-     bottom padding. No content is behind that edge, which is why nobody has seen it; the measurement is
-     in `expectStepThreeScrolls` in e2e/visits.spec.ts and the fix, if it is taken up, is this same
-     `minmax(0, 1fr)` on the base rule's one row. */
+     ancestor to resolve against.
+
+     T159 The base rule now names its one row the same way, so this block is the width-specific half of a
+     fix both widths share rather than the only place it is done. T155 left the desktop rule as it was, on
+     the ticket's own terms, having measured it clipping 7 to 25px of `.patient-wizard-content`'s 28px of
+     bottom padding at 1280 x 720 — no content behind the edge, which is why nobody had seen it. Both rules
+     now bound their content row; what differs here is the single column, the two rows it needs, and the
+     `94svh` cap. */
   .patient-wizard {
     width: 100%;
     max-height: 94svh;
