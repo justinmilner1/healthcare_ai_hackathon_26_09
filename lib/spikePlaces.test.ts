@@ -72,7 +72,8 @@ test("the clinician's caption calls the labels what they are when no place match
   const caption = clinicianChartCaption([spike(), spike(), spike(), spike(), spike()]);
   assert.match(caption, /peak mg\/dL/);
   assert.doesNotMatch(caption, /the place the patient had just left/);
-  // And it agrees with the "Spikes linked to places" card beside it, which reads 0 on this visit.
+  // And it agrees with the card beside it, whose stat tile reads 0 on this visit — and, since T157, whose
+  // own heading is "Spikes over 180" here rather than a claim about places.
   assert.match(caption, /no place matched/);
 });
 
