@@ -28,7 +28,7 @@ import StatTile from "@/components/StatTile";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted } from "@/lib/sourState";
-import { clinicianChartCaption, clinicianSpikeCardHeading } from "@/lib/spikePlaces";
+import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
@@ -517,7 +517,10 @@ export default function SourView({ id }: { id: string }) {
                       <div className="grid min-w-full flex-1 grid-cols-2 gap-2 sm:min-w-0 sm:grid-cols-4">
                         <StatTile label="Average" value={String(st.avg)} unit="mg/dL" />
                         <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
-                        <StatTile label="Spikes > 180" value={String(bundle.spikes.length)} hint={`${bundle.spikes.filter((x) => x.visit).length} linked to a place`} />
+                        {/* The hint is not a count unless a Timeline was shared: with none, a "0 linked to
+                            a place" would report an absence of optional data as a measurement, beside a
+                            Sleep tile that names the same absence for WHOOP (T160, §2.5, §2.6). */}
+                        <StatTile label="Spikes > 180" value={String(bundle.spikes.length)} hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status)} />
                         {st.sleepAvgHours !== null ? (
                           <StatTile label="Sleep" value={st.sleepAvgHours.toFixed(1)} unit="h/night" hint={st.recoveryAvg !== null ? `recovery ${st.recoveryAvg}%` : undefined} />
                         ) : (
