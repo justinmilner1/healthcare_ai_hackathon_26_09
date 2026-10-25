@@ -2067,10 +2067,19 @@ textarea.ss-input {
   min-height: 46px;
 }
 
+/* T155 `flex-shrink: 0` on this and on `.patient-wizard-success` below, because the two of them are what a
+   bounded `.patient-wizard-content` squeezes. A flex item shrinks by default, and `min-height` is the only
+   floor under it: at 375px the step's content is 500px in a 456px scrollport, so it was shrunk to its
+   390px minimum and `justify-content: center` spilled the 110px difference out of *both* ends — the title
+   55px above the step's box, under the hero, and the consent note below the save row and off the bottom of
+   the screen. Which is a worse version of the bug T155 is about, and would have been invisible in a
+   dialog that still cut its own overflow off. Refusing to shrink puts the whole step in the scroller's
+   content, in order, and lets `overflow-y: auto` do the rest. */
 .patient-wizard-step {
   display: flex;
   min-height: 430px;
   flex-direction: column;
+  flex-shrink: 0;
   justify-content: center;
 }
 
@@ -2471,6 +2480,7 @@ textarea.ss-input {
   align-items: flex-start;
   justify-content: center;
   flex-direction: column;
+  flex-shrink: 0;
 }
 
 .patient-success-check {

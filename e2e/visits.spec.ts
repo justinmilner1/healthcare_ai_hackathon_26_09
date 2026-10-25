@@ -35,21 +35,31 @@ const IMPORT_WINDOW = 1000;
  * caught the note and lost the button, `-demo-mixed` lost both — and a reviewer cannot tell a reframing from a
  * regression in a picture that moves on its own (docs/ROUTINES.md, "What is in a screenshot").
  *
- * The forecast §13.4 is a rule about has two halves, the consent note and the button's label, and the anchor
- * is the lower of them: `scrollIntoView({ block: "end" })` on the actions row puts the button flush against
- * the bottom of the dialog from any starting scroll, and the note — 96px above it whether it runs to one line
- * or three — comes with it. Anchoring the note instead would leave the button's position to the note's own
- * height. `wholeRows` then refuses a frame that cuts either half, which is the check the three frames failed.
+ * The forecast §13.4 is a rule about has two halves, the consent note and the button's label, and the frame
+ * has to hold both from any starting scroll. `wholeRows` refuses one that cuts either, which is the check
+ * the three frames failed.
  *
- * It costs the step's title, which no 375px frame can hold at the same time as the button: the two are 648px
- * apart in a dialog with 627px to show them in. The desktop frames are untouched — that dialog does not
- * overflow its window, so there is nothing for the anchor to scroll (measured: `scrollHeight - clientHeight`
- * is 0 on the desktop project and 281 to 308 on the phone).
+ * **The anchor is the note, since T155 made the dialog scroll.** It was the actions row, which was the lower
+ * of the two halves and so brought the note with it. That worked only because the dialog did not scroll: the
+ * row's `position: sticky; bottom: 0` had no scrolling ancestor to resolve against, so it sat in the flow and
+ * `scrollIntoView({ block: "end" })` could move it. Now that `.patient-wizard-content` is the scroller the
+ * declaration does what it was written for — **Add patient** is in the frame at every scroll position — and
+ * an anchor on it is a no-op: `scrollIntoView` finds it already flush against the bottom edge and scrolls
+ * nothing, which handed the frame straight back to whichever radio was clicked last. So the anchor is the
+ * half that still moves. `block: "center"` rather than `"end"`, because the sticky row floats over the bottom
+ * of the scrollport: a note ended against that edge is a note behind the button.
+ *
+ * It still costs the step's title, which no 375px frame can hold at the same time as the button: the two are
+ * 648px apart in a dialog with 627px to show them in. What T155 adds is that a person can now scroll to it —
+ * `expectStepThreeScrolls` above is that, and its own pair of frames is the step's top and its bottom.
+ *
+ * The desktop frames are unmoved either way: that dialog shows the whole step, so centring the note in it
+ * lands where ending the frame on the button did.
  */
 const STEP_3: ShotOptions = {
   ...MODAL,
-  scrollTo: ".patient-wizard-actions",
-  block: "end",
+  scrollTo: ".patient-consent-note",
+  block: "center",
   wholeRows: ".patient-consent-note, .patient-wizard-actions",
 };
 
@@ -94,8 +104,14 @@ const SUCCESS_CARD: ShotOptions = {
  * And the sticky row is asserted where it was written to matter: **Add patient** is in the frame at the top
  * of the scroll as well as at the end of it, so the fields can go past it rather than taking it with them.
  *
- * The desktop dialog is two columns in one row and overflows nothing, so there is nothing there to scroll;
- * the width that has something to prove says so rather than both of them sharing a weaker assertion.
+ * Both measurements are the phone's, because 375px is where §6.5 and the bug are. The desktop dialog is
+ * two columns in **one** row, and that row is implicit and `auto` the same way — measured on this tree at
+ * 1280 x 720 on this step, `.patient-wizard`'s `scrollHeight - clientHeight` is **25**, so the desktop
+ * dialog clips 25px of `.patient-wizard-content`'s own 28px of bottom padding. No content is behind that
+ * edge and nothing on the screen moves, which is why nobody has seen it, and T155 was explicit that the
+ * desktop layout stays as it is — so it is reported on the issue rather than changed here, and this
+ * helper's frames are all the desktop gets. The one-line fix, if the finding is taken up, is the same
+ * `minmax(0, 1fr)` on the base rule's single row.
  */
 async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Add a booked patient" });
@@ -103,11 +119,6 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   const actions = dialog.locator(".patient-wizard-actions");
   const title = dialog.locator(".patient-wizard-step .ss-title");
   const frame: ShotOptions = { ...MODAL, wholeRows: ".patient-wizard-actions" };
-
-  expect(
-    await dialog.evaluate((element) => element.scrollHeight - element.clientHeight),
-    "`.patient-wizard` is the box with overflow: hidden, so whatever is past its edge is cut and no gesture reaches it (T155)",
-  ).toBe(0);
 
   // The top of the step, which is where the title and the patient card are.
   const room = await content.evaluate((element) => {
@@ -119,14 +130,17 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   await shot(page, `${name}-scroll-top`, frame);
 
   if (test.info().project.name !== "mobile") {
-    // 38% / 62%, one row, nothing overflowing: the desktop dialog holds the whole step at once, and the
-    // frame above is already the bottom of it. Asserted rather than skipped, because a desktop dialog that
-    // started overflowing would be a regression this helper is the only thing watching for.
-    expect(room, "the desktop dialog holds the whole step, so its content row has nothing to scroll").toBe(0);
+    // The desktop dialog holds the whole step in one 38% / 62% row, so there is nothing here for a finger
+    // to move and the frame above is already the bottom of it. The pair is still taken at this width,
+    // because §12.3 asks for the step at both and "unchanged" is a claim a picture can carry.
     await shot(page, `${name}-scroll-bottom`, frame);
     return;
   }
 
+  expect(
+    await dialog.evaluate((element) => element.scrollHeight - element.clientHeight),
+    "`.patient-wizard` is the box with overflow: hidden, so whatever is past its edge is cut and no gesture reaches it (T155)",
+  ).toBe(0);
   expect(
     room,
     "the 375px step is taller than the dialog by its own design, so its content row has to be the scroller (T155)",

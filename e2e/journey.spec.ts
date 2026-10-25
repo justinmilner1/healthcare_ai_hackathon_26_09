@@ -157,14 +157,17 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
     `No invite will be sent: ${cannotSendYet("email")}.`,
   );
   await expect(beforeTheButton.locator(".ss-lede")).not.toContainText(/sends their private Sweetie link/);
-  // Anchored on the actions row, because at 375px this step is taller than the dialog can show and the
-  // frame otherwise began wherever the last radio click scrolled it (T151): the button is the lower of the
-  // two halves the note above it is read against, so ending the frame on it brings both. e2e/visits.spec.ts'
-  // STEP_3 is the same anchor with the measurements behind it.
+  // Anchored on the consent note, because at 375px this step is taller than the dialog can show and the
+  // frame otherwise began wherever the last radio click scrolled it (T151). It was anchored on the actions
+  // row, which only worked while the dialog did not scroll: since T155 that row's `position: sticky` has a
+  // scroller to resolve against, so it is in the frame at every scroll position and `scrollIntoView` finds
+  // nothing to move. The note is the half that still moves, centred rather than ended because the sticky
+  // row floats over the bottom edge. e2e/visits.spec.ts' STEP_3 is the same anchor with the measurements
+  // behind it.
   await shot(page, "03-add-visit", {
     ...MODAL,
-    scrollTo: ".patient-wizard-actions",
-    block: "end",
+    scrollTo: ".patient-consent-note",
+    block: "center",
     wholeRows: ".patient-consent-note, .patient-wizard-actions",
   });
   await page.getByRole("button", { name: /^Add patient/ }).click();
