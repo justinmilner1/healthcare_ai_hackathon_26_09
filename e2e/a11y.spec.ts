@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { expectNoSeriousA11yViolations } from "./a11y";
+import { expectNoFocusRing, expectNoSeriousA11yViolations, expectVisibleFocusRing } from "./a11y";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
 import { AGREE, EYEBROW, acceptConsent, enterCode, patientEmail } from "./patient";
-import { shot, WHOLE_PAGE } from "./shot";
+import { shot, WHOLE_PAGE, type ShotOptions } from "./shot";
 
 // T22, design §6.4 and §12.5: every screen a patient can land on — the code screen, the two dead ends in
 // front of it (T98), consent, Sweetie, the intake sources and the summary — judged by axe against WCAG 2.1
@@ -17,6 +17,15 @@ import { shot, WHOLE_PAGE } from "./shot";
 // button Sweetie only renders when the browser can both listen and speak is not in the page at all here;
 // `withVoice` puts a do-nothing recognizer on the window so the control exists to be driven from the
 // keyboard. What is being tested is the control, not the engine (§6.6 keeps voice browser-native).
+
+/**
+ * The §2.5 data panel, framed on itself at either width (T166).
+ *
+ * One screenful rather than the project default, because the subject is a 2px ring around one card: the
+ * desktop's whole-document shot of this page puts it in a column where nobody can see whether it is there,
+ * which is the question the frame is being taken to answer.
+ */
+const UPLOAD_PANEL: ShotOptions = { fullPage: false, scrollTo: ".sweetie-upload-list", block: "center" };
 
 /** A booked visit with an address for the code to go to. Booking is staff's job (§5.2), so someone signs in,
  *  books, and signs out, leaving the browser as a patient's. `contact: false` books a visit with nothing to
@@ -226,6 +235,19 @@ test("Sweetie: axe, a keyboard-operable mic, live regions, and reduced motion re
   for (let index = 0; index < 3; index++) {
     await expect(uploadStates.nth(index)).toHaveAttribute("aria-live", "polite");
   }
+
+  // T166 (§2.5, §6.4, §6.5): and a keyboard can see where it is on them. These three cards are the only way
+  // §2.5 gives a patient to share an export from this screen, and each hides its file picker inside the
+  // label — so the ring the browser draws lands on a 1px `opacity: 0` box and paints nothing. axe has no
+  // rule for focus *visibility*, so the pass above was green over a keyboard dead end; the helper tabs to
+  // the card and measures what it paints, composited against the sidebar's gradient. Both projects run
+  // this, which is the §6.5 half: 375px is the width the indicator has to hold up at.
+  const cards = page.locator(".sweetie-upload-card");
+  // The lighter stop of `.sweetie-chat-sidebar`'s gradient, which is the worst case for a ring on it.
+  await expectVisibleFocusRing(page, cards.first(), { name: "the Dexcom data card", against: "#f76181" });
+  // And the ring is focus's alone: the card next to it is in the same state it was and paints nothing.
+  await expectNoFocusRing(cards.nth(1), "the Timeline data card");
+  await shot(page, "a11y-sweetie-upload-focus", UPLOAD_PANEL);
 
   // Reduced motion, the CSS half: the entrance animation collapses to nothing. Read as a number of
   // seconds, because the computed value comes back in whichever unit the engine feels like ("1e-05s" in

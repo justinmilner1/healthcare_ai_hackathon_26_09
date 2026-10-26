@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { contrastRatio } from "../lib/contrast";
 
 // The axe pass the patient pages are held to (design §6.4, §12.5). One helper, so every patient screen is
 // judged by the same rules and a failure reads as a list of things to fix rather than a JSON dump.
@@ -75,4 +76,86 @@ export async function expectNoSeriousA11yViolations(
   // message underneath it.
   const names = serious.map((violation) => violation.id).sort();
   expect(names, `axe found serious accessibility violations on ${name}:\n${describe(serious)}`).toEqual([]);
+}
+
+/**
+ * Walk the tab order until `target` holds focus.
+ *
+ * Tab rather than `locator.focus()`, because `:focus-visible` is a claim about *how* an element was focused
+ * and not about whether it is: a script focus after a click keeps the pointer modality and matches nothing,
+ * so the ring under test would read as absent on a page that paints it perfectly for a real keyboard user.
+ *
+ * `from` is where the walk starts, and defaults to the top of the document. A dialog needs it: the §2.2
+ * wizard is `aria-modal` without trapping focus, so the tab order into it runs through the whole dashboard
+ * behind it — a table that grows a row with every visit the suite books, which would make the number of
+ * presses a property of how many tests ran first. Starting inside the dialog costs nothing the ring cares
+ * about: the press that lands on the target is still a Tab.
+ */
+export async function tabUntilFocused(
+  page: Page,
+  target: Locator,
+  options: { from?: Locator; limit?: number } = {},
+): Promise<void> {
+  const { from, limit = 40 } = options;
+  if (from) await from.focus();
+  else await page.locator("body").press("Tab");
+  for (let step = 0; step < limit && !(await target.evaluate((node) => node === document.activeElement)); step++) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(target, "the tab order never reached this control").toBeFocused();
+}
+
+/** What a card is painting around itself: `getComputedStyle`'s outline, read off the live page. */
+async function outlineOf(card: Locator): Promise<{ style: string; width: number; color: string }> {
+  return card.evaluate((node) => {
+    const computed = getComputedStyle(node);
+    return {
+      style: computed.outlineStyle,
+      width: Number.parseFloat(computed.outlineWidth),
+      color: computed.outlineColor,
+    };
+  });
+}
+
+/**
+ * A control that hides its native input inside a styled label shows a focus indicator on the *card* when
+ * the input is focused from the keyboard (T166, design §6.4).
+ *
+ * This is the half of §6.4 axe cannot reach. Its colour-contrast rule measures text against a background;
+ * a focus ring is neither, so a card whose input is `opacity: 0` and whose stylesheet says nothing about
+ * `:focus-visible` is a keyboard dead end that every automated pass calls clean. So the ring is measured
+ * here: present, thick enough to see, and — composited, because a translucent ring paints a colour it does
+ * not name — past the 3:1 WCAG asks of a non-text indicator against the surface it is drawn on.
+ *
+ * `against` is that surface, which has to be given rather than read: these cards sit on gradients, where
+ * `backgroundColor` is `rgba(0, 0, 0, 0)` and the colour under any one edge of the ring is not a property
+ * of any element.
+ */
+export async function expectVisibleFocusRing(
+  page: Page,
+  card: Locator,
+  options: { name: string; against: string; from?: Locator },
+): Promise<void> {
+  const { name, against, from } = options;
+  await tabUntilFocused(page, card.locator("input"), { from });
+
+  const ring = await outlineOf(card);
+  expect(ring.style, `${name}: the card paints no outline while its hidden input has focus`).not.toBe("none");
+  expect(ring.width, `${name}: a focus ring under 2px is not one a keyboard user can follow`).toBeGreaterThanOrEqual(2);
+  expect(
+    contrastRatio(ring.color, against),
+    `${name}: the ring is ${ring.color} on ${against}, under the 3:1 WCAG 1.4.11 asks of a non-text indicator`,
+  ).toBeGreaterThanOrEqual(3);
+}
+
+/**
+ * And the other half of the claim: the indicator belongs to focus alone, so a card that does not have it
+ * paints no ring — whatever else it is (selected, connected, under the pointer).
+ *
+ * Without this the first assertion passes on a stylesheet that rings every card all the time, which is the
+ * picture T77 is about: a committed screenshot in which a second card looks chosen.
+ */
+export async function expectNoFocusRing(card: Locator, name: string): Promise<void> {
+  const ring = await outlineOf(card);
+  expect(ring.style, `${name}: this card is not the focused one and should paint no ring`).toBe("none");
 }

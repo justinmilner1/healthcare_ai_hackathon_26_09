@@ -2151,6 +2151,22 @@ textarea.ss-input {
   opacity: 0;
 }
 
+/* T166 (design §2.2, §6.4) The radio above is `opacity: 0`, so the focus ring the browser draws on it is
+   drawn on something that paints nothing: a keyboard user arrowing through the §2.2 visit-type or contact-
+   channel group saw the whole group stand still. The ring is reflected onto the card the eye is actually
+   on, the shape app/s/[token]/intake/intake.module.css already uses for its file pickers.
+
+   An outline rather than a border or a shadow, because those are the only two registers `:hover` and
+   `.visit-type-card-selected` speak in, and a third state in the same one reads as a second selection in a
+   committed screenshot (docs/ROUTINES.md, "What is in a screenshot"). Solid ink rather than the tinted ring
+   next door, because §6.4's contrast clause covers a focus indicator too and a 28% tint of an accent over
+   white is nowhere near 3:1 against it. Selection composes by construction: the card keeps its gold border
+   and cream fill and gains a ring outside both. */
+.visit-type-card:has(input:focus-visible) {
+  outline: 2px solid var(--ss-ink);
+  outline-offset: 2px;
+}
+
 .visit-type-card b {
   display: grid;
   width: 18px;
@@ -3535,6 +3551,23 @@ textarea.ss-input {
   height: 1px;
   overflow: hidden;
   opacity: 0;
+}
+
+/* T166 (design §2.5, §6.4, §6.5) The same control and the same gap, on the three cards §2.5 makes the only
+   way to share an export from this screen: the file input is a 1px `opacity: 0` box, so nothing on the card
+   moved when it took focus, and axe has no rule that can see a focus indicator missing.
+
+   The same ink as the wizard's, so focus says one thing everywhere in the product — and here it is also the
+   colour the surface can carry. The ring is drawn on the sidebar's gradient
+   (`.sweetie-chat-sidebar`: #f76181 to #e84970, lightened again by two radial overlays), where white is
+   3.0:1 against the lighter stop and less than that under an overlay, and ink is 4.3:1 to 9.1:1 across all
+   of it — comfortably past the 3:1 §6.4 holds a non-text indicator to at the 375px §6.5 names.
+   `lib/contrast.ts` is that arithmetic and `e2e/a11y.ts` asserts it on the painted ring. An outline for the
+   reason above: `:hover` and `.sweetie-upload-done` already use the border and the background, so a card
+   that is both connected and focused shows both states at once. */
+.sweetie-upload-card:has(input:focus-visible) {
+  outline: 2px solid var(--ss-ink);
+  outline-offset: 2px;
 }
 
 .sweetie-upload-icon {

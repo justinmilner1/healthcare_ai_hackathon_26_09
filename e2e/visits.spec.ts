@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { cannotSendYet } from "../lib/delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
 import { SENDABLE_PORT } from "../playwright.config";
+import { expectNoFocusRing, expectVisibleFocusRing } from "./a11y";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
@@ -471,6 +472,60 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
     scrollTo: row.locator(".provider-invite"),
     block: "center",
     inline: "center",
+  });
+});
+
+// T166 (design §2.2, §6.4) Both of the wizard's radio groups hide their input inside the styled card, so
+// until this ticket the only non-selected state either card had was `:hover` — which a keyboard never
+// reaches. A person arrowing through "what kind of visit is this" saw the group stand still.
+//
+// Nothing is saved here: the subject is two steps of the dialog, and a booking would be another patient in
+// the practice's table for every other spec's shots to grow around. The contrast reference is the dialog's
+// own surface (`.ss-card`, white at 94% over a blurred backdrop), and the two frames are what §12.3 asks
+// the ticket to leave behind.
+test("the wizard's radio cards show a keyboard where it is", async ({ page }) => {
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  // Where each tab walk starts. The dialog is `aria-modal` and does not trap focus, so a walk from the top
+  // of the document would cross the dashboard's whole visit list first (e2e/a11y.ts says the same).
+  const insideDialog = wizard.locator(".patient-wizard-close");
+
+  await wizard.getByLabel("Patient name").fill(uniqueName("Focus Ring Patient"));
+  await wizard.getByLabel("Mobile number").fill(reservedPhone());
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  // Step 2, the visit type. Tab enters a radio group at the checked radio, which is the wizard's default
+  // "Follow-up" — so this is also the composition §2.2's cards have to get right: the card keeps the gold
+  // border and cream fill selection gives it and gains a ring outside both.
+  const types = wizard.locator(".visit-type-card");
+  await expect(types.first()).toHaveClass(/visit-type-card-selected/);
+  await expectVisibleFocusRing(page, types.first(), {
+    name: "the selected visit-type card",
+    against: "#ffffff",
+    from: insideDialog,
+  });
+  // And the card beside it paints nothing, so a frame of this step cannot be read as two selections.
+  await expectNoFocusRing(types.nth(1), "an unfocused visit-type card");
+  await shot(page, "provider-add-visit-type-focus", { ...MODAL, scrollTo: ".visit-type-grid", block: "center" });
+
+  // Step 3 uses the same card for the contact channel, and got the same fix.
+  await wizard.getByLabel(/What did the patient call about/i).fill("mornings running high");
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+  await expect(wizard.getByText("Contact channel")).toBeVisible(LOADED);
+  const channels = wizard.locator(".patient-channel-row .visit-type-card");
+  await expectVisibleFocusRing(page, channels.first(), {
+    name: "the selected contact-channel card",
+    against: "#ffffff",
+    from: insideDialog,
+  });
+  await expectNoFocusRing(channels.nth(1), "an unfocused contact-channel card");
+  await shot(page, "provider-add-visit-channel-focus", {
+    ...MODAL,
+    scrollTo: ".patient-channel-row",
+    block: "center",
   });
 });
 
