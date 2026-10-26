@@ -57,6 +57,10 @@ npm run agent:check      # all of the above in one command — this is the gate
 `scripts/agent-check.sh` (`npm run agent:check`) is what both routines and CI run: install, dependency audit,
 a throwaway `sweetspot_e2e` database, seed, config check, typecheck, lint, unit tests with coverage, the
 `/infra` check, the Playwright suite, and the §11.4 restore drill. It must pass before anything is pushed to `main`.
+When the Playwright suite fails, the script re-runs just the tests that failed, serially, once, and says of
+each failure whether it was a clock that ran out or the product answering wrongly — the run is only excused
+when every failure was a clock and the serial re-run passes (`docs/ROUTINES.md`, "When the box is the
+problem").
 Two things it cannot use in the sandbox: the Docker daemon (absent) and the Playwright CDN (blocked, a
 pre-installed Chromium stands in). Don't add a step that needs either.
 

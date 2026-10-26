@@ -80,7 +80,7 @@ Runs every two hours. One ticket per run. Works on `main`, pushes only a tree th
 2. Pick the ticket: the lowest-numbered issue labeled `changes-requested`; otherwise the lowest-numbered `ready`. Both listings go through `scripts/gh-issues.sh list` ("GitHub from the sandbox" below): a bare `gh api` answers this one with an empty array often enough that "If none, stop" would end a run with six tickets open, and nothing in the log would say why. Skip anything `blocked`. Resolve each of its `Depends on: T<nn>` lines with `scripts/gh-issues.sh depends T<nn>` and require that ticket closed — it excludes pull requests, and two numbers name two tickets apiece, so check that table when it returns more than one row. If none, stop.
 3. Label it `in-progress`, remove `ready` or `changes-requested`, and comment `Builder run started <UTC time>` on the issue. If a previous run left a `t<nn>-wip` branch on origin, `git merge origin/t<nn>-wip` into `main` locally and continue from there.
 4. Read the cited design sections and the acceptance criteria. Implement the whole ticket on `main`, locally. Small, focused commits, every message starting `T<nn>:` — that prefix is how the reviewer finds the ticket's commits.
-5. Run `scripts/agent-check.sh`. Fix what fails — but read the timings table it closes with first: a stage several times its usual length and no failed assertion is a slow box, not a red tree ("When the box is the problem" below). Look at the screenshots in `e2e/screenshots/` — the script empties it first, so everything in it is from this run — and confirm the affected screens look right. Copy the relevant ones to `docs/screenshots/tickets/t<nn>/` and commit them.
+5. Run `scripts/agent-check.sh`. Fix what fails — but read what the script says about the failure first: a stage several times its usual length and no failed assertion is a slow box, not a red tree, and on a failed suite the serial re-run of just those tests says which of the two it was ("When the box is the problem" below). Look at the screenshots in `e2e/screenshots/` — the script empties it first, so everything in it is from this run — and confirm the affected screens look right. Copy the relevant ones to `docs/screenshots/tickets/t<nn>/` and commit them.
 6. Land it: `git pull --rebase origin main`. If that brought in anything, run the check again on the rebased tree. Then `git push origin main`. If the push is rejected because `main` moved again, rebase, re-check, push. Never force-push.
 7. Comment on the issue with the commit range (`<first sha>..<last sha>` on `main`), what changed, the design sections fulfilled, the exact verification commands and their results, and the paths of the committed screenshots. Label the issue `review`, remove `in-progress`. Delete the `t<nn>-wip` branch if there was one (`git push origin --delete t<nn>-wip`; if the proxy refuses, leave it and say so in the comment).
 8. If the ticket cannot be finished (missing credential, unclear design) or the run is out of time: do not push unfinished work to `main`. Push it to a branch `t<nn>-wip`, comment on the issue with what is done and what remains, and leave `in-progress` (out of time) or label `blocked` (needs a human), removing `in-progress`.
@@ -99,7 +99,7 @@ Runs every three hours. Reviews the tickets labeled `review`, lowest number firs
 2. For each ticket: find its commits — the builder's comment names the range, and `git log --oneline origin/main --grep='^T<nn>'` finds them by the message prefix. Read the diff (`git log -p <first>^..<last>`), the issue body, and the design sections it cites. Compare the result with the acceptance criteria, line by line; read the code, not just the comment.
 3. Small problems (naming, a missing edge case, a lint warning, a missing test): fix them on `main`, commit with a message starting `Review T<nn>:`, run the check, `git pull --rebase origin main`, push. Note each fix in your comment.
 4. If it matches: comment on the issue naming the design sections it fulfills, the commits you read, and what you checked, then close the issue and remove `review`.
-5. If it does not: comment with a precise numbered list, each item naming the criterion or design section and exactly what is missing or wrong, with file paths. Label the issue `changes-requested`, remove `review`. The builder fixes forward on `main`; nothing is reverted for a gap. Revert (`git revert`, then the check, then push) only when a commit has broken the check on `main` and the fix is not obvious — a check that ran out of time on a slow box has broken nothing, so check the timings table before you revert — then say which commit and why in the comment.
+5. If it does not: comment with a precise numbered list, each item naming the criterion or design section and exactly what is missing or wrong, with file paths. Label the issue `changes-requested`, remove `review`. The builder fixes forward on `main`; nothing is reverted for a gap. Revert (`git revert`, then the check, then push) only when a commit has broken the check on `main` and the fix is not obvious — a check that ran out of time on a slow box has broken nothing, so read the timings table *and* the serial re-run's verdict before you revert, since a single blown wait is in the second and not in the first — then say which commit and why in the comment.
 6. Then sweep: read the state of `main` below — a `main-red` issue, when Actions is running, says what broke before you run anything. Open the app, click through the two flows. Anything broken or drifting from the design becomes a new issue labeled `ready` and `bug`, with steps to reproduce, placed before the next feature ticket in numbering if it blocks it. Take its `T<nn>` from `scripts/gh-issues.sh next-number`, which is the rule above — the highest across every issue and pull request, any state, plus one — and run it again for each issue you file in the same sweep, so two bugs in one run do not land on one number.
 
 ## The state of `main`
@@ -284,6 +284,7 @@ check now says which box it is on. Every slow stage goes through `scripts/timed.
    typecheck         41s
    build           9m07s
    e2e             4m22s   <- failed here
+   e2e-serial      1m48s
    whole check    15m31s
    for comparison, the 2026-10-10 probe: build about 40s warm, whole check about 2m.
 ```
@@ -337,6 +338,56 @@ When the timings say it was the box:
   spend their whole budget on every green run rather than only on a slow one. It is a quarter of
   `E2E_LOADED_TIMEOUT_MS` with 8s under it, so raising that override still moves it, and a staging duration
   that has to outlast it is derived from it rather than written beside it.
+
+#### The box the table cannot see, and the serial re-run that can (T161)
+
+Everything above is about a box that is visibly crawling, and the test it gives — a stage several times its
+usual length — only fires when the slowness is spread across the whole run. The commoner case is one wait
+losing a scheduling race, and **the timings table cannot see it at all.** The reviewer run of 2026-10-26 ran
+the check twice on `main` at `7f22d3d`, untouched: the first failed on one test, the second passed 275/275.
+The two tables were the same table — `e2e` 11m32s against 10m31s, the whole check 13m46s against 12m15s —
+because 30s of stalled wait is 4% of an eleven-minute `e2e` stage. Meanwhile the failure named the product:
+`the transcript never settled on the newest message`, which reads exactly like a §6.2 regression. A routine
+following the reviewer's step 2 to the letter would have found the timings unremarkable, concluded the tree
+was red, and reverted a healthy commit.
+
+So **a normal-looking timings table does not rule out the box**, and on a failed suite it is not the evidence
+to decide on. Two things in the output are, both of them below the suite's own report:
+
+1. **What each failure was evidence about.** `e2e/budgetReporter.ts` reads every failed test as one of two
+   things and says which, by name, in the run's log: a **clock** — a wait that spent its whole budget and
+   gave up, naming the budget and the override that raises it — or an **assertion**, the product having
+   answered wrongly with no clock involved. `lib/budgetFailure.ts` is the rule and the reasoning;
+   `lib/budgetFailure.test.ts` holds it to both. A wait that ran out has not seen the product say no, it has
+   stopped asking, so a run of nothing but clocks has not yet said anything about the tree.
+2. **The serial re-run.** When the suite fails, `scripts/agent-check.sh` re-runs *only* the tests that
+   failed, serially, once — `npx playwright test --last-failed --workers=1` — and prints both outcomes:
+
+   ```
+   == e2e (serial re-run of just the tests that failed, once)
+      every failure above a clock that ran out? true
+      the tests that failed in parallel all pass serially, and all of them were clocks:
+      this is the box, not the tree.
+   ...
+   e2e: failed in parallel, serial re-run of the failures passed
+   ```
+
+   "Failed under parallelism, passed at `--workers=1`" is the diagnosis this section used to ask a routine to
+   perform by hand, which cost two runs the first time it came up. It is three lines of script, so the script
+   does it.
+
+The exit status is still the verdict, and the re-run moves it in one direction only. It is cleared **only**
+when every failure was a clock *and* the serial re-run passed. A failure that fails serially too is the tree,
+as before. And a failure with no clock in it stays red even when the re-run passes: a product assertion that
+answers differently under parallelism is nondeterminism in the product, which is a finding about the tree and
+not about the box. This is deliberately not Playwright's `retries`, which `playwright.config.ts` holds at 0:
+a retry would hide the first attempt inside its own report and would do it for a genuine failure too. The
+parallel failure is printed in full either way.
+
+What has not changed: a check that did not pass is not a push. When the re-run says the box, the run is a
+pass and the tree can be pushed; when it says the tree, or when a non-clock failure keeps the run red, the
+rules above apply unchanged — do not revert on the strength of a clock, leave the ticket `in-progress`, and
+say on the issue which of the two the re-run reported.
 
 ### The journey spec (T26)
 
