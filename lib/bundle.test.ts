@@ -111,6 +111,7 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
     it("is empty but well formed for a visit with no uploads, so a page renders before intake", async () => {
       const b = (await bundle.loadBundle(ids.visit))!;
       assert.deepEqual([b.glucose, b.visits, b.sleep, b.spikes], [[], [], [], []]);
+      assert.equal(b.spikeTotal, 0, "no readings is no spikes, not an absent count (T164)");
       assert.deepEqual(b.stats, { readings: 0, days: 0, tir: 0, tbr: 0, tar: 0, avg: 0, gmi: 0, sleepAvgHours: null, recoveryAvg: null });
       assert.deepEqual(b.status, { hasDexcom: false, hasLocation: false, hasWhoop: false, answered: 0, done: false });
       assert.equal(b.providerSummary, null);
@@ -121,7 +122,7 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.deepEqual(b.patientMessages, [], "and nobody has said anything yet (T154)");
     });
 
-    it("reads each upload kind, downsamples the chart series, and caps the spikes at five", async () => {
+    it("reads each upload kind, downsamples the chart series, and caps the listed spikes at five", async () => {
       const glucose = readings(2016); // a week at five minutes
       await upload("dexcom", glucose);
       await upload("whoop", [{ date: "2026-10-05", hours: 6.5, recovery: 44 }] satisfies SleepNight[]);
@@ -131,6 +132,20 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.ok(b.spikes.length > 0 && b.spikes.length <= 5, `expected 1..5 spikes, got ${b.spikes.length}`);
       assert.deepEqual(b.sleep, [{ date: "2026-10-05", hours: 6.5, recovery: 44 }]);
       assert.deepEqual([b.status.hasDexcom, b.status.hasWhoop, b.status.hasLocation], [true, true, false]);
+    });
+
+    // T164 (design §7.1, §2.6): the cap is a cut for the table, so the count has to survive it.
+    //
+    // The sine in `readings` crests every six hours, which is 28 rises over 180 in a week — a fixture well
+    // past the five the card lists, which is the only way to tell a true count from the length of the list.
+    // The bug this pins was `spikes.length` reaching the "Spikes > 180" tile: a clinician reads that tile as
+    // the week's excursions, and on the seeded demo week it understated seven as five.
+    it("carries the week's own spike count past the cut, so the tile is not the length of the table", async () => {
+      await upload("dexcom", readings(2016));
+      const b = (await bundle.loadBundle(ids.visit))!;
+      assert.equal(b.spikeTotal, 28, "every rise ≥50 to a peak over 180 in the week");
+      assert.equal(b.spikes.length, 5, "and the table still lists the top five by rise");
+      assert.ok(b.spikeTotal > b.spikes.length, "a fixture where the two differ, which is the whole point");
     });
 
     it("labels Timeline places from the hand-labelled list, and uses the list alone when there is no export", async () => {
@@ -392,6 +407,7 @@ const BUNDLE: PatientBundle = {
   visits: [],
   sleep: [],
   spikes: [],
+  spikeTotal: 0,
   stats: { readings: 2016, days: 7, tir: 0.72, tbr: 0.01, tar: 0.27, avg: 148, gmi: 6.9, sleepAvgHours: 6.9, recoveryAvg: null },
   status: { hasDexcom: true, hasLocation: false, hasWhoop: false, answered: 2, done: true },
   intake: { fields: {}, skipped: [], flagged: null, turns: 2, wrapped: true },
@@ -428,7 +444,9 @@ describe("patientView", () => {
     // `patientMessages` is in this list rather than the one below: it is the patient's own half of their
     // own transcript (T154), which they can already read at GET /api/sweetie, and not the clinician's
     // material §5.2 keeps from them.
-    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "dexcomConnect"] as const) {
+    // `spikeTotal` sits beside `spikes` here (T164): it is a count of the patient's own rises, the same
+    // material the "Your biggest rises" card is already built from, and not the clinician's half of §5.2.
+    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "spikeTotal", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "dexcomConnect"] as const) {
       assert.deepEqual(view[key], BUNDLE[key], `${key} is the patient's own`);
     }
   });

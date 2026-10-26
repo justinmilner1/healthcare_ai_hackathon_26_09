@@ -15,6 +15,16 @@ import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNi
 import { providerName } from "./visit";
 
 /**
+ * How many rises the spike table lists: the upper end of `Summary.spikes`' "top 3 to 5" (lib/types.ts).
+ *
+ * A cut for the table, and nothing else. It is exported so the clinician's surfaces can say "top 5 shown"
+ * without a second literal 5 going stale beside this one (lib/spikePlaces.ts reads the length of the list
+ * it is handed, which is this); the count a clinician reads off the tile is `PatientBundle.spikeTotal`,
+ * which this does not touch (T164).
+ */
+export const SPIKES_SHOWN = 5;
+
+/**
  * One visit's worth of data, by visit id or by the presigned token in the invite, so /patient/<token> works
  * straight from the link (design §4.4, §5.3). A patient id is not accepted: a patient has many visits, and
  * the bundle is about one of them.
@@ -40,7 +50,13 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   const visits = rawVisits.length ? labelVisits(rawVisits, labelled) : labelled;
   const sleep = parseOr<SleepNight[]>(latest("whoop")?.data?.parsed, []);
 
-  const spikes: Spike[] = matchSpikesToVisits(detectSpikes(glucose), visits).slice(0, 5);
+  // Two numbers out of one detection, because the cut is a presentation choice and the count is not (T164).
+  // `detectSpikes` sorts by rise descending, so the slice is the top five; `spikeTotal` is what the week
+  // actually holds, which is the figure §7 makes code-generated so a clinician can trust it. Detected on the
+  // full readings — `glucose` above is handed to the page downsampled, and a cheaper recount there would
+  // quietly answer a different question.
+  const allSpikes = matchSpikesToVisits(detectSpikes(glucose), visits);
+  const spikes: Spike[] = allSpikes.slice(0, SPIKES_SHOWN);
 
   const intakeFields = fieldsFor(visit.visitType, visit.isSandbox ? null : visit.reason);
   const intake = parseIntake(visit.intake, intakeFields);
@@ -95,6 +111,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     visits,
     sleep,
     spikes,
+    spikeTotal: allSpikes.length,
     stats: computeStats(glucose, sleep),
     status,
     intake,

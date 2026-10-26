@@ -147,7 +147,16 @@ export type PatientBundle = {
   glucose: GlucoseReading[]; // downsampled for charts
   visits: Visit[]; // places the patient went (Timeline), not appointments
   sleep: SleepNight[];
+  /** The rises the surfaces *list*: the top 5 by rise, matched to places, as `Summary.spikes` is defined
+   *  (top 3 to 5). A presentation cut, so nothing may read `.length` as a count of the week's excursions —
+   *  `spikeTotal` below is that number (T164). */
   spikes: Spike[];
+  /** How many spikes the readings actually contain, before the cut above: a §7 number, code-generated, and
+   *  what the clinician's "Spikes > 180" tile and summary line report (§2.6, §7.4). On the seeded demo week
+   *  it is 7 where `spikes` holds 5, and the surfaces disclose the difference rather than quietly reporting
+   *  the smaller figure (T164). Computed on the full readings, so it cannot be recovered from `glucose`,
+   *  which is downsampled for charts. */
+  spikeTotal: number;
   stats: GlucoseStats;
   status: IntakeStatus;
   intake: IntakeState;
