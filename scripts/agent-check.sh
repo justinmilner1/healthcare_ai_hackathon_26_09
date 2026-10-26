@@ -4,8 +4,9 @@
 # e2e/screenshots/ (emptied first, so it holds this run and nothing else), and the §11.4 restore drill's
 # verification step against what the suite leaves behind.
 # The generated route types under .next/types are cleared first, so a typecheck failure is about this branch.
-# Exit code is the verdict, and the table of stage wall times it prints last is how a reader tells a verdict
-# about the tree from a verdict about the box (T89).
+# Exit code is the verdict, and two things in the output are how a reader tells a verdict about the tree from
+# a verdict about the box: the table of stage wall times it prints last, for a box that is visibly crawling
+# (T89), and the serial re-run of a failed suite, for the single blown wait that table cannot see (T161).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -33,6 +34,8 @@ timings_report() {
     ' "$CHECK_TIMINGS"
     echo "   for comparison, the 2026-10-10 probe: build about 40s warm, whole check about 2m."
     echo "   docs/ROUTINES.md, \"When the box is the problem\", says what to do when these are much larger."
+    echo "   One wait that blew its budget is 4% of the e2e stage and is not in these numbers at all: when"
+    echo "   the suite fails, the serial re-run of just those tests is what says so, not this table (T161)."
   fi
   rm -f "$CHECK_TIMINGS"
   exit "$rc"
@@ -137,7 +140,56 @@ fi
 echo "== e2e"
 # The build is inside this: Playwright's first web server runs `npm run build` before `next start`, timed by
 # the same wrapper there (playwright.config.ts), so the table at the end separates the build from the suite.
-bash scripts/timed.sh e2e npm run e2e
+#
+# A failure here is not yet a verdict on the tree (T161). Roughly one run in two on a 4-CPU sandbox, one wait
+# somewhere in the suite loses a scheduling race and spends its whole budget on work that takes a fraction of
+# it — measured at 35.8s against 5.3s, 5.7s and 5.8s serially for the same test on the same tree — and the
+# failure it writes names the product: `data-phase` read as "none", a summary as "stale", a transcript as "".
+# The timings table below cannot say so, which is what separated this from T89 and T95: 30s of stalled wait
+# is 4% of an eleven-minute e2e stage, so the table of the run that failed and the table of the run that
+# passed on the same untouched tree are the same table. The reviewer run of 2026-10-26 did this by hand on
+# `main` at 7f22d3d and nearly reverted a healthy commit for it.
+#
+# So the script does it instead: when the suite fails, re-run just the tests that failed, serially, once.
+# `--last-failed` is the whole mechanism — Playwright wrote the list to test-results/.last-run.json — and
+# `--workers=1` is the hypothesis, that the suite lost a race with itself rather than the tree being wrong.
+# Not `retries`, which playwright.config.ts holds at 0 on purpose: a retry hides the first attempt inside its
+# own report and would do it for a genuine failure too. This leaves the parallel failure printed in full,
+# above, whatever the re-run says.
+#
+# Two things have to be true before a run is excused, and e2e/budgetReporter.ts supplies the first. Every
+# failure has to have been a clock that ran out, and the serial re-run has to pass. A failure with no clock
+# in it is the product having answered wrongly under parallelism: a second run passing does not unsay that,
+# it makes it nondeterminism in the product, which is a finding about the tree and must stay red.
+e2e_rerun=""
+if bash scripts/timed.sh e2e npm run e2e; then
+  e2e_verdict=0
+else
+  e2e_verdict=$?
+  # Read the reporter's verdict on the parallel run now: the re-run below writes its own over the top.
+  all_clocks=$(jq -r '.allClocks // false' e2e/.failures.json 2>/dev/null || echo unknown)
+  echo "== e2e (serial re-run of just the tests that failed, once)"
+  echo "   every failure above a clock that ran out? $all_clocks"
+  if bash scripts/timed.sh e2e-serial npx playwright test --last-failed --workers=1; then
+    e2e_rerun="passed"
+    if [ "$all_clocks" = true ]; then
+      # The case this exists for: failed under parallelism, passed at --workers=1, and nothing that failed
+      # was the product answering. That is the box, and the tree is the tree the parallel run also built.
+      echo "   the tests that failed in parallel all pass serially, and all of them were clocks:"
+      echo "   this is the box, not the tree (docs/ROUTINES.md, \"When the box is the problem\")."
+      e2e_verdict=0
+    else
+      echo "   the tests that failed in parallel pass serially, but not all of them were clocks:" >&2
+      echo "   a product assertion that answers differently under parallelism is a finding about the" >&2
+      echo "   tree, not about the box. Left red on purpose; read the parallel failure above." >&2
+    fi
+  else
+    e2e_rerun="failed"
+    echo "   the same tests fail serially too: this is the tree." >&2
+  fi
+fi
+[ -z "$e2e_rerun" ] || echo "e2e: failed in parallel, serial re-run of the failures $e2e_rerun"
+[ "$e2e_verdict" -eq 0 ] || exit "$e2e_verdict"
 
 # The verification step of the §11.4 restore drill (docs/BACKUPS.md), rehearsed against the database the
 # suite has just finished driving — a practice, patients, visits and an audit trail, which is the shape the

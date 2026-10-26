@@ -6,6 +6,8 @@
 // for a run by one environment variable, and nothing in a spec may write a flat number the shared one can
 // overtake — `npm run lint` says so.
 
+import type { Budget } from "../lib/budgetFailure";
+
 /**
  * A millisecond budget from the environment, or `fallback` when it is absent, empty or not a positive number.
  *
@@ -87,3 +89,21 @@ export const DRAINED = loadedAtLeast(60_000);
  * lowered.
  */
 export const GIVES_UP = { timeout: Math.max(8_000, Math.round(LOADED_TIMEOUT_MS / 4)) } as const;
+
+/**
+ * Every budget above, under the name a reader and docs/ROUTINES.md know it by (T161).
+ *
+ * The list is what `e2e/budgetReporter.ts` reads a failed test's clock against, so that a run that failed
+ * only because a wait ran out says so where a routine will see it rather than leaving the two cases to be
+ * told apart by hand. At this run's values, not the defaults written above: a routine that raised
+ * `E2E_LOADED_TIMEOUT_MS` for a slow box gets a report read against the budget it set.
+ *
+ * The per-test ceiling is not here, because it is not here to take — `TEST_TIMEOUT_MS` is in
+ * playwright.config.ts with the comment that explains why, and a spec may raise its own above it. The
+ * reporter takes that one per test, from the test.
+ */
+export const BUDGETS: readonly Budget[] = [
+  { name: "LOADED (E2E_LOADED_TIMEOUT_MS)", ms: LOADED_TIMEOUT_MS },
+  { name: "DRAINED (twice LOADED, 60s floor)", ms: DRAINED.timeout },
+  { name: "GIVES_UP (a quarter of LOADED, 8s floor)", ms: GIVES_UP.timeout },
+];

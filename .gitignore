@@ -64,3 +64,6 @@ e2e/screenshots/
 e2e/report/
 e2e/test-results/
 test-results/
+# What the run's own failures were evidence about, written by e2e/budgetReporter.ts for
+# scripts/agent-check.sh to read (T161). One run's verdict, like the screenshots beside it.
+e2e/.failures.json

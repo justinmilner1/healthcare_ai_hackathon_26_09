@@ -153,7 +153,10 @@ export default defineConfig({
   // The §12.3 size gate (T61): after the last spec, every screenshot this run wrote is measured and one
   // taller than a reviewer can open fails the suite. e2e/screenshotSize.ts says what the limit is and why.
   globalTeardown: "./e2e/screenshotSize.ts",
-  reporter: [["list"], ["html", { open: "never", outputFolder: "e2e/report" }]],
+  // `list` and `html` are what a reader looks at; the third says what the run's failures are evidence
+  // about — a clock that ran out or the product answering wrongly — and leaves that verdict in a file for
+  // scripts/agent-check.sh to act on (T161, e2e/budgetReporter.ts).
+  reporter: [["list"], ["html", { open: "never", outputFolder: "e2e/report" }], ["./e2e/budgetReporter.ts"]],
   use: {
     baseURL: `http://localhost:${PORT}`,
     screenshot: "only-on-failure",
