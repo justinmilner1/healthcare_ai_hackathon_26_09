@@ -114,7 +114,8 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   // had to survive (acceptance criterion 4).
   const printSpikeTile = placesTile.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
   await expect(printSpikeTile.locator(".text-2xl")).toHaveText("7");
-  await expect(printSpikeTile).toContainText(/^top 5 shown · \d+ linked to a place$/);
+  // Unanchored: `toContainText` matches inside the tile's whole text, label and value included.
+  await expect(printSpikeTile).toContainText(/top 5 shown · \d+ linked to a place/);
   // T62: this visit has a Timeline export and no hand-labelled place list beside it, which is all a patient
   // can actually send (§9.3). Every place on the sheet is therefore the visit's own coordinates — Google's
   // internal place id is not a place name, and a clinician holding this paper cannot read one.
