@@ -4,7 +4,7 @@ import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
-import { EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
+import { COUNTDOWN, EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
 import { UNNAMED_PLACE } from "../lib/spikePlaces";
 
@@ -846,6 +846,131 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
     scrollTo: ".patient-summary-footer",
     block: "end",
   });
+});
+
+/**
+ * The hero's countdown on the two dated branches a booking three days out cannot reach (T163, design §2.7).
+ *
+ * T162 moved that sentence out of the page and into lib/visitCountdown.ts and pinned it end to end — but on
+ * the one appointment this suite books, which is three calendar days out (`bookedFor()`,
+ * e2e/journey.spec.ts). So "3 days until your visit with …" has an assertion and the two branches a patient
+ * reads on their way to the door have none, including the one T162 existed for: a visit at 17:00, read at
+ * 03:42 that morning, told the patient it was *tomorrow*, and a patient who believes that misses the visit
+ * this product is preparing them for. lib/visitCountdown.test.ts holds the sentence to the calendar at every
+ * hour of the day; what a unit test cannot show is that the page renders it — the locator, the
+ * `.patient-summary-countdown` the assertion hangs on, the `apptAt` the bundle carries it on, and the hero's
+ * layout when the line is one short sentence rather than a count.
+ *
+ * Both legs assert through `COUNTDOWN` (e2e/patient.ts), the locator the three-day leg already uses, so the
+ * three dated branches are asserted the same way and none of them can be pinned by a selector written
+ * beside it.
+ *
+ * Neither visit shares anything, and that is deliberate: the hero sits above `.patient-summary-content` and
+ * reads nothing but `patient.apptAt` and the provider's name, so a week of readings would cost the suite two
+ * uploads and add nothing to the claim. What is left is a pair of pages differing in exactly one thing — the
+ * day the visit is booked for — which is what the pair is about.
+ *
+ * ## Why the clock is pinned, and why that is what makes these two dates safe
+ *
+ * The page is a client component whose hero renders once GET /api/patient/<token> has resolved (`"use
+ * client"`, app/patient/[id]/page.tsx), so the sentence is computed in the browser, against the browser's
+ * clock. `page.clock.setFixedTime` is what can hold that clock still, and holding it still is what makes
+ * both appointments safe to write down:
+ *
+ *   - **It cannot drift across midnight.** The pinned "now" and both appointments come off one `new Date()`
+ *     snapshot, so nothing here is read from either side of a midnight the run crossed while it was in
+ *     flight. Unpinned, a visit booked for 23:30 today is "today" to a shutter that opens at 23:29 and a day
+ *     already past at 00:01 — a flake nobody could reproduce. `bookedFor()` keeps 09:30 and three days of
+ *     distance for the same reason; one day of distance has none to spare.
+ *   - **"Later today" stays later today at every hour.** A wall time written down is only *later* today on a
+ *     run that happens before it, and from the other side the T162 regression is invisible: the `Math.ceil`
+ *     this replaced reads an appointment earlier today as 0 as well, so an afternoon run would have asserted
+ *     the right string against the wrong arithmetic and called the branch covered. Pinned to 08:00, the
+ *     appointment is nine hours out on a 03:42 run and on a 23:50 one — 13 hours was the gap in the bug
+ *     report, and ceiling it is what printed "tomorrow". The next morning's is 25.5 hours out, which is the
+ *     other half of the same bug: it ceiled to 2 and printed "2 days".
+ *   - **It moves nothing else on the page.** `setFixedTime` fakes `Date` and leaves every timer running, and
+ *     the only other client-side read of the clock on a patient's path is the same-day check in
+ *     components/SourJobState.tsx, which is the provider's card and not rendered here.
+ *
+ * Both visits are booked through POST /api/book, the seam every other patient-summary test in this file
+ * books through, rather than through the wizard: an appointment later today is already in the past on a late
+ * run, and the wizard's own `datetime-local` field is not where this claim lives. No guard is being worked
+ * around — `parseScheduledAt` (lib/visitIntake.ts) reads any time it can parse, past or future — and no
+ * budget is written by hand: the two waits are `LOADED` from e2e/budget.ts (docs/ROUTINES.md, "When the box
+ * is the problem").
+ */
+test("patient summary: the hero reads \"is today\" for a visit later today and \"is tomorrow\" for the next morning", async ({ page }) => {
+  // One reading of the clock for everything below. Local wall times at both ends, like `bookedFor()` in
+  // e2e/journey.spec.ts: the appointment is a zone-less wall time (`parseScheduledAt`) and
+  // lib/visitCountdown.ts counts local midnights, so this is the one clock both halves speak.
+  const anchor = new Date();
+  const wallTime = (daysOut: number, hour: number, minute: number) => {
+    const at = new Date(anchor);
+    at.setDate(at.getDate() + daysOut);
+    at.setHours(hour, minute, 0, 0);
+    return at;
+  };
+  const pinnedNow = wallTime(0, 8, 0);
+  const laterToday = wallTime(0, 17, 0);
+  const nextMorning = wallTime(1, 9, 30);
+
+  // Booking is staff's job and needs their session (§5.2), and both visits are booked inside the one
+  // session: signing in again inside a test needs a sign-out first (e2e/auth.ts), and the patient sessions
+  // below replace one another as each link is verified, so the pages are read in the order they are earned.
+  await signInAsDemo(page);
+  const book = async (who: string, apptAt: Date) => {
+    const email = patientEmail(who);
+    const booked = await (
+      await postJson(page.request, "/api/book", {
+        name: who,
+        email,
+        apptAt: apptAt.toISOString(),
+        visitType: "follow_up",
+        reason: "counting the days to the visit",
+        channel: "none",
+      })
+    ).json();
+    expect(booked.token, `booking ${who}: ${booked.error ?? ""}`).toBeTruthy();
+    return { token: booked.token as string, email };
+  };
+  const today = await book("E2E Visit Today", laterToday);
+  const tomorrow = await book("E2E Visit Tomorrow", nextMorning);
+  await signOutOfBrowser(page);
+
+  // Before the first navigation, so the hero is rendered against it rather than against the wall clock.
+  await page.clock.setFixedTime(pinnedNow);
+
+  // Verified through the API for the reason the tests above give: page.request shares the browser's cookie
+  // jar, so the patient session lands where the goto needs it (§5.3). The provider's name comes off the
+  // bundle rather than being spelled out, the way the three-day leg takes it (e2e/journey.spec.ts): §2.2
+  // never asks the wizard for a clinician, so this visit carries lib/visit.ts's fallback, and the claim here
+  // is about the day and the wording.
+  const heroOn = async ({ token, email }: { token: string; email: string }) => {
+    await verifyByApi(page.request, token, email);
+    const bundle = await (await page.request.get(`/api/patient/${token}`)).json();
+    await page.goto(`/patient/${token}`);
+    await expect(EYEBROW(page), "the hero the countdown sits in").toBeVisible(LOADED);
+    return { countdown: COUNTDOWN(page), provider: bundle.patient.provider.name as string };
+  };
+
+  const atToday = await heroOn(today);
+  await expect(atToday.countdown, "nine hours out is today, and was read as tomorrow until T162").toHaveText(
+    `Your visit with ${atToday.provider} is today.`,
+    LOADED,
+  );
+  // This ticket's committed evidence: the frame that did not exist for the branch the product got wrong.
+  // SCREENFUL on both projects and no anchor — the page opens at the top, so the hero is already the frame,
+  // the desktop default would shoot the whole document instead, and a whole-page phone shot of this screen
+  // is the one §12.3's size gate has an exception open for (e2e/screenshot-exceptions.json).
+  await shot(page, "patient-summary-countdown-today", SCREENFUL);
+
+  const atTomorrow = await heroOn(tomorrow);
+  await expect(atTomorrow.countdown, "the next morning is tomorrow, and was read as \"2 days\" until T162").toHaveText(
+    `Your visit with ${atTomorrow.provider} is tomorrow.`,
+    LOADED,
+  );
+  await shot(page, "patient-summary-countdown-tomorrow", SCREENFUL);
 });
 
 // T15 (design §7.1, §7.2): the other side of reuse. A summary is only reusable while the inputs are the ones

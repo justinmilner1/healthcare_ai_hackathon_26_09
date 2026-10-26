@@ -114,6 +114,12 @@ export const EYEBROW = (page: Page) => page.locator(".patient-summary-hero .ss-e
  * `.patient-summary-content` the other patient-page assertions sweep, which is how the wrong number stayed
  * in a screenshot both routines read every run. lib/visitCountdown.test.ts holds the sentence itself to the
  * calendar; this is the assertion that it is the sentence the page renders.
+ *
+ * All three dated branches go through this one locator, which is the point of it being here (T163): the
+ * count is asserted on the journey's booking, three calendar days out (e2e/journey.spec.ts), and the two
+ * branches that name a day instead of a number — the visit later today and the one the next morning, which
+ * are the two the off-by-one got wrong — on a pinned clock in e2e/flows.spec.ts. A branch asserted by a
+ * selector written beside it is a branch that can drift away from the other two.
  */
 export const COUNTDOWN = (page: Page) => page.locator(".patient-summary-hero .patient-summary-countdown");
 
