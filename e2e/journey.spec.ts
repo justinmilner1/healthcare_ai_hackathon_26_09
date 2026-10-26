@@ -6,7 +6,7 @@ import { postJson } from "./api";
 import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
 import { expectTranscriptUncut } from "./mobile";
-import { AGREE, enterCode, latestCode, patientEmail } from "./patient";
+import { AGREE, COUNTDOWN, enterCode, latestCode, patientEmail } from "./patient";
 import { expectChartTooltipsLabelled } from "./charts";
 import { MODAL, SCREENFUL, shot as rawShot, type ShotOptions } from "./shot";
 
@@ -331,6 +331,17 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
     .not.toContainText(/no matching visit/i);
   await expect(page.locator(".patient-summary-content"), "a caption promising a column that is not there")
     .not.toContainText(/where you had just been/i);
+
+  // T162 (§2.7): the hero's countdown, pinned to the booking this test made. `bookedFor()` is three
+  // calendar days out, so the sentence is "3 days until your visit with …" — it read "4 days" in this
+  // spec's own `desktop-journey-10-patient-summary.png` for weeks, because the page divided the gap by
+  // 86400000 and ceiled it. Nothing asserted the string, so a wrong number sat in a screenshot both
+  // routines read every run. The provider's name comes off the bundle rather than being spelled out: §2.2
+  // never asks the wizard for a clinician, so this visit carries lib/visit.ts's fallback, and the claim
+  // here is about the count and the wording, not about who the visit is with.
+  await expect(COUNTDOWN(page), "three calendar days out, counted as three").toHaveText(
+    `3 days until your visit with ${patientBundle.patient.provider.name}.`,
+  );
   await shot(page, "10-patient-summary");
   // T87 (§2.7): the charts on this page are read by hovering them, and until this ticket every tooltip
   // read "Glucose : 118 mg/dL" — Recharts' default separator, on a page written in plain English.

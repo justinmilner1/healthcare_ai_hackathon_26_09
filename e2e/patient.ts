@@ -107,6 +107,17 @@ export const AGREE = /I agree/i;
 export const EYEBROW = (page: Page) => page.locator(".patient-summary-hero .ss-eyebrow");
 
 /**
+ * The hero's line about the appointment (§2.7). The one line on this page that is a claim about the
+ * calendar rather than about the data, and the one the T162 off-by-one lived in: it counted 24-hour spans,
+ * so a visit at 17:00 today read "is tomorrow" and a visit tomorrow morning read "2 days". Shared here for
+ * the same reason as `EYEBROW` above — it sits in `.patient-summary-hero`, outside the
+ * `.patient-summary-content` the other patient-page assertions sweep, which is how the wrong number stayed
+ * in a screenshot both routines read every run. lib/visitCountdown.test.ts holds the sentence itself to the
+ * calendar; this is the assertion that it is the sentence the page renders.
+ */
+export const COUNTDOWN = (page: Page) => page.locator(".patient-summary-hero .patient-summary-countdown");
+
+/**
  * Take the consent screen, if this visit has not been past it yet (§2.4 is first open only, so the second
  * verification of the same visit — a regenerated link, another device — goes straight through). Returns
  * whether there was a screen to take, so a spec can assert on either.
