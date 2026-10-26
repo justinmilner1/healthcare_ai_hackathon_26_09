@@ -48,7 +48,16 @@ export async function loadSourContext(idOrToken: string): Promise<SourContext | 
   const flags = safetyFlags(glucose);
   const base: Summary = { ...baseSummary(glucose, bundle.spikes, notes), flags };
   const brief = (bundle.patient.isSandbox ? "SYNTHETIC DEXCOM SANDBOX DATA — demonstration only, not real patient findings.\n" : "") + renderSourInput(
-    buildSourInput({ glucose, spikes: bundle.spikes, sleep: bundle.sleep, patientNotes: notes, visit: { type: bundle.patient.visitType, reason: bundle.patient.reason } }),
+    buildSourInput({
+      glucose,
+      spikes: bundle.spikes,
+      // The week's count, not the length of the card's five rows (T164): the brief states it and the model
+      // is asked for patterns that cite the brief.
+      spikeTotal: bundle.spikeTotal,
+      sleep: bundle.sleep,
+      patientNotes: notes,
+      visit: { type: bundle.patient.visitType, reason: bundle.patient.reason },
+    }),
   );
   const inputHash = sourInputHash(sourInputsFor(visit, await uploadRefs(visit.id), narrativeSource(llmStatus().configured)));
   return { visitId: visit.id, bundle, glucose, notes, base, brief, flags, inputHash };

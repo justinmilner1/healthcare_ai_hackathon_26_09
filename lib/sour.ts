@@ -64,6 +64,9 @@ export type SourInput = {
     placeRelation: "after leaving" | "at" | "during a long stay at" | null; // "at" = meal-length stay (≤3 h); long stays that merely overlap are weak
     placeArrivedAt: string | null;
   }[];
+  /** Every spike in the readings, not just the rows above: `spikes` is cut to the top few by rise for the
+   *  clinician's card, and a pattern citing the cut figure would understate the week (T164, §7.1). */
+  spikeTotal: number;
   nights: { nightOf: string; weekday: string; hours: number; recovery: number | null; lateDinnerBefore: string | null }[];
   patientNotes: string;
   glucoseForFlags?: GlucoseReading[]; // kept so renderSourInput can print the safety flags; not sent raw
@@ -72,6 +75,9 @@ export type SourInput = {
 export function buildSourInput(args: {
   glucose: GlucoseReading[];
   spikes: Spike[];
+  /** `PatientBundle.spikeTotal`: how many spikes the readings hold, where `spikes` holds the top few.
+   *  Required rather than defaulted to `spikes.length`, which is the understatement T164 is about. */
+  spikeTotal: number;
   sleep: SleepNight[];
   patientNotes: string;
   visit: { type?: string | null; reason?: string | null };
@@ -176,6 +182,7 @@ export function buildSourInput(args: {
     byTimeOfDay,
     days,
     spikes: spikeRows,
+    spikeTotal: args.spikeTotal,
     nights,
     patientNotes: args.patientNotes,
     glucoseForFlags: sorted,
@@ -213,7 +220,13 @@ export function renderSourInput(x: SourInput): string {
     L.push("BY DAY: day | TIR | mean | peak (time) | low | min above 180 | min below 70");
     for (const d of x.days) L.push(`  ${d.weekday} ${d.date.slice(5)} | ${pct(d.tir)} | ${d.avg} | ${d.max} (${d.maxAt}) | ${d.min} | ${d.minutesAbove180} | ${d.minutesBelow70}`);
     L.push("");
-    L.push(`SPIKES (${x.spikes.length}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | place context`);
+    // The count is the week's, the rows are the brief's. When the rows are a subset the header says so in
+    // the same breath, so a pattern can cite "7 rises over 180" without the model having to infer it from a
+    // five-row table — and cannot cite the five as though that were the week (T164).
+    // "top N by rise listed" is the wording the clinician's own tile uses for the same cut ("top 5 shown",
+    // lib/spikePlaces.ts), so the brief and the screen describe one cut in one vocabulary.
+    const listed = x.spikeTotal > x.spikes.length ? `; top ${x.spikes.length} by rise listed` : "";
+    L.push(`SPIKES (${x.spikeTotal}${listed}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | place context`);
     if (x.spikes.length === 0) L.push("  none");
     for (const s of x.spikes) {
       const ctx = !s.after

@@ -17,14 +17,18 @@ const matched = () => matchSpikesToVisits(detectSpikes(glucose()), visits());
 const nights = () => parseWhoopCsv(fixture("whoop_cycles.csv"));
 
 function build(over: Partial<Parameters<typeof buildSourInput>[0]> = {}) {
-  return buildSourInput({
+  const args = {
     glucose: glucose(),
     spikes: matched(),
     sleep: nights(),
     patientNotes: "Tired in the afternoons.",
     visit: { type: "follow_up", reason: "mornings running high" },
     ...over,
-  });
+  };
+  // Uncapped unless a test asks for the cut: `spikeTotal` is the week's count and `spikes` the rows listed,
+  // and they part company only where lib/bundle.ts slices to five (T164). An explicit `spikeTotal` in
+  // `over` is already in `args` and wins.
+  return buildSourInput({ spikeTotal: args.spikes.length, ...args });
 }
 
 function series(startIso: string, stepMin: number, values: number[]): GlucoseReading[] {
@@ -62,6 +66,43 @@ test("a week of readings with nothing over 180 says so under SPIKES", () => {
   // it and no excursion, where "none" is a fact about the week rather than a fact about the upload.
   const flat = build({ glucose: series("2026-09-19T08:00:00Z", 5, [104, 110, 108, 112, 109, 106]), spikes: [] });
   assert.match(renderSourInput(flat), /SPIKES \(0;[^)]*\)[\s\S]*\n {2}none/);
+});
+
+// T164 (design §7.1, §2.6): the count the model is given.
+//
+// `PatientBundle.spikes` is cut to five for the clinician's card, and the brief used to head its table with
+// the length of that cut — so a pattern citing "5 rises over 180" was citing a presentation choice. The
+// header now states the week's count, and says in the same breath that the rows below it are the largest
+// few, which is the only way the model can have the true figure and a short table at once.
+
+/** A week that genuinely holds more rises than the card lists: eight crests to 210, three hours apart, so
+ *  the cut to five is the product's own and the capped case is not staged by the assertion. */
+const cappedWeek = () => {
+  const cycle = [100, 120, 160, 200, 210, 170, 120, 100, 100, 100, 100, 100]; // 3 h at 15-minute steps
+  return series("2026-09-19T00:00:00Z", 15, Array.from({ length: 8 }, () => cycle).flat());
+};
+
+test("the SPIKES header counts the week, not the rows, and says which rows those are (T164)", () => {
+  const glucose = cappedWeek();
+  const every = detectSpikes(glucose);
+  assert.equal(every.length, 8, "the fixture's own count, so the cut below is a real one");
+  const listed = every.slice(0, 5); // lib/bundle.ts' cut, as the provider page makes it
+  const brief = renderSourInput(build({ glucose, spikes: listed, spikeTotal: every.length }));
+  assert.match(brief, /^SPIKES \(8; top 5 by rise listed; rise ≥50 to a peak >180\)/m);
+  // The understated figure is nowhere in the brief: a pattern cannot cite it if it was never stated.
+  assert.doesNotMatch(brief, /^SPIKES \(5[;)]/m);
+  // And the table is still the five rows, so the header discloses the cut rather than promising three more.
+  assert.equal(brief.match(/^ {2}\w{3}, \w{3} \d+ \|/gm)?.length, listed.length);
+});
+
+test("a brief that lists every spike it counted heads the table as it always did (T164)", () => {
+  // The common week, and the half of the change that is about nothing changing: with no cut there is no
+  // subset to name, and "top 1 by rise listed" over the only rise there is would be noise.
+  const all = matched();
+  assert.ok(all.length > 0 && all.length <= 5, `fixture should be uncapped, got ${all.length}`);
+  const brief = renderSourInput(build({ spikes: all, spikeTotal: all.length }));
+  assert.match(brief, new RegExp(`^SPIKES \\(${all.length}; rise ≥50 to a peak >180\\)`, "m"));
+  assert.doesNotMatch(brief, /by rise listed/);
 });
 
 // T143 (design §2.6, §7.1, §7): the brief a conversation-only run reads.
