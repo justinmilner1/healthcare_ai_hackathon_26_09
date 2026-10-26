@@ -190,10 +190,18 @@ export function clinicianSpikeCardHeading(spikes: Spike[]): string {
  * which answers "did any rise match" and so cannot separate "shared and nothing matched" from "never
  * shared". Only the second is this ticket's: a visit that shared a Timeline keeps its count, zero included,
  * because there the zero is a reading taken.
+ *
+ * T164 put a second sentence in front of that one. The tile's value is `PatientBundle.spikeTotal` — every
+ * spike in the readings — while the card under it lists only the top `SPIKES_SHOWN` by rise, so on the
+ * seeded demo week a clinician reads **7** over five rows. The hint is where that is reconciled, because it
+ * is the one line attached to the number itself: `total` is what the tile shows and `spikes` is what the
+ * table shows, and when they differ the hint opens by saying which is which. It opens with the cap rather
+ * than closing with it so that the place count, which is a count *of the listed rows*, is already scoped by
+ * the time it is read.
  */
-export function clinicianSpikePlacesHint(spikes: Spike[], { hasLocation }: { hasLocation: boolean }): string {
-  if (!hasLocation) return NO_TIMELINE_HINT;
-  return `${spikes.filter((s) => s.visit).length} linked to a place`;
+export function clinicianSpikePlacesHint(spikes: Spike[], { hasLocation }: { hasLocation: boolean }, total: number): string {
+  const places = hasLocation ? `${spikes.filter((s) => s.visit).length} linked to a place` : NO_TIMELINE_HINT;
+  return total > spikes.length ? `top ${spikes.length} shown · ${places}` : places;
 }
 
 /**

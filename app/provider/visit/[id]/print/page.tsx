@@ -170,11 +170,13 @@ export default async function PrintPage({
                   <StatTile label="Average" value={String(st.avg)} unit="mg/dL" />
                   <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
                   {/* The screen's hint, out of lib/spikePlaces.ts, so the paper cannot report a count of
-                      places over a Timeline nobody shared either (T160, §7.4). */}
+                      places over a Timeline nobody shared either (T160, §7.4) — nor, now, a count of
+                      excursions cut down to the five rows the card prints (T164). Value and hint are the
+                      screen's, which is the whole point of both living in lib/. */}
                   <StatTile
                     label="Spikes > 180"
-                    value={String(bundle.spikes.length)}
-                    hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status)}
+                    value={String(bundle.spikeTotal)}
+                    hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status, bundle.spikeTotal)}
                   />
                   {st.sleepAvgHours !== null ? (
                     <StatTile

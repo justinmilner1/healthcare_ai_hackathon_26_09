@@ -232,7 +232,7 @@ test("the heading never speaks the matcher's vocabulary at the patient (T157)", 
 test("the tile names the missing source rather than counting over it (T160)", () => {
   // The §12.2 journey visit, which §2.5 makes the ordinary one: Dexcom shared, Timeline not (T144). Five
   // rises, no Timeline — so there is no count to report, only the absence, as the Sleep tile reports its own.
-  const hint = clinicianSpikePlacesHint([spike(), spike(), spike(), spike(), spike()], { hasLocation: false });
+  const hint = clinicianSpikePlacesHint([spike(), spike(), spike(), spike(), spike()], { hasLocation: false }, 5);
   assert.equal(hint, NO_TIMELINE_HINT);
   assert.equal(hint, "no Timeline data");
   // Not a number, which is the whole bug: "0 linked to a place" is a measurement over a source nobody read.
@@ -243,24 +243,24 @@ test("the tile names the missing source rather than counting over it (T160)", ()
 test("a Timeline that matched nothing keeps its zero (T160)", () => {
   // The case the ticket is careful about: this patient *did* share the export, so the zero is a reading
   // taken — no rise of theirs started near a stop — and reads differently from never having shared one.
-  const hint = clinicianSpikePlacesHint([spike(), spike()], { hasLocation: true });
+  const hint = clinicianSpikePlacesHint([spike(), spike()], { hasLocation: true }, 2);
   assert.equal(hint, "0 linked to a place");
-  assert.notEqual(hint, clinicianSpikePlacesHint([spike(), spike()], { hasLocation: false }));
+  assert.notEqual(hint, clinicianSpikePlacesHint([spike(), spike()], { hasLocation: false }, 2));
 });
 
 test("and a Timeline that matched some keeps its count (T160)", () => {
   // The acceptance criterion that is about nothing changing: desktop-provider-print.png is this visit.
   assert.equal(
-    clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike()], { hasLocation: true }),
+    clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike()], { hasLocation: true }, 4),
     "3 linked to a place",
   );
-  assert.equal(clinicianSpikePlacesHint([spike(somewhere("Noe Cafe"))], { hasLocation: true }), "1 linked to a place");
+  assert.equal(clinicianSpikePlacesHint([spike(somewhere("Noe Cafe"))], { hasLocation: true }, 1), "1 linked to a place");
 });
 
 test("an empty card still answers about the source, not with a count (T160)", () => {
   // No rises at all: with a Timeline there is a zero to state, without one there is still nothing read.
-  assert.equal(clinicianSpikePlacesHint([], { hasLocation: true }), "0 linked to a place");
-  assert.equal(clinicianSpikePlacesHint([], { hasLocation: false }), NO_TIMELINE_HINT);
+  assert.equal(clinicianSpikePlacesHint([], { hasLocation: true }, 0), "0 linked to a place");
+  assert.equal(clinicianSpikePlacesHint([], { hasLocation: false }, 0), NO_TIMELINE_HINT);
 });
 
 test("the tile asks `hasLocation`, never `anyPlaceKnown` (T160)", () => {
@@ -269,8 +269,49 @@ test("the tile asks `hasLocation`, never `anyPlaceKnown` (T160)", () => {
   // is "shared, nothing matched" and must keep its count; false with false is "never shared".
   const unmatched = [spike(), spike(), spike()];
   assert.equal(anyPlaceKnown(unmatched), false);
-  assert.match(clinicianSpikePlacesHint(unmatched, { hasLocation: true }), /^\d+ linked to a place$/);
-  assert.equal(clinicianSpikePlacesHint(unmatched, { hasLocation: false }), NO_TIMELINE_HINT);
+  assert.match(clinicianSpikePlacesHint(unmatched, { hasLocation: true }, unmatched.length), /^\d+ linked to a place$/);
+  assert.equal(clinicianSpikePlacesHint(unmatched, { hasLocation: false }, unmatched.length), NO_TIMELINE_HINT);
+});
+
+// T164 (§2.6, §7.4): the tile's value became `PatientBundle.spikeTotal` — every rise in the week — while
+// the card under it still lists the top five, so the hint is where a clinician reading "7" over five rows
+// finds out why. Nothing about the T160 states above changes when the two agree.
+
+test("the hint says which rows are shown when the tile counts more than the table lists (T164)", () => {
+  // The seeded demo week: seven rises, five rows, a Timeline shared and three of the listed five placed.
+  const listed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
+  assert.equal(clinicianSpikePlacesHint(listed, { hasLocation: true }, 7), "top 5 shown · 3 linked to a place");
+  // The ordinary §2.5 visit: the same disclosure, over the absence T160 put there instead of a count.
+  assert.equal(clinicianSpikePlacesHint(listed, { hasLocation: false }, 7), `top 5 shown · ${NO_TIMELINE_HINT}`);
+});
+
+test("the cap disclosure is the only thing it adds: the place hint survives it (T164)", () => {
+  // Acceptance criterion 4's second half. Whatever T160 decided for a visit is still in the string, at the
+  // end of it, so one change cannot quietly undo the other.
+  const listed = [spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()];
+  for (const hasLocation of [true, false]) {
+    const uncapped = clinicianSpikePlacesHint(listed, { hasLocation }, listed.length);
+    const capped = clinicianSpikePlacesHint(listed, { hasLocation }, listed.length + 2);
+    assert.ok(capped.endsWith(uncapped), `${capped} should still end with ${uncapped}`);
+    assert.match(capped, /^top 5 shown · /);
+  }
+});
+
+test("a card that lists everything it counted says nothing about a cap (T164)", () => {
+  // The common visit, and the regression guard: a week with five or fewer rises has no discrepancy to
+  // disclose, and a tile reading "top 5 shown" under a complete table would invent one.
+  const listed = [spike(somewhere("Noe Cafe")), spike(), spike()];
+  assert.equal(clinicianSpikePlacesHint(listed, { hasLocation: true }, 3), "1 linked to a place");
+  assert.doesNotMatch(clinicianSpikePlacesHint(listed, { hasLocation: true }, 3), /shown/);
+  assert.doesNotMatch(clinicianSpikePlacesHint([], { hasLocation: false }, 0), /shown/);
+});
+
+test("the place count is scoped by the clause before it, not left to be read as a share of the tile (T164)", () => {
+  // Why the cap opens the hint rather than closing it: "3 linked to a place" counts the *listed* rows, so
+  // beside a tile reading 7 it would otherwise read as 3 of 7. The disclosure comes first so that by the
+  // time the count is read, "top 5" is what it is a count of.
+  const hint = clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()], { hasLocation: true }, 7);
+  assert.ok(hint.indexOf("top 5 shown") < hint.indexOf("linked to a place"), hint);
 });
 
 test("the tile and the Sleep tile beside it name an absence the same way (T160)", () => {

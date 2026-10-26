@@ -446,7 +446,7 @@ export default function SourView({ id }: { id: string }) {
                     <h3 className="text-sm font-semibold">Summary</h3>
                     {st && bundle.status.hasDexcom && (
                       <p className="text-sm text-[var(--viz-ink-2)]">
-                        In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg} · GMI {st.gmi.toFixed(1)}% · {countOf(bundle.spikes.length, "spike")}
+                        In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg} · GMI {st.gmi.toFixed(1)}% · {countOf(bundle.spikeTotal, "spike")}
                         {st.sleepAvgHours !== null && ` · sleep ${st.sleepAvgHours}h`}
                       </p>
                     )}
@@ -519,8 +519,12 @@ export default function SourView({ id }: { id: string }) {
                         <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
                         {/* The hint is not a count unless a Timeline was shared: with none, a "0 linked to
                             a place" would report an absence of optional data as a measurement, beside a
-                            Sleep tile that names the same absence for WHOOP (T160, §2.5, §2.6). */}
-                        <StatTile label="Spikes > 180" value={String(bundle.spikes.length)} hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status)} />
+                            Sleep tile that names the same absence for WHOOP (T160, §2.5, §2.6).
+                            The value is `spikeTotal` and not `spikes.length`: the list is cut to five for
+                            the card below, and a clinician reads this tile as the count of the week's
+                            excursions (T164, §7.1). Where the two differ the hint says "top 5 shown", so
+                            the number and the rows under it do not have to be reconciled by guesswork. */}
+                        <StatTile label="Spikes > 180" value={String(bundle.spikeTotal)} hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status, bundle.spikeTotal)} />
                         {st.sleepAvgHours !== null ? (
                           <StatTile label="Sleep" value={st.sleepAvgHours.toFixed(1)} unit="h/night" hint={st.recoveryAvg !== null ? `recovery ${st.recoveryAvg}%` : undefined} />
                         ) : (
