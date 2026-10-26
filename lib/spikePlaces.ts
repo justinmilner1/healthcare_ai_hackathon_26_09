@@ -21,6 +21,7 @@
 // Pure, and in lib/ rather than in the component, so both shapes can be held to this in a unit test (§12.1).
 
 import { placeLabel } from "./location";
+import { countOf } from "./plural";
 import type { Spike, Visit } from "./types";
 
 /**
@@ -114,6 +115,34 @@ export function patientChartCaption(spikes: Spike[]): string {
 const TARGET_BAND = "Shaded band is 70–180 mg/dL.";
 
 /**
+ * What the caption says the red markers are, which is a claim about how many of the week's rises are drawn.
+ *
+ * `GlucoseChart` is handed `PatientBundle.spikes` — the top `SPIKES_SHOWN` by rise — on both clinician
+ * surfaces, while the "Spikes > 180" tile a few inches above reads `PatientBundle.spikeTotal`, every rise
+ * in the readings (T164). So "Red markers are spikes." was true only while the two agreed: on the seeded
+ * demo week it sat under a tile reading 7 over five markers, and the two rises it left out (peaks 199 and
+ * 196) were drawn as unlabelled crests inside the shaded band's upper edge. A clinician could count the
+ * markers, get five, and have nothing on the surface to say which number was wrong (T165).
+ *
+ * `clinicianSpikePlacesHint` reconciles the same cut for the card, and this is the choice T165 made for the
+ * chart: scope the sentence rather than draw all 28 markers the capped fixture holds. §7 is about numbers a
+ * clinician can trust, not about marker density, and the caption is the half of the pair that was false.
+ *
+ * "largest rises" and not "largest spikes" because `detectSpikes` sorts by rise and the slice is taken off
+ * that order — the five drawn are the five biggest climbs, not the five highest peaks. The counted noun is
+ * `countOf`'s, so the sentence says "7 spikes" in the words the brief's own overview line uses for the same
+ * number.
+ *
+ * Where the week holds no more than the card lists there is no cut to disclose, and the sentence is the one
+ * it has always been: a caption reading "the 5 largest of 5 spikes" would invent the discrepancy T160 and
+ * T164 were careful not to invent on the tile.
+ */
+function markerSentence(shown: number, total: number): string {
+  if (total <= shown) return "Red markers are spikes.";
+  return `Red markers are the ${shown} largest rises of ${countOf(total, "spike")}.`;
+}
+
+/**
  * The caption under the glucose chart on the two clinician surfaces: the brief (§2.6) and the printed
  * one-pager (§7.4). One function, so the two strings cannot drift apart (T99).
  *
@@ -123,15 +152,19 @@ const TARGET_BAND = "Shaded band is 70–180 mg/dL.";
  * Dexcom-only visit every label was a number the caption called a place, beside a Spikes card already
  * reading "0 linked to a place".
  *
- * Two things it therefore does not say. Not that a label is a place, unless one is: with no place known
+ * Three things it therefore does not say. Not that a label is a place, unless one is: with no place known
  * anywhere the caption names the peak reading and says outright that nothing matched, which is what the
- * card beside it says. And not that every marker carries a label: GlucoseChart drops a label that would
- * collide with the one before it, keeping the marker, so the labels are the ones that fit.
+ * card beside it says. Not that every marker carries a label: GlucoseChart drops a label that would
+ * collide with the one before it, keeping the marker, so the labels are the ones that fit. And not that the
+ * markers are the week's rises when they are the largest few of them — `markerSentence` above, which takes
+ * the `total` the stat tile shows so that the chart and the tile cannot be counted against each other
+ * (T165).
  */
-export function clinicianChartCaption(spikes: Spike[]): string {
+export function clinicianChartCaption(spikes: Spike[], total: number): string {
+  const markers = markerSentence(spikes.length, total);
   return anyPlaceKnown(spikes)
-    ? `${TARGET_BAND} Red markers are spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.`
-    : `${TARGET_BAND} Red markers are spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.`;
+    ? `${TARGET_BAND} ${markers} Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.`
+    : `${TARGET_BAND} ${markers} Labels, where they fit, give the peak mg/dL: no place matched any of these rises.`;
 }
 
 /**

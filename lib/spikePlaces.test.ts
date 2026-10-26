@@ -69,7 +69,7 @@ test("the caption and the column agree, because both read one predicate", () => 
 
 test("the clinician's caption calls the labels what they are when no place matched (T99)", () => {
   // The §12.2 journey visit: Dexcom and WHOOP, no Timeline, five spikes labeled 206, 202, 214, 210, 194.
-  const caption = clinicianChartCaption([spike(), spike(), spike(), spike(), spike()]);
+  const caption = clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], 5);
   assert.match(caption, /peak mg\/dL/);
   assert.doesNotMatch(caption, /the place the patient had just left/);
   // And it agrees with the card beside it, whose stat tile reads 0 on this visit — and, since T157, whose
@@ -78,7 +78,7 @@ test("the clinician's caption calls the labels what they are when no place match
 });
 
 test("and names the place where one matched, with the number as the other case (T99)", () => {
-  const caption = clinicianChartCaption([spike(somewhere("Noe Cafe")), spike()]);
+  const caption = clinicianChartCaption([spike(somewhere("Noe Cafe")), spike()], 2);
   assert.match(caption, /the place the patient had just left/);
   assert.match(caption, /peak mg\/dL/);
 });
@@ -87,7 +87,7 @@ test("neither shape promises that every marker is labeled (T99)", () => {
   // GlucoseChart keeps the marker and drops the label when two would collide, so "labeled with ..." of the
   // markers as a set was never true, even on a visit full of places.
   for (const spikes of [[], [spike()], [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))]]) {
-    const caption = clinicianChartCaption(spikes);
+    const caption = clinicianChartCaption(spikes, spikes.length);
     assert.match(caption, /Labels, where they fit,/);
     assert.doesNotMatch(caption, /Red markers are spikes, labeled with/);
   }
@@ -96,13 +96,13 @@ test("neither shape promises that every marker is labeled (T99)", () => {
 test("the band sentence is the same on the brief and on the printed sheet (T99)", () => {
   // One function is what keeps the two strings in step; both surfaces call it with the same spikes.
   for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
-    assert.match(clinicianChartCaption(spikes), /^Shaded band is 70\u2013180 mg\/dL\. /);
+    assert.match(clinicianChartCaption(spikes, spikes.length), /^Shaded band is 70\u2013180 mg\/dL\. /);
   }
 });
 
 test("the clinician's caption keeps the clinician's register, not the patient's (T99)", () => {
   for (const spikes of [[], [spike(somewhere("Home"))]]) {
-    assert.doesNotMatch(clinicianChartCaption(spikes), /\byour\b|\byou\b/i);
+    assert.doesNotMatch(clinicianChartCaption(spikes, spikes.length), /\byour\b|\byou\b/i);
   }
   // And the patient's page is unchanged by this ticket.
   assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
@@ -212,7 +212,7 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
     // And it says the same thing as the caption beside it, which is why both live in this module. The
     // matched caption also carries the words "no place matched" -- of the individual label that has none --
     // so the clause to compare against is the one that speaks about the rises as a set.
-    assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes)), heading);
+    assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes, spikes.length)), heading);
   }
 });
 
@@ -318,4 +318,70 @@ test("the tile and the Sleep tile beside it name an absence the same way (T160)"
   // §2.6's row, read across: the two optional sources, two tiles, one register. "no WHOOP data" is written
   // in the pages; this is the half that is decidable here.
   assert.match(NO_TIMELINE_HINT, /^no \S+ data$/);
+});
+
+// T165 (§2.6, §7.4): the chart was the third surface reading T164's cut, and the only one that said nothing
+// about it. GlucoseChart gets the top five by rise; the tile above it counts the week. So the caption's
+// middle sentence takes the tile's `total` too, and a clinician counting five markers under a tile reading 7
+// is told which is which.
+
+test("the caption scopes the markers when the tile counts more rises than the chart draws (T165)", () => {
+  // The seeded demo week: seven rises over 180, five of them drawn, a Timeline shared.
+  const listed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
+  const caption = clinicianChartCaption(listed, 7);
+  assert.match(caption, /Red markers are the 5 largest rises of 7 spikes\./);
+  assert.doesNotMatch(caption, /Red markers are spikes\./);
+  // The §12.2 journey visit is the same week without the Timeline, so the other branch discloses it too.
+  assert.match(clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], 7), /the 5 largest rises of 7 spikes/);
+});
+
+test("a chart that draws every rise the week holds says nothing about a cap (T165)", () => {
+  // Acceptance criterion 2, which is T160's and T164's guard applied here: with nothing cut there is no
+  // discrepancy, and a caption naming one would invent it.
+  for (const spikes of [[], [spike()], [spike(), spike(somewhere("Home"))], [spike(), spike(), spike(), spike(), spike()]]) {
+    const caption = clinicianChartCaption(spikes, spikes.length);
+    assert.match(caption, /Red markers are spikes\./);
+    assert.doesNotMatch(caption, /largest|of \d+ spikes/);
+  }
+});
+
+test("the caption and the tile's hint are scoped by the same two numbers (T165)", () => {
+  // Acceptance criterion 1: the chart and the tile cannot be counted against each other, because the same
+  // `spikes`/`total` pair decides whether each discloses the cut. One predicate, two surfaces' worth of
+  // copy — the shape lib/spikePlaces.ts exists for (T82, T99, T157).
+  const listed = [spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()];
+  for (const total of [5, 6, 7, 28]) {
+    const discloses = /largest rises of/.test(clinicianChartCaption(listed, total));
+    assert.equal(discloses, /shown/.test(clinicianSpikePlacesHint(listed, { hasLocation: true }, total)), `total ${total}`);
+    // And the number it names is the tile's own, not the row count.
+    if (discloses) assert.match(clinicianChartCaption(listed, total), new RegExp(`of ${total} spikes`));
+  }
+});
+
+test("the capped caption keeps every promise the uncapped one makes (T165)", () => {
+  // Acceptance criterion 3. The sentence about labels is the only thing T99 and T82 put in this string, and
+  // the cap disclosure replaces the sentence in front of it rather than any part of that.
+  const placed = [spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()];
+  const unplaced = [spike(), spike(), spike(), spike(), spike()];
+  for (const spikes of [placed, unplaced]) {
+    const capped = clinicianChartCaption(spikes, 7);
+    assert.match(capped, /^Shaded band is 70–180 mg\/dL\. /);
+    assert.match(capped, /Labels, where they fit,/);
+    assert.doesNotMatch(capped, /\byour\b|\byou\b/i);
+    // T99: a place only where one matched, and the peak reading as the other case.
+    assert.equal(/the place the patient had just left/.test(capped), anyPlaceKnown(spikes));
+    assert.match(capped, /peak mg\/dL/);
+  }
+  assert.match(clinicianChartCaption(unplaced, 7), /no place matched any of these rises/);
+});
+
+test("the counted noun agrees wherever the cut can fire (T165)", () => {
+  // `countOf(total, "spike")` rather than a bare `${total} spikes`, in the words the brief's own overview
+  // line uses for the same number. A cut exists only where the week holds more rises than the chart draws,
+  // so the number is two or more and the noun is always the plural — asserted rather than reasoned about,
+  // because the only thing keeping it that way is `SPIKES_SHOWN` and the slice in lib/bundle.ts.
+  for (let shown = 1; shown <= 6; shown++) {
+    const caption = clinicianChartCaption(Array.from({ length: shown }, () => spike()), shown + 1);
+    assert.match(caption, new RegExp(`Red markers are the ${shown} largest rises of ${shown + 1} spikes\\.`));
+  }
 });
