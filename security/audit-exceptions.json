@@ -27,15 +27,6 @@
       "reason": "Stack exhaustion when merging a recursive object graph. Reached only by the Prisma CLI merging prisma.config.ts during `prisma generate` and `prisma migrate`, which run on a developer's machine and in CI, never in the deployed app. The only fix npm offers is prisma 6.12.0, a downgrade past the migrations this repo already has.",
       "owner": "compliance",
       "expires": "2027-01-09"
-    },
-    {
-      "advisory": 1240992,
-      "package": "braces",
-      "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
-      "scope": "devDependency, via eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch",
-      "reason": "Denial of service on a deeply nested glob pattern. Reached only by eslint expanding the file globs in eslint.config.mjs, which we wrote. Not in the deployed app. The only fix npm offers is eslint-config-next 14.2.35, which does not support Next 15.",
-      "owner": "compliance",
-      "expires": "2027-01-09"
     }
   ]
 }
