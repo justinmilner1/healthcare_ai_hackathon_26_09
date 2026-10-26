@@ -134,8 +134,8 @@ const TARGET_BAND = "Shaded band is 70–180 mg/dL.";
  * number.
  *
  * Where the week holds no more than the card lists there is no cut to disclose, and the sentence is the one
- * it has always been: a caption reading "the 5 largest of 5 spikes" would invent the discrepancy T160 and
- * T164 were careful not to invent on the tile.
+ * it has always been: a caption reading "the 5 largest rises of 5 spikes" would invent the discrepancy
+ * T160 and T164 were careful not to invent on the tile.
  */
 function markerSentence(shown: number, total: number): string {
   if (total <= shown) return "Red markers are spikes.";
