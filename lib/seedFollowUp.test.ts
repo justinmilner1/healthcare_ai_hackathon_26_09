@@ -29,7 +29,9 @@ process.env.SUMMARY_TZ = "UTC"; // the answer's local times come from this; pin 
 
 /** The demo's spike set exactly as the provider page gets it: matched to Timeline places and cut to five
  *  (lib/bundle.ts). The seed passes `PatientBundle.spikes`, so the counts in the answer are counts of rows a
- *  clinician can see in the Spikes card; this mirrors that one line. */
+ *  clinician can see in the Spikes card; this mirrors that one line. The week itself holds more than this —
+ *  `PatientBundle.spikeTotal`, which is what the stat tile reports (T164) — and the answer stays scoped to
+ *  the card, which is why every count in it is written "on this brief". */
 const briefSpikes = (): Spike[] => {
   const glucose = parseClarityCsv(sample("dexcom_clarity_sample.csv"));
   const visits = labelVisits(parseTimeline(sample("timeline_sample.json")), parseVisitsCsv(sample("visits.csv")));
@@ -45,10 +47,17 @@ test("the seeded pair is the visit's own question, answered", () => {
   assert.ok(answer.length > 0 && answer.endsWith("."), answer);
 });
 
-test("the demo's week is the week the answer describes: five spikes, three of them after 19:00", () => {
+test("the demo's week is the week the answer describes: five spikes listed, three of them after 19:00", () => {
   const spikes = briefSpikes();
   // The fixture, so the assertions below are about a known week rather than about whatever it becomes.
-  assert.equal(spikes.length, 5, "lib/bundle.ts shows five spikes, which the stat tile counts");
+  assert.equal(spikes.length, 5, "lib/bundle.ts lists five spikes, and this box counts the rows it lists");
+  // T164: and the tile above the card does not count these rows. data/dexcom_clarity_sample.csv holds seven
+  // rises over 180, two of which the cut drops, so the two figures on the brief are different numbers of
+  // different things — this box's "5 spikes on this brief" and the tile's "7". Pinned here because the
+  // comment above used to claim the tile counted this list, and that claim was the bug.
+  const everySpike = detectSpikes(parseClarityCsv(sample("dexcom_clarity_sample.csv")));
+  assert.equal(everySpike.length, 7, "the week's own count, which the stat tile reports");
+  assert.ok(everySpike.length > spikes.length, "the demo week is a capped one, which is what makes it the case to pin");
   const peaks = spikes.map((s) => s.peak).sort();
   assert.deepEqual(
     peaks.map((p) => p.slice(0, 16)),
