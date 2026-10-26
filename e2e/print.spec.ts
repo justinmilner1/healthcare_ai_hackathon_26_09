@@ -108,6 +108,13 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   const placesTile = page.locator(".sour-print-numbers");
   await expect(placesTile).toContainText(/\d+ linked to a place/);
   await expect(placesTile, "a source this visit did share").not.toContainText("no Timeline data");
+  // T164 (§7.4): the tile's own number, and the case where both disclosures have to fit in one hint. This
+  // visit shares the seven-rise sample *and* a Timeline, so the sheet states the week's seven, says the
+  // card lists five of them, and still reports how many of those five were placed — the half of T160 that
+  // had to survive (acceptance criterion 4).
+  const printSpikeTile = placesTile.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(printSpikeTile.locator(".text-2xl")).toHaveText("7");
+  await expect(printSpikeTile).toContainText(/^top 5 shown · \d+ linked to a place$/);
   // T62: this visit has a Timeline export and no hand-labelled place list beside it, which is all a patient
   // can actually send (§9.3). Every place on the sheet is therefore the visit's own coordinates — Google's
   // internal place id is not a place name, and a clinician holding this paper cannot read one.

@@ -422,6 +422,15 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const metrics = page.locator(".sour-metrics-card");
   await expect(metrics).toContainText("no Timeline data");
   await expect(metrics, "a count of places over an export this visit never had").not.toContainText(/linked to a place/);
+  // T164 (§2.6): the number on that tile. data/dexcom_clarity_sample.csv holds seven rises over 180 and the
+  // card above lists the top five, and the tile used to report the five — a count of rows presented as a
+  // count of the patient's week. So: the week's figure on the tile, the cap disclosed beneath it, and the
+  // summary line at the top of the brief saying the same number as the tile rather than the table's.
+  const spikeTile = metrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(spikeTile.locator(".text-2xl")).toHaveText("7");
+  await expect(spikeTile, "a clinician reading 7 over five rows is told why").toContainText("top 5 shown");
+  await expect(page.locator(".sour-overview-card")).toContainText("7 spikes");
+  await expect(page.locator(".sour-overview-card"), "the summary line's old count of the table's rows").not.toContainText("5 spikes");
   // The pair the ticket is about, read across the row: this patient shared WHOOP, so the Sleep tile reports
   // the nights it read. Both branches of the same rule in one row — a source that is there is measured, a
   // source that is not is named. The both-absent pair is asserted on the Dexcom-only visit (e2e/flags.spec.ts).
@@ -515,6 +524,12 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const printNumbers = page.locator(".sour-print-numbers");
   await expect(printNumbers).toContainText("no Timeline data");
   await expect(printNumbers, "a count of places on a sheet whose visit has no Timeline").not.toContainText(/linked to a place/);
+  // T164 (§7.4): the same tile on the paper, which is the copy that leaves the building. Same seven rises,
+  // same five rows, one function behind both (lib/spikePlaces.ts) — so the sheet cannot understate a week
+  // the screen states correctly.
+  const printSpikeTile = printNumbers.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(printSpikeTile.locator(".text-2xl")).toHaveText("7");
+  await expect(printSpikeTile).toContainText("top 5 shown");
   await expect(printNumbers, "the Sleep tile on paper, over the WHOOP this patient did share").toContainText("h/night");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   // The patient's own words at the bottom of the frame, with the patterns and the questions above them

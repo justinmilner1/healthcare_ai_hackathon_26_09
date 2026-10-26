@@ -188,6 +188,12 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expect(flaggedMetrics).toContainText("no Timeline data");
   await expect(flaggedMetrics).toContainText("no WHOOP data");
   await expect(flaggedMetrics, "a count of places over an export this visit has not got").not.toContainText(/linked to a place/);
+  // T164 (§2.6): the uncapped week, which is the other half of that change. This fixture holds one rise, the
+  // card lists it, and so there is no discrepancy to disclose — a tile reading "top 5 shown" over a complete
+  // table would invent one. The capped week is asserted in e2e/journey.spec.ts.
+  const flaggedSpikeTile = flaggedMetrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(flaggedSpikeTile.locator(".text-2xl")).toHaveText("1");
+  await expect(flaggedSpikeTile, "a cap announced over a table that lists everything").not.toContainText(/shown/);
 
   await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 
