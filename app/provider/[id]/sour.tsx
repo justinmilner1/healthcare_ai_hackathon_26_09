@@ -541,7 +541,10 @@ export default function SourView({ id }: { id: string }) {
                 {bundle.status.hasDexcom && (
                 <section className="sour-card sour-chart-card">
                   <h3 className="text-sm font-semibold">Glucose, last {countOf(st?.days ?? 7, "day")}</h3>
-                  <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes)}</p>
+                  {/* `spikeTotal` as well as `spikes`, for the reason the tile above takes it (T165, §2.6):
+                      the chart draws a marker per listed rise and the tile counts the week, so the caption
+                      has to know both or it is describing a set the clinician cannot count. */}
+                  <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes, bundle.spikeTotal)}</p>
                   <div className="mt-2">
                     <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
                   </div>

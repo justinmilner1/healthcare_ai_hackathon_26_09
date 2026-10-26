@@ -253,7 +253,9 @@ export default async function PrintPage({
             {bundle.status.hasDexcom && (
               <section className="sour-card">
                 <h2>Glucose, last {countOf(st?.days ?? 7, "day")}</h2>
-                <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes)}</p>
+                {/* Both arguments are the screen's (T165, §7.4): the sheet draws the same five markers
+                    under the same tile, so it cannot describe them more loosely than the brief does. */}
+                <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes, bundle.spikeTotal)}</p>
                 <div className="mt-2">
                   <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} height={220} />
                 </div>
