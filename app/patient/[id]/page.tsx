@@ -16,6 +16,7 @@ import { summaryDataInvite } from "@/lib/dexcomHint";
 import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
 import { patientChartCaption } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
+import { visitCountdownSentence } from "@/lib/visitCountdown";
 import { visitLabel } from "@/lib/visits";
 
 export default function PatientPage({
@@ -54,9 +55,6 @@ export default function PatientPage({
   const first = bundle.patient.name.split(" ")[0];
   const summary = bundle.patientSummary;
   const stats = bundle.stats;
-  const daysToVisit = bundle.patient.apptAt
-    ? Math.ceil((Date.parse(bundle.patient.apptAt) - Date.now()) / 86400000)
-    : null;
   const tirPct = Math.round(stats.tir * 100);
   // §2.7 What the empty state asks for, from the control the data panel on /s/<token> is offering
   // this visit (§2.5) rather than from `hasDexcom` alone (T118).
@@ -75,14 +73,11 @@ export default function PatientPage({
   const heroEyebrow = (
     bundle.status.hasDexcom ? `Your ${spanNoun(stats.days)} with Sweetie` : "Your check-in with Sweetie"
   ).toUpperCase();
-  const visitMessage =
-    daysToVisit === null
-      ? `Getting ready for your visit with ${bundle.patient.provider.name}.`
-      : daysToVisit > 1
-        ? `${daysToVisit} days until your visit with ${bundle.patient.provider.name}.`
-        : daysToVisit === 1
-          ? `Your visit with ${bundle.patient.provider.name} is tomorrow.`
-          : `Your visit with ${bundle.patient.provider.name}.`;
+  // §2.7 The one line on this page about the appointment rather than about the data. It counts calendar
+  // days, not 24-hour spans, and the sentence is lib/visitCountdown.ts's rather than this page's: the
+  // inline `Math.ceil` it replaced told a patient whose visit was at 17:00 today that it was tomorrow
+  // (T162), and a sentence written in a page is one only a screenshot can check.
+  const visitMessage = visitCountdownSentence(bundle.patient.apptAt, bundle.patient.provider.name);
 
   return (
     <main className="ss-page sweetie-theme patient-summary-page">
@@ -108,7 +103,7 @@ export default function PatientPage({
               <br />
               <em>{first}.</em>
             </h1>
-            <p>{visitMessage}</p>
+            <p className="patient-summary-countdown">{visitMessage}</p>
             <div className="patient-summary-meta">
               {/* The label, never the id: `follow_up` is a column value, and this is the one screen written
                   for the patient (design §2.7, §6). visitLabel comes from lib/visits.ts rather than
