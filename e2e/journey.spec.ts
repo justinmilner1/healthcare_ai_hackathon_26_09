@@ -441,6 +441,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(caption).toContainText("peak mg/dL");
   await expect(caption).toContainText("no place matched");
   await expect(caption, "a place promised over markers that are numbers").not.toContainText("the place the patient had just left");
+  // T165 (§2.6): and the sentence in front of that one. The chart draws a marker per listed rise — five —
+  // under a tile reading 7, so the caption names both numbers rather than calling the five "spikes" and
+  // leaving a clinician to count them against the tile.
+  await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
   // T153: the visit that has both exports, so the composer still offers both — the half of that change
   // that had to stay as it was (lib/sourState.ts `askSourPlaceholder`). The conversation-only and
   // Dexcom-only briefs are asserted where they are shot (e2e/flows.spec.ts, e2e/flags.spec.ts).
@@ -512,6 +516,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(printCaption).toContainText("peak mg/dL");
   await expect(printCaption).toContainText("no place matched");
   await expect(printCaption).not.toContainText("the place the patient had just left");
+  // T165 (§7.4): the same disclosure on the copy that leaves the building, out of the same function.
+  await expect(printCaption).toContainText("the 5 largest rises of 7 spikes");
   // T157 (§7.4): and the heading over the spike card, which is the half of that bug the brief did not have
   // to itself — this is the copy a clinician carries into the room. Same function as the screen, so the two
   // cannot say different things about the same five rises (lib/spikePlaces.ts).

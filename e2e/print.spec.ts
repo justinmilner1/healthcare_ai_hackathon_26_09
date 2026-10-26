@@ -128,6 +128,10 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(caption).toContainText("the place the patient had just left");
   await expect(caption).toContainText("peak mg/dL");
   await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
+  // T165 (§7.4): the capped week on the sheet's other branch. Seven rises, five markers, and the caption
+  // scoped to what is drawn — the tile above it is asserted at 7 a few lines up, which is the pair the
+  // ticket is about (lib/spikePlaces.ts `clinicianChartCaption`).
+  await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   // Both shots of the sheet are anchored on the chart card, which is where the assertions just above live

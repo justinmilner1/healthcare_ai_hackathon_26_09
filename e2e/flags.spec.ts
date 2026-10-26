@@ -194,6 +194,13 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   const flaggedSpikeTile = flaggedMetrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
   await expect(flaggedSpikeTile.locator(".text-2xl")).toHaveText("1");
   await expect(flaggedSpikeTile, "a cap announced over a table that lists everything").not.toContainText(/shown/);
+  // T165 (§2.6): and the chart caption on the same visit, which is the same guard one card down. The
+  // marker drawn is the only rise there is, so the caption says "Red markers are spikes." and nothing about
+  // a cap — acceptance criterion 2 (lib/spikePlaces.ts `clinicianChartCaption`). The capped week is
+  // asserted in e2e/journey.spec.ts, e2e/flows.spec.ts and e2e/print.spec.ts.
+  const flaggedCaption = page.locator(".sour-chart-caption");
+  await expect(flaggedCaption).toContainText("Red markers are spikes.");
+  await expect(flaggedCaption, "a cut disclosed over a chart that draws every rise").not.toContainText(/largest rises/);
 
   await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 

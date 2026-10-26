@@ -240,6 +240,10 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   await expect(caption).toContainText("the place the patient had just left");
   await expect(caption).toContainText("peak mg/dL");
   await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
+  // T165 (§2.6): the fourth of the four clinician shapes — the capped week on the brief, with a Timeline.
+  // The chart draws the five rises the card lists and the tile counts the week's seven, so the caption says
+  // which of the two the markers are.
+  await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
   await shot(page, "provider-sour-generated");
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
