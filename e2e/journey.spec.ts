@@ -460,6 +460,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // desktop project shoots the document, so the brief's own frame holds the row; this gives it a readable
   // one at both widths.
   await shot(page, "12-sour-metrics-no-timeline", { ...SCREENFUL, scrollTo: metrics });
+  // T165 (§12.3): the chart card, which is this ticket's subject on the brief. The caption and the five red
+  // markers it describes have to be in one frame to see that they agree, and the tile they are reconciled
+  // with is the card the frame opens under. The desktop project shoots the document, so the brief's own
+  // frame holds the card; at 375px it is below the fold, as the two cards above it are.
+  await shot(page, "12-sour-chart-caption", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
     shot(page, `12-sour-brief-tooltip-${chart}`, SCREENFUL),
