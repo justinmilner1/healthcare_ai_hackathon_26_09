@@ -163,10 +163,24 @@ export type DraftResult = { ok: true; draft: VisitDraft } | { ok: false; errors:
  *
  * Which is also the answer to "may `do not message` carry an address": it should. The channel governs the
  * invite, and the address is what the code goes to whether or not an invite was ever sent.
+ *
+ * T168 The sentence used to put the reason after a colon — "…cannot open their link: opening it sends them a
+ * six-digit code" — and a clause in the present tense beside a denial reads as the send happening anyway,
+ * which is the ninth staff-facing line in this repo to claim one that cannot (T91, T94, T110, T111, T120,
+ * T122, T129, T131) and the first to deny and claim it in one breath. So the reason is stated as the absence
+ * it is, in the words the patient's own screen uses for it (components/VerifyGate.tsx: "there is nowhere to
+ * send your 6-digit code"), and the warning ends on the remedy the way every other line of this family does
+ * — `NO_CODE_CAN_REACH` and `cannotSendYet` in lib/delivery.ts both name one. The front desk is the only
+ * party who can fix this: the two fields are theirs, and so is the telephone.
+ *
+ * `lib/visitIntake.test.ts` holds the next rewording to that as a property rather than to this literal.
  */
 export function warningsFor(draft: Pick<VisitDraft, "phone" | "email">): string[] {
   if (draft.phone || draft.email) return [];
-  return ["No phone or email on file, so this patient cannot open their link: opening it sends them a six-digit code."];
+  return [
+    "No phone or email on file, so the six-digit code their link needs has nowhere to go and the link will not open. " +
+      "Add a phone number or an email address, or take the intake over the telephone.",
+  ];
 }
 
 /**
