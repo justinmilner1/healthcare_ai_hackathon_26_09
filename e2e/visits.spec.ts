@@ -504,6 +504,57 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   });
 });
 
+// T168 (design §2.2, §2.3, §5.3, §8.1) The other side of step 3, and the surface this ticket was filed
+// about: the patient the front desk has no number and no address for. §2.2 still books that visit — the
+// appointment is made today and the number arrives tomorrow — so what the step owes staff is the
+// consequence and the way out of it, in a sentence that does not deny the code and promise it in one
+// breath. The main wizard test above fills both fields, so until now no frame of this screen had the
+// sentence on it at all.
+//
+// Nothing is saved: the subject is the line under the channel cards, and a booking here is one more row for
+// every other spec's shots to grow around (the radio-card test below makes the same choice for the same
+// reason). That the draft is creatable is `parseVisitDraft`'s, in lib/visitIntake.test.ts; what this pins is
+// that the screen treats it as one — the save row is live beside the warning, and nothing is marked wrong.
+test("a patient with nothing on file is still bookable, and the step says what that costs", async ({ page }) => {
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+  // Scoped to the dialog throughout: the dashboard is still behind it, and every visit type on step 2 is
+  // also a `.provider-cell-sub` on some row of the table, so an unscoped "Follow-up" is five elements.
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  await wizard.getByLabel("Patient name").fill(uniqueName("No Contact"));
+  // Mobile number and Email left empty on purpose: this is §2.2's gap, and neither field is required.
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+  await wizard.getByText("Follow-up", { exact: true }).click();
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  const warning = wizard.locator(".patient-consent-warning");
+  await expect(warning, "one sentence, from lib/visitIntake.ts, on both §2.2 surfaces").toHaveCount(1, LOADED);
+  await expect(warning).toHaveText(
+    "No phone or email on file, so the six-digit code their link needs has nowhere to go and the link will not open. " +
+      "Add a phone number or an email address, or take the intake over the telephone.",
+  );
+  // The bug: a denial with a present-tense promise after the colon. Neither half may say the code is going
+  // anywhere, here or anywhere else on the step.
+  expect(await wizard.innerText(), "nothing on the step sends a code this patient cannot receive").not.toMatch(
+    /sends? (?:them|you|the patient)/i,
+  );
+  expect(await wizard.innerText(), "nor any other send this office cannot make").not.toMatch(PROMISES_SEND);
+  // It is a warning and not a refusal (§2.2): the visit is still bookable from this step.
+  await expect(wizard.getByRole("button", { name: SAVE })).toBeEnabled();
+
+  // Anchored on the warning rather than on the note above it (STEP_3's anchor): the sentence is what this
+  // frame is evidence about, and on a phone the step is taller than the dialog's scrollport, so the two
+  // differ by exactly the line in question.
+  await shot(page, "provider-add-visit-no-contact", {
+    ...MODAL,
+    scrollTo: ".patient-consent-warning",
+    block: "center",
+    wholeRows: ".patient-consent-warning, .patient-wizard-actions",
+  });
+});
+
 // T166 (design §2.2, §6.4) Both of the wizard's radio groups hide their input inside the styled card, so
 // until this ticket the only non-selected state either card had was `:hover` — which a keyboard never
 // reaches. A person arrowing through "what kind of visit is this" saw the group stand still.
@@ -835,8 +886,15 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // A row with a blank channel column is created and not messaged, which the preview says out loud.
   await expect(page.locator(".import-table")).toContainText("Do not message");
   // And a row with nothing to reach the patient on is still importable, with what that costs on it: after
-  // T08 (§5.3) opening the link sends a code, so this visit has no way in until someone adds a number.
-  await expect(page.locator(".import-warning")).toContainText(/cannot open their link/i);
+  // T08 (§5.3) opening the link sends a code, so this visit has no way in until someone adds a number — and
+  // since T168 the row says that once, and says what the front desk can do about it, rather than denying the
+  // send and promising it in the same sentence.
+  const importWarning = page.locator(".import-warning");
+  await expect(importWarning).toContainText(/the six-digit code their link needs has nowhere to go/i);
+  await expect(importWarning).toContainText(/Add a phone number or an email address, or take the intake over the telephone/i);
+  expect(await importWarning.innerText(), "the row no longer promises the code it has just denied").not.toMatch(
+    /sends? (?:them|you|the patient)/i,
+  );
   // T135 One of the three creatable rows asked for a text and this deployment has no SMS backend, so the
   // screen the decision is made on says so — before the button, in the future tense, and naming what
   // pressing it will cost. The same single line the committed screen gets below, for the same reason: it is
