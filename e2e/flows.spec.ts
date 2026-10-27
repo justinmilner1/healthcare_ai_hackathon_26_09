@@ -192,6 +192,14 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   const selectedRow = page.locator(".sour-patient-list .sour-patient-active");
   await expect(selectedRow).toContainText("E2E Patient");
   await expect(selectedRow.locator("i"), "no tick on a visit with no summary").toHaveCount(0, LOADED);
+  // T171: and the footer under all of that no longer signs the page off as "AI-generated from
+  // patient-uploaded data". Nothing was generated and nothing was uploaded; the sentence says so, and keeps
+  // the half that is true of every state (lib/disclaimer.ts, §2.6).
+  const caveat = page.locator(".sour-disclaimer");
+  await expect(caveat, "the claim T171 was filed for").not.toContainText(/AI-generated/i);
+  await expect(caveat).not.toContainText(/uploaded data/i);
+  await expect(caveat).toContainText("Nothing has been generated for this visit yet");
+  await expect(caveat).toContainText("it flags, it does not diagnose");
   await shot(page, "provider-sour-not-started", { ...SCREENFUL, scrollTo: waiting, block: "start" });
 });
 
@@ -413,6 +421,12 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
   // And no invented figure beside them. The suite runs with no model key, so the narrative sections are
   // empty by design (§6.3) and every number on this page would have come from `renderSourInput`'s zeros.
   await expect(page.locator(".sour-brief")).not.toContainText(/Time in range/i);
+  // T171: and the footer names the source the notice above it just named. It used to read "AI-generated
+  // from patient-uploaded data" on a brief whose own notice said the opposite four elements up — the page
+  // naming the provenance correctly in one place and misnaming it in the other (lib/disclaimer.ts).
+  const convCaveat = page.locator(".sour-disclaimer");
+  await expect(convCaveat, "the source claim T171 was filed for").not.toContainText(/uploaded data/i);
+  await expect(convCaveat).toContainText("AI-generated from the patient's own answers");
   await shot(page, "provider-sour-conversation-only", { ...SCREENFUL, scrollTo: ".sour-no-glucose-note", block: "center" });
 });
 

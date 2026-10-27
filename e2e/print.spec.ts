@@ -191,9 +191,24 @@ test("a visit with no clinician's name on it prints the practice's words for tha
   for (const gone of [".sour-summary-sidebar", ".sour-patient-list", ".persona-brand", ".sour-brief-actions"]) {
     await expect(page.locator(gone), `${gone} does not belong on the sheet`).toHaveCount(0);
   }
+  // T171 (§7.4, §2.6): this sheet is the one that goes into a chart, and it says the patient has shared
+  // nothing — so the footer may not sign it off as "AI-generated from patient-uploaded data".
+  const caveat = page.locator(".sour-print-footer");
+  await expect(caveat, "the claim T171 was filed for").not.toContainText(/AI-generated/i);
+  await expect(caveat).not.toContainText(/uploaded data/i);
+  await expect(caveat).toContainText("Nothing has been generated for this visit yet");
+  await expect(caveat).toContainText("it flags, it does not diagnose");
+  const sheetCaveat = (await caveat.innerText()).trim();
   // No anchor on this one: this visit has nothing to summarize, so the whole sheet is shorter than a phone
   // screen and the frame holds it end to end on both projects (T109).
   await shot(page, "provider-print-no-clinician");
+
+  // T171's third criterion: the sheet and the brief take that sentence from one place
+  // (components/Disclaimer.tsx over lib/disclaimer.ts), so on one visit in one state they read the same
+  // word for word. Before the fix they agreed by both being wrong; this asserts they agree at all.
+  await page.goto(`/provider/${me.id}?visit=${booked.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Nameless Booking", LOADED);
+  await expect(page.locator(".sour-disclaimer")).toHaveText(sheetCaveat, LOADED);
 });
 
 test("the sheet is a clinician's: signed out, staff, and another practice all get the answer the API gives", async ({ page }) => {
