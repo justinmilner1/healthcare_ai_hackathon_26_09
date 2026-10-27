@@ -45,16 +45,31 @@ export type FailureVerdict = {
  * The sentences Playwright writes when a clock runs out, each capturing the budget it ran.
  *
  * All four shapes, because which one appears depends on what was waiting and none of them is the one a
- * reader expects: `expect.poll` and `toPass` report theirs inside a call log, a web-first assertion reports
- * it in the first line of the error, the per-test ceiling is its own sentence, and a web server that never
- * answered names the config. The numbers are what matter — a sentence with a budget the suite owns in it is
- * a wait of this suite's that was given its full allowance and did not get there.
+ * reader expects: `expect.poll` and `toPass` report theirs inside a call log, the per-test ceiling is its
+ * own sentence, a web server that never answered names the config, and a web-first assertion that spent
+ * its budget writes a bare `Timeout:` line among the matcher's own lines. The numbers are what matter — a
+ * sentence with a budget the suite owns in it is a wait of this suite's that was given its full allowance
+ * and did not get there.
+ *
+ * Each one is held to the installed Playwright by `lib/budgetFailure.test.ts`, which reads the templates
+ * out of `node_modules` and fails when a bump rewords one. That test exists because the fourth shape used
+ * to be `Timed out <n>ms waiting for …`, the pre-1.64 web-first-assertion wording; 1.64 replaced it with
+ * the `Timeout:` line below and nothing noticed, so the commonest clock of all read as the product
+ * answering wrongly — the one verdict docs/ROUTINES.md says never to excuse (T172).
+ *
+ * The order only decides which budget gets named when one error carries two clocks: a matcher cut short by
+ * the per-test ceiling reports both, and the ceiling is the one that ended the test, so it is matched
+ * first. `kind` is `clock` either way.
  */
 const CLOCKS: readonly RegExp[] = [
   /Timeout (\d+)ms exceeded[^\n]*/,
-  /Timed out (\d+)ms waiting for[^\n]*/,
   /Test timeout of (\d+)ms exceeded[^\n]*/,
   /Timed out waiting (\d+)ms from config\.webServer[^\n]*/,
+  // `playwright/lib/matchers/expect.js`, `formatMatcherMessage`: `Timeout: ${align ? " " : ""}${n}ms`, on a
+  // line of its own and written only under `details.timedOut`, so the line's presence is itself the whole
+  // statement that this failure was a clock. The alignment space is why two are allowed after the colon,
+  // and the anchors are why a `Timeout:` inside a received value is not read as one.
+  /^[ \t]*Timeout:[ \t]{1,2}(\d+)ms[ \t]*\r?$/m,
 ];
 
 /**
