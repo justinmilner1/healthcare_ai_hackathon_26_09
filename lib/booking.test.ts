@@ -244,7 +244,7 @@ describe("bookingPlan", () => {
   // of the very same claim.
   it("stops promising the code where there is nowhere to send one (T170)", () => {
     const nowhere = bookingPlan({ channel: "none", phone: null, email: null });
-    assert.equal(nowhere.note, "Nothing is sent, and the link will not open for them either.");
+    assert.equal(nowhere.note, "Nothing is sent, and handing the link over will not get this patient in either.");
     // Still the practice's own choice and still creatable: §2.2 books this visit, so nothing here is marked
     // as something to fix and the action is the one the reachable arm gets.
     assert.equal(nowhere.blocked, false, "a missing number is not a gap in the deployment");
@@ -295,8 +295,10 @@ describe("bookingPlan", () => {
         if (!warnings.length) continue;
         const step = [plan.lede, plan.note, plan.action, ...warnings].join(" ");
         assert.doesNotMatch(step, CODE_IN_MOTION, `${channel} with nothing on file: ${step}`);
-        // And the step still says the one thing it owes them, from the module that owns it.
+        // And the step still says the one thing it owes them, from the module that owns it — once, which is
+        // why this note does not end on those words too.
         assert.match(step, /the link will not open/);
+        assert.equal(plan.note.includes("the link will not open"), false, "the warning owns that clause");
       }
     }
   });

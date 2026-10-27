@@ -561,7 +561,7 @@ test("a patient with nothing on file is still bookable, and the step says what t
   // code the second had just said there was nowhere to send.
   await wizard.getByText("Do not message", { exact: true }).click();
   const note = wizard.locator(".patient-consent-note").first();
-  await expect(note).toHaveText("Nothing is sent, and the link will not open for them either.");
+  await expect(note).toHaveText("Nothing is sent, and handing the link over will not get this patient in either.");
   // Still the practice's own choice, so nothing on the step is marked as something to fix (T140's class).
   await expect(wizard.locator(".patient-consent-note-blocked")).toHaveCount(0);
   await expect(warning, "and the warning is still the one line that owns §2.2's gap").toHaveCount(1);

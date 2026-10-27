@@ -161,12 +161,15 @@ const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice
  *  and `warningsFor` says exactly that three lines below this on the same step (lib/visitIntake.ts), which
  *  is how the step came to deny the code in one line and promise it in the one above.
  *
- *  So this branch says the consequence and stops. The reason and the way out of it belong to that warning,
- *  which is §2.2's own gap and the only line in the repo that owns it; repeating either here would be two
- *  lines on one screen about one fact, which is the shape of every ticket in this family. The register is
- *  `NO_CODE_CAN_REACH`'s and VerifyGate's — "their link will not open" — and nothing of the deployment's
- *  is in it, because nothing here is the deployment's fault (§3.7, §10.6). */
-const NOTHING_TO_OPEN_IT_WITH = "Nothing is sent, and the link will not open for them either.";
+ *  So this branch withdraws the half that is this note's — the handover it offers and the code that makes
+ *  the handover work — and stops. The reason and the way out of it are the warning's, which is §2.2's own
+ *  gap and the only line in the repo that owns it; saying either here would put two lines on one screen
+ *  about one fact, which is the shape of every ticket in this family. Deliberately not ending on "the link
+ *  will not open", for that reason: the warning ends on those words, and at 375px the two sit one above the
+ *  other (`mobile-provider-add-visit-no-contact-silent.png`). The register is `cannotSendYet`'s and
+ *  lib/teamInvite.ts's "they cannot sign in until it is fixed", and nothing of the deployment's is in it,
+ *  because nothing here is the deployment's fault (§3.7, §10.6). */
+const NO_WAY_IN = "Nothing is sent, and handing the link over will not get this patient in either.";
 
 /**
  * What step 3 of the booking wizard says about the invite, before anything is saved (§2.2, §8.1, T140).
@@ -191,7 +194,7 @@ export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend
     const reachable = Boolean(phone?.trim() || email?.trim());
     return {
       lede: WILL_NOT_SEND,
-      note: reachable ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NOTHING_TO_OPEN_IT_WITH,
+      note: reachable ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NO_WAY_IN,
       blocked: false,
       action: "Add patient →",
     };
