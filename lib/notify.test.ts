@@ -15,7 +15,7 @@ import {
   sendSummaryEmails,
   summaryTemplates,
 } from "./notify";
-import { cannotSendYet } from "./delivery";
+import { cannotSendYet, NO_CONTACT_ON_FILE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import type { SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
@@ -836,4 +836,110 @@ test("a resend the rows leave open keeps the deployment's own sentence (T111, T1
   });
   // And with every channel closed by the rows, the row's own reason wins whatever the environment is.
   assert.equal(resend("sms", patientRow({ phone: REAL.phone }), true).reason, DEMO_ONLY_TEST_ADDRESSES);
+});
+
+// ---------------------------------------------------------------------------------------------
+// T173 (§2.2, §2.3, §8.1) The fourth filter, and the first: is there a number or an address at all. Every
+// case here configures a sender, for the reason the T145 block above gives and one more that is this
+// ticket's whole point — with no sender the honest "cannot send yet" empties `channels` for every visit, so
+// the bug was *unobservable* in this suite's default environment and in `scripts/agent-check.sh`. The
+// configured arm is therefore not an extra case here, it is the case.
+
+/** The patient §2.2 books when the appointment is made today and the number arrives tomorrow. */
+const NOBODY = { phone: null, email: null };
+
+test("a visit with no phone and no email yields no channel on any deployment (T173)", () => {
+  // The disagreement the ticket was filed for, stated as the identity it should always have been: whatever
+  // the deployment and whatever staff chose, `inviteReach` answers what the `notify.invite` job will send
+  // (`invitableChannels`, lib/visitStore.ts). `[]` under both environments is that.
+  for (const env of [SENDING, MAILBOX, {}]) {
+    withEnv(env, () => {
+      for (const channel of ["sms", "email", "both"] as const) {
+        const reach = inviteReach({ channel, ...NOBODY });
+        assert.deepEqual(reach.channels, [], `${channel} with ${JSON.stringify(env)}`);
+        assert.equal(reach.reason, NO_CONTACT_ON_FILE, channel);
+      }
+    });
+  }
+});
+
+test("and it says so about the patient rather than about the deployment (T173)", () => {
+  withEnv(SENDING, () => {
+    const reason = inviteReach({ channel: "both", ...NOBODY }).reason!;
+    // Not T111's sentence: this office has both senders and configuring a third reopens nothing. Sending
+    // the front desk to whoever set Sweet Spot up over two empty fields on their own screen is the mix-up
+    // §3.7 and §10.6 exist to stop.
+    assert.notEqual(reason, cannotSendYet("both"));
+    assert.doesNotMatch(reason, /cannot send|whoever set/i);
+    // Nor §13.4's, which is what this case used to be told on a demo practice: `demoBlockReason` reads a
+    // null destination as "not provably synthetic" and refused it as though it were somebody's number.
+    assert.notEqual(reason, DEMO_ONLY_TEST_ADDRESSES);
+    assert.equal(inviteReach({ channel: "both", ...NOBODY, demo: true }).reason, NO_CONTACT_ON_FILE);
+  });
+});
+
+test("the missing details are asked before the rows and the environment, being the one gap staff can close", () => {
+  withEnv(SENDING, () => {
+    // A row can carry a bounce or a STOP after the address it was recorded against is gone, and §13.4 is a
+    // column on the practice either way. Neither is the thing to say to someone with two empty fields.
+    assert.equal(inviteReach({ channel: "email", ...NOBODY, suppression: BOUNCED }).reason, NO_CONTACT_ON_FILE);
+    assert.equal(inviteReach({ channel: "sms", ...NOBODY, suppression: STOPPED, demo: true }).reason, NO_CONTACT_ON_FILE);
+  });
+  withEnv(MAILBOX, () => {
+    assert.equal(inviteReach({ channel: "both", ...NOBODY }).reason, NO_CONTACT_ON_FILE);
+  });
+});
+
+test("one detail on file narrows the invite to it instead of claiming the other half (T173)", () => {
+  // The half of the bug that is not the empty row: staff choose "Text and email", step 1 collected only the
+  // address, and this used to hand `inviteSendability("both")` a channel with nowhere to send to. An office
+  // with both senders was then told the text was on its way to a patient who has no number.
+  withEnv(SENDING, () => {
+    const emailOnly = inviteReach({ channel: "both", phone: null, email: SAM.email });
+    assert.deepEqual(emailOnly.channels, ["email"]);
+    assert.equal(emailOnly.reason, undefined);
+    const smsOnly = inviteReach({ channel: "both", phone: SAM.phone, email: null });
+    assert.deepEqual(smsOnly.channels, ["sms"]);
+    assert.equal(smsOnly.reason, undefined);
+    // And the channel staff chose with nothing behind it is the refused one, not the other.
+    assert.equal(inviteReach({ channel: "sms", phone: null, email: SAM.email }).reason, NO_CONTACT_ON_FILE);
+    assert.equal(inviteReach({ channel: "email", phone: SAM.phone, email: null }).reason, NO_CONTACT_ON_FILE);
+  });
+});
+
+test("`channel: \"none\"` with nothing on file is still the practice's own choice (T120, T173)", () => {
+  // Two absences, one of which is not ours to report: the route answers "no consent to message" before it
+  // asks anything here, and a second reason competing with it is the shape of the bug, not a fix for it.
+  for (const env of [SENDING, {}]) {
+    withEnv(env, () => {
+      const reach = inviteReach({ channel: "none", ...NOBODY });
+      assert.deepEqual(reach.channels, []);
+      assert.equal(reach.reason, undefined);
+    });
+  }
+});
+
+test("a resend for a patient with nothing on file is refused the same way (T150, T173)", () => {
+  // The route that reads a row rather than a draft (`POST /api/invite`): its **Send link** said "Sending
+  // now" for this patient on any deployment that can send, because it reads this same answer.
+  withEnv(SENDING, () => {
+    for (const channel of ["sms", "email", "both"]) {
+      const reach = resend(channel, patientRow(NOBODY), false);
+      assert.deepEqual(reach.channels, [], channel);
+      assert.equal(reach.reason, NO_CONTACT_ON_FILE, channel);
+    }
+    // Blank strings are the other way a row holds nothing — a CSV cell with a space in it, a field cleared
+    // in a form — and `channelsFor` trims, so they are the same case and not a channel with a destination.
+    const blank = resend("both", patientRow({ phone: "  ", email: "" }), false);
+    assert.deepEqual(blank.channels, []);
+    assert.equal(blank.reason, NO_CONTACT_ON_FILE);
+  });
+});
+
+test("every refusal for this patient stays in staff's words (§3.7, §10.6, T173)", () => {
+  withEnv(SENDING, () => {
+    const reason = inviteReach({ channel: "both", ...NOBODY, demo: true }).reason!;
+    assert.doesNotMatch(reason, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, reason);
+    assert.match(reason, /^[a-z]/, "it is dropped into a sentence of the caller's");
+  });
 });

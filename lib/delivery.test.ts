@@ -17,7 +17,10 @@ import {
   deliveryReason,
   deliveryTooltip,
   NO_CODE_CAN_REACH,
+  NO_CODE_TO_SEND,
   NO_CONSENT_TO_MESSAGE,
+  NO_CONTACT_ON_FILE,
+  NO_HANDOVER_EITHER,
   type DeliveryFacts,
 } from "./delivery";
 import { DEMO_BLOCKED } from "./demo";
@@ -293,5 +296,80 @@ describe("the line for a visit no code can reach (T121)", () => {
     // A sentence of its own, unlike NO_CONSENT_TO_MESSAGE above: it is printed on its own line in the
     // dashboard's Messages cell rather than as the tail of one the screen writes.
     assert.match(NO_CODE_CAN_REACH, /^[A-Z]/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T173 (§2.2, §2.3, §3.7, §10.6) The three lines this module gained for the patient with neither a phone
+// nor an email: the reason an invite is not going out, the clause that withdraws §8.1's handover, and the
+// row's own conclusion. Every one of them is read on a practice's screen, so they are held to the same two
+// rules the sentences above are — staff's words, and no two of them saying one thing twice.
+
+/** The remedy §2.2's warning owns, which is the one these three must not repeat: `warningsFor` says it on
+ *  the creation screen and the T170 split is that a remedy belongs to the one line that owns it.
+ *  `NO_CODE_TO_SEND` is the exception and says why where it is defined: it is read on the dashboard, a
+ *  screen that warning is not on, and it is the whole point of that line. */
+const ADDS_A_DETAIL = /add a (?:phone|number|mobile)|add an? (?:email|address)|take the intake/i;
+
+describe("the lines for a patient with nothing on file (T173)", () => {
+  it("names nothing a practice cannot act on", () => {
+    for (const line of [NO_CONTACT_ON_FILE, NO_HANDOVER_EITHER, NO_CODE_TO_SEND]) {
+      assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
+      assert.doesNotMatch(line, /administrator|admin\b|whoever set/i, line);
+      // Nor the patient's own number or address, which is §10.3's rule and not §3.7's: these are strings in
+      // a bundle and have no patient to name, so what this pins is that they stay that way.
+      assert.doesNotMatch(line, /@|\+?\d{7}/, line);
+    }
+  });
+
+  it("is the patient's gap and not the deployment's, which is the whole of what went wrong", () => {
+    // The sentence that used to be given for this case on a demo practice, and the one an unconfigured
+    // office gets: neither is what a front desk with two empty fields needs to read.
+    for (const channel of ["email", "sms", "both", "", "none"]) {
+      assert.notEqual(NO_CONTACT_ON_FILE, cannotSendYet(channel), channel);
+    }
+    for (const reason of [...SUPPRESSED_REASONS, DEMO_BLOCKED, NO_CONSENT_TO_MESSAGE]) {
+      assert.notEqual(NO_CONTACT_ON_FILE, reason, reason);
+    }
+    assert.match(NO_CONTACT_ON_FILE, /phone|email/i);
+  });
+
+  it("opens on §2.2's warning's own words, so one fact is worded once", () => {
+    // `warningsFor` (lib/visitIntake.ts) opens "No phone or email on file, so …". This is that clause,
+    // lower-cased for the tail of "No invite sent: …" — which is also why it carries neither the remedy
+    // nor the consequence: the warning has both, three lines below the note on the same step.
+    assert.equal(NO_CONTACT_ON_FILE, "no phone or email on file");
+    assert.doesNotMatch(NO_CONTACT_ON_FILE, ADDS_A_DETAIL);
+    assert.doesNotMatch(NO_CONTACT_ON_FILE, /link will not open/i);
+    // A phrase and not a sentence, like NO_CONSENT_TO_MESSAGE: the screens add the capital and the stop.
+    assert.doesNotMatch(NO_CONTACT_ON_FILE, /^[A-Z]|[.]$/);
+  });
+
+  it("withdraws the handover without naming the way out of it", () => {
+    // §8.1's fallback is the handover, and for this patient the link it hands over will not open. The clause
+    // says that and stops: the three callers (step 3's note, the success card, the two row notes) each put
+    // it in a sentence of their own, and the remedy stays §2.2's warning's.
+    assert.match(NO_HANDOVER_EITHER, /hand(?:ing)? the link over/i);
+    assert.doesNotMatch(NO_HANDOVER_EITHER, ADDS_A_DETAIL);
+    assert.doesNotMatch(NO_HANDOVER_EITHER, /^[A-Z]|[.]$/, "a clause its callers put in their own sentence");
+  });
+
+  it("gives the row the conclusion and the one remedy that works there", () => {
+    // `NO_CODE_CAN_REACH`'s shape, which is what makes the pair of them read as one rule with two causes:
+    // the consequence, then what to do. The remedy is the half that has to differ — "call them" is the
+    // other line's, and this patient has no number to call.
+    assert.match(NO_CODE_TO_SEND, /link will not open/i);
+    assert.match(NO_CODE_TO_SEND, ADDS_A_DETAIL);
+    assert.doesNotMatch(NO_CODE_TO_SEND, /call them/i, "there is no number to call, which is the whole case");
+    // A sentence of its own: the dashboard prints it on its own line in the Messages cell.
+    assert.match(NO_CODE_TO_SEND, /^[A-Z]/);
+    assert.notEqual(NO_CODE_TO_SEND, NO_CODE_CAN_REACH);
+  });
+
+  it("does not restate the patient cell one column to its left", () => {
+    // The dashboard already says "No contact on file" under the patient's name, so what this line owes the
+    // screen is the consequence rather than the fact. `NO_CONTACT_ON_FILE` above is the one that states the
+    // fact, and it is read in a sentence on another screen entirely.
+    assert.doesNotMatch(NO_CODE_TO_SEND, /on file/i);
   });
 });

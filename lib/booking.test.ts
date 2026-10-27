@@ -10,10 +10,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { bookedOutcome, bookingPlan, type BookedSend } from "./booking";
-import { cannotSendYet } from "./delivery";
+import { cannotSendYet, NO_CONTACT_ON_FILE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import { fixture } from "./fixtures";
+import { newLinkNote, sendLinkNote } from "./inviteNote";
 import { inviteFaultByChannel, inviteReach } from "./notify";
+import { channelsFor } from "./patientSession";
 import { channelLabel, parseVisitCsv, warningsFor } from "./visitIntake";
 
 /** Anything that reads as the message being in motion. The two surfaces word it differently — "is on the
@@ -188,10 +190,37 @@ describe("bookingPlan", () => {
     assert.equal(plan.blocked, false);
   });
 
-  it("asks for a contact detail where step 1 left both blank, which is not a fault", () => {
-    const plan = bookingPlan({ channel: "sms" });
-    assert.equal(plan.note, "The secure link goes to — add a number or address on the first step.");
-    assert.equal(plan.blocked, false, "nothing is wrong with the deployment");
+  // T173 This test used to assert the sentence with the hole in it — "The secure link goes to — add a number
+  // or address on the first step." — and that it sat under the sending lede and **Add patient & send →**,
+  // three lines above a warning saying the link will not open. The step opens on "Text and email", so that
+  // was the first thing a front desk saw for the patient §2.2 has neither detail for.
+  it("stops promising a send where step 1 left both fields blank (T173)", () => {
+    for (const channel of ["both", "sms", "email"] as const) {
+      const plan = bookingPlan({ channel });
+      // The "Do not message" row's answer word for word, because it is the same fact about the same patient:
+      // nothing is sent, and the handover §8.1 falls back on is not a way in without a code (lib/delivery.ts).
+      assert.equal(plan.note, "Nothing is sent, and handing the link over will not get this patient in either.", channel);
+      assert.doesNotMatch(plan.note, /goes to/, channel);
+      assert.equal(plan.action, "Add patient →", channel);
+      assert.doesNotMatch(plan.lede, /sends their private Sweetie link/, channel);
+      assert.equal(plan.blocked, false, "nothing is wrong with the deployment");
+    }
+    // Blank strings are the wizard's own empty fields rather than nulls, the way the "none" row reads them.
+    assert.equal(bookingPlan({ channel: "both", phone: " ", email: "" }).note, bookingPlan({ channel: "both" }).note);
+    // And one detail on file is the sending branch again, naming the destination it really has: the rule is
+    // about a patient with nothing, not about a patient with half of it.
+    assert.equal(bookingPlan({ channel: "both", phone: SAM.phone }).note, `The secure link goes to ${SAM.phone}.`);
+    assert.equal(bookingPlan({ channel: "both", email: SAM.email }).note, `The secure link goes to ${SAM.email}.`);
+  });
+
+  it("asks §2.2's gap before §13.4's rule and before the deployment's own (T173)", () => {
+    // The order `inviteReach` answers the press in (lib/notify.ts), which is what keeps the step and the
+    // card quoting one sentence. A channel with nowhere to send to is not a channel a demo practice refused
+    // or an unconfigured office could not serve, and the front desk's own two fields are what to say.
+    const nothing = bookingPlan({ channel: "both" });
+    assert.deepEqual(bookingPlan({ channel: "both", demo: true }), nothing);
+    assert.deepEqual(bookingPlan({ channel: "both", faults: { both: NO_SMS, sms: NO_SMS, email: NO_EMAIL } }), nothing);
+    assert.doesNotMatch(nothing.note, /demo practice|cannot send|whoever set/i);
   });
 
   it("says before the button that this deployment cannot send on the chosen channel (§8.1)", () => {
@@ -468,5 +497,118 @@ describe("bookingPlan", () => {
         }
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T173 (§2.2, §2.3, §3.7, §5.3, §8.1, §10.6) The rule the nine tickets in this family each stopped one
+// branch short of, over all four of them at once and — the half that matters — over a deployment that can
+// send as well as one that cannot.
+//
+// The gate configures no sender (§11.3), and with none `inviteReach` empties `channels` for *every* visit,
+// so every surface takes its "cannot send" branch and every assertion in the suite passes. That is how a
+// patient with neither a phone nor an email came to be told their invite was on its way on the only kind of
+// deployment this product is being piloted on. `withEnv(SENDING, …)` is the arm that can see it, and it is
+// the reason this block exists rather than another row in the loops above.
+
+/** An office with a sender behind both channels, which is what the pilot is and what the gate is not. Each
+ *  backend is selected by the setting it cannot send without — EMAIL_FROM for SES (T110), an origination
+ *  number for SNS (T94) — so these two are the whole of "configured". Neither value is a credential. */
+const SENDING = { EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" };
+
+/** And the gate's own configuration, named so the two arms read as the pair they are. */
+const UNCONFIGURED = { EMAIL_FROM: undefined, SNS_ORIGINATION_NUMBER: undefined };
+
+/** §8.1's handover, which is a remedy only where the link opens — and the link opens on a code that has
+ *  somewhere to go (§2.3, §5.3). Every way the four surfaces offer it, so none of them may offer it to the
+ *  patient with nothing on file. `will not get this patient in` is the withdrawal and is allowed to contain
+ *  "the link over", so the handover is matched by the words that *offer* it. */
+const OFFERS_HANDOVER = /Share the link below|Use Copy intake|Copy the link from the dashboard|copy the link from the dashboard/;
+
+describe("nothing claims an invite or a code is in motion to a patient with nothing on file (T173)", () => {
+  for (const [arm, env] of [["a deployment that can send", SENDING], ["one that cannot", UNCONFIGURED]] as const) {
+    it(`holds over ${arm}`, () => {
+      withEnv(env, () => {
+        for (const to of CONTACT_COMBINATIONS) {
+          const nothingOnFile = !(to.phone || to.email);
+          for (const channel of EVERY_CHANNEL) {
+            for (const demo of [false, true]) {
+              const where = `${arm}, channel=${channel}, demo=${demo}, to=${JSON.stringify(to)}`;
+              // The press, asked exactly as the two routes ask it, and the handover fact they answer with.
+              const reach = inviteReach({ channel, demo, ...to });
+              // `channelsFor` and not a re-reading of the two fields, because that is what both routes
+              // answer `handover` with (app/api/book/route.ts, app/api/invite/route.ts).
+              const handover = channelsFor(to).length > 0;
+              if (nothingOnFile) {
+                assert.deepEqual(reach.channels, [], `${where}: the press sends nothing`);
+                assert.equal(handover, false, where);
+              }
+
+              // All four surfaces, from that one answer: step 3's three lines, the success card's two, and
+              // the two notes the dashboard row writes.
+              const plan = bookingPlan({ channel, faults: inviteFaultByChannel(), demo, ...to });
+              const card = bookedOutcome({
+                name: "Sam Nobody",
+                queued: reach.channels.length > 0,
+                channel: reach.channels.length ? reach.channels.join(",") : channel,
+                reason: reach.reason,
+                handover,
+              });
+              const answer = { queued: reach.channels.length > 0, reason: reach.reason, handover };
+              const lines = [plan.lede, plan.note, plan.action, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
+
+              if (!nothingOnFile) continue;
+              for (const line of lines) {
+                assert.doesNotMatch(line, MOTION, `${where}: ${line}`);
+                assert.doesNotMatch(line, CODE_IN_MOTION, `${where}: ${line}`);
+                assert.doesNotMatch(line, PROMISES_SEND, `${where}: ${line}`);
+                // Criterion 4: and no handover either, because the link will not open to be handed over.
+                assert.doesNotMatch(line, OFFERS_HANDOVER, `${where}: ${line}`);
+                // Staff's words throughout: nothing about this is the deployment's (§3.7, §10.6).
+                assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
+              }
+              // And the reason the three sending channels give is §2.2's gap rather than the deployment's or
+              // §13.4's — the mix-up that sent a front desk with two empty fields after an administrator.
+              if (channel && channel !== "none") {
+                assert.equal(reach.reason, NO_CONTACT_ON_FILE, where);
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  it("leaves every patient with a detail on file exactly as they were", () => {
+    // The other direction, which is what keeps the rule from being satisfied by saying nothing to anybody:
+    // a configured office booking a reachable patient still promises the send on all four surfaces.
+    withEnv(SENDING, () => {
+      const reach = inviteReach({ channel: "both", ...SAM });
+      assert.deepEqual(reach.channels, ["sms", "email"]);
+      const plan = bookingPlan({ channel: "both", faults: inviteFaultByChannel(), ...SAM });
+      assert.match(plan.lede, /sends their private Sweetie link/);
+      assert.equal(plan.action, "Add patient & send →");
+      const card = bookedOutcome({ name: "Sam Taylor", queued: true, channel: "both", handover: true });
+      assert.match(card.heading, MOTION);
+      assert.equal(sendLinkNote({ queued: true, handover: true }), "Sending now");
+      // And the unsent card for a reachable patient keeps §8.1's fallback, which is a fallback for them.
+      const unsent = bookedOutcome({ name: "Sam Taylor", queued: false, reason: cannotSendYet("both"), handover: true });
+      assert.match(unsent.lede, OFFERS_HANDOVER);
+    });
+  });
+
+  it("withdraws the card's fallback rather than its heading, because the patient was still added (§2.2)", () => {
+    const added = bookedOutcome({ name: "Sam Nobody", queued: false, reason: NO_CONTACT_ON_FILE, handover: false });
+    assert.equal(added.heading, "Sam Nobody is ready for Sweetie.", "§2.2 still books this visit");
+    assert.equal(
+      added.lede,
+      `Patient added. No invite sent: ${NO_CONTACT_ON_FILE}. Handing the link over will not get this patient in either.`,
+    );
+    // The sentence step 3 showed three presses earlier, so the forecast and the report are one wording.
+    assert.match(added.lede, /Handing the link over will not get this patient in either\.$/);
+    assert.match(bookingPlan({ channel: "both" }).note, /handing the link over will not get this patient in either\.$/);
+    // An answer with no `handover` field is the old one and reads as it always did: the field withdraws the
+    // fallback on an explicit `false` only.
+    assert.match(bookedOutcome({ name: "Sam Nobody", queued: false, reason: NO_CONTACT_ON_FILE }).lede, /Share the link below\.$/);
   });
 });

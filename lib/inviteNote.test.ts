@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cannotSendYet, NO_CONSENT_TO_MESSAGE } from "./delivery";
+import { cannotSendYet, NO_CONSENT_TO_MESSAGE, NO_CONTACT_ON_FILE } from "./delivery";
 import { newLinkNote, sendLinkNote } from "./inviteNote";
 
 /** Anything that reads as the message being in motion, the way lib/booking.test.ts states it for the card
@@ -84,5 +84,76 @@ describe("newLinkNote", () => {
   it("keeps the two reasons apart, because only one of them is anybody's to fix", () => {
     const [deployment, consent] = UNSENDABLE.map(({ reason }) => newLinkNote({ queued: false, reason }));
     assert.notEqual(deployment, consent);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T173 (§2.2, §2.3, §5.3, §8.1) The patient both sentences were still wrong for after they had learnt to
+// refuse the send. §8.1's fallback is "hand the link over", the link opens on a six-digit code sent to the
+// number or address on file, and this patient has neither — so **Send link** answered "No invite sent: …
+// Use Copy intake to give them the link.", pointing at a door that is locked. On a deployment with a sender
+// it did not even refuse: `inviteReach` claimed both channels, so the note read "Sending now".
+
+/** What offers the handover, as opposed to the clause that withdraws it. */
+const OFFERS_HANDOVER = /Use Copy intake/;
+
+/** The route's answer for that patient: `queued: false` with §2.2's gap as the reason, and the handover
+ *  fact off the same patient row (`channelsFor`, app/api/invite/route.ts). */
+const NOBODY = { queued: false, reason: NO_CONTACT_ON_FILE, handover: false };
+
+describe("the two notes for a patient with nothing on file (T173)", () => {
+  it("quotes the gap and withdraws the handover instead of naming Copy intake", () => {
+    assert.equal(
+      sendLinkNote(NOBODY),
+      `No invite sent: ${NO_CONTACT_ON_FILE}. Handing the link over will not get this patient in either.`,
+    );
+    assert.equal(
+      newLinkNote(NOBODY),
+      `The old link no longer works. No invite sent: ${NO_CONTACT_ON_FILE}. Handing the link over will not get this patient in either.`,
+    );
+    for (const note of [sendLinkNote(NOBODY), newLinkNote(NOBODY)]) {
+      assert.doesNotMatch(note, MOTION, note);
+      assert.doesNotMatch(note, OFFERS_HANDOVER, note);
+    }
+  });
+
+  it("keeps the half that is true of **New link**, which is why staff pressed it", () => {
+    // The old token is gone before the route answers, on every branch (§5.5) — and this is the press staff
+    // reach for *because* the first invite never arrived, which for this patient it never could have.
+    assert.match(newLinkNote(NOBODY), /^The old link no longer works\./);
+  });
+
+  it("still withdraws the handover when the reason is somebody else's", () => {
+    // `handover` is a fact about the patient and not about the send, so it holds whichever of the three
+    // reasons the route quotes: the practice's own choice and the deployment's gap are both reachable for a
+    // patient with nothing on file (a "Do not message" row, an unconfigured office).
+    for (const reason of [NO_CONSENT_TO_MESSAGE, CANNOT, NO_CONTACT_ON_FILE]) {
+      for (const note of [sendLinkNote({ queued: false, reason, handover: false }), newLinkNote({ queued: false, reason, handover: false })]) {
+        assert.doesNotMatch(note, OFFERS_HANDOVER, note);
+        assert.match(note, /will not get this patient in either\.$/, note);
+      }
+    }
+  });
+
+  it("leaves §8.1's fallback alone for every patient it is a fallback for", () => {
+    // Which is every other patient, and the reason the field withdraws it on an explicit `false` only: an
+    // answer without it is the one these notes have always been given and reads unchanged.
+    for (const handover of [true, undefined]) {
+      for (const note of [sendLinkNote({ queued: false, reason: CANNOT, handover }), newLinkNote({ queued: false, reason: CANNOT, handover })]) {
+        assert.match(note, OFFERS_HANDOVER, note);
+      }
+    }
+    // And a send that is really going out says so whatever this field holds: it is about the handover.
+    assert.equal(sendLinkNote({ queued: true, handover: false }), "Sending now");
+    assert.equal(newLinkNote({ queued: true, handover: false }), "New link sent. The old one no longer works.");
+  });
+
+  it("says nothing about the two fields that would fix it, which the row's own line owns", () => {
+    // The T170 split: the remedy belongs to the one line that owns it, and on this screen that is
+    // `NO_CODE_TO_SEND` in the Messages cell (lib/delivery.ts, app/provider/dashboard.tsx). A note under
+    // four buttons repeating it would be the same fact twice on one row.
+    for (const note of [sendLinkNote(NOBODY), newLinkNote(NOBODY)]) {
+      assert.doesNotMatch(note, /add a (?:phone|number)|add an? (?:email|address)|call them/i, note);
+    }
   });
 });
