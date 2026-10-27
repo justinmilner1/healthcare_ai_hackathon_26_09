@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { shot } from "./shot";
 
 // T119 (design §12.3, §12.4): the `wholeRows` gate in e2e/shot.ts, judged against the frame the shot is
@@ -152,5 +152,56 @@ test.describe("the slack at the frame's edges", () => {
       shot(page, "shot-wholerows-overhang", { fullPage: false, wholeRows: "#overhang" }),
       "six pixels of a row past the window's top edge",
     ).rejects.toThrow(CUT);
+  });
+});
+
+// T167 (design §12.3): the pointer, which `shot()` moves off the page before every capture.
+//
+// Playwright leaves the mouse wherever the last gesture put it and the helper then scrolls the page under it,
+// so a card can slide beneath a parked pointer and be photographed wearing `:hover`. That is this helper's
+// behaviour rather than any one screen's, so it is pinned here on a fixture: the product's own frames are
+// asserted where they are taken (`expectNoCardHovered` in e2e/visits.spec.ts).
+const HOVERABLE = `<!doctype html>
+<html><head><meta charset="utf-8"><title>pointer fixture</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body { margin: 0; font: 16px/1.25 system-ui, sans-serif }
+  .card { height: 200px; background: #eee; border: 2px solid #ccc }
+  .card:hover { border-color: gold }
+  /* The top-left pixel, which is why the park is outside the viewport and not the 0, 0 corner. */
+  .corner { position: fixed; top: 0; left: 0; width: 40px; height: 40px; background: #cfc }
+</style></head>
+<body>
+  <div class="corner">c</div>
+  <div class="card" id="first">first</div>
+  <div class="card" id="second">second</div>
+  <div class="card" id="third">third</div>
+  <div style="height:200vh">so the document is taller than the window</div>
+</body></html>`;
+
+/** Everything the pointer is over, as the page itself sees it. */
+const hovered = (page: Page) =>
+  page.evaluate(() => Array.from(document.querySelectorAll(":hover")).map((element) => element.id || element.tagName));
+
+test.describe("the pointer, before the shutter opens", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setContent(HOVERABLE);
+    // Where a click or a wheel would have left it: in the middle of the page, over a card.
+    await page.mouse.move(100, 100);
+    expect(await hovered(page), "the fixture hovers what the pointer is over").toContain("first");
+  });
+
+  test("a shot that scrolls leaves no card wearing :hover", async ({ page }) => {
+    // The ticket's own shape: the scroll brings a different card under the pointer's fixed coordinate.
+    await shot(page, "shot-pointer-parked", { fullPage: false, scrollTo: "#third" });
+    expect(await hovered(page), "nothing is under the pointer in the frame just taken").toEqual([]);
+    await expect(page.locator(".card:hover"), "no card is wearing :hover").toHaveCount(0);
+  });
+
+  test("and a shot asked to keep it leaves the pointer where the test put it", async ({ page }) => {
+    // The escape hatch the chart tooltips need (e2e/charts.ts, e2e/journey.spec.ts): the subject is only on
+    // screen while the pointer is on it.
+    await shot(page, "shot-pointer-kept", { fullPage: false, pointer: "kept" });
+    expect(await hovered(page), "the pointer is still on the card the test hovered").toContain("first");
   });
 });

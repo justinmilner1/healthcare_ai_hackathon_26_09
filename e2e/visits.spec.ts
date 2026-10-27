@@ -27,6 +27,27 @@ import { MODAL, SCREENFUL, shot, type ShotOptions } from "./shot";
 const IMPORT_WINDOW = 1000;
 
 /**
+ * No card in either of §2.2's radio groups is wearing `:hover` in the frame that was just taken (T167).
+ *
+ * The wizard's two radio groups hide their input inside the styled card, so a card has exactly two ways to
+ * look chosen: `.visit-type-card-selected` (the cream fill, the gold border and the ticked radio) and
+ * `:hover` (the same gold border, a shade lighter — app/globals.css). T166 gave them a third, a focus ring,
+ * and asserted that only the focused card paints one. This is the same claim about the second: a frame of a
+ * radio group shows one card looking chosen, and the one it shows is the one the front desk picked.
+ *
+ * It is asserted after the shot rather than before it, because the shutter is what moves the pointer off the
+ * page (e2e/shot.ts) and the frame is what the claim is about. `mobile-provider-add-visit-step3-scroll-bottom.png`
+ * failed it: the wheel below parks the pointer in the middle of the step to make its gesture, and the scroll
+ * then slid "Do not message" under it.
+ */
+async function expectNoCardHovered(page: Page, where: string): Promise<void> {
+  await expect(
+    page.locator(".visit-type-card:hover"),
+    `${where}: a card is wearing :hover in the frame, so the group shows two cards looking chosen (T167, §2.2)`,
+  ).toHaveCount(0);
+}
+
+/**
  * Step 3 of the booking wizard, framed on the forecast rather than on wherever the last click left it (T151).
  *
  * `MODAL` is one viewport, which at 375px is less than this step: the dialog is `max-height: 94svh` with its
@@ -137,6 +158,7 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   await expect(title, "the step's own title, at the top of its scroll").toBeInViewport(LOADED);
   await expect(actions, "the save row is on screen before anything has been scrolled").toBeInViewport(LOADED);
   await shot(page, `${name}-scroll-top`, frame);
+  await expectNoCardHovered(page, `${name}-scroll-top`);
   // T158 And the row that is on screen is flush with the dialog, not floating inside it.
   await expectActionsReachScrollportEdges(page, "at the top of the scroll");
 
@@ -152,6 +174,7 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
     // because §12.3 asks for the step at both and "unchanged" is a claim a picture can carry.
     await expectDialogBoundsLongerNotes(page);
     await shot(page, `${name}-scroll-bottom`, frame);
+    await expectNoCardHovered(page, `${name}-scroll-bottom`);
     return;
   }
 
@@ -171,9 +194,14 @@ async function expectStepThreeScrolls(page: Page, name: string): Promise<void> {
   await expect(actions, "and still on screen at the end of the scroll").toBeInViewport(LOADED);
   await expectActionsReachScrollportEdges(page, "at the end of the scroll");
   await shot(page, `${name}-scroll-bottom`, frame);
+  // The frame this ticket was filed against: the wheel above parked the pointer in the middle of the step,
+  // and the scroll slid "Do not message" under it (T167).
+  await expectNoCardHovered(page, `${name}-scroll-bottom`);
 
   // And back: the title the frame above cannot hold is a wheel away, which is the half of the §2.2 review
-  // a person had no way to return to.
+  // a person had no way to return to. The pointer goes back over the step first, because the shot above
+  // left it off the page and a wheel is a gesture made wherever the pointer is (T167, e2e/shot.ts).
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.wheel(0, -(room + 200));
   await expect
     .poll(async () => content.evaluate((element) => element.scrollTop), LOADED)
@@ -510,6 +538,9 @@ test("the wizard's radio cards show a keyboard where it is", async ({ page }) =>
   // And the card beside it paints nothing, so a frame of this step cannot be read as two selections.
   await expectNoFocusRing(types.nth(1), "an unfocused visit-type card");
   await shot(page, "provider-add-visit-type-focus", { ...MODAL, scrollTo: ".visit-type-grid", block: "center" });
+  // T167: and no card in the frame is wearing `:hover` either, so the ring is the only thing distinguishing
+  // the focused card from the selected one.
+  await expectNoCardHovered(page, "provider-add-visit-type-focus");
 
   // Step 3 uses the same card for the contact channel, and got the same fix.
   await wizard.getByLabel(/What did the patient call about/i).fill("mornings running high");
@@ -527,6 +558,7 @@ test("the wizard's radio cards show a keyboard where it is", async ({ page }) =>
     scrollTo: ".patient-channel-row",
     block: "center",
   });
+  await expectNoCardHovered(page, "provider-add-visit-channel-focus");
 });
 
 // T140 The other half of the step, on the seventh server in playwright.config.ts — the only one in the suite

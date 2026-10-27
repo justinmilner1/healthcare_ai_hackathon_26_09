@@ -42,20 +42,6 @@ const shot = async (page: Page, name: string, options: ShotOptions = {}) => {
   await rawShot(page, `journey-${name}`, options);
 };
 
-/**
- * Put the pointer somewhere with nothing under it, before a shot that scrolls a chart into the frame.
- *
- * Chromium dispatches a `mousemove` when a scroll changes what is under the cursor, and Recharts opens a
- * tooltip on one — so a shot anchored below the fold can come back carrying a tooltip nobody asked for,
- * hanging over the card beside the subject. `mobile-journey-12-sour-spikes-unplaced.png` was that picture
- * on its first run: the pointer was still where the dashboard link had been clicked, and scrolling the
- * spike card up slid the sleep chart under it. The corner is the same trick e2e/charts.ts uses before a
- * hover it does mean to make (T157).
- */
-const parkPointer = async (page: Page) => {
-  await page.mouse.move(0, 0);
-};
-
 /** The patient's week, as a patient would have it: files picked on the intake screen (§3.3, §9.1). */
 const sample = (name: string) => readFileSync(join(process.cwd(), "data", name));
 
@@ -345,8 +331,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await shot(page, "10-patient-summary");
   // T87 (§2.7): the charts on this page are read by hovering them, and until this ticket every tooltip
   // read "Glucose : 118 mg/dL" — Recharts' default separator, on a page written in plain English.
+  // `pointer: "kept"` because the tooltip is only open while the pointer is on the chart: this is the one
+  // subject in the suite that a parked pointer would take out of the frame (T167, e2e/shot.ts).
   await expectChartTooltipsLabelled(page, "the patient's own summary", (chart) =>
-    shot(page, `10-patient-summary-tooltip-${chart}`, SCREENFUL),
+    shot(page, `10-patient-summary-tooltip-${chart}`, { ...SCREENFUL, pointer: "kept" }),
   );
 
   // ---- The clinician reads it, signs it off, prints it (§7.2, §7.3, §7.4) ------------------------------
@@ -453,7 +441,6 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // T157 (§12.3): the card itself, at both widths. The desktop project shoots the document, so the brief's
   // own frame already holds it; at 375px it is several screens below the fold, and the heading over those
   // five "no matching visit" rows is the subject of the ticket, so it gets a frame of its own.
-  await parkPointer(page);
   await shot(page, "12-sour-spikes-unplaced", { ...SCREENFUL, scrollTo: places });
   // T160 (§12.3): the metrics row itself, which is the subject of that ticket and is read across rather
   // than down — the Spikes tile and the Sleep tile have to be in one frame to see that they now agree. The
@@ -467,7 +454,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await shot(page, "12-sour-chart-caption", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
-    shot(page, `12-sour-brief-tooltip-${chart}`, SCREENFUL),
+    shot(page, `12-sour-brief-tooltip-${chart}`, { ...SCREENFUL, pointer: "kept" }),
   );
 
   // §7.3: the sign-off, by the clinician who read it.
@@ -550,7 +537,6 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // T157 (§12.3), for the reason the brief's own card got a frame: the sheet is anchored on the patient's
   // words above, so at 375px the spike card is off the bottom of that one and the heading this ticket is
   // about is in no committed picture of the paper.
-  await parkPointer(page);
   await shot(page, "15-print-spikes-unplaced", { ...SCREENFUL, scrollTo: printPlaces });
   // T160 (§12.3): the same row on paper, anchored for the same reason the brief's is — the sheet is
   // anchored on the patient's words above, so without this frame the two tiles this ticket is about are in

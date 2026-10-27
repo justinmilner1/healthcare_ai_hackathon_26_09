@@ -32,6 +32,23 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // (`transition: width 500ms` in app/globals.css): `desktop-journey-09-sweetie-complete.png` said 100% over a
 // bar filled 53% of the way, and a reviewer had to spend time deciding whether that was a bug in the
 // product. It was a bug in the picture. So the shutter waits for the animation here, once, for every shot.
+//
+// The pointer is moved off the page for every shot, which is the same promise a third time (T167). Playwright
+// leaves the mouse parked wherever the last click or wheel put it, and this helper then scrolls the page under
+// it — so whatever slides beneath that fixed viewport coordinate picks up `:hover` and is photographed wearing
+// it. `mobile-provider-add-visit-step3-scroll-bottom.png` was "Do not message" carrying the gold `:hover`
+// border while "Text and email" was the selected channel: two gold-bordered cards in one radio group, in the
+// §2.2 frame a reviewer reads to see which channel the front desk chose. Only the phone's scroll landed a card
+// under the pointer, so the desktop frame of the same step did not have it and nothing in the suite could say
+// which frames did — any shot could acquire it or lose it by moving a few pixels. A patient or a clinician
+// reading one of these screens has no pointer resting on a card they did not choose, so neither does the
+// shutter; a shot whose subject *is* something under the pointer says `pointer: "kept"`.
+//
+// T157 had already met the other face of it and fixed it in one spec: Chromium dispatches a `mousemove` when
+// a scroll changes what is under the cursor, Recharts opens a tooltip on one, and
+// `mobile-journey-12-sour-spikes-unplaced.png` came back with a tooltip hanging over the card beside its
+// subject. e2e/journey.spec.ts parked the pointer itself before those two shots; it no longer has to, and
+// neither does the next spec to find this.
 
 /** The default for this project: the document on the desktop, one screenful on the phone. */
 export const fullPageByDefault = (): boolean => test.info().project.name === "desktop";
@@ -105,6 +122,12 @@ export type ShotOptions = {
    */
   wholeRows?: string;
   /**
+   * Whether the pointer is moved off the page before the shutter opens. The default is `"parked"`, and
+   * `"kept"` is for a shot whose subject is something only a pointer brings on screen — a chart tooltip is
+   * the one of those in this suite (e2e/charts.ts), and it hovers the chart deliberately a line earlier.
+   */
+  pointer?: "parked" | "kept";
+  /**
    * Whether CSS transitions and animations keep running while the shutter is open. The default is
    * `"disabled"` and there is no good reason for a spec to pass `"allow"`; it exists so that a spec whose
    * subject *is* a transition can say so in one word rather than reaching past this helper.
@@ -144,6 +167,19 @@ export const WHOLE_PAGE: ShotOptions = { fullPage: true };
 export const SCREENFUL: ShotOptions = { fullPage: false };
 
 /**
+ * Where the pointer goes before the shutter opens: one pixel outside the document, where nothing is under it.
+ *
+ * Outside rather than the `0, 0` corner e2e/charts.ts moves to before a hover it does mean to make. A corner
+ * is still inside the viewport, so whatever the page puts in its top-left pixel is hovered there; measured in
+ * this Chromium against a fixture with a fixed corner box, `document.querySelectorAll(":hover")` at `0, 0`
+ * comes back holding that box and at `-1, -1` comes back empty. Empty is the state a committed frame is
+ * supposed to be evidence about, and it survives everything this helper does afterwards — the
+ * `scrollIntoView` above, and the scrolling Playwright does of its own accord to take a `fullPage` capture —
+ * because no scroll brings the document to a point that is not in it.
+ */
+const OFF_THE_PAGE = { x: -1, y: -1 };
+
+/**
  * Write `e2e/screenshots/<project>-<name>.png`, the filename §12.3 and every
  * `docs/screenshots/tickets/*` reference depend on.
  */
@@ -154,6 +190,7 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
     block = "start",
     inline = "nearest",
     animations = "disabled",
+    pointer = "parked",
     viewportHeight,
     wholeRows,
   } = options;
@@ -172,6 +209,9 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
         element.scrollIntoView(position);
       }, { block, inline });
     }
+    // After the scroll, because the scroll is what decides what sits under the pointer — and before the gate
+    // below, so what it measures is the frame that is about to be taken.
+    if (pointer === "parked") await page.mouse.move(OFF_THE_PAGE.x, OFF_THE_PAGE.y);
     if (wholeRows) await expectWholeRows(page, wholeRows, name, fullPage);
     await page.screenshot({
       path: `e2e/screenshots/${test.info().project.name}-${name}.png`,
