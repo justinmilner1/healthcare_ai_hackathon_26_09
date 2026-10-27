@@ -132,21 +132,56 @@ test("a check-in answered to the end is unchanged: 100% beside 'Your story is re
   assert.equal(card.detail, "Your story is ready");
 });
 
-test("a check-in still being asked keeps the arithmetic it had: the fields plus the wrap", () => {
-  // 1 of 2 answered is 1 of 3 steps, as the rail has always drawn it — the track cannot read full while a
-  // question is still outstanding.
+test("a check-in still being asked counts the check-in's steps: the questions and then the wrap", () => {
+  // 1 of 2 answered is 1 of 3 steps, which is how the rail has always *drawn* it — and now how it says it
+  // too, so the track cannot read full while a question is still outstanding and the sentence beside it is
+  // the fraction the number is a percentage of (T169). Those three steps are the three pills on the strip
+  // above the card, so the total is one the patient can count on the screen.
   const card = intakeProgressCard(OPEN);
   assert.equal(card.percent, 33);
-  assert.equal(card.detail, "1 of 2 questions answered");
+  assert.equal(card.detail, "1 of 3 steps done");
   assert.equal(intakeProgressCard({ ...OPEN, completeFields: 0 }).percent, 0);
   assert.equal(intakeProgressCard({ ...OPEN, completeFields: 2 }).percent, 67);
 });
 
+/** The fraction a card's sentence prints, where it prints one: `"1 of 3 steps done"` is 1 of 3. */
+function printedFraction(detail: string): { done: number; of: number } | null {
+  const match = /(\d+) of (\d+)\b/.exec(detail);
+  return match ? { done: Number(match[1]), of: Number(match[2]) } : null;
+}
+
+test("the number and the sentence are one fraction, in every state the open branch has (T169, §2.5)", () => {
+  // The defect as a property rather than as the one screenshot that caught it: whatever either part is
+  // reworded to, a percentage drawn over a printed fraction has to be that fraction. Read out of the
+  // sentence instead of recomputed beside it, so a future change to one and not the other fails here.
+  for (let totalFields = 1; totalFields <= 5; totalFields += 1) {
+    for (let completeFields = 0; completeFields <= totalFields; completeFields += 1) {
+      const where = `${completeFields} of ${totalFields} answered`;
+      const card = intakeProgressCard({ ...OPEN, totalFields, completeFields });
+      assert.equal(card.ending, "open", where);
+      const printed = printedFraction(card.detail);
+      assert.ok(printed, `${where}: the open card prints a fraction, and this one does not: "${card.detail}"`);
+      assert.equal(
+        card.percent,
+        Math.round((printed.done / printed.of) * 100),
+        `${where}: "${card.detail}" is not what ${card.percent}% is a percentage of`,
+      );
+      // And the wrap step the `+ 1` exists for survives the rewording: there is always one step beyond the
+      // questions, so the track cannot read full while the check-in is still open — not even on the answer
+      // that fills the last field, which is the state the old denominator was reserving it for.
+      assert.equal(printed.of, totalFields + 1, `${where}: the wrap is no longer a step`);
+      assert.ok(card.percent !== null && card.percent < 100, `${where}: a full track on an open check-in`);
+    }
+  }
+});
+
 test("the card survives the moment before GET /api/sweetie has answered with the template", () => {
-  // `fields` is empty until the route replies, and 0/1 is a real percentage rather than a NaN.
+  // `fields` is empty until the route replies, and 0/1 is a real percentage rather than a NaN. The total is
+  // a dash rather than a 1: a template nobody has seen yet is not a one-step check-in, and the sweep above
+  // asks for agreement of the states that print a number on both sides.
   const card = intakeProgressCard({ ...OPEN, totalFields: 0, completeFields: 0 });
   assert.equal(card.percent, 0);
-  assert.equal(card.detail, "0 of — questions answered");
+  assert.equal(card.detail, "0 of — steps done");
 });
 
 test("the stepper's last step is ticked only by a check-in that answered the questions (T146, §2.5)", () => {

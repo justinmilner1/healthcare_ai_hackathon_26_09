@@ -23,6 +23,21 @@
 // The percentage keeps its old arithmetic for a check-in still in progress — the fields plus the wrap, so
 // the track is never full while Sweetie is still asking — and a check-in answered to the end reads 100,
 // unconditionally, rather than a count that happens to come to it.
+//
+// One branch was not enough on its own (T169). The `open` branch returned all three parts together and they
+// still disagreed, because two of them were counting different things: the number divided by the fields plus
+// the wrap, and the sentence printed the fields alone, so one answer out of two read
+//
+//     Conversation progress                      33%
+//     [a track a third full]
+//     1 of 2 questions answered
+//
+// — a fraction the number beside it is visibly not a percentage of. The wrap has to stay in the number, or
+// the track reads full with the check-in still open; so the sentence counts it too. Both now come from one
+// `steps` denominator, and the thing being counted is named for what it is: the steps of the check-in, which
+// are the template's questions and then Sweetie's wrap-up. That is also the strip of pills directly above the
+// card — `SweetieStepper` renders one per field and one more for the ending (app/s/[token]/page.tsx) — so the
+// sentence now prints a total the patient can count on the screen.
 
 /** How this check-in stands, and if it is over, how it ended. */
 export type IntakeEnding =
@@ -61,7 +76,11 @@ export type IntakeProgressCard = {
    * ending that stopped short has no honest percentage to show, so it shows none (T66, T142).
    */
   percent: number | null;
-  /** The sentence under the card. Present in every state, including the two with no number. */
+  /**
+   * The sentence under the card. Present in every state, including the two with no number. Where it prints a
+   * fraction, that fraction is the one `percent` is a percentage of — the card never shows two denominators
+   * for one check-in (T169).
+   */
   detail: string;
 };
 
@@ -115,13 +134,15 @@ export function intakeProgressCard(input: IntakeProgressInput): IntakeProgressCa
       return { ending, label: "Conversation progress", percent: 100, detail: "Your story is ready" };
     default: {
       // Still going: the fields plus the wrap, so the track cannot read full while a question is still
-      // outstanding. `totalFields` is 0 only before GET /api/sweetie has answered with the template.
+      // outstanding. The sentence divides by the same `steps`, so the two cannot hand the patient different
+      // denominators (T169). `totalFields` is 0 only before GET /api/sweetie has answered with the template,
+      // and a total nobody knows yet is printed as a dash rather than as the wrap counted alone.
       const steps = totalFields + 1;
       return {
         ending,
         label: "Conversation progress",
         percent: Math.round((completeFields / steps) * 100),
-        detail: `${completeFields} of ${totalFields || "—"} questions answered`,
+        detail: `${completeFields} of ${totalFields ? steps : "—"} steps done`,
       };
     }
   }
