@@ -29,6 +29,14 @@
 // until the delivery row did, minutes after the press. The fact was a column on the practice staff were
 // signed in to the whole time, which is why this branch is the forecast's and not only the route's.
 //
+// T170 is the fourth, on the branch that is not about a send at all. "Do not message" has always answered
+// the whole question itself — "Nothing is sent. Copy the link … ; opening it still sends them a code." — and
+// never looked at the number and the address it is handed, so the patient §2.2 has neither for read that
+// line directly above T168's correction of the same claim: "the six-digit code their link needs has nowhere
+// to go and the link will not open." One screen denying and promising one code, which is what T168 had just
+// been filed to stop. The two sentences the code is true of and false of are therefore one branch on one
+// value here, like the three above it.
+//
 // Pure, and in lib/ rather than in the wizard, so every branch is held to in a unit test (§12.1). The words
 // for *why* nothing went out are mostly not here: the deployment's are the route's `reason`, which comes
 // from lib/notify.ts and is spelled in lib/delivery.ts, staff's words for a gap in the deployment and never
@@ -145,6 +153,21 @@ const WILL_NOT_SEND = "Saving creates the patient and their private Sweetie link
 const HAND_IT_OVER = "copy the link from the dashboard and hand it over yourself";
 const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice(1)}`;
 
+/** T170 The same row, for the patient §2.2 has neither a number nor an address on file for.
+ *
+ *  Both halves of the sentence above are about a patient there is somewhere to send a code to: the handover
+ *  is the way in, and the code is what makes it one. With neither on file there is nowhere to send one, so
+ *  the link does not open (`POST /api/verify`, components/VerifyGate.tsx) and the handover is not a remedy —
+ *  and `warningsFor` says exactly that three lines below this on the same step (lib/visitIntake.ts), which
+ *  is how the step came to deny the code in one line and promise it in the one above.
+ *
+ *  So this branch says the consequence and stops. The reason and the way out of it belong to that warning,
+ *  which is §2.2's own gap and the only line in the repo that owns it; repeating either here would be two
+ *  lines on one screen about one fact, which is the shape of every ticket in this family. The register is
+ *  `NO_CODE_CAN_REACH`'s and VerifyGate's — "their link will not open" — and nothing of the deployment's
+ *  is in it, because nothing here is the deployment's fault (§3.7, §10.6). */
+const NOTHING_TO_OPEN_IT_WITH = "Nothing is sent, and the link will not open for them either.";
+
 /**
  * What step 3 of the booking wizard says about the invite, before anything is saved (§2.2, §8.1, T140).
  *
@@ -161,9 +184,14 @@ const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice
  */
 export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend): BookingPlan {
   if (channel === "none") {
+    // T170 The one thing this branch had never asked, although it has had both answers as parameters since
+    // T140: whether there is anywhere to send the code it promises. `blocked` stays false on both arms —
+    // nothing about either is a gap in the deployment, and the missing contact details are marked by the
+    // warning's own element rather than by this note (`.patient-consent-warning`, T168).
+    const reachable = Boolean(phone?.trim() || email?.trim());
     return {
       lede: WILL_NOT_SEND,
-      note: `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.`,
+      note: reachable ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NOTHING_TO_OPEN_IT_WITH,
       blocked: false,
       action: "Add patient →",
     };

@@ -14,7 +14,7 @@ import { cannotSendYet } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import { fixture } from "./fixtures";
 import { inviteFaultByChannel, inviteReach } from "./notify";
-import { channelLabel, parseVisitCsv } from "./visitIntake";
+import { channelLabel, parseVisitCsv, warningsFor } from "./visitIntake";
 
 /** Anything that reads as the message being in motion. The two surfaces word it differently — "is on the
  *  way" of the patient, "is on its way" of the invite — and neither may appear on an unsent card. */
@@ -129,6 +129,29 @@ const NO_SMS = cannotSendYet("sms");
  *  applied to the "Do not message" row, whose note promises a six-digit code and not an invite. */
 const PROMISES_SEND = /\bsends\b|& send/i;
 
+/** T170 Anything on step 3 that reads as the six-digit code travelling to this patient — the claim §5.3
+ *  makes false for a visit with no number and no address on file, and the one the "Do not message" row made
+ *  for every visit. `lib/visitIntake.test.ts`'s `CODE_IN_MOTION` word for word, because it is one rule over
+ *  the two lines of one step: the note this module writes and the warning that module writes, which the
+ *  wizard renders three lines apart.
+ *
+ *  Deliberately not a bare /code/. The sentence a reachable patient gets names the code to explain why the
+ *  handover works, and is right to; what no line may say is that the code is on its way to someone there is
+ *  nowhere to send it to. */
+const CODE_IN_MOTION = /sends? (?:them|you|the patient)|(?:we|it)(?:'| wi)ll (?:text|email|send)|code (?:is|will be|was) sent|code (?:is )?on (?:its|the) way/i;
+
+/** Every pair of contact details step 1 can hand step 3, which is `lib/visitIntake.test.ts`'s
+ *  `CONTACT_COMBINATIONS`: the rule below is about all four rather than about the one that warns today. */
+const CONTACT_COMBINATIONS = [
+  { phone: null, email: null },
+  { phone: "+14155550123", email: null },
+  { phone: null, email: "sam@example.com" },
+  { phone: "+14155550123", email: "sam@example.com" },
+] as const;
+
+/** Every value the step's radios can put in `channel`, plus the two absences the type allows. */
+const EVERY_CHANNEL = ["both", "sms", "email", "none", null, undefined] as const;
+
 /** A number and an address step 1 collected. Both channels have one, so a case about the channel is not
  *  quietly also a case about a missing contact detail. */
 const SAM = { phone: "+14155550123", email: "sam@example.com" };
@@ -212,6 +235,70 @@ describe("bookingPlan", () => {
     // And a demo practice booking a destination §13.4 refuses still reads as the practice's own choice:
     // nothing was going to be sent, so there is no rule to explain (T145).
     assert.deepEqual(bookingPlan({ channel: "none", demo: true, phone: REAL.phone, email: REAL.email }), chosen);
+  });
+
+  // T170 (§2.2, §2.3, §5.3, §8.1) The half of that row it had never asked about. The sentence asserted above
+  // promises the code *and* names the handover it explains, and both are true only of a patient there is
+  // somewhere to send a code to — but the branch returns before `phone` and `email` are looked at, although
+  // it has had both since T140. So the patient §2.2 has neither for read it directly above T168's correction
+  // of the very same claim.
+  it("stops promising the code where there is nowhere to send one (T170)", () => {
+    const nowhere = bookingPlan({ channel: "none", phone: null, email: null });
+    assert.equal(nowhere.note, "Nothing is sent, and the link will not open for them either.");
+    // Still the practice's own choice and still creatable: §2.2 books this visit, so nothing here is marked
+    // as something to fix and the action is the one the reachable arm gets.
+    assert.equal(nowhere.blocked, false, "a missing number is not a gap in the deployment");
+    assert.equal(nowhere.action, "Add patient →");
+    assert.equal(nowhere.lede, bookingPlan({ channel: "none", ...SAM }).lede, "the lede is the row's, either way");
+    // Blank strings are the wizard's own empty fields, not nulls (`form.phone.trim() || null` is what the
+    // dashboard passes, and a CSV cell arrives the same way).
+    assert.equal(bookingPlan({ channel: "none", phone: "  ", email: "" }).note, nowhere.note);
+
+    // And criterion 1's other half: either one of them on file is enough, and that sentence is unchanged.
+    for (const to of [{ phone: SAM.phone, email: null }, { phone: null, email: SAM.email }, SAM]) {
+      assert.equal(
+        bookingPlan({ channel: "none", ...to }).note,
+        "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code.",
+        JSON.stringify(to),
+      );
+    }
+  });
+
+  it("claims no code reaches a patient there is nowhere to send one to (T170)", () => {
+    // The rule rather than the wording, the way lib/visitIntake.test.ts states it for `warningsFor` and
+    // lib/teamInvite.ts for `claimsEmail`: over every line this module can hand step 3, on every branch it
+    // has, for the one draft §5.3 makes the claim false for. The next rewording is held to it without
+    // anyone remembering this ticket.
+    for (const channel of EVERY_CHANNEL) {
+      for (const demo of [false, true]) {
+        for (const faults of [{}, { both: NO_SMS, sms: NO_SMS, email: NO_EMAIL }]) {
+          const plan = bookingPlan({ channel, faults, demo, phone: null, email: null });
+          for (const line of [plan.lede, plan.note, plan.action]) {
+            assert.doesNotMatch(line, CODE_IN_MOTION, `${channel}, demo=${demo}, faults=${Object.keys(faults).length}: ${line}`);
+          }
+        }
+      }
+    }
+  });
+
+  it("never puts a code in motion beside the warning that there is nowhere to send one (T170)", () => {
+    // Criterion 4, which is about the screen and not about either module: the wizard renders this note and
+    // `warningsFor`'s warning three lines apart (app/provider/dashboard.tsx), so where the warning is on the
+    // step, nothing in the three lines above it may say the code is going anywhere. Where it is not — a
+    // patient with a number or an address — the sentence that promises the code is the right one and this
+    // rule says nothing about it.
+    for (const to of CONTACT_COMBINATIONS) {
+      for (const channel of EVERY_CHANNEL) {
+        const plan = bookingPlan({ channel, ...to });
+        const warnings = warningsFor(to);
+        assert.equal(warnings.length, to.phone || to.email ? 0 : 1, JSON.stringify(to));
+        if (!warnings.length) continue;
+        const step = [plan.lede, plan.note, plan.action, ...warnings].join(" ");
+        assert.doesNotMatch(step, CODE_IN_MOTION, `${channel} with nothing on file: ${step}`);
+        // And the step still says the one thing it owes them, from the module that owns it.
+        assert.match(step, /the link will not open/);
+      }
+    }
   });
 
   it("says nothing on the step that the card would then retract (T111, T122)", () => {
