@@ -45,6 +45,7 @@
 // so nothing here may pull in Prisma — lib/demo.ts has no imports at all, which is what makes it quotable
 // from a browser bundle.
 
+import { NO_HANDOVER_EITHER } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
 import { channelLabel, channelOf, channelsOf, type ContactChannel } from "./visitIntake";
 
@@ -60,6 +61,12 @@ export type BookedSend = {
   reason?: string | null;
   /** Whether §2.2 matched a patient already on file instead of creating one. */
   patientReused?: boolean;
+  /** T173 Whether handing the link over is a way in: false for a patient with neither a number nor an
+   *  address, where the code the link needs has nowhere to go and §8.1's fallback is not one (§2.3, §5.3).
+   *  `POST /api/book` answers it off the patient row it has just written (`channelsFor`). Optional and
+   *  treated as true when absent, because it is a fact about the patient rather than about the send and a
+   *  caller that has not got it must not be made to guess: the two routes that have it pass it. */
+  handover?: boolean;
 };
 
 /** The two lines of the success card, decided together. */
@@ -77,7 +84,7 @@ export type BookedOutcome = {
  * Sweetie" is true of a visit whose link is about to be handed over at the desk, which is §8.1's fallback
  * and is in the card directly below. Only a deployment that can send says anyone is on the way.
  */
-export function bookedOutcome({ name, queued, channel, reason, patientReused }: BookedSend): BookedOutcome {
+export function bookedOutcome({ name, queued, channel, reason, patientReused, handover }: BookedSend): BookedOutcome {
   // A nameless booking cannot happen through the wizard — step 1 requires the name — but the heading is the
   // largest line on the card and " is on the way." is not a sentence, so it has a subject either way.
   const who = name.trim() || "The patient";
@@ -88,9 +95,16 @@ export function bookedOutcome({ name, queued, channel, reason, patientReused }: 
       lede: `${added} The invite is on its way by ${channelLabel(channel).toLowerCase()}.`,
     };
   }
+  // T173 §8.1's fallback is the last clause, and for one patient it is not a fallback: with neither a number
+  // nor an address there is nowhere to send the six-digit code their link needs, so the link does not open
+  // and sharing it is not a handover (§2.3, §5.3). The clause that withdraws it is lib/delivery.ts's, the
+  // same one step 3's note three presses earlier reads, so the forecast and the report say it once each in
+  // the same words. The heading is unchanged: the patient and their visit were added either way, which is
+  // what "ready for Sweetie" says and all it says.
+  const fallback = handover === false ? `${NO_HANDOVER_EITHER[0].toUpperCase()}${NO_HANDOVER_EITHER.slice(1)}.` : "Share the link below.";
   return {
     heading: `${who} is ready for Sweetie.`,
-    lede: `${added} No invite sent${reason ? `: ${reason}` : ""}. Share the link below.`,
+    lede: `${added} No invite sent${reason ? `: ${reason}` : ""}. ${fallback}`,
   };
 }
 
@@ -168,8 +182,13 @@ const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice
  *  will not open", for that reason: the warning ends on those words, and at 375px the two sit one above the
  *  other (`mobile-provider-add-visit-no-contact-silent.png`). The register is `cannotSendYet`'s and
  *  lib/teamInvite.ts's "they cannot sign in until it is fixed", and nothing of the deployment's is in it,
- *  because nothing here is the deployment's fault (§3.7, §10.6). */
-const NO_WAY_IN = "Nothing is sent, and handing the link over will not get this patient in either.";
+ *  because nothing here is the deployment's fault (§3.7, §10.6).
+ *
+ *  T173 Three callers now, which is why the clause behind it is lib/delivery.ts's: this note on the silent
+ *  channel, the same note on the three sending ones — the combination the step opens on, which had the
+ *  sending branch's promise and a half-written sentence — and the success card after the press
+ *  (`bookedOutcome` above). One fact about one patient, in one sentence, wherever the screen is. */
+const NO_WAY_IN = `Nothing is sent, and ${NO_HANDOVER_EITHER}.`;
 
 /**
  * What step 3 of the booking wizard says about the invite, before anything is saved (§2.2, §8.1, T140).
@@ -198,6 +217,22 @@ export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend
       blocked: false,
       action: "Add patient →",
     };
+  }
+  // T173 The same patient, on any of the three sending channels — and the step opens on "Text and email",
+  // so this is the combination a front desk sees first and the one the "Do not message" branch above was
+  // reached only by choosing away from. It read the sending branch at the bottom of this function: the lede
+  // promised "sends their private Sweetie link", the button read **Add patient & send →**, and the note
+  // rendered with a hole in it — "The secure link goes to — add a number or address on the first step." —
+  // all three lines above a warning saying the link will not open. Nothing can be sent, because nothing was
+  // chosen to send to; so this is the "Do not message" answer word for word, which is right for the same
+  // reason it is right there. `blocked` stays false: nothing about it is a gap in the deployment, and the
+  // missing details are marked by the warning's own element (`.patient-consent-warning`, T168).
+  //
+  // Asked before §13.4 and before the deployment, which is the order `inviteReach` now answers the press in
+  // (lib/notify.ts) and what keeps the forecast and the press quoting one sentence: a channel with nowhere
+  // to send to is not a channel a demo practice or an unconfigured office closed.
+  if (!(phone?.trim() || email?.trim())) {
+    return { lede: WILL_NOT_SEND, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
   }
   // §13.4 before the deployment's own gap, which is the order `inviteReach` answers the press in
   // (lib/notify.ts) and the reason the two cannot disagree. A demo practice may only write to a reserved

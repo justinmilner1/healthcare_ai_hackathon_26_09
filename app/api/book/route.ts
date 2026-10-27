@@ -1,7 +1,8 @@
 // POST /api/book  { name, phone?, email?, providerId?, apptAt?, visitType?, reason?, channel?, consentMethod?, consentAt? }
 // Creates (or reuses) the patient and adds one visit (design §2.2, §4.4) whose presigned token is the intake
 // link, and, when there is consent to message them, queues a `notify.invite` job to send that link (§3.4).
-// Returns { visitId, patientId, token, link, patientReused, queued, channel?, reason?, jobId? }. Owner: Justin.
+// Returns { visitId, patientId, token, link, patientReused, queued, handover, channel?, reason?, jobId? }.
+// Owner: Justin.
 // `visitId` is what every other route and page speaks in from here on (design §4.4).
 //
 // Booking is staff's job (§5.2, `visits:create`), so this needs a session: the patient and the visit land in
@@ -32,6 +33,7 @@ import { requireCapability, requireMemberInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { withRoute } from "@/lib/log";
 import { inviteReach } from "@/lib/notify";
+import { channelsFor } from "@/lib/patientSession";
 import { intakeLink } from "@/lib/sms";
 import { channelOf, parseVisitDraft } from "@/lib/visitIntake";
 import { createVisit } from "@/lib/visitStore";
@@ -51,7 +53,14 @@ async function postHandler(req: Request) {
   // and address, and this response is ids and a link (§10.3, lib/visitStore.ts `InviteReachRows`).
   const { reach: rows, ...created } = await createVisit(me, provider.id, parsed.draft);
 
-  const booked = { ...created, link: intakeLink(created.token) };
+  // T173 Whether handing the link over is a way in, which is a fact about the patient and not about the send:
+  // opening the link sends a six-digit code to the number or address on file (§2.3, §5.3), so with neither
+  // there is nowhere for one to go and the link does not open. The card says it in place of §8.1's fallback
+  // (`bookedOutcome`, lib/booking.ts). Off the written row rather than the draft, like everything else here:
+  // §2.2 reuses a patient matched on phone or email, so the row can carry a detail the draft did not.
+  const handover = channelsFor(rows).length > 0;
+
+  const booked = { ...created, link: intakeLink(created.token), handover };
   if (parsed.draft.channel === "none") return NextResponse.json({ ...booked, queued: false, reason: NO_CONSENT_TO_MESSAGE });
 
   // The send is a job, so adding a patient returns as fast as the insert and a throttled SES call cannot cost

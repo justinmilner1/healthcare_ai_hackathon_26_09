@@ -2,7 +2,7 @@
 // POST /api/invite { visitId, regenerate: true }  -> replace the link first, then send the new one (§5.5)
 // Owner: Justin. `visitId` identifies the visit (design §4.4) and may also be that visit's invite token.
 // Used by the provider pages' "Send link" and "New link" buttons. Queues a `notify.invite` job (§3.4) and
-// returns 202 { link, jobId, queued, reason? }: the link is the useful part on screen, and staff never waits
+// returns 202 { link, jobId, queued, handover, reason? }: the link is the useful part on screen, and staff never waits
 // on SES. A second click while the first send is still in flight joins it; a resend later is a real resend
 // (lib/jobs.ts). Per-channel delivery status is recorded on the visit and shown to staff in T19 (§8.3).
 //
@@ -41,7 +41,7 @@ import { requireCapability, requireVisitInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
 import { inviteReach } from "@/lib/notify";
-import { revokeSessions } from "@/lib/patientSession";
+import { channelsFor, revokeSessions } from "@/lib/patientSession";
 import { intakeLink } from "@/lib/sms";
 
 async function postHandler(req: Request) {
@@ -64,7 +64,12 @@ async function postHandler(req: Request) {
   const { job, deduped } = await enqueue({ kind: "notify.invite", payload: { visitId: visit.id }, idempotencyKey: `notify.invite:${visit.id}` });
   nudge(after);
 
-  const sent = { link: intakeLink(token), jobId: job.id, deduped, regenerated: Boolean(body.regenerate) };
+  // T173 Whether handing the link over is a way in at all, which neither note could ask before: the link
+  // opens on a six-digit code sent to the number or address on file (§2.3, §5.3), and this patient may have
+  // neither — in which case §8.1's fallback is not one and lib/inviteNote.ts says so instead of naming Copy
+  // intake. The same row `inviteReach` below reads, so the two answers cannot disagree about one patient.
+  const handover = channelsFor(visit.patient).length > 0;
+  const sent = { link: intakeLink(token), jobId: job.id, deduped, regenerated: Boolean(body.regenerate), handover };
   // Two different statements, kept apart the way POST /api/book keeps them: a practice that chose to message
   // nobody is not a deployment that cannot (§2.2 against §8.1). Only the second one is anybody's to fix.
   if (visit.contactChannel === "none") return NextResponse.json({ ...sent, queued: false, reason: NO_CONSENT_TO_MESSAGE }, { status: 202 });

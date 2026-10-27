@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
 import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
-import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
+import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH, NO_CODE_TO_SEND } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { IMPORT_INTRO, importInviteNote } from "@/lib/importNote";
 import { newLinkNote, sendLinkNote } from "@/lib/inviteNote";
@@ -60,6 +60,9 @@ type Row = {
    *  patient cannot open their link. Decided by `codeReach` server-side (app/api/provider/route.ts),
    *  because two thirds of the question is whether this deployment has a sender at all. */
   codeUnreachable?: boolean;
+  /** §2.2, §2.3 No contact detail of any kind, so there is nowhere to send the code the link opens on and
+   *  the link will not open. The sibling of `codeUnreachable` above and never true with it (T173). */
+  noContactOnFile?: boolean;
   /** §10.5 Set once a deletion has been asked for and until the `patient.delete` job has run. The row is on
    *  its way out, so the screen stops offering anything to do with it. */
   patientDeletedAt: string | null;
@@ -213,6 +216,11 @@ export default function ProviderDashboard({
           channel: data.channel ?? form.channel,
           reason: data.reason,
           patientReused: Boolean(data.patientReused),
+          // T173 The route's answer, passed through rather than re-derived from the form: §2.2 can reuse a
+          // patient matched on phone or email, so the row this visit landed on may carry a detail the form
+          // left blank, and the card is about that row. Not coerced — `bookedOutcome` withdraws §8.1's
+          // fallback on an explicit `false` only, so an older answer without the field reads as before.
+          handover: data.handover,
         }),
         link: data.link,
       });
@@ -972,6 +980,14 @@ function Messages({ visit }: { visit: Row }) {
           and not .provider-suppressed with a modifier, because it is a different kind of sentence and the
           specs that read "why is this channel closed" must not resolve to it too. */}
       {visit.codeUnreachable && <small className="provider-no-code">{NO_CODE_CAN_REACH}</small>}
+      {/* T173 The same conclusion for the row that has nothing above it to conclude from: no pill, no
+          suppression line and no fault, because no channel was ever open to close. Until this ticket that
+          row carried no line of any kind — **Invited**, a live **Send link**, and "No contact on file" in
+          the patient cell with nothing saying what it costs. Its own sentence rather than
+          `NO_CODE_CAN_REACH` because the remedy differs and is the point of the line: there is no
+          telephoning this patient (lib/delivery.ts). The two cannot both render: one is decided on
+          `onFile` being non-empty and the other on its being empty (app/api/provider/route.ts). */}
+      {visit.noContactOnFile && <small className="provider-no-code">{NO_CODE_TO_SEND}</small>}
       <small className="provider-cell-sub">{consent ? `Consent: ${consent}` : "No consent recorded"}</small>
     </div>
   );

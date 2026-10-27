@@ -60,6 +60,30 @@ export const DELIVERY_NO_PATIENT_EMAIL = "patient has no email";
 export const NO_CONSENT_TO_MESSAGE = "no consent to message this patient";
 
 /**
+ * §2.2, §2.3, T173 And the one `inviteReach` never asked about: a patient with neither a phone nor an email
+ * on file. Staff's words for what is missing, and only that — the remedy and the consequence are
+ * `warningsFor`'s on the creation screen (lib/visitIntake.ts) and `NO_CODE_TO_SEND`'s on the dashboard, and
+ * each of those lines owns them where it is read. This is the clause that goes after "No invite sent:", so
+ * it says what the gap is and stops, the way `NO_CONSENT_TO_MESSAGE` above does.
+ *
+ * The first four words are the warning's own, deliberately: one fact said the same way wherever it is said.
+ * Nothing of the deployment's is in it, because nothing about this is the deployment's (§3.7, §10.6) — it is
+ * two fields on the front desk's own screen.
+ */
+export const NO_CONTACT_ON_FILE = "no phone or email on file";
+
+/**
+ * §8.1, T170, T173 The clause that withdraws the handover, for the patient it is not a way in for.
+ *
+ * §8.1's fallback is "hand the link over yourself", and it rests on the link opening — which rests on a code
+ * reaching the patient (§2.3, §5.3). With neither a number nor an address there is nowhere to send one, so
+ * every line that offers the handover to this patient is offering a way in that does not exist. T170 wrote
+ * this sentence for the booking step; T173 found the same offer in the two dashboard notes, so the clause
+ * lives here and both modules quote it rather than wording it twice.
+ */
+export const NO_HANDOVER_EITHER = "handing the link over will not get this patient in either";
+
+/**
  * §2.3, §5.3, T121 What staff read on a visit whose patient cannot be sent a six-digit code: every channel
  * on file is closed, by a bounce or a STOP (§8.1), by §13.4's demo rule, or because this deployment has no
  * sender behind it. `codeReach` (lib/notify.ts) is what decides it; this is the one sentence for all of them.
@@ -70,10 +94,28 @@ export const NO_CONSENT_TO_MESSAGE = "no consent to message this patient";
  * names no channel, no address and no backend (§3.7, §10.6), and here beside the other staff-readable
  * refusals because the dashboard is a client component and must not import lib/notify.ts to read it.
  *
- * It is deliberately not said about a visit with no phone and no email: that patient cannot be telephoned
- * either, and §2.2 asking the wizard for a contact method is a different gap with a different fix.
+ * It is deliberately not said about a visit with no phone and no email: "call them" is the remedy, and that
+ * patient cannot be telephoned either. T173 is what that exclusion cost — the row said nothing at all, and
+ * the conclusion the front desk needs is the same one. So that case has the sibling below rather than this
+ * sentence, and the two are mutually exclusive by construction: this one is about channels that closed, that
+ * one about there being none to close (app/api/provider/route.ts).
  */
 export const NO_CODE_CAN_REACH = "No code can reach this patient, so their link will not open — call them";
+
+/**
+ * §2.2, §2.3, T173 The same conclusion for the patient who has nothing on file at all: the row used to carry
+ * no line of any kind, so a front desk reading **Invited** and a live **Send link** beside "No contact on
+ * file" had nothing telling them this link cannot be opened.
+ *
+ * `NO_CODE_CAN_REACH`'s shape — the fact, the consequence, then the one remedy that works — because it is
+ * the same sentence about a different cause, and the remedy is the half that has to differ: there is no
+ * telephoning this patient, and the two fields the front desk can fill are the whole of it. "Nowhere to
+ * send" rather than "nothing on file", because the patient cell one column to the left already says what is
+ * missing (app/provider/dashboard.tsx) and the words the patient's own screen uses for the consequence are
+ * these (components/VerifyGate.tsx: "there is nowhere to send your 6-digit code").
+ */
+export const NO_CODE_TO_SEND =
+  "Nowhere to send their code, so their link will not open — add a phone number or an email address";
 
 /** Every reason the app writes for staff rather than for a deployment. §8.1's suppression and §13.4's demo
  *  rule come from the modules that own them, so there is one copy of each sentence in the repo. */

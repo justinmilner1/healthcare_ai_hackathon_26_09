@@ -68,9 +68,15 @@ async function getHandler() {
       const uploads = Array.from(new Set(v.uploads.map((u) => u.kind)));
       // §2.3, §5.3, T121 Can this patient be sent the six-digit code their link needs? Answered here rather
       // than on the screen because two thirds of it are the deployment's (`codeReach` asks the senders
-      // themselves, lib/notify.ts) and the dashboard is a client component. Only said of a visit that has a
-      // channel on file to have lost: a patient with neither a phone nor an address cannot be telephoned
-      // about it either, and §2.2's gap has its own fix.
+      // themselves, lib/notify.ts) and the dashboard is a client component.
+      //
+      // T173 Two answers, because there are two causes and they want different remedies: a channel that
+      // closed (`codeUnreachable`) and no channel to close (`noContactOnFile`). The second used to be
+      // excluded from the first — "a patient with neither a phone nor an address cannot be telephoned about
+      // it either, and §2.2's gap has its own fix" — and §2.2's fix is on the creation screen, which staff
+      // are not on any more by the time they are looking at this row. So the row said nothing at all about a
+      // link that cannot open, beside a live **Send link** button. Mutually exclusive by construction: one
+      // needs `onFile` non-empty and the other needs it empty, so the screen says one line or the other.
       const onFile = channelsFor(v.patient);
       const reach = codeReach({
         channels: onFile,
@@ -107,6 +113,10 @@ async function getHandler() {
         /** §2.3 True when contact details are on file and none of them can carry a code, so the patient
          *  cannot open their link at all and the front desk has to telephone them (T121). */
         codeUnreachable: onFile.length > 0 && reach.channels.length === 0,
+        /** §2.2, §2.3 True when there is no contact detail at all, which is the same consequence — the link
+         *  will not open — reached the other way, and with the remedy the front desk can act on rather than a
+         *  telephone call they cannot make (T173). Never true at the same time as `codeUnreachable`. */
+        noContactOnFile: onFile.length === 0,
         // §10.5 Set the moment a deletion is asked for and cleared only by the row going. The dashboard
         // stops offering anything on a row whose patient is on the way out (app/provider/dashboard.tsx).
         patientDeletedAt: v.patient.deletedAt,
