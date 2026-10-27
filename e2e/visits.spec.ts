@@ -584,6 +584,113 @@ test("a patient with nothing on file is still bookable, and the step says what t
   });
 });
 
+// T173 (design §2.2, §2.3, §5.3, §8.1) The combination the step *opens* on for that same patient, which no
+// frame of this screen had ever carried: "Text and email" with both fields blank. The test above chooses
+// away from it to reach the "Do not message" row, so the default went unread — and the default read the
+// sending branch. The lede promised "sends their private Sweetie link", the button offered **Add patient &
+// send →**, and the note rendered with a hole in it, "The secure link goes to — add a number or address on
+// the first step.", three lines above a warning saying the link will not open.
+//
+// A practice of its own, because this one presses the button: the row it creates is this test's subject
+// twice over — the card, and then the dashboard line that row had never carried — and a booking into the
+// seeded practice would be one more row in every other spec's table.
+//
+// What this cannot show is the other half of the ticket, and it is worth saying where: the claim
+// `inviteReach` used to make needs a deployment with a sender behind a channel, and this gate configures
+// none (§11.3). With none, every surface takes its "cannot send" branch whatever the patient's details are.
+// The configured arm is lib/booking.test.ts's and lib/notify.test.ts's, under `withEnv`.
+test("a booking with nothing on file promises no send, and the row says the link will not open", async ({ page }) => {
+  await signInAs(page, freshEmail("no-contact-admin"));
+  const name = uniqueName("Nobody Reachable");
+
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  await wizard.getByLabel("Patient name").fill(name);
+  // Mobile number and Email left blank, which is all §2.2 requires of step 1.
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+  await wizard.getByText("Follow-up", { exact: true }).click();
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  // Step 3, untouched: still on its "Text and email" default, which is the state this ticket is about.
+  const note = wizard.locator(".patient-consent-note").first();
+  await expect(note, "the sentence with the hole in it is gone").toHaveText(
+    "Nothing is sent, and handing the link over will not get this patient in either.",
+    LOADED,
+  );
+  await expect(wizard.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
+  );
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+  // Nothing about this is a gap in the deployment, so nothing on the step is marked as something to fix:
+  // the two empty fields are the front desk's own and the warning's element is what marks them (T168).
+  await expect(wizard.locator(".patient-consent-note-blocked")).toHaveCount(0);
+  await expect(wizard.locator(".patient-consent-warning")).toHaveCount(1);
+  const step = await wizard.innerText();
+  expect(step, "nothing on the step offers a send").not.toMatch(PROMISES_SEND);
+  expect(step, "nor a code this patient cannot receive").not.toMatch(/sends? (?:them|you|the patient)/i);
+  expect(step, "nor a destination for a link that has none").not.toMatch(/goes to/);
+  await shot(page, "provider-add-visit-no-contact-default", {
+    ...MODAL,
+    scrollTo: ".patient-consent-warning",
+    block: "center",
+    wholeRows: ".patient-consent-note, .patient-consent-warning, .patient-wizard-actions",
+  });
+
+  // And the press on this default, which §2.2's own field rule refuses: a text needs a number and an
+  // emailed invite needs an address (`parseVisitDraft`, lib/visitIntake.ts). So the three lines above are
+  // the whole of what this channel can promise — and what they must not promise is the press refusing
+  // after a "& send" button, which is the shape every ticket in this family is about.
+  await wizard.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
+  await wizard.getByRole("button", { name: SAVE }).click();
+  await expect(wizard.locator(".ss-error")).toContainText(/needs a mobile number|needs an email address/, LOADED);
+  await expect(page.locator(".patient-wizard-success"), "and no card claims anything").toHaveCount(0);
+
+  // §2.2 still books this visit, on the channel that asks for no destination — which is the reachable way
+  // to a created visit with nothing on file, and what the card and the row below are about.
+  await wizard.getByText("Do not message", { exact: true }).click();
+  await wizard.getByRole("button", { name: SAVE }).click();
+
+  const card = page.locator(".patient-wizard-success");
+  await expect(card.locator(".ss-title")).toHaveText(`${name} is ready for Sweetie.`, LOADED);
+  // §8.1's fallback is the last clause of this lede for every other patient, and for this one it is not a
+  // fallback: the link does not open without a code and there is nowhere to send one. The clause that
+  // withdraws it is the note's, three presses earlier (lib/delivery.ts).
+  await expect(card.locator(".ss-lede")).toHaveText(
+    "Patient added. No invite sent: no consent to message this patient. Handing the link over will not get this patient in either.",
+  );
+  const cardText = await card.innerText();
+  expect(cardText, "nothing on the card claims the invite is going anywhere").not.toMatch(/on (?:the|its) way/i);
+  expect(cardText, "nor offers the handover it has just withdrawn").not.toMatch(/Share the link below/);
+  await shot(page, "provider-add-visit-no-contact-card", SUCCESS_CARD);
+
+  // The row, which is the surface staff are on once the creation screen is behind them — and the one that
+  // said nothing at all. `codeUnreachable` was guarded by `onFile.length > 0`, so it excluded exactly this
+  // patient: **Invited**, a live **Send link**, "No contact on file" beside the name, and no line saying
+  // what any of that costs (app/api/provider/route.ts, T173).
+  await card.getByRole("button", { name: "Back to dashboard" }).click();
+  const row = page.locator(".provider-table tbody tr", { hasText: name });
+  await expect(row, "the visit was created (§2.2)").toHaveCount(1, LOADED);
+  await expect(row.locator(".provider-no-code")).toHaveText(
+    "Nowhere to send their code, so their link will not open \u2014 add a phone number or an email address",
+  );
+  // The other line of the pair is not also on the row: one is about channels that closed and the other
+  // about there being none to close, and the screen says one of them (lib/delivery.ts).
+  await expect(row).not.toContainText("No code can reach this patient");
+
+  // And the note under those buttons, which pointed at a Copy intake that hands over a locked door.
+  await row.getByRole("button", { name: "Send link" }).click();
+  const rowNote = row.locator(".provider-row-note");
+  await expect(rowNote).toContainText("Handing the link over will not get this patient in either.", LOADED);
+  await expect(rowNote).not.toContainText("Use Copy intake");
+  await expect(rowNote, "and no claim of a send").not.toContainText(/Sending/i);
+  await shot(page, "provider-dashboard-no-contact-row", {
+    ...SCREENFUL,
+    scrollTo: row.locator(".provider-invite"),
+    block: "center",
+    inline: "center",
+  });
+});
+
 // T166 (design §2.2, §6.4) Both of the wizard's radio groups hide their input inside the styled card, so
 // until this ticket the only non-selected state either card had was `:hover` — which a keyboard never
 // reaches. A person arrowing through "what kind of visit is this" saw the group stand still.
