@@ -1,18 +1,28 @@
-// The standing caveat under a summary. `reviewedBy` is §7.3's sign-off: the clinician one-pager's own
-// sentence says nobody has read it yet, which stops being true the moment somebody marks it reviewed.
+// The standing caveat under a summary. The clinician's half of it is a function of the visit's own facts
+// (lib/disclaimer.ts, T171): what it may claim about the provenance depends on whether there is a summary at
+// all and on whether the patient shared an export, and §7.3's `reviewedBy` is the sign-off. Both of the
+// clinician's surfaces render this component, so the brief and the printed one-pager cannot disagree.
+import { clinicianCaveat, sharedAnyExport } from "@/lib/disclaimer";
+import type { IntakeStatus } from "@/lib/types";
+
 export default function Disclaimer({
   audience,
   generatedAt,
   reviewedBy,
+  status,
 }: {
   audience: "provider" | "patient";
   generatedAt?: string | null;
   /** Who signed this summary off (§7.3), if anyone. Provider audience only. */
   reviewedBy?: string | null;
+  /** What the patient shared (`bundle.status`), which is the source the sentence may name. Provider only. */
+  status?: Pick<IntakeStatus, "hasDexcom" | "hasLocation" | "hasWhoop">;
 }) {
-  const provider = reviewedBy
-    ? `AI-generated from patient-uploaded data, reviewed by ${reviewedBy}. Verify with the patient; it flags, it does not diagnose.`
-    : "AI-generated from patient-uploaded data. No clinician has reviewed this before you. Verify with the patient; it flags, it does not diagnose.";
+  const provider = clinicianCaveat({
+    generated: Boolean(generatedAt),
+    uploads: status ? sharedAnyExport(status) : false,
+    reviewedBy,
+  }).text;
   return (
     <p className="text-[11px] leading-snug text-[var(--viz-muted)]">
       {audience === "provider"

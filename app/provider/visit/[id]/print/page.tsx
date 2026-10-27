@@ -284,7 +284,7 @@ export default async function PrintPage({
         )}
 
         <footer className="sour-print-footer">
-          <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} />
+          <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} status={bundle.status} />
         </footer>
       </article>
     </main>
