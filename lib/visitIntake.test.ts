@@ -17,6 +17,7 @@ import {
   parseVisitType,
   splitCsvLine,
   warningsFor,
+  type VisitDraft,
 } from "./visitIntake";
 
 // design §2.2: the rules the Add-visit form and the CSV import share. Pure, so no database here.
@@ -209,7 +210,10 @@ test("a visit with nothing on file is created, and says what that costs the pati
   const parsed = parseVisitDraft({ name: "Walk In", channel: "none" });
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
-  assert.deepEqual(warningsFor(parsed.draft), ["No phone or email on file, so this patient cannot open their link: opening it sends them a six-digit code."]);
+  assert.deepEqual(warningsFor(parsed.draft), [
+    "No phone or email on file, so the six-digit code their link needs has nowhere to go and the link will not open. " +
+      "Add a phone number or an email address, or take the intake over the telephone.",
+  ]);
 
   // Either one is enough, and "do not message" with an address on file is the deliberate combination: the
   // channel governs the invite, the address is what the code goes to.
@@ -217,10 +221,47 @@ test("a visit with nothing on file is created, and says what that costs the pati
   assert.deepEqual(warningsFor({ phone: "4155550100", email: null }), []);
 });
 
+// T168, and the reason the literal above is not the whole test.
+//
+// The sentence it replaces denied the send and then claimed it one clause later — "this patient cannot open
+// their link: opening it sends them a six-digit code" — so the rule worth keeping is not this wording but
+// what no wording of it may say. Stated the way lib/teamInvite.ts states `claimsEmail` and lib/inviteNote.ts
+// its `MOTION`: one invariant over every line the module can hand a screen, so the next rewording is held to
+// it without anyone remembering this ticket.
+//
+// Deliberately not a bare /code/ — the warning has to name the six-digit code to explain itself, and "has
+// nowhere to go" is the denial. What is forbidden is the code in motion towards this patient.
+const CODE_IN_MOTION = /sends? (?:them|you|the patient)|(?:we|it)(?:'| wi)ll (?:text|email|send)|code (?:is|will be|was) sent|code (?:is )?on (?:its|the) way/i;
+
+/** Every draft the two §2.2 surfaces can ask about: the wizard's fields and a CSV row both come down to
+ *  these four, and the rule below is about all of them rather than about the one that warns today. */
+const CONTACT_COMBINATIONS: Pick<VisitDraft, "phone" | "email">[] = [
+  { phone: null, email: null },
+  { phone: "4155550100", email: null },
+  { phone: null, email: "sam@example.com" },
+  { phone: "4155550100", email: "sam@example.com" },
+];
+
+test("no warning claims a code reaches a patient there is nowhere to send one to", () => {
+  for (const draft of CONTACT_COMBINATIONS) {
+    for (const warning of warningsFor(draft)) {
+      assert.doesNotMatch(warning, CODE_IN_MOTION, `a send this visit cannot make, in: ${warning}`);
+    }
+  }
+
+  // And the half that was missing: §2.2's gap has no other screen, so the one line that names it names the
+  // way out of it too — the two fields staff own, and the telephone.
+  const [warning] = warningsFor({ phone: null, email: null });
+  assert.match(warning, /add a phone number or an email address/i);
+  assert.match(warning, /telephone/i);
+  // §3.7, §10.6: staff's words, nothing of the deployment's on a practice's screen.
+  assert.doesNotMatch(warning, /SES|SNS|TWILIO|RESEND|_API_KEY|EMAIL_FROM|DEV_MAIL_DIR/);
+});
+
 test("a CSV row with no way to reach the patient imports with that warning on it", () => {
   const parse = parseVisitCsv("name,phone,channel\nNo Contact,,none\nReachable,+14155550100,none\n");
   assert.deepEqual(parse.rows.map((r) => r.errors.length), [0, 0]);
-  assert.match(parse.rows[0].warnings[0], /cannot open their link/);
+  assert.match(parse.rows[0].warnings[0], /the link will not open/);
   assert.deepEqual(parse.rows[1].warnings, []);
 });
 
