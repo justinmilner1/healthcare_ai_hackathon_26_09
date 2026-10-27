@@ -29,11 +29,12 @@ const IMPORT_WINDOW = 1000;
 /**
  * No card in either of §2.2's radio groups is wearing `:hover` in the frame that was just taken (T167).
  *
- * The wizard's two radio groups hide their input inside the styled card, so a card has exactly two ways to
- * look chosen: `.visit-type-card-selected` (the cream fill, the gold border and the ticked radio) and
- * `:hover` (the same gold border, a shade lighter — app/globals.css). T166 gave them a third, a focus ring,
- * and asserted that only the focused card paints one. This is the same claim about the second: a frame of a
- * radio group shows one card looking chosen, and the one it shows is the one the front desk picked.
+ * The wizard's two radio groups hide their input inside the styled card, so everything the group says about
+ * which channel is chosen it says with the card's own border: `.visit-type-card-selected` is the cream fill,
+ * the gold border and the ticked radio, and `:hover` is that same gold border a shade lighter
+ * (app/globals.css). T166 added the third thing a card can paint, a focus ring, and asserted that only the
+ * focused card paints one; this is the same claim about the hover. A frame of a radio group shows one card
+ * looking chosen, and the one it shows is the one the front desk picked.
  *
  * It is asserted after the shot rather than before it, because the shutter is what moves the pointer off the
  * page (e2e/shot.ts) and the frame is what the claim is about. `mobile-provider-add-visit-step3-scroll-bottom.png`
