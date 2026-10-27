@@ -11,7 +11,7 @@ import { can } from "@/lib/access";
 import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
-import { importInviteNote } from "@/lib/importNote";
+import { IMPORT_INTRO, importInviteNote } from "@/lib/importNote";
 import { newLinkNote, sendLinkNote } from "@/lib/inviteNote";
 import { confirmsDeletion } from "@/lib/retention";
 import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
@@ -1415,9 +1415,12 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
             </button>
           </header>
 
+          {/* T170 The words are lib/importNote.ts's, like the invite line further down this dialog: the
+              clause this paragraph used to end on — that opening the link still sends them a code — was a
+              general claim about every blank-`channel` row, and the preview below warns row by row about the
+              ones with nowhere to send one. */}
           <p className="ss-lede">
-            Columns: <code>name, phone, email, scheduled_at, visit_type, reason, channel, consent, consent_at</code>. Every row is checked before anything is created, and a row
-            with a blank <code>channel</code> is created without an invite — hand those patients the link yourself, and opening it still sends them a code.
+            Columns: <code>{IMPORT_INTRO.columns}</code>. {IMPORT_INTRO.before} <code>{IMPORT_INTRO.column}</code> {IMPORT_INTRO.after}
           </p>
 
           <div className="import-controls">

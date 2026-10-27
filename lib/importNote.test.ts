@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { cannotSendYet } from "./delivery";
-import { importInviteNote } from "./importNote";
+import { IMPORT_INTRO, importInviteNote, importIntroText } from "./importNote";
 
 /** The reason itself always comes from lib/delivery.ts, through `inviteFaults` (lib/notify.ts). This module
  *  is only ever told it, so the tests pass what the import route really passes. */
@@ -65,5 +65,51 @@ describe("the import dialog's line about invites that cannot go out", () => {
 
   it("gives the two tenses different words, so neither screen reads as the other", () => {
     assert.notEqual(importInviteNote({ fault: CANNOT, committed: false }), importInviteNote({ fault: CANNOT, committed: true }));
+  });
+});
+
+// T170 (§2.2, §5.3, §8.1) The paragraph above the preview, which until this ticket was JSX in the dialog and
+// the last line of this family still claiming the code: "a row with a blank `channel` is created without an
+// invite — hand those patients the link yourself, and opening it still sends them a code." The preview under
+// it warns, row by row, about the rows with no number and no address — where there is nowhere to send one —
+// and `desktop-provider-import-preview.png` held the general claim and the row that contradicts it in one
+// frame.
+
+/** The claim, not the word: `lib/visitIntake.test.ts`'s `CODE_IN_MOTION` and `lib/booking.test.ts`'s, over
+ *  the third surface the rule reaches. */
+const CODE_IN_MOTION = /sends? (?:them|you|the patient)|(?:we|it)(?:'| wi)ll (?:text|email|send)|code (?:is|will be|was) sent|code (?:is )?on (?:its|the) way/i;
+
+describe("the import dialog's opening paragraph", () => {
+  it("promises no code of a row the file may have given nothing to reach", () => {
+    // Over the paragraph a reader sees rather than over the pieces: a clause coming back in any one of them
+    // is the same bug, so the rule is stated about the whole of it.
+    assert.doesNotMatch(importIntroText(), CODE_IN_MOTION);
+    // And over each piece, so a rewording cannot pass by splitting the claim across two of them.
+    for (const piece of Object.values(IMPORT_INTRO)) assert.doesNotMatch(piece, CODE_IN_MOTION, piece);
+  });
+
+  it("still says what a blank channel costs, and points at §8.1's fallback", () => {
+    const text = importIntroText();
+    assert.match(text, /a row with a blank channel is created without an invite/i);
+    assert.match(text, /hand those patients the link yourself/i);
+    // The half the preview is for: nothing is written until the rows have been checked (§2.2).
+    assert.match(text, /checked before anything is created/i);
+  });
+
+  it("names every column parseVisitCsv maps, and nothing of the deployment's (§3.7, §10.6)", () => {
+    for (const column of ["name", "phone", "email", "scheduled_at", "visit_type", "reason", "channel", "consent", "consent_at"]) {
+      assert.ok(IMPORT_INTRO.columns.split(", ").includes(column), column);
+    }
+    assert.doesNotMatch(importIntroText(), /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+  });
+
+  it("composes in the order the dialog renders the pieces in", () => {
+    // The dialog sets `columns` and `column` in `<code>` and the prose around them, so the test reads the
+    // same sentence the screen does.
+    assert.equal(
+      importIntroText(),
+      `Columns: ${IMPORT_INTRO.columns}. ${IMPORT_INTRO.before} ${IMPORT_INTRO.column} ${IMPORT_INTRO.after}`,
+    );
+    assert.match(importIntroText(), /\. Every row/, "one sentence ends before the next begins");
   });
 });

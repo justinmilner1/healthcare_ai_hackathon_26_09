@@ -42,3 +42,42 @@ export function importInviteNote({ fault, committed }: { fault: string; committe
   if (committed) return `No invites sent: ${fault}. Copy each link from the dashboard instead.`;
   return `No invites will be sent: ${fault}. Create these visits and you will have to ${FALLBACK}.`;
 }
+
+// ---------------------------------------------------------------------------------------------
+// The paragraph above all of it: what the dialog says a file is and what a row without a channel gets
+// (§2.2, §8.1, T170).
+
+/**
+ * The import dialog's opening paragraph, in the pieces the dialog sets in `<code>`.
+ *
+ * It lived in the dialog as JSX, which is why it was the last line of this family left making the claim
+ * T168 removed from `warningsFor` and T170 from `bookingPlan`: "a row with a blank `channel` is created
+ * without an invite — hand those patients the link yourself, and opening it still sends them a code."
+ * A general claim about every blank-`channel` row, and the preview directly below it warns, row by row,
+ * about the ones with no number and no address — where there is nowhere to send that code at all. The same
+ * frame held both (`desktop-provider-import-preview.png`).
+ *
+ * The clause is gone rather than qualified. Which rows can be sent a code is a fact about each row, the
+ * preview already says it on the row it is true of (`warningsFor`, lib/visitIntake.ts), and an intro that
+ * said it conditionally would be a second copy of that rule for the next rewording to drift from. What is
+ * left is what is true of every such row: nothing is sent, and the link is staff's to hand over — §8.1's
+ * fallback, which is what `FALLBACK` points at one tense at a time above.
+ *
+ * Here rather than in the dialog so the paragraph has a unit test (§12.1), like both tenses above it.
+ */
+export const IMPORT_INTRO = {
+  /** The columns `parseVisitCsv` maps, as the dialog lists them. */
+  columns: "name, phone, email, scheduled_at, visit_type, reason, channel, consent, consent_at",
+  /** Up to the column name the sentence turns on. */
+  before: "Every row is checked before anything is created, and a row with a blank",
+  /** That column name, which the dialog renders in `<code>` like the list above. */
+  column: "channel",
+  /** And after it. */
+  after: "is created without an invite — hand those patients the link yourself.",
+} as const;
+
+/** The paragraph as a reader sees it, which is what `lib/importNote.test.ts` holds the rule to: the dialog
+ *  renders these pieces in this order, so a clause cannot come back in one of them unexamined. */
+export function importIntroText(): string {
+  return `Columns: ${IMPORT_INTRO.columns}. ${IMPORT_INTRO.before} ${IMPORT_INTRO.column} ${IMPORT_INTRO.after}`;
+}
