@@ -553,6 +553,35 @@ test("a patient with nothing on file is still bookable, and the step says what t
     block: "center",
     wholeRows: ".patient-consent-warning, .patient-wizard-actions",
   });
+
+  // T170 The combination the assertions above leave out, and the one that was wrong: the step opens on
+  // "Text and email", where the note is the destination's and not the handover's, so no frame of this
+  // screen had ever carried the "Do not message" sentence beside the warning. Choose it and the two lines
+  // are three apart — `bookingPlan`'s note then `warningsFor`'s warning — and the first used to promise the
+  // code the second had just said there was nowhere to send.
+  await wizard.getByText("Do not message", { exact: true }).click();
+  const note = wizard.locator(".patient-consent-note").first();
+  await expect(note).toHaveText("Nothing is sent, and the link will not open for them either.");
+  // Still the practice's own choice, so nothing on the step is marked as something to fix (T140's class).
+  await expect(wizard.locator(".patient-consent-note-blocked")).toHaveCount(0);
+  await expect(warning, "and the warning is still the one line that owns §2.2's gap").toHaveCount(1);
+  // The whole step again, now that the sentence in question is on it: neither line may put the code in
+  // motion, and nothing may offer a send this patient cannot be reached by.
+  expect(await wizard.innerText(), "nothing on the step sends a code this patient cannot receive").not.toMatch(
+    /sends? (?:them|you|the patient)/i,
+  );
+  expect(await wizard.innerText(), "nor any other send this office cannot make").not.toMatch(PROMISES_SEND);
+  // §2.2 still books it: "Do not message" asks for no consent method, so the save row is live either way.
+  await expect(wizard.getByRole("button", { name: SAVE })).toBeEnabled();
+
+  // The pair in one frame, which is the evidence this ticket was filed for: the note, the warning under it
+  // and the save row that proves the visit is still bookable.
+  await shot(page, "provider-add-visit-no-contact-silent", {
+    ...MODAL,
+    scrollTo: ".patient-consent-warning",
+    block: "center",
+    wholeRows: ".patient-consent-note, .patient-consent-warning, .patient-wizard-actions",
+  });
 });
 
 // T166 (design §2.2, §6.4) Both of the wizard's radio groups hide their input inside the styled card, so
@@ -894,6 +923,15 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   await expect(importWarning).toContainText(/Add a phone number or an email address, or take the intake over the telephone/i);
   expect(await importWarning.innerText(), "the row no longer promises the code it has just denied").not.toMatch(
     /sends? (?:them|you|the patient)/i,
+  );
+  // T170 And nor does the paragraph above the preview, which made the same promise of *every* blank-channel
+  // row — line 4 of this very file among them. One frame holds both (the shot below), so the rule is about
+  // the whole dialog and not about the row that happens to contradict it.
+  expect(await page.locator(".import-dialog").innerText(), "nothing in the dialog promises a code the file cannot reach").not.toMatch(
+    /sends? (?:them|you|the patient)/i,
+  );
+  await expect(page.locator(".import-dialog .ss-lede")).toContainText(
+    "a row with a blank channel is created without an invite — hand those patients the link yourself.",
   );
   // T135 One of the three creatable rows asked for a text and this deployment has no SMS backend, so the
   // screen the decision is made on says so — before the button, in the future tense, and naming what
