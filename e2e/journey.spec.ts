@@ -437,6 +437,17 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // that had to stay as it was (lib/sourState.ts `askSourPlaceholder`). The conversation-only and
   // Dexcom-only briefs are asserted where they are shot (e2e/flows.spec.ts, e2e/flags.spec.ts).
   await expect(page.getByLabel("Message Sour")).toHaveAttribute("placeholder", /glucose spikes or sleep data/i);
+  // T174 (§6.3, §7, §12.2): the footer of the frame this ticket was filed from. This run has no model key,
+  // so Sour saved the numbers with both narrative lists empty — and the line under them may not tell the
+  // clinician the page was AI-generated. Every figure above it is code's (lib/sour.ts, lib/glucose.ts), and
+  // "AI-generated" over them discounts the one part of the brief that is not a guess (lib/disclaimer.ts).
+  await expect(page.locator(".sour-brief")).toContainText("Not generated.");
+  const briefCaveat = page.locator(".sour-disclaimer");
+  await expect(briefCaveat, "the claim T174 was filed for").not.toContainText(/AI-generated/i);
+  await expect(briefCaveat).toContainText("Computed from patient-uploaded data; no model wrote any of it");
+  await expect(briefCaveat, "nobody has signed this one off yet — the §7.3 sign-off is two shots below")
+    .toContainText("No clinician has reviewed this before you");
+  await expect(briefCaveat).toContainText("it flags, it does not diagnose");
   await shot(page, "12-sour-brief");
   // T157 (§12.3): the card itself, at both widths. The desktop project shoots the document, so the brief's
   // own frame already holds it; at 375px it is several screens below the fold, and the heading over those
@@ -530,6 +541,14 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(printSpikeTile).toContainText("top 5 shown");
   await expect(printNumbers, "the Sleep tile on paper, over the WHOOP this patient did share").toContainText("h/night");
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  // T174 (§7.4, §7.3): the same sentence at the foot of the sheet, and the branch the brief above could not
+  // show — this visit has since been signed off, so the degraded footer still names the clinician who read
+  // it. That is the half of §7.3 this ticket had to keep while dropping the claim beside it.
+  const sheetCaveat = page.locator(".sour-print-footer");
+  await expect(sheetCaveat, "the claim T174 was filed for").not.toContainText(/AI-generated/i);
+  await expect(sheetCaveat).toContainText("Computed from patient-uploaded data; no model wrote any of it");
+  await expect(sheetCaveat, "§7.3's sign-off crosses this branch too").toContainText(`Reviewed by ${clinicianName}`);
+  await expect(sheetCaveat).toContainText("it flags, it does not diagnose");
   // The patient's own words at the bottom of the frame, with the patterns and the questions above them
   // (T109, design §12.3): the sheet at 375px is several phone screens, and unanchored this shot was the
   // title block and two stat tiles — a picture of the one part of the handover nobody is checking.

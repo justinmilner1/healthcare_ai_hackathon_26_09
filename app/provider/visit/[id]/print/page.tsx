@@ -283,8 +283,11 @@ export default async function PrintPage({
           </>
         )}
 
+        {/* §7.4, §2.6: the line that goes into the chart with the sheet. Same facts as the brief's, out of
+            the same function, and including the summary's own `narrativeMissing` (T174) — this sheet is
+            where the claim was worst, printed four inches under "Patterns · Not generated." */}
         <footer className="sour-print-footer">
-          <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} status={bundle.status} />
+          <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} status={bundle.status} narrativeMissing={s?.narrativeMissing} />
         </footer>
       </article>
     </main>

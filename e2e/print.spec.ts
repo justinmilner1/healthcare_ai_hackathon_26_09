@@ -132,6 +132,17 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   // scoped to what is drawn — the tile above it is asserted at 7 a few lines up, which is the pair the
   // ticket is about (lib/spikePlaces.ts `clinicianChartCaption`).
   await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
+  // T174 (§7.4, §6.3, §7): the foot of the same sheet, which is the frame this ticket was filed from
+  // (`desktop-journey-15-print-sheet.png`). The note asserted above says patterns and questions were not
+  // generated; four inches below it the sheet used to sign itself off as AI-generated from patient-uploaded
+  // data. The numbers between the two are lib/sour.ts's, so the footer credits them and not the model.
+  const printCaveat = page.locator(".sour-print-footer");
+  await expect(printCaveat, "the claim T174 was filed for").not.toContainText(/AI-generated/i);
+  await expect(printCaveat).toContainText("Computed from patient-uploaded data; no model wrote any of it");
+  // It does not restate the note, which owns which of §6.3's two states this is (lib/sourState.ts), and it
+  // names no variable and no administrator on a page that goes into a chart (§3.7, §10.6).
+  await expect(printCaveat).not.toContainText(/not configured|gateway|practice setting|administrator/i);
+  await expect(printCaveat).toContainText("it flags, it does not diagnose");
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   // Both shots of the sheet are anchored on the chart card, which is where the assertions just above live

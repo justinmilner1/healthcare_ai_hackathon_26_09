@@ -252,6 +252,17 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // The chart draws the five rises the card lists and the tile counts the week's seven, so the caption says
   // which of the two the markers are.
   await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
+  // T174 (§6.3, §7): the footer at the bottom of this same frame. The note at the top of it says patterns
+  // and questions were not generated and both lists read "Not generated." — so the line that goes into the
+  // chart may not sign the page off as AI-generated. What it credits instead is the code that did write it:
+  // lib/sour.ts computed every number above from what the patient shared (lib/disclaimer.ts).
+  const generatedCaveat = page.locator(".sour-disclaimer");
+  await expect(generatedCaveat, "the claim T174 was filed for").not.toContainText(/AI-generated/i, LOADED);
+  await expect(generatedCaveat).toContainText("Computed from patient-uploaded data");
+  await expect(generatedCaveat, "no model wrote the two lists above it, and the footer says so").toContainText("no model wrote any of it");
+  // And it does not restate the note four elements above it, or name what §3.7 and §10.6 keep off this page.
+  await expect(generatedCaveat).not.toContainText(/not configured|gateway|practice setting/i);
+  await expect(generatedCaveat).toContainText("it flags, it does not diagnose");
   await shot(page, "provider-sour-generated");
 
   // The runner route is the other way in, and it is public: without the shared secret it refuses rather than
@@ -426,7 +437,12 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
   // naming the provenance correctly in one place and misnaming it in the other (lib/disclaimer.ts).
   const convCaveat = page.locator(".sour-disclaimer");
   await expect(convCaveat, "the source claim T171 was filed for").not.toContainText(/uploaded data/i);
-  await expect(convCaveat).toContainText("AI-generated from the patient's own answers");
+  // T174: and it names that source without crediting the model with the page, because on this suite's
+  // configuration no model wrote one (§6.3, §11.3). The two claims are separable and this brief is where
+  // they come apart: the data's provenance is the patient's answers, the writing's is the product's code.
+  await expect(convCaveat).toContainText("the patient's own answers");
+  await expect(convCaveat, "the claim T174 was filed for").not.toContainText(/AI-generated/i);
+  await expect(convCaveat).toContainText("Computed from the patient's own answers; no model wrote any of it");
   await shot(page, "provider-sour-conversation-only", { ...SCREENFUL, scrollTo: ".sour-no-glucose-note", block: "center" });
 });
 

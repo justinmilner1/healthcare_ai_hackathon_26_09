@@ -610,8 +610,11 @@ export default function SourView({ id }: { id: string }) {
               </>
             )}
 
+            {/* §2.6, §7.3: what the reader is holding. `narrativeMissing` is the same summary state the
+                degraded note and the two "Not generated." lists above read (T174), so the footer cannot
+                sign the page off as AI-generated over a narrative no model wrote. */}
             <footer className="sour-disclaimer">
-              <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} status={bundle.status} />
+              <Disclaimer audience="provider" generatedAt={bundle.providerSummaryAt} reviewedBy={review?.byName} status={bundle.status} narrativeMissing={s?.narrativeMissing} />
             </footer>
           </article>
         )}
