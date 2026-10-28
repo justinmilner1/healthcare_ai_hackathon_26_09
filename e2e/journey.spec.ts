@@ -388,20 +388,22 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  // T82 (§2.7, §7): the same week, the same five unplaced rises, and the other half of the rule. The
-  // patient's page drops the column; the clinician's keeps it and says "no matching visit", which is a true
-  // and useful thing to tell a reader who knows what lib/match.ts does. This is the handover asserted from
-  // the other end — the two pages read the same spikes and are deliberately not written alike.
-  // T157 (§2.6): and the heading over that card is the first thing to say so. It was the constant "Spikes
-  // linked to places" over five rows that matched none, beside a stat tile then reading "0 linked to a
-  // place" — which T160 below turned into a statement about the missing source —
-  // so the card is found here by the table it holds rather than by a heading that is now a function of the
-  // spikes (lib/spikePlaces.ts `clinicianSpikeCardHeading`).
-  const places = page.locator(".sour-card", { has: page.getByRole("columnheader", { name: "Place" }) });
+  // T157 (§2.6): the heading over the spike card, which was the constant "Spikes linked to places" over
+  // five rows that matched none, beside a stat tile then reading "0 linked to a place" — which T160 below
+  // turned into a statement about the missing source. It is a function of the spikes now, so the card is
+  // found by that heading (lib/spikePlaces.ts `clinicianSpikeCardHeading`).
+  const places = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180" }) });
   await expect(places.getByRole("heading")).toHaveText("Spikes over 180");
   await expect(places.getByRole("heading"), "a link no rise in this card has").not.toContainText(/linked/i);
-  await expect(places.getByRole("columnheader")).toHaveText(["When", "Rise", "Place"]);
-  await expect(places).toContainText("no matching visit");
+  // T184 (§2.5, §2.6, §7): and the rows under it, which were the last element of this card to report a
+  // lookup on a visit that shared no Timeline. T82 kept "no matching visit" here because it is a true and
+  // useful thing to tell a reader who knows what lib/match.ts does — true of a visit whose export was read
+  // and matched nothing, which this one is not. So the column is not drawn, the way the patient's page has
+  // not drawn it since T82, and the stat tile below is the one element that names the absent source.
+  await expect(places.getByRole("columnheader"), "a Place column over an export this visit never had").toHaveText(["When", "Rise"]);
+  await expect(places, "the matcher reporting on a search nobody ran").not.toContainText("no matching visit");
+  // The card is still the card it was: five of the week's rises, with when and how far each one climbed.
+  await expect(places.locator("tbody tr")).toHaveCount(5);
   // T160 (§2.6, §2.5): and the stat tile beside it, which was the last element of that row to state
   // something about places without asking first. This patient shared Dexcom and WHOOP and no Timeline, so
   // the hint names the missing source the way the Sleep tile names its own — it does not report a zero over
@@ -427,8 +429,13 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // used to call every red marker a place; with no Timeline shared, every label on it is a peak mg/dL.
   const caption = page.locator(".sour-chart-caption");
   await expect(caption).toContainText("peak mg/dL");
-  await expect(caption).toContainText("no place matched");
   await expect(caption, "a place promised over markers that are numbers").not.toContainText("the place the patient had just left");
+  // T184 (§2.5, §2.6): the other half of that sentence, which T99 wrote before `hasLocation` was available
+  // to it. It reported that a match had been run and come back empty — four inches under a tile saying no
+  // Timeline was ever shared. The caption owns what a label is and stops there.
+  await expect(caption, "an empty lookup on a visit with nothing to look in").not.toContainText("no place matched");
+  await expect(caption, "the tile owns the absent source, and says it once").not.toContainText(/Timeline/i);
+  await expect(caption).toContainText("Labels, where they fit, give the peak mg/dL.");
   // T165 (§2.6): and the sentence in front of that one. The chart draws a marker per listed rise — five —
   // under a tile reading 7, so the caption names both numbers rather than calling the five "spikes" and
   // leaving a clinician to count them against the tile.
@@ -451,7 +458,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await shot(page, "12-sour-brief");
   // T157 (§12.3): the card itself, at both widths. The desktop project shoots the document, so the brief's
   // own frame already holds it; at 375px it is several screens below the fold, and the heading over those
-  // five "no matching visit" rows is the subject of the ticket, so it gets a frame of its own.
+  // five rises is the subject of the ticket, so it gets a frame of its own. T184 is in the same frame: the
+  // card is When and Rise now, with the place column this visit has nothing to fill gone from under it.
   await shot(page, "12-sour-spikes-unplaced", { ...SCREENFUL, scrollTo: places });
   // T160 (§12.3): the metrics row itself, which is the subject of that ticket and is read across rather
   // than down — the Spikes tile and the Sleep tile have to be in one frame to see that they now agree. The
@@ -526,17 +534,24 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // promise a place the brief does not.
   const printCaption = page.locator(".sour-chart-caption");
   await expect(printCaption).toContainText("peak mg/dL");
-  await expect(printCaption).toContainText("no place matched");
   await expect(printCaption).not.toContainText("the place the patient had just left");
+  // T184 (§7.4): the same two words off the paper, out of the same function — this is the copy a clinician
+  // carries into the room, and it carried all three of the contradicting elements.
+  await expect(printCaption).not.toContainText("no place matched");
+  await expect(printCaption).toContainText("Labels, where they fit, give the peak mg/dL.");
   // T165 (§7.4): the same disclosure on the copy that leaves the building, out of the same function.
   await expect(printCaption).toContainText("the 5 largest rises of 7 spikes");
   // T157 (§7.4): and the heading over the spike card, which is the half of that bug the brief did not have
   // to itself — this is the copy a clinician carries into the room. Same function as the screen, so the two
   // cannot say different things about the same five rises (lib/spikePlaces.ts).
-  const printPlaces = page.locator(".sour-card", { has: page.getByRole("columnheader", { name: "Where" }) });
+  const printPlaces = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180" }) });
   await expect(printPlaces.getByRole("heading")).toHaveText("Spikes over 180");
   await expect(printPlaces.getByRole("heading"), "a link no rise on this sheet has").not.toContainText(/linked/i);
-  await expect(printPlaces).toContainText("no matching visit");
+  // T184 (§7.4): and the five cells under it, which said the same as the brief's and had to stop for the
+  // same reason. Same function behind both surfaces (lib/spikePlaces.ts `clinicianPlaceColumn`).
+  await expect(printPlaces.getByRole("columnheader"), "a Where column over an export this visit never had").toHaveText(["When", "Rise"]);
+  await expect(printPlaces, "the matcher reporting on a sheet whose visit has no Timeline").not.toContainText("no matching visit");
+  await expect(printPlaces.locator("tbody tr")).toHaveCount(5);
   // T160 (§7.4): the stat tile on the paper, for the reason the heading above is asserted here — the sheet
   // is what a clinician carries into the room, and it read the same unconditional count the screen did.
   const printNumbers = page.locator(".sour-print-numbers");
