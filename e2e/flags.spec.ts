@@ -342,5 +342,10 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   // And the clause back on the glance line, out of the same report: the overview drops it only where the
   // tile has to qualify the figure, so the two are the one decision read twice.
   await expect(page.locator(".sour-overview-line")).toContainText(/GMI \d+\.\d%/);
+  // The page settled, not mid-run: the chip reaches `ready` a beat before the header button drops
+  // "Summarizing…", so a shutter that opens on the chip alone writes a frame carrying both at once — a
+  // state the product passes through and is never in, which is what e2e/shot.ts freezes animations to
+  // avoid committing (T77, design §12.3).
+  await expect(page.getByRole("button", { name: "Regenerate" })).toBeEnabled(DRAINED);
   await shot(page, "provider-sour-gmi-fortnight", { scrollTo: ".sour-metrics-card", wholeRows: ".sour-metrics-card .summary-stat-tile" });
 });
