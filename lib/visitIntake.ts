@@ -186,11 +186,13 @@ export function warningsFor(draft: Pick<VisitDraft, "phone" | "email">): string[
 /**
  * §2.2, T176 The field a sending channel cannot go without, as the clause the sentence is built from.
  *
- * `parseVisitDraft` below has refused a sending channel with no destination since T07, and the sentence it
- * refuses with is the only line in the product that names the gap — which is why step 3 spent nine tickets
- * promising a send over it. The forecast now says the same thing *before* the button (`bookingPlan`,
- * lib/booking.ts), so the clause lives here and both tenses are built from it rather than worded twice: a
- * front desk that reads it on the step and then presses anyway reads one sentence, not two about one field.
+ * `parseVisitDraft` below refused a sending channel with no destination from T07 until T177, and the
+ * sentence it refused with was the only line in the product that named the gap — which is why step 3 spent
+ * nine tickets promising a send over it. T176 gave the forecast the same sentence *before* the button
+ * (`bookingPlan`, lib/booking.ts); T177 then took the refusal away, because the step had stopped promising
+ * the send the press was refusing over (the note below `parseVisitDraft`'s channel rule says why). So this
+ * is now one clause with one caller — the forecast — and it still names the gap rather than a refusal: the
+ * channel has nowhere to send to, which is true of the booking whether or not it is taken.
  *
  * Lowercase, with the capital derived, for `NO_HANDOVER_SENTENCE`'s reason (lib/delivery.ts): one clause,
  * one capital, one place to reword either. Staff's words throughout — the two fields are theirs, and
@@ -251,11 +253,26 @@ export function parseVisitDraft(input: VisitInput): DraftResult {
 
   if (channel && channel !== "none") {
     if (!consentMethod) errors.push("Record how the patient's consent to be contacted was taken before sending anything.");
-    const wanted = channelsOf(channel);
-    // T176 The same sentence step 3's forecast now reads from, so the press and the screen before it cannot
-    // word one missing field two ways (`channelNeeds` above, `bookingPlan` in lib/booking.ts).
-    if (wanted.includes("sms") && !phone) errors.push(channelNeeds("sms"));
-    if (wanted.includes("email") && !email) errors.push(channelNeeds("email"));
+    // T177 A sending channel with nothing to send to is no longer refused here, and that is this ticket's
+    // half of "the step and the press agree". Since T07 it was: a booking on "Text and email" with neither
+    // field filled — which is the combination the wizard *opens* on — answered 400 with
+    // `channelNeeds("sms")` and `channelNeeds("email")` over a step that had just said "Nothing is sent".
+    // The step was right and the refusal was about a send the step had already stopped promising, so the
+    // front desk read "nothing is sent", pressed the only button on the screen, and was told the thing that
+    // is not sent needs a destination. The one way through was "Do not message", three cards up the list,
+    // which nothing on the screen pointed at (T168).
+    //
+    // So §2.2 takes the booking and the channel narrows to nothing, which is what the *stored* visit has
+    // always done: `invitableChannels` (lib/visitStore.ts) sends by what there is a destination for, and
+    // `inviteReach` (lib/notify.ts) names the gap in staff's words — "no phone or email on file", or the
+    // one missing field where the other is on file (T176) — on the card and on the dashboard row. The visit
+    // was never the thing in doubt: §4.4 allows a patient with neither detail, `warningsFor` above says so
+    // at the moment it is made, and the appointment is real whether or not an invite can go out.
+    //
+    // The consent rule above stays, because it is §2.2's own and about the practice rather than about a
+    // destination: a channel staff chose to message on still needs a recorded consent with a who, a when
+    // and a how behind it. And `channelNeeds` keeps its caller in `bookingPlan`'s forecast, which is now
+    // the only place the sentence is said (lib/booking.ts) — one line per fact, where it is read.
   }
 
   if (errors.length) return { ok: false, errors };
