@@ -11,7 +11,7 @@ import { can } from "@/lib/access";
 import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH, NO_CODE_TO_SEND } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
-import { IMPORT_INTRO, importInviteNote } from "@/lib/importNote";
+import { IMPORT_INTRO, importInviteNote, type BatchHandover } from "@/lib/importNote";
 import { newLinkNote, sendLinkNote } from "@/lib/inviteNote";
 import { confirmsDeletion } from "@/lib/retention";
 import { type NotifyChannel, suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
@@ -1421,8 +1421,12 @@ type Preview = {
    *  ran into it, the way `deliveryFaults` already reads under the pills on the dashboard.
    *
    *  T135 On both responses: the forecast about the rows the preview is offering to create, then the report
-   *  on the ones it created. `importInviteNote` is which of the two tenses is read. */
-  inviteFaults?: string[];
+   *  on the ones it created. `importInviteNote` is which of the two tenses is read.
+   *
+   *  T180 And `handover` is the other branch of that sentence: whether §8.1's fallback it ends on is a way
+   *  in for the rows this reason speaks for (§2.3, §5.3). Answered per reason by the route, because
+   *  `canHandOver` reaches lib/email.ts and lib/sms.ts and this is a client component (§10.6). */
+  inviteFaults?: { fault: string; handover: BatchHandover }[];
   rows: PreviewRow[];
 };
 
@@ -1544,10 +1548,15 @@ function ImportDialog({ providerId, onClose, onImported }: { providerId: string;
                       behind a "Copy intake" button.
                       T135 And said on the preview as well, in the tense that screen is in — an import is a
                       day of patients, so the one press that makes the trip through the dashboard necessary
-                      is the moment to say it costs one. lib/importNote.ts owns both sentences. */}
-                  {preview.inviteFaults?.map((fault) => (
+                      is the moment to say it costs one. lib/importNote.ts owns both sentences.
+                      T180 And whether the trip is worth making: the remedy these lines named was §8.1's
+                      fallback, which is a way in only where a code can reach the patient — so for the rows
+                      no code can reach it sat directly above the row warning saying their link will not
+                      open. `handover` is the route's answer per reason; the sentence is still entirely
+                      lib/importNote.ts's. */}
+                  {preview.inviteFaults?.map(({ fault, handover }) => (
                     <span className="import-invite-fault" key={fault}>
-                      {importInviteNote({ fault, committed: preview.committed })}
+                      {importInviteNote({ fault, handover, committed: preview.committed })}
                     </span>
                   ))}
                 </p>

@@ -15,6 +15,16 @@
 // answer costs a read of the environment and no network call (lib/notify.ts `inviteFaults`), so the preview
 // can afford it exactly as the commit path can.
 //
+// T180 Each of those lines ends on §8.1's fallback — "copy each link from the dashboard" — and that is a
+// claim the link opens, which it does only where a six-digit code can reach the patient (§2.3, §5.3). So
+// `inviteFaults` is handed the *rows* now and answers `{ fault, handover }` per reason: `canHandOver` is
+// asked here rather than in the dialog, because that question reaches lib/email.ts and lib/sms.ts and the
+// dashboard is a client component (§10.6) — the same reason app/provider/page.tsx settles `codeSenders()`
+// for step 3 of the wizard. The two halves of the route ask it off different facts, which is the asymmetry
+// `POST /api/book` already has: after the press, the written row's own `suppression` and `demo`
+// (`InviteReachRows`, lib/visitStore.ts); before it, the typed fields plus the practice's §13.4 flag, since
+// there is no row yet to carry a bounce or a STOP.
+//
 // §2.2's "per-row errors" is the whole point: one unreadable line out of 25 must not cost the other 24.
 //
 // Importing is booking, so it is the same capability as /api/book (`visits:create`, §5.2) and the same
@@ -27,7 +37,8 @@ import { after, NextResponse } from "next/server";
 import { requireCapability, requireMemberInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { withRoute } from "@/lib/log";
-import { inviteFaults } from "@/lib/notify";
+import { inviteFaults, type InviteBatchRow } from "@/lib/notify";
+import { practiceIsDemo } from "@/lib/practice";
 import { intakeLink } from "@/lib/sms";
 import { MAX_CSV_ROWS, parseVisitCsv, type VisitDraft } from "@/lib/visitIntake";
 import { importVisits, type CreatedVisit } from "@/lib/visitStore";
@@ -69,10 +80,14 @@ async function postHandler(req: Request) {
   // `enqueue` loop are both below, inside the commit branch — and nothing has to be: the senders answer
   // from the environment.
   if (body.commit !== true) {
+    // T180 §13.4's rule is one of the four filters between a row and the code its link needs, and it is the
+    // only one the preview can ask: a bounce and a STOP ride on a patient row §2.2 may not even have matched
+    // yet (lib/booking.ts `codeCanReach` draws the same line for step 3). One column, for the whole file.
+    const demo = await practiceIsDemo(me.practiceId);
     return NextResponse.json({
       ...preview,
       committed: false,
-      inviteFaults: inviteFaults(creatable.map((r) => r.draft.channel)),
+      inviteFaults: inviteFaults(creatable.map((r) => ({ channel: r.draft.channel, phone: r.draft.phone, email: r.draft.email, demo }))),
       rows: parse.rows.map((r) => ({ line: r.line, name: r.name, visit: r.draft, errors: r.errors, warnings: r.warnings })),
     });
   }
@@ -87,11 +102,15 @@ async function postHandler(req: Request) {
   // T111 And the same question /api/book asks, once per distinct answer rather than once per row: a file of
   // 25 emailed invites in a deployment with no email backend is one fact about the deployment, not 25. The
   // jobs are still queued, because they are what write the delivery rows §8.3's dashboard reads.
-  const invited: string[] = [];
+  const invited: InviteBatchRow[] = [];
   for (const row of creatable) {
     const created = byLine.get(row.line)?.created;
     if (!created || row.draft.channel === "none") continue;
-    invited.push(row.draft.channel);
+    // T180 The channel the reason is about, and the row's own four facts for the remedy that reason ends on
+    // — `createVisit` assembled them once and `/api/book` reads the same set for the same question. Off the
+    // written row rather than the draft, because §2.2 reuses a patient matched on phone or email, so the row
+    // can carry a detail, a bounce or a STOP the file did not.
+    invited.push({ channel: row.draft.channel, ...created.reach });
     await enqueue({ kind: "notify.invite", payload: { visitId: created.visitId }, idempotencyKey: `notify.invite:${created.visitId}` });
   }
   nudge(after);

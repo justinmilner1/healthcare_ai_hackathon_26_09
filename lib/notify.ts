@@ -14,6 +14,7 @@ import {
 } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
 import { emailConfig, sendEmail, type SendResult } from "./email";
+import type { BatchHandover } from "./importNote";
 import { log } from "./log";
 import { canSendOrMailbox, sendOrMailbox } from "./mailer";
 // T173 `channelsFor` rather than a second copy of its two lines: it is the question "which ways are there to
@@ -442,6 +443,23 @@ export function inviteReach(p: {
   return { channels, reason: onFile.map((c) => rowBlockReason(p, c)).find(Boolean) ?? undefined };
 }
 
+/** T180 One row of a batch, as much of it as the batch's sentences depend on: the channel the reason is
+ *  about, and the four facts `canHandOver` asks for. `POST /api/visits/import` has the written row's own
+ *  `suppression` and `demo` after the press (`InviteReachRows`, lib/visitStore.ts) and the practice's flag
+ *  before it, which is the same asymmetry step 3 of the wizard has (`PlannedSend`, lib/booking.ts). */
+export type InviteBatchRow = {
+  channel?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  suppression?: SuppressionFacts | null;
+  demo?: boolean;
+};
+
+/** T180 One line of §2.2's import dialog: the reason, in staff's words, and whether §8.1's fallback is a way
+ *  in for the rows that reason speaks for. `importInviteNote` (lib/importNote.ts) is the sentence, and its
+ *  own comment is where the three-value rule is written down. */
+export type InviteFault = { fault: string; handover: BatchHandover };
+
 /**
  * The same question about a *batch* of invites rather than one (§2.2, §8.1, T135): the distinct reasons
  * nothing can go out, one per reason however many rows ran into it.
@@ -457,18 +475,38 @@ export function inviteReach(p: {
  * `channel` column is that same choice — the CSV parser reads it as `"none"` (lib/visitIntake.ts) — so the
  * two "Do not message" lines of the example file stay clean on a screen full of faults.
  *
- * Settled from the environment with no client and no network call, like everything else here, which is why
- * `POST /api/visits/import` can answer it on the preview — before a single row is written — as cheaply as it
- * answers it afterwards.
+ * T180 And the *remedy* each of those sentences ends on, which is the half the set could not answer: §8.1's
+ * fallback rests on the link opening, and the link opens on a code reaching the patient (§2.3, §5.3). That
+ * is `canHandOver` above, and it is a fact about a row rather than about the deployment — so the rows are
+ * what this takes now, and each reason carries the answer for the rows it is speaking for. Per reason and
+ * not per file, because the reason is what says which rows the line is about: an office that can email and
+ * not text answers "cannot send texts yet" for the rows with a number and nothing else, and those are
+ * exactly the rows no code can reach either.
+ *
+ * `handover` is `"all"`, `"none"` or `"some"` rather than a boolean because the sentence is per import and
+ * the answer is per row; lib/importNote.ts states the rule and why both two-value rules are dishonest.
+ *
+ * Settled from the environment and the rows with no client and no network call, like everything else here,
+ * which is why `POST /api/visits/import` can answer it on the preview — before a single row is written — as
+ * cheaply as it answers it afterwards.
  */
-export function inviteFaults(channels: Iterable<string | null | undefined>): string[] {
-  const faults = new Set<string>();
-  for (const channel of channels) {
-    if (channel === "none") continue;
-    const reason = inviteSendability(channel).reason;
-    if (reason) faults.add(reason);
+export function inviteFaults(rows: Iterable<InviteBatchRow>): InviteFault[] {
+  // Insertion-ordered, which is what the `Set` gave before: the lines come out in the order the file first
+  // ran into each reason, so a file's two sentences do not swap places between the preview and the result.
+  const tally = new Map<string, { offered: number; withdrawn: number }>();
+  for (const row of rows) {
+    if (row.channel === "none") continue;
+    const reason = inviteSendability(row.channel).reason;
+    if (!reason) continue;
+    const counts = tally.get(reason) ?? { offered: 0, withdrawn: 0 };
+    if (canHandOver(row)) counts.offered += 1;
+    else counts.withdrawn += 1;
+    tally.set(reason, counts);
   }
-  return [...faults];
+  return [...tally].map(([fault, { offered, withdrawn }]) => ({
+    fault,
+    handover: withdrawn === 0 ? "all" : offered === 0 ? "none" : "some",
+  }));
 }
 
 /**
