@@ -430,6 +430,11 @@ const BUNDLE: PatientBundle = {
   },
   summaryStale: true,
   review: { by: "usr_1", byName: "Dr. Demo Endo", at: "2026-10-11T12:30:00.000Z" },
+  // T183 Whether a six-digit code can reach this patient at all, which the clinician's two surfaces read
+  // before telling the office to send the link again (lib/sourState.ts `waitingOnPatientNote`).
+  // `patientView` keeps it, for the three reasons stated where that decision is made (lib/bundle.ts), and
+  // the assertion below says so.
+  codeCanReach: true,
   // The control the patient's own empty state renders its invitation from (T118), so it is the patient's
   // half: `patientView` keeps it, and the assertion below says so.
   dexcomConnect: "oauth",
@@ -446,7 +451,11 @@ describe("patientView", () => {
     // material §5.2 keeps from them.
     // `spikeTotal` sits beside `spikes` here (T164): it is a count of the patient's own rises, the same
     // material the "Your biggest rises" card is already built from, and not the clinician's half of §5.2.
-    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "spikeTotal", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "dexcomConnect"] as const) {
+    // `codeCanReach` is in this list too (T183): §2.3 already tells the patient this fact on the code
+    // screen their own link lands on (components/VerifyGate.tsx), it is about the patient and not material
+    // written for a clinician, and `false` on a view a patient reached *by opening their link* would be a
+    // wrong claim rather than an absence. lib/bundle.ts holds that decision in full.
+    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "spikeTotal", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "codeCanReach", "dexcomConnect"] as const) {
       assert.deepEqual(view[key], BUNDLE[key], `${key} is the patient's own`);
     }
   });

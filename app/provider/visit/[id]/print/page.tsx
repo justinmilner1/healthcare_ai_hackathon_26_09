@@ -31,7 +31,7 @@ import { currentProvider } from "@/lib/auth";
 import { loadBundle } from "@/lib/bundle";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
-import { emptyNarrativeText, narrativeNote, visitNotStarted } from "@/lib/sourState";
+import { emptyNarrativeText, narrativeNote, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
 import { clinicianLine, findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
@@ -152,9 +152,12 @@ export default async function PrintPage({
         {empty ? (
           <section className="sour-card sour-print-empty">
             <h2>Nothing to summarize yet</h2>
+            {/* T183: the second sentence is the screen's, out of lib/sourState.ts, because it is a claim
+                about whether this patient's link opens and not about the sheet — the same reason the
+                predicate above and `narrativeNote` below both live there (§2.6, §7.4). */}
             <p>
-              The patient has not talked to Sweetie or shared any data for this visit. Send the link again if they have not
-              opened it.
+              The patient has not talked to Sweetie or shared any data for this visit.{" "}
+              {waitingOnPatientNote(bundle.codeCanReach)}
             </p>
           </section>
         ) : (

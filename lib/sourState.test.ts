@@ -10,7 +10,15 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, summaryState, visitNotStarted } from "./sourState";
+import {
+  askSourPlaceholder,
+  emptyNarrativeText,
+  narrativeNote,
+  summaryListHeading,
+  summaryState,
+  visitNotStarted,
+  waitingOnPatientNote,
+} from "./sourState";
 import type { SourJobState } from "./types";
 
 const JOB: SourJobState = {
@@ -297,5 +305,52 @@ describe("summaryListHeading", () => {
       assert.equal(text === "Summaries ready", allReady, `${JSON.stringify(shape)}: ${text}`);
     }
     assert.equal(summaryListHeading(rows(true, false, true)), summaryListHeading(rows(false, true, true)));
+  });
+});
+
+// T183 (design §2.3, §2.6, §5.3, §7.4, §8.1): the sentence that closes the same two surfaces' "waiting on
+// the patient" block. Both directions, because the bug was a static literal and a literal satisfies
+// whichever one of the two you assert on its own — which is exactly how this line survived T140, T168,
+// T170, T173, T175, T177 and T179 taking the same claim off the other six surfaces.
+describe("waitingOnPatientNote", () => {
+  const CAN = waitingOnPatientNote(true);
+  const CANNOT = waitingOnPatientNote(false);
+
+  it("keeps the instruction, to the word, where the link can open", () => {
+    // Criterion 3: that direction is right and must not move. Pinned verbatim, since this is the string the
+    // two surfaces printed before the fix and the one a reachable patient's office still has to read.
+    assert.equal(CAN, "Send the link again if they have not opened it.");
+  });
+
+  it("withdraws it where no code can reach the patient", () => {
+    assert.match(CANNOT, /^Sending the link again will not/, "the instruction above it, taken back");
+    assert.doesNotMatch(CANNOT, /^Send the link again/);
+    assert.notEqual(CANNOT, CAN);
+  });
+
+  it("states one thing and offers no remedy of its own (the T170 split)", () => {
+    // The dashboard row owns the visit's contact details and therefore the fix (`NO_CODE_CAN_REACH`,
+    // lib/delivery.ts: "— call them"). The brief and the sheet state the consequence and stop.
+    assert.doesNotMatch(CANNOT, /call them|telephone|add a phone|add an email|Copy intake/i);
+    // Nor the invite note's own clause one element above it (`NO_HANDOVER_SENTENCE`): nothing on this card
+    // ever offered to hand the link over, so there is no offer here to take back.
+    assert.doesNotMatch(CANNOT, /hand(?:ing)? the link over/i);
+    // Nor `narrativeNote`'s subject, which is a different gap in a different deployment.
+    assert.doesNotMatch(CANNOT, /patterns and questions|gateway|Assistant not configured/i);
+  });
+
+  it("names no variable, backend or administrator (§3.7, §10.6)", () => {
+    for (const note of [CAN, CANNOT]) {
+      assert.doesNotMatch(note, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+      assert.doesNotMatch(note, /whoever set|administrator|environment/i);
+    }
+  });
+
+  it("is one sentence either way, for the slot both surfaces put it in", () => {
+    // The lead sentence differs between the brief and the sheet; this one follows it, so it starts with a
+    // capital and ends on a full stop and holds no second sentence of its own.
+    for (const note of [CAN, CANNOT]) {
+      assert.match(note, /^[A-Z][^.]*\.$/, note);
+    }
   });
 });

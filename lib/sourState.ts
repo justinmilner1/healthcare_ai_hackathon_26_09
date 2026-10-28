@@ -225,3 +225,41 @@ export function summaryListHeading(rows: readonly { hasSummary: boolean }[]): st
   if (ready === 0) return "This visit";
   return "This visit · summaries ready";
 }
+
+/**
+ * How the "waiting on the patient" block ends, on both of the clinician's surfaces (design §2.3, §2.6,
+ * §5.3, §7.4, §8.1, T183).
+ *
+ * The lead sentence differs between the two — the brief says what there is nothing to summarize *until*,
+ * the sheet says what the patient has not done — but the sentence after it was the same literal in both
+ * (`EmptyIntake` in app/provider/[id]/sour.tsx, the `sour-print-empty` card in
+ * app/provider/visit/[id]/print/page.tsx): *"Send the link again if they have not opened it."*
+ *
+ * That instruction rests on the link opening, and the link opens on a six-digit code reaching the patient
+ * (§2.3, §5.3). Where no channel between them and a code is open, sending it again does nothing, and the
+ * brief said so four inches apart from itself: the invite note above it ends on `NO_HANDOVER_SENTENCE`
+ * (lib/delivery.ts) — "Handing the link over will not get this patient in either." — over an empty state
+ * still telling the clinician to send the link. T140, T168, T170, T173, T175, T177 and T179 are the same
+ * disagreement on the other six surfaces; this was the one no rule in `lib/` could reach, because both
+ * lines were static JSX on `visitNotStarted`'s branch above, which asks whether there is anything to
+ * summarize and nothing about whether the patient can be reached.
+ *
+ * So it is one function, read by both surfaces, the way `visitNotStarted` and `narrativeNote` already are.
+ * `codeCanReach` is `canHandOver`'s answer (lib/notify.ts), carried on `PatientBundle` and settled once in
+ * lib/bundle.ts off the patient row `POST /api/invite` reads for the note above — so the two elements
+ * cannot answer one patient differently.
+ *
+ * **What the second sentence is, and is not.** Where the link can open the instruction is right and is
+ * unchanged, to the word. Where it cannot, this *withdraws an instruction* rather than an offer, which is
+ * why it is not `NO_HANDOVER_SENTENCE` itself: the other six surfaces are taking back "hand the link over
+ * yourself", and nobody offered to hand anything over here. It also names no remedy — the clinician's
+ * brief is not where a dead link gets fixed, and the one remedy there is belongs to the dashboard row that
+ * owns the visit's contact details (`NO_CODE_CAN_REACH`, "call them", lib/delivery.ts): the T170 split, so
+ * one surface states the consequence and one offers the fix, rather than both doing half of each. And, like
+ * `narrativeNote` above, it names no variable, no backend and no administrator (§3.7, §10.6) — a clinician
+ * cannot fix a deployment from the exam room.
+ */
+export function waitingOnPatientNote(codeCanReach: boolean): string {
+  if (codeCanReach) return "Send the link again if they have not opened it.";
+  return "Sending the link again will not open it for this patient.";
+}

@@ -28,7 +28,7 @@ import StatTile from "@/components/StatTile";
 import { sourInviteNote, type InviteAnswer } from "@/lib/inviteNote";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
-import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted } from "@/lib/sourState";
+import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
@@ -652,7 +652,11 @@ function EmptyIntake({ bundle }: { bundle: PatientBundle }) {
     <section className="sour-card sour-waiting">
       <span className="sour-waiting-icon">⌛</span>
       <h3>Waiting on the patient</h3>
-      <p>Nothing to summarize until the patient has talked to Sweetie. Send the link again if they have not opened it.</p>
+      {/* T183: the second sentence is lib/sourState.ts's, because it is a claim about whether this
+          patient's link opens — the same fact the invite note four inches above this card ends on
+          (`sourInviteNote`, lib/inviteNote.ts). It used to be a literal here, so an office with no sender
+          read "Handing the link over will not get this patient in either" over "Send the link again". */}
+      <p>Nothing to summarize until the patient has talked to Sweetie. {waitingOnPatientNote(bundle.codeCanReach)}</p>
       <ul>
         {rows.map(([label, ok]) => (
           <li key={label} className={ok ? "sour-waiting-done" : ""}>

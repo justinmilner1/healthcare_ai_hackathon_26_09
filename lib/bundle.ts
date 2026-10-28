@@ -8,6 +8,7 @@ import { jobStateView, latestJobForVisit } from "./jobs";
 import { llmStatus } from "./llm";
 import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
+import { canHandOver } from "./notify";
 import { reviewRecord } from "./review";
 import { narrativeSource, sourInputHash, sourInputsFor } from "./sourInput";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "./sweetie";
@@ -88,6 +89,22 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     sandboxPatient: visit.isSandbox,
   });
 
+  // §2.3, §5.3, §8.1, T183 Whether a six-digit code can reach this patient at all, which is what the
+  // clinician's "waiting on the patient" block needs before it tells the office to send the link again
+  // (lib/sourState.ts `waitingOnPatientNote`). `canHandOver` is the whole question — §13.4's demo rule,
+  // §8.1's suppressions, and then whether this deployment has a sender behind what is left — and these are
+  // the same four facts, off the same row, that `POST /api/invite` answers `handover` with for the invite
+  // note on the same screen (app/api/invite/route.ts). One reading rather than two that can disagree, and
+  // no extra query: `patient: { include: { practice: true } }` above has already loaded the phone, the
+  // email, §8.1's three suppression columns and `practice.isDemo`. `visit.patient` is passed whole as
+  // `suppression`, as the route passes it, because those three columns live on it (lib/suppression.ts).
+  const codeCanReach = canHandOver({
+    phone: visit.patient.phone,
+    email: visit.patient.email,
+    suppression: visit.patient,
+    demo: visit.patient.practice.isDemo,
+  });
+
   const sourJob = await latestJobForVisit("sour.run", visit.id);
   const inputHash = sourInputHash(sourInputsFor(visit, visit.uploads, narrativeSource(llmStatus().configured)));
   const summaryStale = Boolean(prov) && (prov?.inputHash !== inputHash || pat?.inputHash !== inputHash);
@@ -129,6 +146,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     // §7.3: the sign-off on the row, with the reviewer's name joined on (lib/review.ts). One extra query,
     // and only for a visit that has actually been reviewed.
     review: await reviewRecord(visit),
+    codeCanReach,
     dexcomConnect,
   };
 }
@@ -144,6 +162,17 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
  * their uploads and their intake all stay: the page at /patient/[id] reads nothing else.
  *
  * Blanked rather than deleted, so this is still a `PatientBundle` and the page keeps one shape to render.
+ *
+ * **`codeCanReach` stays** (T183), stated here because the ticket asked for the decision either way. Three
+ * reasons, and the first is the strongest: §2.3 already tells the patient this fact in their own words, on
+ * the code screen their link lands on — `components/VerifyGate.tsx` reads the same `codeReach` and says
+ * "there is nowhere to send your 6-digit code. Please call <practice>" — so there is nothing here a patient
+ * cannot already be told about their own contact details. It is also not the clinician's half of anything:
+ * `providerSummary`, `sourJob` and `review` go because they are material §5.2 and §7 write *for* a
+ * clinician, and this is a fact about the patient. And blanking a boolean is not an absence but a claim:
+ * `false` on the one view a patient reaches *by having opened their link* would be the wrong one. No
+ * patient-facing surface renders it — `waitingOnPatientNote` is the clinician's two — so it travels unread,
+ * the way `visitStatus` and `intakeFields` do.
  */
 export function patientView(bundle: PatientBundle): PatientBundle {
   return { ...bundle, providerSummary: null, providerSummaryAt: null, sourJob: null, summaryStale: false, review: null };

@@ -178,6 +178,13 @@ export type PatientBundle = {
   summaryStale: boolean;
   /** The clinician's sign-off, or null while nobody has marked this summary reviewed (§7.3). */
   review: ReviewRecord | null;
+  /** §2.3, §5.3, §8.1 Whether a six-digit code can reach this patient at all, so the clinician's two
+   *  surfaces cannot tell the office to send a link that will not open (§2.6, §7.4, T183). `canHandOver`'s
+   *  answer (lib/notify.ts) over every detail on file — nothing §13.4 forbids, nothing §8.1 has closed, and
+   *  a sender behind what is left — settled once in lib/bundle.ts off the same patient row
+   *  `POST /api/invite` reads for the brief's invite note, so the note and the empty state under it cannot
+   *  answer one patient differently. `lib/sourState.ts` `waitingOnPatientNote` is what reads it. */
+  codeCanReach: boolean;
   /** Which Dexcom connect control, if any, `/s/<token>` can offer this visit (§2.5, §9.2) — the same
    *  decision lib/dexcomHint.ts makes for the data panel itself. The patient's own summary renders its
    *  empty-state invitation from this, so it cannot promise a connection the destination has not got
