@@ -545,8 +545,15 @@ const UNCONFIGURED = { EMAIL_FROM: undefined, SNS_ORIGINATION_NUMBER: undefined 
  *  *lede*, one line above the note they were holding, so every combination below already proved the note
  *  withdrew the handover while the sentence over it offered it. Matched by the lede's own clause and not by
  *  "hand it over yourself", which is the note's — `Save this patient and copy the link from the dashboard
- *  and hand it over yourself.` is the offering branch and is caught by the alternative before it. */
-const OFFERS_HANDOVER = /Share the link below|Use Copy intake|Copy the link from the dashboard|copy the link from the dashboard|which you hand over yourself/;
+ *  and hand it over yourself.` is the offering branch and is caught by the alternative before it.
+ *
+ *  T182 `Ready for the handoff` is the sixth, and the one three sweeps ran past for the same reason the
+ *  fifth got past two: it was step 3's *heading*, a literal in app/provider/dashboard.tsx rather than a
+ *  string this module returns, so adding `plan.heading` to the `lines` arrays below only helps if the
+ *  pattern can see the offer in it. It names the handover and nothing else, so matching the phrase catches
+ *  a reworded heading that still promises one. */
+const OFFERS_HANDOVER =
+  /Share the link below|Use Copy intake|Copy the link from the dashboard|copy the link from the dashboard|which you hand over yourself|Ready for the handoff/;
 
 describe("nothing claims an invite or a code is in motion to a patient with nothing on file (T173)", () => {
   for (const [arm, env] of [["a deployment that can send", SENDING], ["one that cannot", UNCONFIGURED]] as const) {
@@ -580,7 +587,9 @@ describe("nothing claims an invite or a code is in motion to a patient with noth
               const answer = { queued: reach.channels.length > 0, reason: reach.reason, handover };
               // T177 `card.hero` is in the list because it is the largest type on the card's screen —
               // larger than `card.heading` — and until this ticket it was a literal no sweep could see.
-              const lines = [plan.lede, plan.note, plan.action, card.hero, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
+              // T182 `plan.heading` is in it for exactly that reason one screen earlier: it is the largest
+              // type on the step, and until that ticket it was a literal this module never returned.
+              const lines = [plan.heading, plan.lede, plan.note, plan.action, card.hero, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
 
               if (!nothingOnFile) continue;
               for (const line of lines) {
@@ -692,7 +701,9 @@ describe("nothing offers the handover where no code can reach the patient (T175)
               const answer = { queued: invite.channels.length > 0, reason, handover };
               // T177 `card.hero` is in the list because it is the largest type on the card's screen —
               // larger than `card.heading` — and until this ticket it was a literal no sweep could see.
-              const lines = [plan.lede, plan.note, plan.action, card.hero, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
+              // T182 `plan.heading` is in it for exactly that reason one screen earlier: it is the largest
+              // type on the step, and until that ticket it was a literal this module never returned.
+              const lines = [plan.heading, plan.lede, plan.note, plan.action, card.hero, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
 
               for (const line of lines) {
                 if (!handover) {
@@ -855,7 +866,9 @@ describe("nothing claims a send, or names a destination, for a channel that has 
             for (const demo of [false, true]) {
               const where = `${arm}, channel=${channel}, demo=${demo}, to=${JSON.stringify(to)}`;
               const plan = bookingPlan({ channel, faults: inviteFaultByChannel(), codeChannels: codeSenders(), demo, ...to });
-              const lines = [plan.lede, plan.note, plan.action];
+              // T182 The heading is one of the step's lines now, and this sweep's rules are about all of
+              // them: no destination it has nowhere to send to, and nothing of the deployment's.
+              const lines = [plan.heading, plan.lede, plan.note, plan.action];
 
               // Criterion 2, over every combination of inputs there is: the half-written sentence is not
               // reachable, and neither is the `${to || …}` fallback that rendered it.
@@ -1098,6 +1111,108 @@ describe("the card's panel and its link read the same answer its sentences do (T
       // so handing this one their link is a way in and the lede says so (T113, T175).
       const reachable = bookingPlan({ channel: "none", phone: null, email: SAM.email, codeChannels });
       assert.equal(reachable.lede, "Saving creates the patient and their private Sweetie link, which you hand over yourself.");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T182 (§2.2, §2.3, §3.7, §5.3, §6.5, §8.1, §10.6) The last line on step 3 that was not a string this
+// module returns, and so the last one no sweep above could see: the step's own heading.
+//
+// T177 found three of those on the two booking surfaces and closed the card's two. The fourth stood on the
+// step it never got to: **Ready for the handoff.**, the largest type in the column, over a lede T177 had
+// just stopped promising the handover in and a note T170 and T173 had taught to withdraw it. Three
+// paragraphs, each less of a promise than the one above it, on every combination those tickets fixed.
+//
+// So the heading is a field beside the lede and the note, off the same `handover` answer, and
+// `OFFERS_HANDOVER` carries its words — which is what makes the two sweeps above hold it too: `plan.heading`
+// is in their `lines` arrays, so every combination they walk now reads the heading as well.
+describe("step 3's heading reads the answer its lede and its note read (T182)", () => {
+  for (const [arm, env] of [["a deployment that can send", SENDING], ["one that cannot", UNCONFIGURED]] as const) {
+    it(`holds over ${arm}`, () => {
+      withEnv(env, () => {
+        for (const to of CONTACT_COMBINATIONS) {
+          for (const channel of EVERY_CHANNEL) {
+            for (const demo of [false, true]) {
+              const where = `${arm}, channel=${channel}, demo=${demo}, to=${JSON.stringify(to)}`;
+              // The fact the step already had in hand, asked as the routes ask it (`canHandOver`,
+              // lib/notify.ts) — not a second reading of the two fields in the client component.
+              const handover = canHandOver({ ...to, demo });
+              const plan = bookingPlan({ channel, faults: inviteFaultByChannel(), codeChannels: codeSenders(), demo, ...to });
+
+              // Criterion 1: one branch on one value, so the heading cannot promise what the two paragraphs
+              // under it withdraw — and cannot be withdrawn from the booking the handover is real for.
+              assert.equal(plan.heading, handover ? "Ready for the handoff." : "Ready to go on file.", where);
+              if (handover) continue;
+
+              // Criterion 3, over every combination: the heading offers nothing, puts nothing in motion, and
+              // names nothing of the deployment's — the register of the lines it sits over (§3.7, §10.6).
+              assert.doesNotMatch(plan.heading, OFFERS_HANDOVER, where);
+              assert.doesNotMatch(plan.heading, MOTION, where);
+              assert.doesNotMatch(plan.heading, CODE_IN_MOTION, where);
+              assert.doesNotMatch(plan.heading, PROMISES_SEND, where);
+              assert.doesNotMatch(plan.heading, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, where);
+              // And the T170 split: it repeats no line already on the step — the lede and the note this
+              // module writes, the button, and the warning lib/visitIntake.ts writes three lines below it.
+              const beside = [plan.lede, plan.note, plan.action, ...warningsFor({ phone: to.phone, email: to.email })];
+              for (const line of beside) {
+                assert.ok(!line.includes(plan.heading) && !plan.heading.includes(line), `${where}: no line twice: ${line}`);
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  it("leaves the reachable patient's step word for word (criterion 2)", () => {
+    // The other direction, in the same test, so the rule cannot be met by saying less to everybody: all four
+    // of the step's lines are the ones they were before this ticket, on the two bookings the handover is a
+    // way in for — the send that is really going out, and the practice that chose silence over a patient a
+    // code can still reach.
+    withEnv(SENDING, () => {
+      const sending = bookingPlan({ channel: "both", faults: inviteFaultByChannel(), codeChannels: codeSenders(), ...SAM });
+      assert.equal(sending.heading, "Ready for the handoff.");
+      assert.equal(sending.lede, "Saving creates the patient and sends their private Sweetie link on the channel you choose here.");
+      assert.equal(sending.note, `The secure link goes to ${SAM.phone} and ${SAM.email}.`);
+      assert.equal(sending.action, "Add patient & send →");
+
+      const silent = bookingPlan({ channel: "none", faults: inviteFaultByChannel(), codeChannels: codeSenders(), ...SAM });
+      assert.equal(silent.heading, "Ready for the handoff.");
+      assert.equal(silent.lede, "Saving creates the patient and their private Sweetie link, which you hand over yourself.");
+      assert.equal(
+        silent.note,
+        "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code.",
+      );
+      assert.equal(silent.action, "Add patient →");
+    });
+  });
+
+  it("heads the four non-sending branches with what the press really does", () => {
+    // The ticket's own reproduction, and then the three combinations beside it — the same four branches T177
+    // held the lede to, because the heading sits one line above it and was wrong on all of them.
+    const nothingOnFile = bookingPlan({ channel: "both", phone: null, email: null });
+    assert.equal(nothingOnFile.heading, "Ready to go on file.");
+    assert.equal(nothingOnFile.lede, "Saving creates the patient and their private Sweetie link.");
+    assert.equal(nothingOnFile.note, "Nothing is sent, and handing the link over will not get this patient in either.");
+
+    withEnv(EMAIL_ONLY, () => {
+      const codeChannels = codeSenders();
+      const faults = inviteFaultByChannel();
+      const phoneOnly = { phone: REAL.phone, email: null };
+      for (const [branch, plan] of [
+        ["the practice's own silence", bookingPlan({ channel: "none", ...phoneOnly, codeChannels })],
+        ["a channel with nowhere to send to", bookingPlan({ channel: "email", ...phoneOnly, faults, codeChannels })],
+        ["§13.4's refusal", bookingPlan({ channel: "sms", demo: true, ...phoneOnly, faults, codeChannels })],
+        ["the deployment's own gap", bookingPlan({ channel: "sms", ...phoneOnly, faults, codeChannels })],
+      ] as const) {
+        assert.equal(plan.heading, "Ready to go on file.", branch);
+        assert.doesNotMatch(plan.note, OFFERS_HANDOVER, branch);
+      }
+      // And the patient this arm's mailbox can carry a code to keeps the heading, because the handover is a
+      // way in for them (T113, T175): the withdrawal is one patient's and not one deployment's.
+      const reachable = bookingPlan({ channel: "none", phone: null, email: SAM.email, codeChannels });
+      assert.equal(reachable.heading, "Ready for the handoff.");
     });
   });
 });
