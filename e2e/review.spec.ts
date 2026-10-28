@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { GMI_A1C_HINT, GMI_SHORT_SPAN_HINT } from "../lib/gmi";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
@@ -49,6 +50,17 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   const brief = page.locator(".sour-brief");
   await expect(brief).toContainText("1 day · 84 readings");
   await expect(brief, "a count agrees with its noun").not.toContainText(/\b1 (days|spikes|readings)\b/);
+
+  // T185 (§2.6, §7): the same single day, read one card down. GMI stands in for a three-month average, and
+  // the tile labelled it `est. A1c from CGM` whatever had arrived — 84 readings of one morning included.
+  // The figure stays, because it is true of what arrived; the sub-line is what the span decides
+  // (lib/gmi.ts), and the constants are imported rather than written out so the spec cannot drift from the
+  // rule. The glance line above it has nowhere to put that qualifier, so it carries no GMI clause at all:
+  // one predicate for both, which is what stops a screen scoping the figure in one place and not the other.
+  const briefGmi = brief.locator(".summary-stat-tile", { hasText: "GMI" });
+  await expect(briefGmi).toContainText(GMI_SHORT_SPAN_HINT);
+  await expect(briefGmi, "an estimated A1c off one day of readings").not.toContainText(GMI_A1C_HINT);
+  await expect(page.locator(".sour-overview-line"), "the figure unqualified, on the line read at a glance").not.toContainText(/GMI/);
 
   // Before the press: the button is offered and there is no record.
   const markReviewed = page.getByRole("button", { name: "Mark reviewed" });
@@ -99,6 +111,11 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   const sheet = page.locator(".sour-print-sheet");
   await expect(sheet).toContainText("1 day · 84 readings", LOADED);
   await expect(sheet, "a count agrees with its noun on paper too").not.toContainText(/\b1 (days|spikes|readings)\b/);
+  // T185 (§7.4): and the same tile on the paper, out of the same function, so the sheet a clinician carries
+  // into the room cannot estimate an A1c the screen declines to.
+  const sheetGmi = sheet.locator(".summary-stat-tile", { hasText: "GMI" });
+  await expect(sheetGmi).toContainText(GMI_SHORT_SPAN_HINT);
+  await expect(sheetGmi, "an estimated A1c on paper, off one day of readings").not.toContainText(GMI_A1C_HINT);
   // No anchor: the single day this shot exists to show is in the header's sub-line, so it is in the frame
   // on both projects without one (T109, design §12.3).
   await shot(page, "provider-print-single-day");

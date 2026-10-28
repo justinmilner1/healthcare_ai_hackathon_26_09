@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { GMI_A1C_HINT, GMI_A1C_MIN_DAYS, GMI_SHORT_SPAN_HINT } from "../lib/gmi";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { DRAINED, LOADED } from "./budget";
@@ -44,17 +45,58 @@ async function visitWithReadings(page: Page, who: string, fixture: string) {
   // patient session lands where the upload and the Sweetie turn below need it (§5.3).
   await verifyByApi(page.request, booked.token, email);
 
+  await shareReadings(page, booked.token, readFileSync(fixture));
+  return { demo, ...booked };
+}
+
+/**
+ * Hand this visit a Clarity export. `lib/bundle.ts` reads the *latest* dexcom upload, so a second call
+ * replaces what the two surfaces summarize — which is how the span test below reads one visit at two spans.
+ */
+async function shareReadings(page: Page, token: string, csv: string | Buffer) {
   // Multipart, so postJson does not fit; the header is the one it would have added (§10.8).
   const uploaded = await page.request.post("/api/upload", {
     headers: { "x-csrf-token": await csrfToken(page.request) },
     multipart: {
-      token: booked.token,
+      token,
       kind: "dexcom",
-      file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: readFileSync(fixture) },
+      file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: Buffer.from(csv) },
     },
   });
   expect(uploaded.ok(), `POST /api/upload: ${await uploaded.text()}`).toBeTruthy();
-  return { demo, ...booked };
+}
+
+/**
+ * A Clarity export of `days` days, hourly, for the one thing no file in the repository holds: a span long
+ * enough for GMI to be read as an estimated A1c (T185, lib/gmi.ts).
+ *
+ * Built here rather than committed under `data/fixtures/`, which is for the parser suites in `lib/*.test.ts`
+ * (`data/fixtures/README.md`): nothing about this is a parse to pin, only a span, and a fortnight of real
+ * five-minute readings would be four thousand rows of fixture to say it. The shape is `clarity_window.csv`'s
+ * — the three metadata rows and then EGV rows with device-local timestamps and no offset — so it goes in
+ * through `POST /api/upload` exactly as a patient's own export does.
+ *
+ * Nothing in it is below 70 or above 180, so it raises none of §7's three safety flags and detects no
+ * spike. That keeps it inside the subject of the test that uses it: the visit still has nothing to flag at
+ * fifteen days, and the only thing that changes about the two surfaces is the span.
+ */
+function clarityOfDays(days: number): string {
+  // One day, hourly: flat overnight, a rise after each of three meals, the highest of them 173.
+  const hourly = [104, 101, 99, 98, 97, 99, 106, 128, 152, 141, 122, 116, 134, 161, 148, 127, 118, 121, 145, 173, 158, 133, 117, 109];
+  const header = [
+    "Index,Timestamp (YYYY-MM-DDThh:mm:ss),Event Type,Event Subtype,Patient Info,Device Info,Source Device ID,Glucose Value (mg/dL),Insulin Value (u),Carb Value (grams),Duration (hh:mm:ss),Glucose Rate of Change (mg/dL/min),Transmitter Time (Long Integer),Transmitter ID",
+    "1,,FirstName,,E2E,,,,,,,,,",
+    "2,,LastName,,Span,,,,,,,,,",
+    "3,,Device,,,Dexcom G7,SM00000002,,,,,,,",
+  ];
+  // Ending on the same day as data/dexcom_clarity_sample.csv, so the two exports of one visit differ in
+  // their span and in nothing else a reader of the sheet would notice.
+  const last = Date.UTC(2026, 8, 25, 23, 0, 0);
+  const rows = Array.from({ length: days * 24 }, (_, i) => {
+    const at = new Date(last - (days * 24 - 1 - i) * 3600000).toISOString().slice(0, 19);
+    return `${i + 4},${at},EGV,,,Dexcom G7,SM00000002,${hourly[i % 24]},,,,,,SPAN01`;
+  });
+  return [...header, ...rows].join("\n");
 }
 
 /** The flags `lib/sour.ts` computed for this visit, read off the bundle the two surfaces both render. */
@@ -201,6 +243,14 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   const flaggedCaption = page.locator(".sour-chart-caption");
   await expect(flaggedCaption).toContainText("Red markers are spikes.");
   await expect(flaggedCaption, "a cut disclosed over a chart that draws every rise").not.toContainText(/largest rises/);
+  // T185 (§2.6, §7): the third element of that row asked the same question. This fixture is one evening of
+  // readings, and the GMI tile called itself `est. A1c from CGM` over it — a stand-in for a three-month
+  // average, stated as flatly as if a fortnight had arrived, on the row whose other two tiles already
+  // refuse. The figure stays; the sub-line is what the span decides (lib/gmi.ts).
+  const flaggedGmi = flaggedMetrics.locator(".summary-stat-tile", { hasText: "GMI" });
+  await expect(flaggedGmi).toContainText(GMI_SHORT_SPAN_HINT);
+  await expect(flaggedGmi, "an estimated A1c off a single evening").not.toContainText(GMI_A1C_HINT);
+  await expect(page.locator(".sour-overview-line"), "the figure unqualified, on the line read at a glance").not.toContainText(/GMI/);
 
   await shot(page, "provider-sour-flags", { scrollTo: ".sour-safety-flag", wholeRows: ".sour-safety-flag, .sour-glucose-flags" });
 
@@ -227,6 +277,11 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expect(printMetrics).toContainText("no Timeline data");
   await expect(printMetrics).toContainText("no WHOOP data");
   await expect(printMetrics, "a count of places on a sheet whose visit has no Timeline").not.toContainText(/linked to a place/);
+  // T185 (§7.4): and the GMI tile beside them, out of the same function as the screen's, so the paper
+  // cannot estimate an A1c the brief declines to.
+  const printGmi = printMetrics.locator(".summary-stat-tile", { hasText: "GMI" });
+  await expect(printGmi).toContainText(GMI_SHORT_SPAN_HINT);
+  await expect(printGmi, "an estimated A1c on paper, off a single evening").not.toContainText(GMI_A1C_HINT);
   // Recharts draws after it has measured itself, so the chart is the one thing worth waiting for before the
   // shutter opens — the same wait e2e/print.spec.ts takes before its own shot of this page.
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
@@ -250,9 +305,42 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   await expect(page.locator(".sour-safety-flag"), "an intake flag on an interview nothing stopped").toHaveCount(0);
   await expect(page.locator(".sour-overview-card")).toBeVisible();
 
+  // T185 (§2.6, §7): seven days is the other side of the sweep's question and the same answer. It is what
+  // the Dexcom connection fetches (§9.2) and what the demo sample holds, and it is still half of what GMI
+  // needs to stand in for a quarter — so this visit keeps the figure and loses the A1c claim too
+  // (lib/gmi.ts). The single-day visits are in the test above and in e2e/review.spec.ts.
+  const weekGmi = page.locator(".sour-metrics-card .summary-stat-tile", { hasText: "GMI" });
+  await expect(weekGmi).toContainText(GMI_SHORT_SPAN_HINT);
+  await expect(weekGmi, "an estimated A1c off a week of readings").not.toContainText(GMI_A1C_HINT);
+
   const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
   expect(opened?.status()).toBe(200);
   await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
   await expect(page.locator(".sour-glucose-flags")).toHaveCount(0);
   await expect(page.locator(".sour-safety-flag")).toHaveCount(0);
+
+  // The span that *does* support the estimate, which is the half of T185 that has to be driven for the rule
+  // to be more than a withholding: a tile reading the same at one day as at fourteen is the thing the
+  // ticket rules out, and so is one that reads `—` for everybody. Nothing committed in this repository
+  // holds a fortnight, so the export is built here (`clarityOfDays`) and handed to the visit that is
+  // already standing — `lib/bundle.ts` reads the latest dexcom upload, so this is one patient read at two
+  // spans and nothing else about the sheet changes. Still nothing to flag at fifteen days, which is this
+  // test's own subject: the series stays inside 70 to 180.
+  await shareReadings(page, visit.token, clarityOfDays(GMI_A1C_MIN_DAYS + 1));
+  await page.goto(`/provider/${visit.demo.id}?visit=${visit.visitId}`);
+  // The sub-header is the bundle having been re-read: `computeStats` takes the span off the latest upload
+  // (lib/bundle.ts), which is all the tile needs. The saved brief is the week's until someone asks for
+  // another — §7.1 keeps it up and marks it stale rather than blanking it — so Regenerate is pressed, and
+  // the flags read back below are then the fortnight's rather than the week's.
+  await expect(page.locator(".sour-brief")).toContainText("15 days · 360 readings", LOADED);
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", DRAINED);
+  expect(await flagsOf(page, visit.visitId), "a fortnight inside the target band has nothing to flag").toEqual([]);
+  await expect(page.locator(".sour-glucose-flags"), "a flags block over a fortnight with nothing in it").toHaveCount(0);
+  await expect(weekGmi, "the hint the tile has always carried, where the span supports it").toContainText(GMI_A1C_HINT);
+  await expect(weekGmi).not.toContainText(GMI_SHORT_SPAN_HINT);
+  // And the clause back on the glance line, out of the same report: the overview drops it only where the
+  // tile has to qualify the figure, so the two are the one decision read twice.
+  await expect(page.locator(".sour-overview-line")).toContainText(/GMI \d+\.\d%/);
+  await shot(page, "provider-sour-gmi-fortnight", { scrollTo: ".sour-metrics-card", wholeRows: ".sour-metrics-card .summary-stat-tile" });
 });

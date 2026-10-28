@@ -454,7 +454,7 @@ export default function SourView({ id }: { id: string }) {
                   <div className="flex items-baseline justify-between gap-3">
                     <h3 className="text-sm font-semibold">Summary</h3>
                     {st && bundle.status.hasDexcom && (
-                      <p className="text-sm text-[var(--viz-ink-2)]">
+                      <p className="sour-overview-line text-sm text-[var(--viz-ink-2)]">
                         In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg}{gmi?.overview && ` · ${gmi.overview}`} · {countOf(bundle.spikeTotal, "spike")}
                         {st.sleepAvgHours !== null && ` · sleep ${st.sleepAvgHours}h`}
                       </p>
