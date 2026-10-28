@@ -1021,8 +1021,17 @@ function Messages({ visit }: { visit: Row }) {
 }
 
 /** The panel beside the wizard's form, one pair per step, for the steps that are about the form rather than
- *  about a booking. Step 3's is `bookedOutcome`'s (T177): it is the largest type on the card's screen, so it
- *  is decided with the two sentences under it rather than beside them. */
+ *  about a booking. The success card's is `bookedOutcome`'s (T177): it is the largest type on the card's
+ *  screen, so it is decided with the two sentences under it rather than beside them.
+ *
+ *  T182 These three stay literals, which that ticket decided rather than left: each pair is a label for the
+ *  *step* and a standing fact about the product, neither of which is a claim about the booking on screen.
+ *  "SEND THE INVITE" names what step 3 is for — the channel and the consent are chosen on it, including the
+ *  choice to send nothing — the way "START WITH A PERSON" names step 1 for a patient already on file; and
+ *  "One secure link. No patient account needed." is true of every link this product makes, including the one
+ *  no code can open. What was wrong on this step was the sentence that forecast *this* booking, and that is
+ *  `bookingPlan`'s. A pair that said what this booking will do would be a fourth line about it and would
+ *  belong there instead. */
 const WIZARD_SIDE_COPY = [
   ["START WITH A PERSON", "A warm handoff starts with the basics."],
   ["GIVE SWEETIE THE BRIEF", "The visit context shapes every question."],
@@ -1261,7 +1270,10 @@ function PatientWizard({
             <div className="patient-wizard-step ss-enter" key="invite">
               <div>
                 <p className="ss-eyebrow">REVIEW & INVITE</p>
-                <h3 className="ss-title">Ready for the handoff.</h3>
+                {/* T182 All three from one call, for T122's reason one press earlier: the largest type in
+                    the column cannot promise a handover the two paragraphs under it are withdrawing
+                    (lib/booking.ts, §2.3, §5.3, §8.1). */}
+                <h3 className="ss-title">{plan.heading}</h3>
                 <p className="ss-lede">{plan.lede}</p>
               </div>
               <div className="patient-review-card">

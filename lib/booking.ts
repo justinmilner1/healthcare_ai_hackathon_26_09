@@ -44,6 +44,14 @@
 // handover — the practice's own silence, §13.4's refusal and the deployment's gap — all read one answer
 // (`codeCanReach`), and the sentence that offers a way in is only said where there is one.
 //
+// T182 is the seventh, and it is the last line on step 3 that was never a string this module returns:
+// the step's own heading, "Ready for the handoff." in the largest type in the column, over a lede that had
+// just stopped promising the handover and a note that withdraws it. Three paragraphs, each less of a
+// promise than the one above it. T122 states the rule for the card one press later — the largest type on a
+// card cannot promise a send the sentence under it is retracting — and the heading is that rule's own case
+// in the forecast tense, so it is a field here beside the lede and the note rather than a second reading of
+// `handover` in the client component.
+//
 // T176 is the sixth, and it is T173's branch one field short of it. T173 asked the two *fields* whether this
 // patient has anywhere to send to, and that answers "yes" for a patient with a number whose invite staff
 // chose to email: the chosen channel still has nothing, so the step read the sending branch — the promise,
@@ -206,9 +214,11 @@ export type PlannedSend = {
   codeChannels?: readonly NotifyChannel[];
 };
 
-/** The three things step 3 says about the invite, decided together. */
+/** The four things step 3 says about the invite, decided together. */
 export type BookingPlan = {
-  /** The lede under "Ready for the handoff.": what pressing the button does. */
+  /** T182 The heading over the lede, in the largest type in the column: what this booking is ready for. */
+  heading: string;
+  /** The lede under the heading: what pressing the button does. */
   lede: string;
   /** The note under the channel radios: where the link goes, or that it is not going anywhere. */
   note: string;
@@ -218,6 +228,28 @@ export type BookingPlan = {
   /** The button, which must not promise a send the two lines above have already withdrawn. */
   action: string;
 };
+
+/**
+ * T182 The heading step 3 has always carried, for the booking it is true of: an invite on its way, or a link
+ * whose holder can let this patient in with it. Either way the handover is what happens next, which is what
+ * the largest type on the step is for.
+ */
+const READY_FOR_HANDOFF = "Ready for the handoff.";
+
+/**
+ * T182 And for the patient it is not true of, where the two paragraphs under it withdraw it (§2.3, §5.3,
+ * §8.1): no code can reach them, so their link does not open and there is no handover for this step to be
+ * the last review before.
+ *
+ * What is left is what the press really does, which is the whole of why this screen exists: the visit gets
+ * written down. `bookedOutcome`'s panel says the same thing in the past tense one press later ("The visit is
+ * on file."), so the forecast and the report are one claim in two tenses, the way the lede and the note
+ * already are. Nothing is added beyond it — no reason and no remedy, because `warningsFor` and the note
+ * below own both (lib/visitIntake.ts, lib/delivery.ts) and a third line about one fact is the shape of every
+ * ticket in this family. The register is the card's panel and components/VerifyGate.tsx's titles: one short
+ * sentence about what is so, with nothing of the deployment's in it (§3.7, §10.6).
+ */
+const READY_TO_FILE = "Ready to go on file.";
 
 /** What the step says when the link really is going out: the wording before T140, unchanged. */
 const WILL_SEND = "Saving creates the patient and sends their private Sweetie link on the channel you choose here.";
@@ -318,6 +350,11 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   // the answer already in hand, read by all four of the non-sending returns below: whichever of them the
   // screen is on, the sentence at the top and the sentence under the radios are about one patient.
   const willNotSend = handover ? WILL_NOT_SEND : WILL_NOT_HAND_OVER;
+  // T182 And the heading over that sentence, off the same answer, for all five returns below. The sending
+  // branch is reached only where a code can reach too — the invite's senders are a subset of the code's
+  // (`codeChannels`, above) and §13.4 closes both — so the one expression serves the branch that promises
+  // the send as well as the four that do not, and the step cannot head a withdrawal with a promise.
+  const heading = handover ? READY_FOR_HANDOFF : READY_TO_FILE;
   if (channel === "none") {
     // T170 The one thing this branch had never asked, although it has had both answers as parameters since
     // T140: whether there is anywhere to send the code it promises.
@@ -333,6 +370,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
     // (`.patient-consent-warning`, T168), and a missing sender is named by the branches below, which are the
     // ones that have the deployment's sentence to state.
     return {
+      heading,
       lede: willNotSend,
       note: handover ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NO_WAY_IN,
       blocked: false,
@@ -359,7 +397,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
     // same patient — nothing is sent, and the link that would be handed over does not open (§2.3, §5.3). The
     // reason and the remedy are `warningsFor`'s, three lines below on the same step (lib/visitIntake.ts).
     if (!(phone?.trim() || email?.trim())) {
-      return { lede: willNotSend, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
+      return { heading, lede: willNotSend, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
     }
     // T176 And one field filled, on the channel staff did not pick. `wanted` is a single channel here —
     // "Text and email" with either field filled leaves `onFile` non-empty — so the gap is that one channel's
@@ -376,6 +414,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
     // still get wrong.
     const needs = channelNeeds(wanted[0]);
     return {
+      heading,
       lede: willNotSend,
       note: handover ? needs : `${needs} ${NO_HANDOVER_SENTENCE}`,
       blocked: false,
@@ -395,6 +434,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   // remedy: what the deployment cannot do keeps `cannotSendYet`'s sentence, and what it costs the handover
   // is lib/delivery.ts's clause, said once wherever it is said (§3.7, §10.6).
   const refused = (why: string): BookingPlan => ({
+    heading,
     lede: willNotSend,
     note: `No invite will be sent: ${why}. ${handover ? `Save this patient and ${HAND_IT_OVER}.` : NO_HANDOVER_SENTENCE}`,
     blocked: true,
@@ -419,6 +459,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   // cannot serve, and `codeCanReach` is now what decides which remedy the sentence ends on.
   if (fault) return refused(fault);
   return {
+    heading,
     lede: WILL_SEND,
     // T176 The `${to || …}` fallback is gone with the branch that reached it: a sentence that names a
     // destination is only ever shown where there is one, and the half-written one it rendered instead —
