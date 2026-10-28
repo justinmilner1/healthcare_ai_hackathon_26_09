@@ -2533,6 +2533,20 @@ textarea.ss-input {
   font-size: 22px;
 }
 
+/* T177 The gap over **Back to dashboard** belonged to the card below this comment: `margin: 26px 0 22px`
+   held the button off the sentence above it, and §8.1's link is not on every card any more — it is
+   withdrawn where handing it over is not a way in (lib/booking.ts, app/provider/dashboard.tsx). Without it
+   the button sat against the last line of the lede, hardest at 375px where that line is three deep. So the
+   button owns its own gap and gives it back where the link card is there to supply one, which keeps the
+   reachable patient's card the measurements it has always had. */
+.patient-wizard-success > .ss-button {
+  margin-top: 22px;
+}
+
+.patient-link-card + .ss-button {
+  margin-top: 0;
+}
+
 .patient-link-card {
   width: 100%;
   margin: 26px 0 22px;
