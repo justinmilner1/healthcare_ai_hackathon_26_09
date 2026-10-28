@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { cannotSendYet, NO_CONSENT_TO_MESSAGE } from "../lib/delivery";
+import { cannotSendYet, NO_CONSENT_TO_MESSAGE, NO_HANDOVER_SENTENCE } from "../lib/delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
 import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
-import { signInAsDemo } from "./auth";
+import { freshEmail, signInAs, signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
 import { SCREENFUL, shot } from "./shot";
 
@@ -84,8 +84,10 @@ async function recordCopies(page: Parameters<typeof signInAsDemo>[0]) {
 }
 
 /** One visit of the signed-in provider's, on both channels, with the consent §2.2 wants behind it.
- *  `to` overrides the destinations where the test is about which of them §13.4 allows (T150). */
-async function book(page: Parameters<typeof signInAsDemo>[0], providerId: string, prefix: string, channel = "both", to?: { phone?: string }) {
+ *  `to` overrides the destinations where the test is about which of them §13.4 allows (T150), or leaves one
+ *  of them out — `email: undefined` is dropped by the serializer, so the patient really has only a number
+ *  on file, which is the row T179 is about. */
+async function book(page: Parameters<typeof signInAsDemo>[0], providerId: string, prefix: string, channel = "both", to?: { phone?: string; email?: string }) {
   const who = { ...unique(prefix), ...to };
   const res = await postJson(page.request, "/api/book", {
     ...who,
@@ -194,6 +196,54 @@ test("the Sour page's Send link says the same, and still hands the link over", a
   await expect(note, "the link this screen already shared").toContainText("/s/");
 
   await shot(page, "sour-invite-not-sent", { ...SCREENFUL, scrollTo: note, block: "center" });
+});
+
+// T179 (§2.3, §2.6, §5.3, §8.1) And the visit the test above is not about: the patient `canHandOver`
+// answers `false` for.
+//
+// That test's visit is booked into the seeded demo practice with both destinations on file, so a code *can*
+// reach them — §8.1's fallback is a fallback, and the assertion that the link is on the screen is right and
+// stays. This one is the other direction, and the one the brief had no answer for: one detail on file, on the
+// channel this deployment has no sender behind, so every channel between this patient and a six-digit code
+// is closed (`codeReach`, lib/notify.ts) and the link the brief offered would not have opened.
+//
+// A practice of its own, like e2e/visits.spec.ts's two no-sender tests and for the same reason: §13.4 is not
+// what this measures, so the patient must not be a demo practice's. A reserved number as well — belt and
+// braces, since the practice this sign-in creates is not a demo one — so the one fact under test is the
+// deployment's missing SMS sender. The gate configures none (§11.3), which is why the SMS half is the half
+// that can be stood up here with no configuration at all.
+test("the brief withdraws the link where no code can reach the patient", async ({ page }) => {
+  const me = await signInAs(page, freshEmail("invite-brief-unreachable"));
+  // Email left out, not blanked: `email: undefined` is dropped by the serializer, so the row really has one
+  // destination, and it is on the channel the booking chooses.
+  const visit = await book(page, me.id, "Invite Brief Unreachable", "sms", { phone: reservedIn312(), email: undefined });
+
+  await page.goto(`/provider/${me.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText(visit.name, LOADED);
+
+  await page.locator(".sour-brief-actions").getByRole("button", { name: /^Send link$/ }).click();
+
+  // The reason is the deployment's and unchanged — somebody can fix it — and what the clause replaces is the
+  // offer after it. One sentence, from lib/delivery.ts, so this screen, the booking step, the success card
+  // and the dashboard row are one wording of one fact.
+  const note = page.locator(".sour-invite-note");
+  await expect(note).toHaveText(`No invite sent: ${cannotSendYet("sms")}. ${NO_HANDOVER_SENTENCE}`, LOADED);
+  await expect(note, "the claim the brief never read `handover` for").not.toContainText(/Share (?:the link|it) directly/i);
+  await expect(note, "and the link it offered, which this patient cannot open").not.toContainText("/s/");
+  await expect(note).not.toContainText(/Sending the link/i);
+
+  // Criterion 4: the screen says one thing about whether that link opens. The brief has no **Copy intake**
+  // for the link to retreat to, so this note was the only place it appeared — nothing else on the screen may
+  // be offering it either.
+  const brief = await page.locator(".sour-brief").innerText();
+  expect(brief, "no line on the brief hands over a link that will not open").not.toMatch(/\/s\//);
+  expect(brief, "nor names a backend or a variable over it (§3.7, §10.6)").not.toMatch(/SES|SNS|AWS|_KEY|_SECRET|environment variable/);
+
+  // `end` rather than the sibling shot's `center`: this note is one line longer, and centring it put the
+  // top of the patient's name through the top edge of the 375px frame. Anchoring its foot to the bottom of
+  // the viewport keeps the whole header — whose visit this is, and the **Send link** that was pressed — in
+  // the picture above it.
+  await shot(page, "sour-invite-no-handover", { ...SCREENFUL, scrollTo: note, block: "end" });
 });
 
 // The other half of both sentences: an office whose deployment *can* send is still told the link is on its
