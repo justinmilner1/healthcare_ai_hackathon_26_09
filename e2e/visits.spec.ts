@@ -1192,14 +1192,19 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   const goodName = uniqueName("CSV Good");
   const silentName = uniqueName("CSV Quiet");
   const unreachableName = uniqueName("CSV Unreachable");
-  // Five rows: one to message, one to create without messaging, one with nothing on file at all, and two the
-  // preview has to refuse for
+  // T181 An address on file and a *text* asked for, which is the row the preview used to say nothing at all
+  // about: `warningsFor` is silent because there is something on file, and the gap — the channel staff chose
+  // has nowhere to go — was first heard of in the dashboard's delivery cell, with the row already written.
+  const textedName = uniqueName("CSV Texted");
+  // Six rows: one to message, one to create without messaging, one with nothing on file at all, one whose
+  // chosen channel has nowhere to send, and two the preview has to refuse for
   // different reasons. The file is handed over the way a receptionist hands it over — as a file.
   const csv = [
     "Patient Name,Mobile,Email,Appointment,Type,Called about,Channel,Consent",
     `${goodName},${uniquePhone()},,2026-11-02 09:30,Follow-up,"mornings running high, every day",sms,phone`,
     `${silentName},${uniquePhone()},,2026-11-02 10:00,annual,,,`,
     `${unreachableName},,,2026-11-02 10:45,follow_up,nothing on file,,`,
+    `${textedName},,${freshEmail("csv-texted")},2026-11-02 11:15,follow_up,address on file and a text asked for,sms,phone`,
     `,${uniquePhone()},,2026-11-02 10:30,follow_up,no name at all,sms,phone`,
     `${uniqueName("CSV Bad")},${uniquePhone()},,2026-11-02 11:00,screening,unknown visit type,sms,phone`,
   ].join("\n");
@@ -1208,8 +1213,8 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   await page.getByLabel("CSV file").setInputFiles({ name: "tomorrow.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.getByRole("button", { name: /Check the rows/i }).click();
 
-  // §2.2's preview: three ready, two named problems, and nothing created yet.
-  await expect(page.locator(".import-tally")).toContainText("3 ready to create, 2 to fix", LOADED);
+  // §2.2's preview: four ready, two named problems, and nothing created yet.
+  await expect(page.locator(".import-tally")).toContainText("4 ready to create, 2 to fix", LOADED);
   await expect(page.locator(".import-table")).toContainText(/name is required/i);
   await expect(page.locator(".import-table")).toContainText(/Visit type must be one of/);
   await expect(page.locator(".import-table")).toContainText("Text message · Over the phone");
@@ -1219,12 +1224,25 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // T08 (§5.3) opening the link sends a code, so this visit has no way in until someone adds a number — and
   // since T168 the row says that once, and says what the front desk can do about it, rather than denying the
   // send and promising it in the same sentence.
-  const importWarning = page.locator(".import-warning");
+  const importRow = (name: string) => page.locator(".import-table tbody tr", { hasText: name });
+  const importWarning = importRow(unreachableName).locator(".import-warning");
   await expect(importWarning).toContainText(/the six-digit code their link needs has nowhere to go/i);
   await expect(importWarning).toContainText(/Add a phone number or an email address, or take the intake over the telephone/i);
   expect(await importWarning.innerText(), "the row no longer promises the code it has just denied").not.toMatch(
     /sends? (?:them|you|the patient)/i,
   );
+  // T181 And the row beneath it, which had an address and asked for a text: the clause is the wizard's
+  // forecast's own, so one missing field is not worded two ways across §2.2's two ways of booking
+  // (`channelNeeds`, lib/visitIntake.ts, read by `bookingPlan` in lib/booking.ts).
+  const textedWarning = importRow(textedName).locator(".import-warning");
+  await expect(textedWarning).toHaveText(channelNeeds("sms"));
+  // One line, not two: `warningsFor` is not widened, so the row with something on file says only what is
+  // true of the channel staff picked (criterion 3, and the T170 split it keeps shut).
+  await expect(textedWarning).toHaveCount(1);
+  // And the rows that *are* reachable are left alone, which is the half that keeps the rule honest: a
+  // preview that warned about everything would say nothing.
+  await expect(importRow(goodName).locator(".import-warning")).toHaveCount(0);
+  await expect(importRow(silentName).locator(".import-warning")).toHaveCount(0);
   // T170 And nor does the paragraph above the preview, which made the same promise of *every* blank-channel
   // row — line 4 of this very file among them. One frame holds both (the shot below), so the rule is about
   // the whole dialog and not about the row that happens to contradict it.
@@ -1280,8 +1298,12 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   const beforeImport = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
   expect(beforeImport.visits.some((v) => v.name === goodName), "the preview writes nothing").toBeFalsy();
 
-  await page.getByRole("button", { name: /Create 3 visits/i }).click();
-  await expect(page.locator(".import-tally")).toContainText("3 created", LOADED);
+  await page.getByRole("button", { name: /Create 4 visits/i }).click();
+  await expect(page.locator(".import-tally")).toContainText("4 created", LOADED);
+  // T181 The second tense of the same line, beside the row it is true of: the dialog shows the preview
+  // block twice and the row's own warning has to survive the press, the way the tally's does.
+  await expect(importRow(textedName).locator(".import-warning")).toHaveText(channelNeeds("sms"));
+  await expect(importRow(goodName).locator(".import-warning")).toHaveCount(0);
   // T111 One of the three rows asked for a text and this deployment has no SMS backend, so the screen says
   // the invites did not go out and what staff can do instead. One line for the file rather than one per row,
   // because it is a fact about the deployment: the two rows with a blank channel asked for nothing and add
@@ -1317,6 +1339,9 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   expect(imported!.reason).toBe("mornings running high, every day");
   expect(after.visits.find((v) => v.name === silentName)?.channel).toBe("none");
   expect(after.visits.find((v) => v.name === unreachableName), "a row with nothing on file still imports").toBeTruthy();
+  // T181 Created, as §2.2 has taken it since T177 — the appointment is real whether or not the invite can go
+  // out. What changed is that the preview said so before the button rather than the dashboard afterwards.
+  expect(after.visits.find((v) => v.name === textedName)?.channel).toBe("sms");
 });
 
 // T135 The other half of the preview's sentence: an office whose deployment *can* send reads a clean

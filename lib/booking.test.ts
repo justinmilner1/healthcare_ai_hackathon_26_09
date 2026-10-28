@@ -30,7 +30,7 @@ const BOOKED = parseVisitCsv(fixture("visit_import.csv"))
 
 describe("bookedOutcome", () => {
   it("reads the fixture's bookings, so the cases below are a scheduler's and not invented", () => {
-    assert.equal(BOOKED.length, 8, "nine data rows, one of them nameless");
+    assert.equal(BOOKED.length, 9, "ten data rows, one of them nameless");
     assert.deepEqual(
       [...new Set(BOOKED.map((b) => b.channel))].sort(),
       ["both", "email", "sms"],

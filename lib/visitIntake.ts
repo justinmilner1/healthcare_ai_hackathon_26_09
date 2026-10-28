@@ -174,6 +174,11 @@ export type DraftResult = { ok: true; draft: VisitDraft } | { ok: false; errors:
  * party who can fix this: the two fields are theirs, and so is the telephone.
  *
  * `lib/visitIntake.test.ts` holds the next rewording to that as a property rather than to this literal.
+ *
+ * T181 It stays the both-fields rule, and the import preview's second line is `csvRowWarnings` below rather
+ * than a widening of this one: this function is also step 3's line under `bookingPlan`'s forecast, which
+ * already says the chosen channel's missing field once, and two sentences about one field on that step is
+ * the T170 split. The comment on `csvRowWarnings` is the whole of that reasoning.
  */
 export function warningsFor(draft: Pick<VisitDraft, "phone" | "email">): string[] {
   if (draft.phone || draft.email) return [];
@@ -371,7 +376,8 @@ export type CsvRow = {
   name: string;
   draft: VisitDraft | null;
   errors: string[];
-  /** True of the row, and not a reason to refuse it: see warningsFor. Empty on a row that has errors. */
+  /** True of the row, and not a reason to refuse it: see `csvRowWarnings`, which is `warningsFor`
+   *  plus the clause this surface owes on its own (T181). Empty on a row that has errors. */
   warnings: string[];
 };
 
@@ -386,6 +392,50 @@ export type CsvParse = {
 };
 
 export const MAX_CSV_ROWS = 500;
+
+/**
+ * T181 Every line one CSV row carries on the import preview: `warningsFor`'s, and the one the import path
+ * owes on its own (§2.2, §2.3, §5.3).
+ *
+ * **Why this is here and not in `warningsFor`.** `warningsFor` fires on *both* contact fields being blank,
+ * and that is deliberate: it is also the wizard's second line on step 3, printed under `bookingPlan`'s
+ * forecast (app/provider/dashboard.tsx). Widening it to the chosen channel would put two sentences about one
+ * missing field on that step — the T170 split, which T170, T173 and T176 each spent a ticket undoing. The
+ * wizard already has this sentence *once*, in the forecast (`bookingPlan`, lib/booking.ts); the import
+ * preview is the surface that has no forecast behind it, so the sentence is owed here and only here.
+ *
+ * What it says is `channelNeeds`'s clause word for word, for the same reason the wizard's forecast says it:
+ * one missing field, one wording, across the two ways §2.2 creates a visit. Before T177 the row was an
+ * *error* carrying this sentence and staff fixed the cell before pressing; T177 took that refusal out of
+ * `parseVisitDraft` so the wizard's step and its press would agree, and the import — which shares the parser
+ * and not the forecast — was left saying nothing at all. The first anyone heard of it was the dashboard
+ * row's delivery cell minutes later, with the rows already written (`inviteReach`, lib/notify.ts, §8.3).
+ *
+ * The rule is `bookingPlan`'s own, asked over a parsed row rather than over the wizard's typed fields, so
+ * the two surfaces cannot answer one gap differently:
+ *
+ * - Neither field on file → `warningsFor`'s line and nothing else. That row's link does not open at all,
+ *   which is the larger fact and already named with its remedy; adding "a text message needs a mobile
+ *   number" under it would be a second sentence about the same missing cell.
+ * - A chosen channel, and none of what staff chose has a destination → that channel's clause. `wanted` is a
+ *   single channel whenever it gets here, since "Text and email" with either field filled leaves `onFile`
+ *   non-empty.
+ * - Anything the file can be sent on, and a blank `channel` column (`"none"`, which is what a scheduler's
+ *   export means) → no line. Criterion 4's half of the rule: a preview that warned about everything would
+ *   say nothing.
+ *
+ * No remedy clause and no mention of the handover: the dialog's tally line owns what this deployment can
+ * send and whether §8.1's fallback is a way in (`importInviteNote`, lib/importNote.ts), and the missing cell
+ * is the front desk's own. Staff's words throughout — no backend, no variable, no credential (§3.7, §10.6).
+ */
+export function csvRowWarnings(draft: Pick<VisitDraft, "phone" | "email" | "channel">): string[] {
+  const warnings = warningsFor(draft);
+  if (!draft.phone && !draft.email) return warnings;
+  const wanted = channelsOf(draft.channel);
+  const onFile = wanted.filter((c) => (c === "sms" ? draft.phone : draft.email));
+  if (wanted.length && !onFile.length) warnings.push(channelNeeds(wanted[0]));
+  return warnings;
+}
 
 /**
  * A day's visits out of a CSV, each row parsed on its own so one bad line never costs the other 24 (§2.2's
@@ -442,7 +492,7 @@ export function parseVisitCsv(text: string): CsvParse {
       errors.unshift(`This row has ${cells.length} ${cells.length === 1 ? "cell" : "cells"} and the header has ${header.length}.`);
     }
     const draft = errors.length ? null : (parsed as { draft: VisitDraft }).draft;
-    rows.push({ line: i + 1, name: cleanPatientName(value("name")) ?? "", draft, errors, warnings: draft ? warningsFor(draft) : [] });
+    rows.push({ line: i + 1, name: cleanPatientName(value("name")) ?? "", draft, errors, warnings: draft ? csvRowWarnings(draft) : [] });
   }
 
   if (!rows.length) return { columns: mapped.filter((c): c is (typeof CSV_COLUMNS)[number] => c !== null), ignored, rows, error: "That file has a header and no visits under it." };

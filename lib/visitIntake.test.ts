@@ -3,11 +3,13 @@ import test from "node:test";
 import { fixture, pinUtcTimeZone } from "./fixtures";
 import {
   channelLabel,
+  channelNeeds,
   channelOf,
   channelsOf,
   cleanPatientName,
   cleanReason,
   CSV_TEMPLATE,
+  csvRowWarnings,
   MAX_CSV_ROWS,
   MAX_REASON,
   normalizePhone,
@@ -195,15 +197,19 @@ test("a CSV line keeps a quoted comma together", () => {
 test("a day of visits parses row by row, each bad row with its own reason", () => {
   const parse = parseVisitCsv(fixture("visit_import.csv"));
   assert.equal(parse.error, undefined);
-  assert.equal(parse.rows.length, 9);
+  assert.equal(parse.rows.length, 10);
 
   const ok = parse.rows.filter((r) => r.draft);
   // T177 Yuki Sato joined this list: the last row of the fixture chose "both" with neither cell filled, and
   // the parser refused it until §2.2 started taking a booking on a channel with nothing to send to. The
   // appointment is real either way, so the row is created and the warning below is what it carries.
+  // T181 And Mina Okafor is the shape the import had nothing to say about: a number on file and the *other*
+  // channel chosen. `warningsFor` is silent on it — there is something on file — and until this ticket the
+  // preview was too, so the row was created and the first anyone heard of the gap was the dashboard's
+  // delivery cell (§8.3).
   assert.deepEqual(
     ok.map((r) => r.name),
-    ["Sam Taylor", "Ada Rivera", "Lee Okonkwo", "Yuki Sato"],
+    ["Sam Taylor", "Ada Rivera", "Lee Okonkwo", "Yuki Sato", "Mina Okafor"],
   );
   // The header aliases did their job: "Mobile", "Appointment", "Type" and "Called about" all landed.
   assert.deepEqual(ok[0].draft, {
@@ -225,9 +231,12 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   // app/provider/dashboard.tsx).
   assert.deepEqual(
     ok.map((r) => [r.name, r.warnings.length]),
-    [["Sam Taylor", 0], ["Ada Rivera", 0], ["Lee Okonkwo", 0], ["Yuki Sato", 1]],
+    [["Sam Taylor", 0], ["Ada Rivera", 0], ["Lee Okonkwo", 0], ["Yuki Sato", 1], ["Mina Okafor", 1]],
   );
   assert.match(ok[3].warnings[0], /^No phone or email on file, /);
+  // T181 One line, and it is the wizard's forecast's own clause rather than a second wording of one missing
+  // field (`channelNeeds`, lib/visitIntake.ts, read by `bookingPlan` in lib/booking.ts).
+  assert.deepEqual(ok[4].warnings, [channelNeeds("email")]);
 
   const reasons = Object.fromEntries(parse.rows.filter((r) => !r.draft).map((r) => [r.line, r.errors.join(" | ")]));
   assert.match(reasons[5], /name is required/i);
@@ -235,7 +244,7 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   assert.match(reasons[7], /Visit type must be one of/);
   assert.match(reasons[8], /date and time could not be read/i);
   assert.match(reasons[9], /Record how the patient's consent/i);
-  assert.equal(Object.keys(reasons).length, 5, "line 10 is a warning rather than an error since T177");
+  assert.equal(Object.keys(reasons).length, 5, "line 10 is a warning rather than an error since T177, and line 11 since T181");
 });
 
 // T08 (§5.3): opening the link sends a code to the phone or email on file, so a visit with neither cannot be
@@ -298,6 +307,66 @@ test("a CSV row with no way to reach the patient imports with that warning on it
   assert.deepEqual(parse.rows.map((r) => r.errors.length), [0, 0]);
   assert.match(parse.rows[0].warnings[0], /the link will not open/);
   assert.deepEqual(parse.rows[1].warnings, []);
+});
+
+// T181 (§2.2, §2.3, §5.3). The import preview's own line, and the whole of the rule in one test: the shape
+// that was silent now speaks, the shape that already spoke keeps exactly what it had, and the reachable
+// shapes stay clean — all three together, because a preview that warned about everything would meet the
+// first of those and say nothing.
+//
+// The sentence is checked against `channelNeeds` rather than against a literal, which is the point of the
+// ticket: the wizard's forecast reads the same clause (`bookingPlan`, lib/booking.ts), so one missing field
+// cannot come to be worded two ways across §2.2's two ways of creating a visit.
+test("a CSV row whose chosen channel has nowhere to send says so, and no other row grows a line", () => {
+  const rows = (csv: string) => parseVisitCsv(`name,phone,email,channel,consent\n${csv}`).rows;
+
+  // The shape the ticket was filed for: a number on file, the email channel chosen. `warningsFor` is silent
+  // on it — there *is* something on file — and that silence is what sent staff to the dashboard to find out.
+  const [emailed] = rows("Mina Okafor,+14155550107,,email,phone\n");
+  assert.deepEqual(emailed.errors, []);
+  assert.deepEqual(emailed.warnings, [channelNeeds("email")]);
+  assert.deepEqual(warningsFor(emailed.draft!), [], "`warningsFor` is not what grew this line (criterion 3)");
+
+  // And the mirror of it, so the clause follows the channel rather than being one sentence about email.
+  const [texted] = rows("Ravi Menon,,ravi@example.com,sms,phone\n");
+  assert.deepEqual(texted.warnings, [channelNeeds("sms")]);
+
+  // Neither field, "Text and email": `warningsFor`'s line and nothing under it. The link does not open at
+  // all, which is the larger fact and is already named with its remedy; a second sentence about the same
+  // empty cell is the T170 split this ticket is written to avoid.
+  const [nobody] = rows("Yuki Sato,,,both,phone\n");
+  assert.equal(nobody.warnings.length, 1);
+  assert.match(nobody.warnings[0], /^No phone or email on file, /);
+
+  // Every reachable shape, which is the half that keeps the rule honest. "Text and email" with one field
+  // filled is reachable on that one, and a blank `channel` column — what a scheduler's export means — asks
+  // for no send at all, so neither has anything to be told.
+  for (const row of rows(
+    [
+      "Sam Taylor,+14155550100,sam@example.com,both,phone",
+      "Ada Rivera,+14155550101,,sms,phone",
+      "Lee Okonkwo,,lee@example.com,email,portal",
+      "Nia Bako,+14155550108,,both,phone",
+      "Tom Berg,,tom@example.com,both,phone",
+      "Walk In,+14155550109,,,",
+      "Quiet Row,,quiet@example.com,none,",
+    ].join("\n") + "\n",
+  )) {
+    assert.deepEqual(row.errors, [], `${row.name} should import`);
+    assert.deepEqual(row.warnings, [], `${row.name} is reachable and has nothing to be told`);
+  }
+
+  // §3.7, §10.6: staff's words. The missing cell is the front desk's own, and the deployment's senders are
+  // the tally line's subject, not this one's (lib/importNote.ts).
+  assert.doesNotMatch(emailed.warnings[0], /SES|SNS|TWILIO|RESEND|_API_KEY|EMAIL_FROM|DEV_MAIL_DIR/);
+  // And nothing here claims the send it has just said has nowhere to go (T168's invariant, above).
+  for (const draft of CONTACT_COMBINATIONS) {
+    for (const channel of ["sms", "email", "both", "none"] as const) {
+      for (const warning of csvRowWarnings({ ...draft, channel })) {
+        assert.doesNotMatch(warning, CODE_IN_MOTION, `a send this visit cannot make, in: ${warning}`);
+      }
+    }
+  }
 });
 
 test("the columns a file did not map are named rather than silently dropped", () => {
