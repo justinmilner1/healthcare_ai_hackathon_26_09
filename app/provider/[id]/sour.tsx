@@ -31,6 +31,7 @@ import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
+import { signedInHeading } from "@/lib/team";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
 import { apiFetch } from "@/lib/csrf";
@@ -48,7 +49,10 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  *  predicate is lib/sourState.ts, which the printed one-pager asks too (§2.6, §7.1). */
 
 type Row = { id: string; name: string; apptAt: string | null; uploads: string[]; hasSummary: boolean };
-type Provider = { name: string; practice: string | null; visits: Row[] };
+// `name` is nullable because the row is: nothing writes a name on an account's behalf (§5.1,
+// lib/authAdapter.ts), so the signed-in provider may well have none. Typing it `string` is what let the
+// heading below answer a loaded nameless account with a loading glyph (T186).
+type Provider = { name: string | null; practice: string | null; visits: Row[] };
 
 export default function SourView({ id }: { id: string }) {
   const [provider, setProvider] = useState<Provider | null>(null);
@@ -317,7 +321,10 @@ export default function SourView({ id }: { id: string }) {
         <Link href="/provider" className="sour-back-link">← All patients</Link>
         <div className="sour-practice">
           <span>Practice</span>
-          <h1>{provider?.name ?? "…"}</h1>
+          {/* The page's <h1> (§12.5), so it may not be a placeholder for anything that has finished
+              arriving: an account with no name is the ordinary first state of a practice, not a wait.
+              lib/team.ts tells the two apart and holds the wording the users table uses (T186). */}
+          <h1>{signedInHeading(provider)}</h1>
           <p>{provider?.practice}</p>
         </div>
         <p className="sour-sidebar-label">{summaryListHeading(visible)}</p>

@@ -15,8 +15,11 @@ import {
   MAX_RETENTION_DAYS,
   MIN_RETENTION_DAYS,
   memberSubLine,
+  NAME_LOADING,
   normalizeEmail,
+  NO_NAME_SET,
   parseRole,
+  signedInHeading,
 } from "./team";
 
 // The validators every value passes before it reaches a Practice or User row (design §2.1, §4.1, §4.2), and
@@ -229,4 +232,39 @@ test("the users table's sub line says something true in all four states (T115)",
   // A name that is only whitespace never reaches a row — cleanPersonName makes it null (above) — but if one
   // ever did, the heading would be blank, so the sub line must not be the one that hides it.
   assert.equal(memberSubLine({ ...row, name: "" }), "No name set");
+});
+
+
+// T186, design §2.1, §2.6, §12.5. The same missing name one screen over: the brief's sidebar heading, which
+// is that page's <h1>. It read `provider?.name ?? "…"`, and `??` catches only null and undefined — so the
+// ellipsis was the answer to two different questions, "the fetch has not come back" and "this account has
+// no name on it". The second is not a wait and never resolves, so on every practice until somebody types a
+// name into settings the heading was a spinner for ever and a loaded page looked exactly like a loading one.
+test("the brief's sidebar heading tells a loading page from an account with no name (T186)", () => {
+  // Not fetched yet: the one state an ellipsis is a true answer to.
+  assert.equal(signedInHeading(null), NAME_LOADING);
+  assert.equal(signedInHeading(undefined), NAME_LOADING);
+
+  // Fetched, no name on the row. The users table's wording, not a fourth one for one fact.
+  assert.equal(signedInHeading({ name: null }), NO_NAME_SET);
+  assert.equal(signedInHeading({ name: null }), memberSubLine({ email: "n@practice.test", name: null, pending: false }));
+
+  // The criterion the bug failed: the two states are different strings, so a screen can be read.
+  assert.notEqual(signedInHeading({ name: null }), signedInHeading(null));
+  assert.equal(signedInHeading({ name: null }).includes(NAME_LOADING), false, "nothing that has finished wears a loading glyph");
+
+  // A name is that name, untouched — and trimmed rather than printed with its padding.
+  assert.equal(signedInHeading({ name: "Dr. Demo Endo" }), "Dr. Demo Endo");
+  assert.equal(signedInHeading({ name: "  Dr. Demo Endo  " }), "Dr. Demo Endo");
+
+  // Blank or whitespace is as missing as null, which `??` would have printed as an empty heading — the one
+  // thing worse than the ellipsis, since §12.5 would leave the page with no accessible name at all.
+  for (const blank of ["", "   ", "\t\n"]) {
+    assert.equal(signedInHeading({ name: blank }), NO_NAME_SET, `${JSON.stringify(blank)} is not a name`);
+  }
+
+  // §3.7, §10.6: staff's words. Nothing here names a backend, a variable or a credential.
+  for (const answer of [signedInHeading(null), signedInHeading({ name: null })]) {
+    assert.equal(/SES|SNS|AWS|_KEY|_SECRET|null|undefined|environment variable/i.test(answer), false, answer);
+  }
 });

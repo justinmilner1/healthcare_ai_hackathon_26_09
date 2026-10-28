@@ -74,6 +74,19 @@ export type TeamMember = {
 };
 
 /**
+ * The two things this practice's screens say instead of a name, as constants because more than one surface
+ * says them (T186). One missing name, one wording: a reader who meets an unnamed colleague in the users
+ * table and again at the top of their own brief should not have to work out that the two pages are talking
+ * about the same gap.
+ */
+export const NO_NAME_SET = "No name set";
+export const NO_NAME_IN_INVITE = "No name in the invite";
+
+/** What a heading reads while the row behind it has not arrived yet, and *only* then. An ellipsis is a
+ *  promise that something is still coming, so nothing that has finished may wear one (T186). */
+export const NAME_LOADING = "…";
+
+/**
  * The sub line under a person's heading in the users table (§2.1, §4.2). Four cases, and the two without a
  * name are told apart by `pending` — "has this address ever redeemed a link" — rather than by whether a name
  * happens to exist, because those are two different facts (T115).
@@ -89,7 +102,32 @@ export function memberSubLine(member: Pick<TeamMember, "email" | "name" | "pendi
   // The address is already the heading when there is no name, so printing it twice would say nothing; what
   // is worth saying is that there is no name, and why there is not one yet.
   if (member.name) return member.email;
-  return member.pending ? "No name in the invite" : "No name set";
+  return member.pending ? NO_NAME_IN_INVITE : NO_NAME_SET;
+}
+
+/**
+ * The heading over the practice line in the brief's sidebar, which is that page's `<h1>` (§2.6, §12.5).
+ *
+ * Three states, where the screen used to have two. `null` is "GET /api/provider has not answered yet", and
+ * `NAME_LOADING` is what that is for. A row with a name is that name. A row with none is the state the
+ * ellipsis used to be shared with, and it is not rare: §2.1 gives every practice an admin with no name
+ * until somebody types one into settings, and every colleague an admin invites by email has none either
+ * (lib/authAdapter.ts, §5.1), so that heading read `…` for ever and a loaded page was indistinguishable
+ * from a loading one.
+ *
+ * `memberSubLine`'s own answer rather than a fourth wording for one fact — the users table one screen over
+ * already tells this practice what an account with no name on it is — and `NO_NAME_SET` rather than
+ * `NO_NAME_IN_INVITE` with nothing to ask: whoever is reading a brief redeemed a link to get here, so they
+ * are signed in and by definition not pending (§5.1). Not the printed sheet's `NO_CLINICIAN` either, which
+ * is a claim about whose visit it is (lib/visit.ts, T86) rather than about the account doing the reading —
+ * and lives behind Prisma, where a client component cannot follow it.
+ *
+ * `||` rather than `??`, as `clinicianLine` does for the same reason: a name that is blank or whitespace is
+ * as missing as none at all, and printing it would leave the heading empty.
+ */
+export function signedInHeading(provider: { name: string | null } | null | undefined): string {
+  if (!provider) return NAME_LOADING;
+  return provider.name?.trim() || NO_NAME_SET;
 }
 
 export type PracticeTeam = {
