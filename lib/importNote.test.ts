@@ -201,7 +201,7 @@ function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
 }
 
 /** Every line of the dialog that is this module's, for one file of rows, in one tense: the paragraph above
- *  the preview and the tally line per reason. The row warnings are `warningsFor`'s and are held in
+ *  the preview and the tally line per reason. The row warnings are `csvRowWarnings`'s and are held in
  *  lib/visitIntake.test.ts; what this block is about is the lines that used to contradict them. */
 const dialogLines = (rows: readonly InviteBatchRow[], committed: boolean) => [
   importIntroText(),
@@ -261,7 +261,7 @@ describe("nothing in the import dialog offers a handover to a row no code can re
   it("is the ticket's own frame: the gate, a texted row, and the warning one line below it", () => {
     // `desktop-provider-import-preview.png` and `desktop-provider-import-created.png`. Three sentences about
     // one row, two of which offered the link and the third of which says it will not open. The row warning
-    // is `warningsFor`'s and is not this module's to produce, so it is quoted here as the thing the two
+    // is `csvRowWarnings`'s and is not this module's to produce, so it is quoted here as the thing the two
     // lines above it had to stop contradicting.
     withEnv(GATE, () => {
       const rows = [{ channel: "sms", phone: "+14155550123", email: null }];
