@@ -237,7 +237,7 @@ export default function PatientPage({
                   <p className="patient-report-subtitle">
                     A simple timeline to help you remember what was happening.
                   </p>
-                  <SpikeTable spikes={bundle.spikes} compact patient />
+                  <SpikeTable spikes={bundle.spikes} status={bundle.status} compact patient />
                 </section>
               )}
 

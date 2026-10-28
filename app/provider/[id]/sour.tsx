@@ -548,7 +548,7 @@ export default function SourView({ id }: { id: string }) {
                   {/* `spikeTotal` as well as `spikes`, for the reason the tile above takes it (T165, §2.6):
                       the chart draws a marker per listed rise and the tile counts the week, so the caption
                       has to know both or it is describing a set the clinician cannot count. */}
-                  <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes, bundle.spikeTotal)}</p>
+                  <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes, bundle.status, bundle.spikeTotal)}</p>
                   <div className="mt-2">
                     <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} />
                   </div>
@@ -559,10 +559,12 @@ export default function SourView({ id }: { id: string }) {
                 <div className="sour-card-grid">
                   <section className="sour-card">
                     {/* Not a constant: whether any rise is linked to a place is the question
-                        lib/spikePlaces.ts answers, for the caption above and the rows below too (T157, §2.6). */}
-                    <h3 className="text-sm font-semibold">{clinicianSpikeCardHeading(bundle.spikes)}</h3>
+                        lib/spikePlaces.ts answers, for the caption above and the rows below too (T157, §2.6).
+                        `status` is what keeps the rows from reporting a match on a visit that shared no
+                        Timeline, which is the tile's own question and now theirs as well (T184, §2.5). */}
+                    <h3 className="text-sm font-semibold">{clinicianSpikeCardHeading(bundle.spikes, bundle.status)}</h3>
                     <div className="mt-2">
-                      <SpikeTable spikes={bundle.spikes} />
+                      <SpikeTable spikes={bundle.spikes} status={bundle.status} />
                     </div>
                   </section>
                   <section className="sour-card">

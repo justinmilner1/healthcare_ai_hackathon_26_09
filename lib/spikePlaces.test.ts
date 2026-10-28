@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { placeLabel } from "./location";
-import { anyPlaceKnown, clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -22,6 +22,13 @@ const spike = (visit?: Visit): Spike => ({
 
 /** The matcher's vocabulary, which §2.7's page is not written in (T82). */
 const MATCHER = /no matching visit|matching|unmatched/i;
+
+/** A visit that shared the Timeline export §2.5 makes optional, and one that did not (T160, T184). */
+const SHARED = { hasLocation: true };
+const UNSHARED = { hasLocation: false };
+
+/** Any clause that reports a lookup having been run — what no element may say on an UNSHARED visit (T184). */
+const SEARCHED = /no place matched|no matching visit|linked to a place|\bplaces?\b/i;
 
 test("a patient who shared no Timeline has no place to report on any rise (T82)", () => {
   // The §12.2 journey patient: Dexcom and WHOOP shared, Timeline declined, five spikes and not one place.
@@ -68,8 +75,10 @@ test("the caption and the column agree, because both read one predicate", () => 
 // every marker a place and the markers were peak mg/dL.
 
 test("the clinician's caption calls the labels what they are when no place matched (T99)", () => {
-  // The §12.2 journey visit: Dexcom and WHOOP, no Timeline, five spikes labeled 206, 202, 214, 210, 194.
-  const caption = clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], 5);
+  // A visit that shared a Timeline and whose five rises matched no stop in it. T184 narrowed this branch to
+  // that visit: it was also the §12.2 journey patient's, who shared no Timeline at all, and there the
+  // sentence reported a lookup nobody had run.
+  const caption = clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], SHARED, 5);
   assert.match(caption, /peak mg\/dL/);
   assert.doesNotMatch(caption, /the place the patient had just left/);
   // And it agrees with the card beside it, whose stat tile reads 0 on this visit — and, since T157, whose
@@ -78,7 +87,7 @@ test("the clinician's caption calls the labels what they are when no place match
 });
 
 test("and names the place where one matched, with the number as the other case (T99)", () => {
-  const caption = clinicianChartCaption([spike(somewhere("Noe Cafe")), spike()], 2);
+  const caption = clinicianChartCaption([spike(somewhere("Noe Cafe")), spike()], SHARED, 2);
   assert.match(caption, /the place the patient had just left/);
   assert.match(caption, /peak mg\/dL/);
 });
@@ -87,7 +96,7 @@ test("neither shape promises that every marker is labeled (T99)", () => {
   // GlucoseChart keeps the marker and drops the label when two would collide, so "labeled with ..." of the
   // markers as a set was never true, even on a visit full of places.
   for (const spikes of [[], [spike()], [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))]]) {
-    const caption = clinicianChartCaption(spikes, spikes.length);
+    const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
     assert.match(caption, /Labels, where they fit,/);
     assert.doesNotMatch(caption, /Red markers are spikes, labeled with/);
   }
@@ -96,13 +105,13 @@ test("neither shape promises that every marker is labeled (T99)", () => {
 test("the band sentence is the same on the brief and on the printed sheet (T99)", () => {
   // One function is what keeps the two strings in step; both surfaces call it with the same spikes.
   for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
-    assert.match(clinicianChartCaption(spikes, spikes.length), /^Shaded band is 70\u2013180 mg\/dL\. /);
+    assert.match(clinicianChartCaption(spikes, SHARED, spikes.length), /^Shaded band is 70\u2013180 mg\/dL\. /);
   }
 });
 
 test("the clinician's caption keeps the clinician's register, not the patient's (T99)", () => {
   for (const spikes of [[], [spike(somewhere("Home"))]]) {
-    assert.doesNotMatch(clinicianChartCaption(spikes, spikes.length), /\byour\b|\byou\b/i);
+    assert.doesNotMatch(clinicianChartCaption(spikes, SHARED, spikes.length), /\byour\b|\byou\b/i);
   }
   // And the patient's page is unchanged by this ticket.
   assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
@@ -173,7 +182,7 @@ test("the clinician's marker label keeps T62's coordinates — both sides of the
 
 test("the card is not headed with a link no rise in it has (T157)", () => {
   // The §12.2 journey visit again, which is the ordinary one: Dexcom shared, Timeline not (§2.5, T144).
-  const heading = clinicianSpikeCardHeading([spike(), spike(), spike(), spike(), spike()]);
+  const heading = clinicianSpikeCardHeading([spike(), spike(), spike(), spike(), spike()], UNSHARED);
   assert.doesNotMatch(heading, /linked/i, heading);
   assert.doesNotMatch(heading, /place/i, heading);
   // Still the card's own subject: five rises over 180 are what is in it.
@@ -182,15 +191,17 @@ test("the card is not headed with a link no rise in it has (T157)", () => {
 
 test("and keeps the heading it has always had where a place did match (T157)", () => {
   // The acceptance criterion that is about nothing changing: desktop-provider-sour.png is this visit.
-  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()]), "Spikes linked to places");
-  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Home"))]), "Spikes linked to places");
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes linked to places");
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Home"))], SHARED), "Spikes linked to places");
 });
 
 test("claims nothing over an empty card (T157)", () => {
   // SpikeTable's body already reads "No spikes over 180 detected."; naming the threshold above it would
   // read as though some rise had cleared it.
-  const heading = clinicianSpikeCardHeading([]);
+  const heading = clinicianSpikeCardHeading([], SHARED);
   assert.equal(heading, "Spikes");
+  // And the same over an empty card on a visit with no Timeline: there is no third shape (T184).
+  assert.equal(clinicianSpikeCardHeading([], UNSHARED), "Spikes");
   assert.doesNotMatch(heading, /linked|180/i, heading);
 });
 
@@ -207,12 +218,12 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
     [spike(somewhere("Noe Cafe")), spike()],
     [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))],
   ]) {
-    const heading = clinicianSpikeCardHeading(spikes);
+    const heading = clinicianSpikeCardHeading(spikes, SHARED);
     assert.equal(/linked to places/.test(heading), anyPlaceKnown(spikes), heading);
     // And it says the same thing as the caption beside it, which is why both live in this module. The
     // matched caption also carries the words "no place matched" -- of the individual label that has none --
     // so the clause to compare against is the one that speaks about the rises as a set.
-    assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes, spikes.length)), heading);
+    assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
   }
 });
 
@@ -221,7 +232,7 @@ test("the heading never speaks the matcher's vocabulary at the patient (T157)", 
   // functions. This is the assertion that the clinician's heading did not become a third thing the patient
   // page might be tempted to borrow (T82).
   for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
-    assert.doesNotMatch(clinicianSpikeCardHeading(spikes), MATCHER);
+    assert.doesNotMatch(clinicianSpikeCardHeading(spikes, SHARED), MATCHER);
   }
 });
 
@@ -232,7 +243,7 @@ test("the heading never speaks the matcher's vocabulary at the patient (T157)", 
 test("the tile names the missing source rather than counting over it (T160)", () => {
   // The §12.2 journey visit, which §2.5 makes the ordinary one: Dexcom shared, Timeline not (T144). Five
   // rises, no Timeline — so there is no count to report, only the absence, as the Sleep tile reports its own.
-  const hint = clinicianSpikePlacesHint([spike(), spike(), spike(), spike(), spike()], { hasLocation: false }, 5);
+  const hint = clinicianSpikePlacesHint([spike(), spike(), spike(), spike(), spike()], UNSHARED, 5);
   assert.equal(hint, NO_TIMELINE_HINT);
   assert.equal(hint, "no Timeline data");
   // Not a number, which is the whole bug: "0 linked to a place" is a measurement over a source nobody read.
@@ -243,24 +254,24 @@ test("the tile names the missing source rather than counting over it (T160)", ()
 test("a Timeline that matched nothing keeps its zero (T160)", () => {
   // The case the ticket is careful about: this patient *did* share the export, so the zero is a reading
   // taken — no rise of theirs started near a stop — and reads differently from never having shared one.
-  const hint = clinicianSpikePlacesHint([spike(), spike()], { hasLocation: true }, 2);
+  const hint = clinicianSpikePlacesHint([spike(), spike()], SHARED, 2);
   assert.equal(hint, "0 linked to a place");
-  assert.notEqual(hint, clinicianSpikePlacesHint([spike(), spike()], { hasLocation: false }, 2));
+  assert.notEqual(hint, clinicianSpikePlacesHint([spike(), spike()], UNSHARED, 2));
 });
 
 test("and a Timeline that matched some keeps its count (T160)", () => {
   // The acceptance criterion that is about nothing changing: desktop-provider-print.png is this visit.
   assert.equal(
-    clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike()], { hasLocation: true }, 4),
+    clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike()], SHARED, 4),
     "3 linked to a place",
   );
-  assert.equal(clinicianSpikePlacesHint([spike(somewhere("Noe Cafe"))], { hasLocation: true }, 1), "1 linked to a place");
+  assert.equal(clinicianSpikePlacesHint([spike(somewhere("Noe Cafe"))], SHARED, 1), "1 linked to a place");
 });
 
 test("an empty card still answers about the source, not with a count (T160)", () => {
   // No rises at all: with a Timeline there is a zero to state, without one there is still nothing read.
-  assert.equal(clinicianSpikePlacesHint([], { hasLocation: true }, 0), "0 linked to a place");
-  assert.equal(clinicianSpikePlacesHint([], { hasLocation: false }, 0), NO_TIMELINE_HINT);
+  assert.equal(clinicianSpikePlacesHint([], SHARED, 0), "0 linked to a place");
+  assert.equal(clinicianSpikePlacesHint([], UNSHARED, 0), NO_TIMELINE_HINT);
 });
 
 test("the tile asks `hasLocation`, never `anyPlaceKnown` (T160)", () => {
@@ -269,8 +280,8 @@ test("the tile asks `hasLocation`, never `anyPlaceKnown` (T160)", () => {
   // is "shared, nothing matched" and must keep its count; false with false is "never shared".
   const unmatched = [spike(), spike(), spike()];
   assert.equal(anyPlaceKnown(unmatched), false);
-  assert.match(clinicianSpikePlacesHint(unmatched, { hasLocation: true }, unmatched.length), /^\d+ linked to a place$/);
-  assert.equal(clinicianSpikePlacesHint(unmatched, { hasLocation: false }, unmatched.length), NO_TIMELINE_HINT);
+  assert.match(clinicianSpikePlacesHint(unmatched, SHARED, unmatched.length), /^\d+ linked to a place$/);
+  assert.equal(clinicianSpikePlacesHint(unmatched, UNSHARED, unmatched.length), NO_TIMELINE_HINT);
 });
 
 // T164 (§2.6, §7.4): the tile's value became `PatientBundle.spikeTotal` — every rise in the week — while
@@ -280,9 +291,9 @@ test("the tile asks `hasLocation`, never `anyPlaceKnown` (T160)", () => {
 test("the hint says which rows are shown when the tile counts more than the table lists (T164)", () => {
   // The seeded demo week: seven rises, five rows, a Timeline shared and three of the listed five placed.
   const listed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
-  assert.equal(clinicianSpikePlacesHint(listed, { hasLocation: true }, 7), "top 5 shown · 3 linked to a place");
+  assert.equal(clinicianSpikePlacesHint(listed, SHARED, 7), "top 5 shown · 3 linked to a place");
   // The ordinary §2.5 visit: the same disclosure, over the absence T160 put there instead of a count.
-  assert.equal(clinicianSpikePlacesHint(listed, { hasLocation: false }, 7), `top 5 shown · ${NO_TIMELINE_HINT}`);
+  assert.equal(clinicianSpikePlacesHint(listed, UNSHARED, 7), `top 5 shown · ${NO_TIMELINE_HINT}`);
 });
 
 test("the cap disclosure is the only thing it adds: the place hint survives it (T164)", () => {
@@ -301,16 +312,16 @@ test("a card that lists everything it counted says nothing about a cap (T164)", 
   // The common visit, and the regression guard: a week with five or fewer rises has no discrepancy to
   // disclose, and a tile reading "top 5 shown" under a complete table would invent one.
   const listed = [spike(somewhere("Noe Cafe")), spike(), spike()];
-  assert.equal(clinicianSpikePlacesHint(listed, { hasLocation: true }, 3), "1 linked to a place");
-  assert.doesNotMatch(clinicianSpikePlacesHint(listed, { hasLocation: true }, 3), /shown/);
-  assert.doesNotMatch(clinicianSpikePlacesHint([], { hasLocation: false }, 0), /shown/);
+  assert.equal(clinicianSpikePlacesHint(listed, SHARED, 3), "1 linked to a place");
+  assert.doesNotMatch(clinicianSpikePlacesHint(listed, SHARED, 3), /shown/);
+  assert.doesNotMatch(clinicianSpikePlacesHint([], UNSHARED, 0), /shown/);
 });
 
 test("the place count is scoped by the clause before it, not left to be read as a share of the tile (T164)", () => {
   // Why the cap opens the hint rather than closing it: "3 linked to a place" counts the *listed* rows, so
   // beside a tile reading 7 it would otherwise read as 3 of 7. The disclosure comes first so that by the
   // time the count is read, "top 5" is what it is a count of.
-  const hint = clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()], { hasLocation: true }, 7);
+  const hint = clinicianSpikePlacesHint([spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()], SHARED, 7);
   assert.ok(hint.indexOf("top 5 shown") < hint.indexOf("linked to a place"), hint);
 });
 
@@ -328,18 +339,18 @@ test("the tile and the Sleep tile beside it name an absence the same way (T160)"
 test("the caption scopes the markers when the tile counts more rises than the chart draws (T165)", () => {
   // The seeded demo week: seven rises over 180, five of them drawn, a Timeline shared.
   const listed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
-  const caption = clinicianChartCaption(listed, 7);
+  const caption = clinicianChartCaption(listed, SHARED, 7);
   assert.match(caption, /Red markers are the 5 largest rises of 7 spikes\./);
   assert.doesNotMatch(caption, /Red markers are spikes\./);
   // The §12.2 journey visit is the same week without the Timeline, so the other branch discloses it too.
-  assert.match(clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], 7), /the 5 largest rises of 7 spikes/);
+  assert.match(clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], UNSHARED, 7), /the 5 largest rises of 7 spikes/);
 });
 
 test("a chart that draws every rise the week holds says nothing about a cap (T165)", () => {
   // Acceptance criterion 2, which is T160's and T164's guard applied here: with nothing cut there is no
   // discrepancy, and a caption naming one would invent it.
   for (const spikes of [[], [spike()], [spike(), spike(somewhere("Home"))], [spike(), spike(), spike(), spike(), spike()]]) {
-    const caption = clinicianChartCaption(spikes, spikes.length);
+    const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
     assert.match(caption, /Red markers are spikes\./);
     assert.doesNotMatch(caption, /largest|of \d+ spikes/);
   }
@@ -351,10 +362,10 @@ test("the caption and the tile's hint are scoped by the same two numbers (T165)"
   // copy — the shape lib/spikePlaces.ts exists for (T82, T99, T157).
   const listed = [spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()];
   for (const total of [5, 6, 7, 28]) {
-    const discloses = /largest rises of/.test(clinicianChartCaption(listed, total));
-    assert.equal(discloses, /shown/.test(clinicianSpikePlacesHint(listed, { hasLocation: true }, total)), `total ${total}`);
+    const discloses = /largest rises of/.test(clinicianChartCaption(listed, SHARED, total));
+    assert.equal(discloses, /shown/.test(clinicianSpikePlacesHint(listed, SHARED, total)), `total ${total}`);
     // And the number it names is the tile's own, not the row count.
-    if (discloses) assert.match(clinicianChartCaption(listed, total), new RegExp(`of ${total} spikes`));
+    if (discloses) assert.match(clinicianChartCaption(listed, SHARED, total), new RegExp(`of ${total} spikes`));
   }
 });
 
@@ -364,7 +375,7 @@ test("the capped caption keeps every promise the uncapped one makes (T165)", () 
   const placed = [spike(somewhere("Noe Cafe")), spike(), spike(), spike(), spike()];
   const unplaced = [spike(), spike(), spike(), spike(), spike()];
   for (const spikes of [placed, unplaced]) {
-    const capped = clinicianChartCaption(spikes, 7);
+    const capped = clinicianChartCaption(spikes, SHARED, 7);
     assert.match(capped, /^Shaded band is 70–180 mg\/dL\. /);
     assert.match(capped, /Labels, where they fit,/);
     assert.doesNotMatch(capped, /\byour\b|\byou\b/i);
@@ -372,7 +383,7 @@ test("the capped caption keeps every promise the uncapped one makes (T165)", () 
     assert.equal(/the place the patient had just left/.test(capped), anyPlaceKnown(spikes));
     assert.match(capped, /peak mg\/dL/);
   }
-  assert.match(clinicianChartCaption(unplaced, 7), /no place matched any of these rises/);
+  assert.match(clinicianChartCaption(unplaced, SHARED, 7), /no place matched any of these rises/);
 });
 
 test("the counted noun agrees wherever the cut can fire (T165)", () => {
@@ -381,7 +392,128 @@ test("the counted noun agrees wherever the cut can fire (T165)", () => {
   // so the number is two or more and the noun is always the plural — asserted rather than reasoned about,
   // because the only thing keeping it that way is `SPIKES_SHOWN` and the slice in lib/bundle.ts.
   for (let shown = 1; shown <= 6; shown++) {
-    const caption = clinicianChartCaption(Array.from({ length: shown }, () => spike()), shown + 1);
+    const caption = clinicianChartCaption(Array.from({ length: shown }, () => spike()), SHARED, shown + 1);
     assert.match(caption, new RegExp(`Red markers are the ${shown} largest rises of ${shown + 1} spikes\\.`));
   }
+});
+
+// T184 (§2.5, §2.6, §7.4, §7): the two elements under that tile, which were still asking "did any rise
+// match" while the tile had moved on to "was a Timeline ever shared". On the ordinary §2.5 visit the brief
+// and the sheet therefore read, within four inches: `no Timeline data`, `no place matched any of these
+// rises`, and `no matching visit` five times.
+
+test("the three states are separable, and an absent source is not an empty search (T184)", () => {
+  const placed = [spike(somewhere("Noe Cafe")), spike()];
+  const unplaced = [spike(), spike(), spike()];
+  assert.equal(clinicianPlaceReport(placed, SHARED), "matched");
+  assert.equal(clinicianPlaceReport(unplaced, SHARED), "unmatched");
+  assert.equal(clinicianPlaceReport(unplaced, UNSHARED), "no-timeline");
+  // No rises at all is still a statement about the source, as it is for the tile (T160).
+  assert.equal(clinicianPlaceReport([], SHARED), "unmatched");
+  assert.equal(clinicianPlaceReport([], UNSHARED), "no-timeline");
+  // A matched stop can only have come out of a Timeline, so this bundle contradicts itself, and the
+  // surfaces believe the field: it is the one the tile has read since T160, and a card naming places beside
+  // a tile saying none were shared is this ticket's bug with the arguments swapped. The tile's own answer
+  // on that input is asserted in T164's "the hint says which rows are shown ..." above, unchanged by this.
+  assert.equal(clinicianPlaceReport(placed, UNSHARED), "no-timeline");
+});
+
+test("no element reports a lookup on a visit that shared no Timeline (T184)", () => {
+  // Acceptance criterion 1 and 6's cross product, read down the `hasLocation: false` column: five rises,
+  // one rise, none. Every string this module hands those two surfaces, in one assertion each, because the
+  // bug was three elements disagreeing rather than any one of them being wrong on its own.
+  for (const spikes of [[spike(), spike(), spike(), spike(), spike()], [spike()], []]) {
+    const n = spikes.length;
+    for (const total of [n, n + 2]) {
+      const strings = [
+        clinicianChartCaption(spikes, UNSHARED, total),
+        clinicianSpikeCardHeading(spikes, UNSHARED),
+        clinicianSpikePlacesHint(spikes, UNSHARED, total),
+      ];
+      for (const line of strings) {
+        assert.doesNotMatch(line, SEARCHED, `${n} rises, total ${total}: ${line}`);
+        assert.doesNotMatch(line, MATCHER, line);
+      }
+      // And the cells: the column is not drawn, so `NO_MATCH_CELL` never reaches this visit at all.
+      assert.equal(clinicianPlaceColumn(spikes, UNSHARED), false);
+      // The caption still says what a label is, and what the markers are when the week holds more (T165).
+      assert.match(strings[0], /^Shaded band is 70\u2013180 mg\/dL\. /);
+      assert.match(strings[0], /Labels, where they fit, give the peak mg\/dL\.$/);
+      // The tile is the one element that names the absent source, and says it once (§7, the T170 split).
+      assert.equal(strings[2].endsWith(NO_TIMELINE_HINT), true, strings[2]);
+      assert.doesNotMatch(strings[0], /Timeline/i, strings[0]);
+      assert.doesNotMatch(strings[1], /Timeline/i, strings[1]);
+    }
+  }
+});
+
+test("a visit that did share a Timeline keeps every word it had, zero matches included (T184)", () => {
+  // Acceptance criterion 2, the direction that must not move: there the zero is a reading taken (T160), so
+  // all four elements say exactly what they said before this ticket. Exact strings, because "unchanged" is
+  // the claim.
+  const unplaced = [spike(), spike(), spike(), spike(), spike()];
+  assert.equal(
+    clinicianChartCaption(unplaced, SHARED, 7),
+    "Shaded band is 70\u2013180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.",
+  );
+  assert.equal(clinicianSpikeCardHeading(unplaced, SHARED), "Spikes over 180");
+  assert.equal(clinicianSpikePlacesHint(unplaced, SHARED, 7), "top 5 shown · 0 linked to a place");
+  assert.equal(clinicianPlaceColumn(unplaced, SHARED), true);
+  // And the matched visit, which is the seeded demo one (desktop-provider-print.png).
+  const placed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
+  assert.equal(
+    clinicianChartCaption(placed, SHARED, 7),
+    "Shaded band is 70\u2013180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.",
+  );
+  assert.equal(clinicianSpikeCardHeading(placed, SHARED), "Spikes linked to places");
+  assert.equal(clinicianSpikePlacesHint(placed, SHARED, 7), "top 5 shown · 3 linked to a place");
+  assert.equal(clinicianPlaceColumn(placed, SHARED), true);
+});
+
+test("the four elements are one decision, over the whole cross product (T184)", () => {
+  // The property the ticket is about: `hasLocation` true/false x some rise matched / none matched / no
+  // rises. Each element's branch is compared against the shared report rather than against a string of its
+  // own, so none of them can be changed alone -- the shape T157 gave the heading and the caption, now with
+  // the question the tile asks (§12.1).
+  for (const spikes of [
+    [],
+    [spike()],
+    [spike(), spike(), spike()],
+    [spike(somewhere("Home"))],
+    [spike(), spike(somewhere("Noe Cafe"))],
+    [spike(somewhere("Home")), spike(unnamed())],
+  ]) {
+    for (const status of [SHARED, UNSHARED]) {
+      const report = clinicianPlaceReport(spikes, status);
+      const caption = clinicianChartCaption(spikes, status, spikes.length);
+      const heading = clinicianSpikeCardHeading(spikes, status);
+      const hint = clinicianSpikePlacesHint(spikes, status, spikes.length);
+      const column = clinicianPlaceColumn(spikes, status);
+      const where = `${spikes.length} rises, hasLocation ${status.hasLocation}: ${report}`;
+      // "linked to places" is a claim about the card, so only the matched report may make it.
+      assert.equal(/linked to places/.test(heading), report === "matched", where);
+      // The caption promises a place only there too, and reports an empty lookup only where one was run.
+      assert.equal(/the place the patient had just left/.test(caption), report === "matched", where);
+      assert.equal(/no place matched any of these rises/.test(caption), report === "unmatched", where);
+      // The tile names the source only where it is missing, and counts only where it is not.
+      assert.equal(hint.endsWith(NO_TIMELINE_HINT), report === "no-timeline", where);
+      assert.equal(/linked to a place/.test(hint), report !== "no-timeline", where);
+      // And the column, whose cell is the matcher's sentence, is drawn in exactly the other two states.
+      assert.equal(column, report !== "no-timeline", where);
+      if (!column) assert.doesNotMatch([caption, heading, hint].join(" "), new RegExp(NO_MATCH_CELL), where);
+    }
+  }
+});
+
+test("the patient's §2.7 copy is untouched by any of it (T184)", () => {
+  // Acceptance criterion 4. The patient's table drops its column whenever no row has a place to show,
+  // whether or not an export was shared, which is stricter than the clinician's test and reads nothing from
+  // the bundle -- so `hasLocation` cannot reach that page through this module.
+  const unplaced = [spike(), spike()];
+  assert.equal(anyPlaceKnown(unplaced), false);
+  assert.equal(patientChartCaption(unplaced), "Markers show your biggest rises.");
+  assert.equal(patientChartCaption([spike(somewhere("Noe Cafe")), spike()]), "Markers show your biggest rises and where you had just been, when available.");
+  // And the patient's own word for a rise with no place is still not the matcher's (T82).
+  assert.doesNotMatch(UNKNOWN_PLACE, new RegExp(NO_MATCH_CELL));
+  assert.match(NO_MATCH_CELL, MATCHER);
 });

@@ -10,8 +10,14 @@
 //
 // So the patient's table asks here instead of spelling the rule out: with no place known the column is not
 // drawn at all, and the chart caption above it stops promising places too — one predicate, so the caption
-// and the table cannot disagree. The clinician's brief and the printed sheet are not this: "no matching
-// visit" is a true and useful thing to tell a reader who knows what the matcher is, and they keep it.
+// and the table cannot disagree.
+//
+// The clinician's brief and the printed sheet draw the same distinction one step further in, in their own
+// register (T160, T184). "no matching visit" is a true and useful thing to tell a reader who knows what the
+// matcher is, so a visit that shared a Timeline keeps it, zero matches included: there the zero is a reading
+// taken. A visit that shared no Timeline has had nothing looked up, so no element of those two surfaces
+// reports a search — `clinicianPlaceReport` below is that three-way answer, and the tile, the chart caption,
+// the card heading and the place cells all read it, which is what stops one of them contradicting another.
 //
 // T128 is the same question one row further in. A stop the matcher placed but the export never named falls
 // through to the coordinates lib/location.ts gave it, and those were chosen for the clinician's surfaces;
@@ -33,6 +39,62 @@ import type { Spike, Visit } from "./types";
 export function anyPlaceKnown(spikes: Spike[]): boolean {
   return spikes.some((s) => Boolean(s.visit));
 }
+
+/**
+ * What the clinician's elements about places are allowed to be about on this visit (T184).
+ *
+ * `anyPlaceKnown` above answers "did any rise match", which is the right question for which heading a card
+ * of matched rises gets and the wrong one for whether a lookup happened at all. T160 settled that for the
+ * "Spikes > 180" stat tile by reading `IntakeStatus.hasLocation` instead — is there a Timeline export on
+ * this visit — and left the chart caption and the card's place cells still asking the other one. So the
+ * brief and the sheet said, four inches apart: `no Timeline data` on the tile, `no place matched any of
+ * these rises` under the chart, `no matching visit` down the card. The first is an absent source, the other
+ * two a search that came back empty, and a clinician reading them in order cannot tell which happened.
+ *
+ * Three states, so that none of them can be read as another:
+ *
+ * | the visit | report | what the surfaces may say |
+ * |---|---|---|
+ * | a Timeline, some listed rise matched a stop | `matched` | the places, and the peak where a rise has none |
+ * | a Timeline, no listed rise matched | `unmatched` | the zero — there it is a reading taken (T160) |
+ * | no Timeline export at all | `no-timeline` | nothing about places; the tile owns the absent source |
+ *
+ * `hasLocation` is asked first on purpose. A matched stop can only have come out of a Timeline, so a visit
+ * holding one with `hasLocation` false is a bundle contradicting itself, and the ordering is which half of
+ * it the surfaces believe. They believe the field, because it is the one the tile has read since T160 and
+ * these four elements agreeing with each other is the whole of this ticket: an ordering that let the card
+ * name places the tile beside it says were never shared would be the same bug with the arguments swapped.
+ */
+export type PlaceReport = "matched" | "unmatched" | "no-timeline";
+
+/** The one answer the caption, the heading, the place cells and the tile all read, off `PatientBundle.status`. */
+export function clinicianPlaceReport(spikes: Spike[], { hasLocation }: { hasLocation: boolean }): PlaceReport {
+  if (!hasLocation) return "no-timeline";
+  return anyPlaceKnown(spikes) ? "matched" : "unmatched";
+}
+
+/**
+ * Whether the clinician's spike card draws a place column at all (components/SpikeTable.tsx, T184).
+ *
+ * It does for both of the reports that had something to look in, because `NO_MATCH_CELL` below is then the
+ * matcher reporting and is worth a clinician's while (T82). It does not where there was nothing to look in:
+ * a column of that sentence over a visit with no Timeline export is five rows of a search that never ran,
+ * under a stat tile already saying no Timeline was shared. The patient's §2.7 table drops its column on a
+ * stricter test of its own — `anyPlaceKnown`, no row with a place to show (T82) — and this is that rule
+ * arriving on the clinician's side in the clinician's register.
+ */
+export function clinicianPlaceColumn(spikes: Spike[], status: { hasLocation: boolean }): boolean {
+  return clinicianPlaceReport(spikes, status) !== "no-timeline";
+}
+
+/**
+ * What the clinician's place cell says for a listed rise the matcher placed nowhere.
+ *
+ * In this module rather than in the component for the reason `UNKNOWN_PLACE` is: it is one of the strings
+ * this file is answerable for, so the test that no element reports a lookup on a visit with no Timeline can
+ * read all of them (§12.1). `clinicianPlaceColumn` above is what keeps it off that visit's surfaces.
+ */
+export const NO_MATCH_CELL = "no matching visit";
 
 /**
  * The patient's word for a rise with no place against it, used only where some *other* row has one.
@@ -152,19 +214,29 @@ function markerSentence(shown: number, total: number): string {
  * Dexcom-only visit every label was a number the caption called a place, beside a Spikes card already
  * reading "0 linked to a place".
  *
- * Three things it therefore does not say. Not that a label is a place, unless one is: with no place known
- * anywhere the caption names the peak reading and says outright that nothing matched, which is what the
- * card beside it says. Not that every marker carries a label: GlucoseChart drops a label that would
- * collide with the one before it, keeping the marker, so the labels are the ones that fit. And not that the
- * markers are the week's rises when they are the largest few of them — `markerSentence` above, which takes
- * the `total` the stat tile shows so that the chart and the tile cannot be counted against each other
- * (T165).
+ * Four things it therefore does not say. Not that a label is a place, unless one is: where a Timeline was
+ * shared and nothing matched, the caption names the peak reading and says outright that nothing matched,
+ * which is what the card beside it says. Not that a match was tried where no Timeline was shared, which is
+ * T184 and the `no-timeline` branch: the sentence stops at what a label is, and the stat tile beside it is
+ * the one element that names the source nobody sent (`NO_TIMELINE_HINT`). Not that every marker carries a
+ * label: GlucoseChart drops a label that would collide with the one before it, keeping the marker, so the
+ * labels are the ones that fit. And not that the markers are the week's rises when they are the largest few
+ * of them — `markerSentence` above, which takes the `total` the stat tile shows so that the chart and the
+ * tile cannot be counted against each other (T165).
+ *
+ * `status` is `PatientBundle.status`, the argument order `clinicianSpikePlacesHint` already takes it in.
  */
-export function clinicianChartCaption(spikes: Spike[], total: number): string {
+export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: boolean }, total: number): string {
   const markers = markerSentence(spikes.length, total);
-  return anyPlaceKnown(spikes)
-    ? `${TARGET_BAND} ${markers} Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.`
-    : `${TARGET_BAND} ${markers} Labels, where they fit, give the peak mg/dL: no place matched any of these rises.`;
+  const labels = "Labels, where they fit,";
+  switch (clinicianPlaceReport(spikes, status)) {
+    case "matched":
+      return `${TARGET_BAND} ${markers} ${labels} give the place the patient had just left, or the peak mg/dL where no place matched.`;
+    case "unmatched":
+      return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL: no place matched any of these rises.`;
+    case "no-timeline":
+      return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL.`;
+  }
 }
 
 /**
@@ -179,23 +251,25 @@ export function clinicianChartCaption(spikes: Spike[], total: number): string {
  * of these rises", every row of the card read "no matching visit" — and the heading over them claimed the
  * opposite. On paper too, which is the copy a clinician carries into the room.
  *
- * So the heading reads the same `anyPlaceKnown` the caption does and the rows do, and cannot drift from
- * them. Three readings, because the card has three shapes:
+ * So the heading reads the same `clinicianPlaceReport` the caption does and the rows do, and cannot drift
+ * from them. Three readings, because the card has three shapes:
  *
  * | the card | heading |
  * |---|---|
  * | some rise matched a place | `Spikes linked to places` |
- * | rises, none of them matched | `Spikes over 180` |
+ * | rises, no place to report against them | `Spikes over 180` |
  * | no rises at all | `Spikes` |
  *
- * The middle one is the card's own subject with the half it cannot deliver dropped — the `Place` column
- * stays, because "no matching visit" is a true and useful thing to tell a reader who knows what lib/match.ts
- * does (T82), and this is the heading no longer promising it will say otherwise. The last is a heading over
- * SpikeTable's "No spikes over 180 detected.", which says the state already: naming the threshold above it
- * would read as though some had cleared it.
+ * The middle one is the card's own subject with the half it cannot deliver dropped, and it covers both of
+ * the reports that are not `matched` — it is already silent about places, which is all T184 asks of it.
+ * What is under it differs by report, and that is SpikeTable's: with a Timeline shared the `Place` column
+ * stays and reads "no matching visit", a true and useful thing to tell a reader who knows what lib/match.ts
+ * does (T82); with no Timeline there is no column, because an absence of optional data is not a search that
+ * failed. The last reading is a heading over SpikeTable's "No spikes over 180 detected.", which says the
+ * state already: naming the threshold above it would read as though some had cleared it.
  */
-export function clinicianSpikeCardHeading(spikes: Spike[]): string {
-  if (anyPlaceKnown(spikes)) return "Spikes linked to places";
+export function clinicianSpikeCardHeading(spikes: Spike[], status: { hasLocation: boolean }): string {
+  if (clinicianPlaceReport(spikes, status) === "matched") return "Spikes linked to places";
   return spikes.length === 0 ? "Spikes" : "Spikes over 180";
 }
 
@@ -221,8 +295,11 @@ export function clinicianSpikeCardHeading(spikes: Spike[]): string {
  * So the decision is `IntakeStatus.hasLocation` (lib/bundle.ts: the visit has a Timeline export at all), the
  * exact sibling of the `hasWhoop` the Sleep tile is branched on — and deliberately **not** `anyPlaceKnown`,
  * which answers "did any rise match" and so cannot separate "shared and nothing matched" from "never
- * shared". Only the second is this ticket's: a visit that shared a Timeline keeps its count, zero included,
- * because there the zero is a reading taken.
+ * shared". Only the second was T160's: a visit that shared a Timeline keeps its count, zero included,
+ * because there the zero is a reading taken. T184 is the two elements under this tile joining it, so the
+ * distinction now has a name and one function behind it — `clinicianPlaceReport` above, which this tile
+ * reads for the same answer the caption and the cells read. This is still the only element that names the
+ * absent source: the others fall silent about places instead, so the row says it once (the T170 split).
  *
  * T164 put a second sentence in front of that one. The tile's value is `PatientBundle.spikeTotal` — every
  * spike in the readings — while the card under it lists only the top `SPIKES_SHOWN` by rise, so on the
@@ -232,8 +309,11 @@ export function clinicianSpikeCardHeading(spikes: Spike[]): string {
  * than closing with it so that the place count, which is a count *of the listed rows*, is already scoped by
  * the time it is read.
  */
-export function clinicianSpikePlacesHint(spikes: Spike[], { hasLocation }: { hasLocation: boolean }, total: number): string {
-  const places = hasLocation ? `${spikes.filter((s) => s.visit).length} linked to a place` : NO_TIMELINE_HINT;
+export function clinicianSpikePlacesHint(spikes: Spike[], status: { hasLocation: boolean }, total: number): string {
+  const places =
+    clinicianPlaceReport(spikes, status) === "no-timeline"
+      ? NO_TIMELINE_HINT
+      : `${spikes.filter((s) => s.visit).length} linked to a place`;
   return total > spikes.length ? `top ${spikes.length} shown · ${places}` : places;
 }
 

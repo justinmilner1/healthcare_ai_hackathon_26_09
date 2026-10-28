@@ -258,7 +258,7 @@ export default async function PrintPage({
                 <h2>Glucose, last {countOf(st?.days ?? 7, "day")}</h2>
                 {/* Both arguments are the screen's (T165, §7.4): the sheet draws the same five markers
                     under the same tile, so it cannot describe them more loosely than the brief does. */}
-                <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes, bundle.spikeTotal)}</p>
+                <p className="sour-chart-caption text-xs text-[var(--viz-muted)]">{clinicianChartCaption(bundle.spikes, bundle.status, bundle.spikeTotal)}</p>
                 <div className="mt-2">
                   <GlucoseChart readings={bundle.glucose} spikes={bundle.spikes} height={220} />
                 </div>
@@ -269,10 +269,12 @@ export default async function PrintPage({
               <div className="sour-print-grid">
                 <section className="sour-card">
                   {/* The screen's heading, out of lib/spikePlaces.ts, so the paper cannot claim a link
-                      the brief does not -- the same bargain as the caption above it (T157, §7.4). */}
-                  <h2>{clinicianSpikeCardHeading(bundle.spikes)}</h2>
+                      the brief does not -- the same bargain as the caption above it (T157, §7.4). And the
+                      screen's `status`, so the sheet a clinician carries into the room cannot report a
+                      match on a visit whose own tile says no Timeline was shared (T184, §7.4). */}
+                  <h2>{clinicianSpikeCardHeading(bundle.spikes, bundle.status)}</h2>
                   <div className="mt-2">
-                    <SpikeTable spikes={bundle.spikes} compact />
+                    <SpikeTable spikes={bundle.spikes} status={bundle.status} compact />
                   </div>
                 </section>
                 <section className="sour-card">
