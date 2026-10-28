@@ -25,6 +25,7 @@ import SleepChart from "@/components/SleepChart";
 import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
+import { sourInviteNote, type InviteAnswer } from "@/lib/inviteNote";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted } from "@/lib/sourState";
@@ -247,16 +248,19 @@ export default function SourView({ id }: { id: string }) {
 
   async function sendLink(visitId: string) {
     setInvite("Sending…");
-    const d = await (await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json();
+    const d = (await (await apiFetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId }) })).json()) as InviteAnswer;
     // The send is a `notify.invite` job now, so this says it is on its way rather than that it arrived; the
     // link is here to share directly either way, and per-channel delivery status is T19 (§8.3).
     //
     // T120 And `queued` is the route's answer about this deployment rather than about the queue, so a
     // deployment that cannot send says so in lib/delivery.ts's words, with the link it already shares — this
     // screen had §8.1's fallback before the claim in front of it was true.
-    if (d.queued) setInvite(`Sending the link to this patient now. Share it directly if you'd rather: ${d.link}`);
-    else if (d.reason) setInvite(`No invite sent: ${d.reason}. Share the link directly: ${d.link}`);
-    else setInvite(d.error ? `Couldn't send the link: ${d.error}` : `Couldn't send the link automatically. Share it directly: ${d.link}`);
+    //
+    // T179 The sentences themselves are lib/inviteNote.ts's now, beside the two the dashboard row writes out
+    // of the same answer: this screen was the fourth to read the route and the only one ignoring `handover`,
+    // so for a patient no code can reach it offered a link that will not open while the row for the same
+    // visit said it would not. The component prints what the module returns and decides nothing.
+    setInvite(sourInviteNote(d));
   }
 
   /** §7.5: ask Sour, and show what the server recorded. The question is a row before the model is called,

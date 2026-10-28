@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { cannotSendYet, NO_CONSENT_TO_MESSAGE, NO_CONTACT_ON_FILE } from "./delivery";
-import { newLinkNote, sendLinkNote } from "./inviteNote";
+import { newLinkNote, sendLinkNote, sourInviteNote } from "./inviteNote";
 
 /** Anything that reads as the message being in motion, the way lib/booking.test.ts states it for the card
  *  one screen over, plus the literal this ticket was filed about: none of it may appear where the route
@@ -154,6 +154,101 @@ describe("the two notes for a patient with nothing on file (T173)", () => {
     // four buttons repeating it would be the same fact twice on one row.
     for (const note of [sendLinkNote(NOBODY), newLinkNote(NOBODY)]) {
       assert.doesNotMatch(note, /add a (?:phone|number)|add an? (?:email|address)|call them/i, note);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T179 (§2.3, §2.6, §5.3, §8.1) The fourth surface reading `POST /api/invite`, and the only one that never
+// read `handover`: the clinician's brief wrote its own three sentences and ended every no-send branch on
+// "Share the link directly: http://…/s/…". For the patient T175 was filed about — one detail on file, on the
+// channel this deployment has no sender behind — the brief offered that link while the dashboard row for the
+// same visit said "No code can reach this patient, so their link will not open — call them".
+
+/** A link of the shape `intakeLink` builds (lib/notify.ts): what the brief printed, and what the offer is. */
+const LINK = "http://localhost:3000/s/Zr4k9QpL2mN7vX1c";
+
+/** What offers the handover on *this* screen: the link itself, because the brief has no **Copy intake**
+ *  to name. A separate rule from the T173 one above for that reason — the two screens offer it differently. */
+const OFFERS_THE_LINK = /Share (?:the link|it) directly|\/s\//;
+
+/** The three answers the route gives when nothing is going out, for the patient no code can reach: a reason,
+ *  the route's own failure, and neither. `handover: false` is `canHandOver`'s whole question
+ *  (app/api/invite/route.ts), and the link is on the answer in every one of them that has an answer. */
+const NO_SEND = [
+  { what: "a reason to quote", answer: { queued: false, reason: CANNOT, link: LINK, handover: false }, lede: `No invite sent: ${CANNOT}.` },
+  { what: "the route's own failure", answer: { queued: false, error: "boom", link: LINK, handover: false }, lede: "Couldn't send the link: boom." },
+  { what: "neither", answer: { queued: false, link: LINK, handover: false }, lede: "Couldn't send the link automatically." },
+];
+
+describe("sourInviteNote", () => {
+  it("keeps the link and the offer for every patient §8.1's fallback is a fallback for", () => {
+    // The direction e2e/invite.spec.ts pins on the seeded demo practice, and the one that must not move: an
+    // answer with no `handover` field at all is what this note was always handed, and reads unchanged.
+    for (const handover of [true, undefined]) {
+      assert.equal(
+        sourInviteNote({ queued: false, reason: CANNOT, link: LINK, handover }),
+        `No invite sent: ${CANNOT}. Share the link directly: ${LINK}`,
+      );
+    }
+  });
+
+  it("says a send that is going out is going out, whatever this field holds", () => {
+    // The route cannot answer `queued: true` with `handover: false` — it queues only on a channel
+    // `inviteReach` left open, and an open channel is a code's way in — but the branch is pinned either way.
+    for (const handover of [true, undefined, false]) {
+      assert.equal(
+        sourInviteNote({ queued: true, link: LINK, handover }),
+        `Sending the link to this patient now. Share it directly if you'd rather: ${LINK}`,
+      );
+    }
+  });
+
+  for (const { what, answer, lede } of NO_SEND) {
+    it(`withdraws the offer instead of printing a link that will not open — ${what}`, () => {
+      const note = sourInviteNote(answer);
+      assert.equal(note, `${lede} Handing the link over will not get this patient in either.`);
+      assert.doesNotMatch(note, MOTION, note);
+      assert.doesNotMatch(note, OFFERS_THE_LINK, note);
+    });
+  }
+
+  it("withdraws it whichever of the three reasons closed the channel", () => {
+    // `handover` is a fact about the patient and the deployment rather than about the send, so the clause
+    // does not depend on who refused: the practice's own choice, the deployment's gap, and §2.2's missing
+    // detail all reach this screen.
+    for (const reason of [NO_CONSENT_TO_MESSAGE, CANNOT, NO_CONTACT_ON_FILE]) {
+      const note = sourInviteNote({ queued: false, reason, link: LINK, handover: false });
+      assert.doesNotMatch(note, OFFERS_THE_LINK, note);
+      assert.match(note, /will not get this patient in either\.$/, note);
+    }
+  });
+
+  it("is the one sentence the other three surfaces end on, not a fourth wording of it", () => {
+    const brief = sourInviteNote({ queued: false, reason: CANNOT, link: LINK, handover: false });
+    const row = sendLinkNote({ queued: false, reason: CANNOT, handover: false });
+    const tail = /Handing the link over will not get this patient in either\.$/;
+    assert.match(brief, tail);
+    assert.match(row, tail);
+  });
+
+  it("says nothing the screen already says, and nothing about the deployment's innards", () => {
+    // The T170 split: the remedy and the consequence belong to the lines that own them, which on this
+    // ticket's patient are the dashboard row's. §3.7 and §10.6: no backend, variable or credential.
+    for (const { answer } of NO_SEND) {
+      const note = sourInviteNote(answer);
+      assert.doesNotMatch(note, /call them|add a (?:phone|number)|add an? (?:email|address)/i, note);
+      assert.doesNotMatch(note, /SES|SNS|SMS_|MAIL_|AWS|secret|credential|environment variable/i, note);
+    }
+  });
+
+  it("offers nothing where there is no link to offer, rather than printing `undefined`", () => {
+    // The route's own failures answer `{ error }` and no link (app/api/invite/route.ts), and the component's
+    // template read `${d.link}` on the branch with neither a reason nor an error.
+    assert.equal(sourInviteNote({ queued: false, error: "boom" }), "Couldn't send the link: boom.");
+    assert.equal(sourInviteNote({}), "Couldn't send the link automatically.");
+    for (const note of [sourInviteNote({ queued: false, error: "boom" }), sourInviteNote({})]) {
+      assert.doesNotMatch(note, /undefined/, note);
     }
   });
 });
