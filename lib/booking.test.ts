@@ -264,13 +264,16 @@ describe("bookingPlan", () => {
     // And a demo practice booking a destination §13.4 refuses still reads as the practice's own choice:
     // nothing was going to be sent, so there is no rule to explain (T145).
     const refusedDestinations = bookingPlan({ channel: "none", demo: true, phone: REAL.phone, email: REAL.email });
-    assert.equal(refusedDestinations.lede, chosen.lede);
     assert.equal(refusedDestinations.blocked, false, "still nobody's to fix");
     assert.equal(refusedDestinations.action, chosen.action);
     // T175 What does differ is the last clause, and it is this row's own promise rather than §13.4's rule:
     // the code goes to the same destinations the invite would have, so a practice that may write to neither
     // cannot send one either and "opening it still sends them a code" is not true of this patient.
     assert.equal(refusedDestinations.note, "Nothing is sent, and handing the link over will not get this patient in either.");
+    // T177 And so does the lede, for the same reason one line further up the screen: it ends on the handover
+    // this note has just withdrawn, so where the note withdraws it the lede stops offering it.
+    assert.equal(refusedDestinations.lede, "Saving creates the patient and their private Sweetie link.");
+    assert.equal(chosen.lede, "Saving creates the patient and their private Sweetie link, which you hand over yourself.");
   });
 
   // T170 (§2.2, §2.3, §5.3, §8.1) The half of that row it had never asked about. The sentence asserted above
@@ -285,7 +288,10 @@ describe("bookingPlan", () => {
     // as something to fix and the action is the one the reachable arm gets.
     assert.equal(nowhere.blocked, false, "a missing number is not a gap in the deployment");
     assert.equal(nowhere.action, "Add patient →");
-    assert.equal(nowhere.lede, bookingPlan({ channel: "none", ...SAM }).lede, "the lede is the row's, either way");
+    // T177 The lede was the row's either way, and that was the bug one line up from the note above: it
+    // offered the handover this patient's note has just withdrawn. It is the same branch now.
+    assert.equal(nowhere.lede, "Saving creates the patient and their private Sweetie link.");
+    assert.notEqual(nowhere.lede, bookingPlan({ channel: "none", ...SAM }).lede);
     // Blank strings are the wizard's own empty fields, not nulls (`form.phone.trim() || null` is what the
     // dashboard passes, and a CSV cell arrives the same way).
     assert.equal(bookingPlan({ channel: "none", phone: "  ", email: "" }).note, nowhere.note);
@@ -533,8 +539,14 @@ const UNCONFIGURED = { EMAIL_FROM: undefined, SNS_ORIGINATION_NUMBER: undefined 
 /** §8.1's handover, which is a remedy only where the link opens — and the link opens on a code that has
  *  somewhere to go (§2.3, §5.3). Every way the four surfaces offer it, so none of them may offer it to the
  *  patient with nothing on file. `will not get this patient in` is the withdrawal and is allowed to contain
- *  "the link over", so the handover is matched by the words that *offer* it. */
-const OFFERS_HANDOVER = /Share the link below|Use Copy intake|Copy the link from the dashboard|copy the link from the dashboard/;
+ *  "the link over", so the handover is matched by the words that *offer* it.
+ *
+ *  T177 `which you hand over yourself` is the fifth way, and the one two sweeps ran past: it is step 3's
+ *  *lede*, one line above the note they were holding, so every combination below already proved the note
+ *  withdrew the handover while the sentence over it offered it. Matched by the lede's own clause and not by
+ *  "hand it over yourself", which is the note's — `Save this patient and copy the link from the dashboard
+ *  and hand it over yourself.` is the offering branch and is caught by the alternative before it. */
+const OFFERS_HANDOVER = /Share the link below|Use Copy intake|Copy the link from the dashboard|copy the link from the dashboard|which you hand over yourself/;
 
 describe("nothing claims an invite or a code is in motion to a patient with nothing on file (T173)", () => {
   for (const [arm, env] of [["a deployment that can send", SENDING], ["one that cannot", UNCONFIGURED]] as const) {
@@ -566,7 +578,9 @@ describe("nothing claims an invite or a code is in motion to a patient with noth
                 handover,
               });
               const answer = { queued: reach.channels.length > 0, reason: reach.reason, handover };
-              const lines = [plan.lede, plan.note, plan.action, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
+              // T177 `card.hero` is in the list because it is the largest type on the card's screen —
+              // larger than `card.heading` — and until this ticket it was a literal no sweep could see.
+              const lines = [plan.lede, plan.note, plan.action, card.hero, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
 
               if (!nothingOnFile) continue;
               for (const line of lines) {
@@ -676,7 +690,9 @@ describe("nothing offers the handover where no code can reach the patient (T175)
                 handover,
               });
               const answer = { queued: invite.channels.length > 0, reason, handover };
-              const lines = [plan.lede, plan.note, plan.action, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
+              // T177 `card.hero` is in the list because it is the largest type on the card's screen —
+              // larger than `card.heading` — and until this ticket it was a literal no sweep could see.
+              const lines = [plan.lede, plan.note, plan.action, card.hero, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
 
               for (const line of lines) {
                 if (!handover) {
@@ -968,6 +984,120 @@ describe("nothing claims a send, or names a destination, for a channel that has 
       const plan = bookingPlan({ channel: "both", faults: inviteFaultByChannel(), codeChannels: codeSenders(), phone: SAM.phone, email: null });
       assert.equal(plan.note, `The secure link goes to ${SAM.phone}.`);
       assert.equal(plan.action, "Add patient & send \u2192");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T177 (§2.2, §2.3, §3.7, §5.3, §8.1, §10.6) The three things on the two booking surfaces that are not
+// sentences out of this module, and so were never asked the question the sentences answer.
+//
+// T170, T173 and T175 taught the *note* under the radios and the *lede* of the success card to withdraw
+// §8.1's fallback where no code can reach the patient. Around them stood three literals: step 3's lede
+// ("…which you hand over yourself."), the panel beside the success card ("Sweetie can take it from here.",
+// the largest type on either screen) and the card's link card — the exact object the lede has just said is
+// not a way in, offered one paragraph below it.
+//
+// The sweeps above walked every combination and held `plan.note` and `card.lede` to the rule while
+// `plan.lede` sat one line higher offering what they withdrew, because `OFFERS_HANDOVER` was written out of
+// the notes' words. It now carries the lede's clause too, and `card.hero` is in both sweeps' `lines`, so the
+// two blocks below are about what this module did not previously return at all: the panel and the link.
+describe("the card's panel and its link read the same answer its sentences do (T177)", () => {
+  for (const [arm, env] of [["a deployment that can send", SENDING], ["one that cannot", UNCONFIGURED]] as const) {
+    it(`holds over ${arm}`, () => {
+      withEnv(env, () => {
+        for (const to of CONTACT_COMBINATIONS) {
+          for (const demo of [false, true]) {
+            for (const channel of EVERY_CHANNEL) {
+              const where = `${arm}, channel=${channel}, demo=${demo}, to=${JSON.stringify(to)}`;
+              const handover = canHandOver({ ...to, demo });
+              const invite = inviteReach({ channel, demo, ...to });
+              const queued = invite.channels.length > 0;
+              const card = bookedOutcome({
+                name: "Sam Nobody",
+                queued,
+                channel: queued ? invite.channels.join(",") : channel,
+                reason: channel === "none" ? NO_CONSENT_TO_MESSAGE : invite.reason,
+                handover,
+              });
+              // Criterion 2 and criterion 3: both come off the one fact, so the panel cannot promise what
+              // the lede retracts and the link cannot be offered under a sentence withdrawing it.
+              assert.equal(card.offerLink, handover, `${where}: the link is offered where it is a way in`);
+              assert.equal(card.hero, handover ? "Sweetie can take it from here." : "The visit is on file.", where);
+              if (!handover) {
+                // Criterion 4: the panel stays in the register of the lines beside it — it offers nothing,
+                // repeats nothing already on the card, and names nothing of the deployment's (§3.7, §10.6).
+                assert.doesNotMatch(card.hero, OFFERS_HANDOVER, where);
+                assert.doesNotMatch(card.hero, MOTION, where);
+                assert.doesNotMatch(card.hero, CODE_IN_MOTION, where);
+                assert.doesNotMatch(card.hero, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, where);
+                assert.ok(!card.lede.includes(card.hero) && !card.heading.includes(card.hero), `${where}: no line twice`);
+                assert.doesNotMatch(card.hero, /Sweetie/, `${where}: Sweetie cannot take this one from here`);
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  it("leaves the reachable patient's card word for word (criterion 6)", () => {
+    // The other direction, in the same test, so the rule cannot be satisfied by saying less to everybody:
+    // every line of a reachable patient's card is the one it carried before this ticket, and the link is
+    // still offered under it.
+    withEnv(SENDING, () => {
+      const sent = bookedOutcome({ name: "Sam Taylor", queued: true, channel: "both", handover: true });
+      assert.equal(sent.hero, "Sweetie can take it from here.");
+      assert.equal(sent.heading, "Sam Taylor is on the way.");
+      assert.equal(sent.lede, "Patient added. The invite is on its way by text and email.");
+      assert.equal(sent.offerLink, true);
+
+      const unsent = bookedOutcome({ name: "Sam Taylor", queued: false, reason: cannotSendYet("both"), handover: true });
+      assert.equal(unsent.hero, "Sweetie can take it from here.");
+      assert.equal(unsent.heading, "Sam Taylor is ready for Sweetie.");
+      assert.match(unsent.lede, /Share the link below\.$/);
+      assert.equal(unsent.offerLink, true);
+
+      // And the answer with no `handover` field at all, which is an older caller's: it reads as reachable,
+      // the way the lede's last clause has since T173, so nothing is withdrawn from a caller that did not
+      // ask the question.
+      const silent = bookedOutcome({ name: "Sam Taylor", queued: false, reason: NO_CONSENT_TO_MESSAGE });
+      assert.equal(silent.hero, "Sweetie can take it from here.");
+      assert.equal(silent.offerLink, true);
+    });
+  });
+
+  it("stops offering the handover in step 3's lede, one line above the note that withdraws it", () => {
+    // Criterion 1, as the ticket reproduces it: the two sentences on the screen at once. `bookingPlan`
+    // already had the answer — the note under the radios is built from it — so the lede branches on that
+    // and not on a second reading of the same fields.
+    const nothingOnFile = bookingPlan({ channel: "both", phone: null, email: null });
+    assert.equal(nothingOnFile.lede, "Saving creates the patient and their private Sweetie link.");
+    assert.equal(nothingOnFile.note, "Nothing is sent, and handing the link over will not get this patient in either.");
+    assert.doesNotMatch(nothingOnFile.lede, OFFERS_HANDOVER);
+
+    // Every branch of the function that does not promise a send, so no combination keeps the old clause
+    // over a note that has withdrawn it. The four are: the practice's own silence, a channel with nowhere
+    // to send to, §13.4's refusal and the deployment's own gap.
+    withEnv(EMAIL_ONLY, () => {
+      const codeChannels = codeSenders();
+      const faults = inviteFaultByChannel();
+      const phoneOnly = { phone: REAL.phone, email: null };
+      for (const [branch, plan] of [
+        ["the practice's own silence", bookingPlan({ channel: "none", ...phoneOnly, codeChannels })],
+        // The chosen channel has nothing on file and the one that does is a number this office cannot text,
+        // so the code cannot reach them either — T176's combination inside T175's arm.
+        ["a channel with nowhere to send to", bookingPlan({ channel: "email", ...phoneOnly, faults, codeChannels })],
+        ["§13.4's refusal", bookingPlan({ channel: "sms", demo: true, ...phoneOnly, faults, codeChannels })],
+        ["the deployment's own gap", bookingPlan({ channel: "sms", ...phoneOnly, faults, codeChannels })],
+      ] as const) {
+        assert.equal(plan.lede, "Saving creates the patient and their private Sweetie link.", branch);
+        assert.doesNotMatch(plan.note, OFFERS_HANDOVER, branch);
+      }
+      // And the reachable patient on the same arm keeps the clause: the mailbox carries a code by email,
+      // so handing this one their link is a way in and the lede says so (T113, T175).
+      const reachable = bookingPlan({ channel: "none", phone: null, email: SAM.email, codeChannels });
+      assert.equal(reachable.lede, "Saving creates the patient and their private Sweetie link, which you hand over yourself.");
     });
   });
 });

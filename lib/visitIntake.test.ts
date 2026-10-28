@@ -76,22 +76,48 @@ test("a visit type is accepted by id or by the label a scheduler exports", () =>
 
 // §2.2's consent, which is the rule that makes this more than field cleaning: a channel that will be messaged
 // needs a recorded consent *and* something to reach the patient on.
-test("a channel that will be messaged needs a consent and a way to reach the patient", () => {
+test("a channel that will be messaged needs a recorded consent", () => {
   const noConsent = parseVisitDraft({ ...good, consentMethod: "" });
   assert.equal(noConsent.ok, false);
   if (!noConsent.ok) assert.match(noConsent.errors.join(" "), /Record how the patient's consent/i);
+});
 
-  const noPhone = parseVisitDraft({ ...good, phone: "", channel: "sms" });
-  assert.equal(noPhone.ok, false);
-  if (!noPhone.ok) assert.match(noPhone.errors.join(" "), /text message needs a mobile number/i);
+// T177 (design §2.2, §2.3, §5.3, §8.1) And what it no longer needs: a destination on the channel staff
+// picked. From T07 until this ticket a booking on "Text and email" with neither field filled — the
+// combination the wizard *opens* on — answered 400 with "A text message needs a mobile number." over a step
+// that had just said "Nothing is sent", and the only way through was "Do not message" three cards up the
+// list, which nothing on the screen pointed at (T168). The step was right; the refusal was about a send the
+// step had already stopped promising.
+//
+// So the channel narrows to nothing, which is what the stored visit has always done — `invitableChannels`
+// sends by what there is a destination for (lib/visitStore.ts) and `inviteReach` names the gap in staff's
+// words on the card and on the dashboard row (lib/notify.ts). The sentence itself is not gone: step 3's
+// forecast reads it from `channelNeeds` before the press (`bookingPlan`, lib/booking.ts).
+test("a sending channel with nothing to send to is taken, and narrows to nothing", () => {
+  for (const [channel, to] of [
+    ["sms", { phone: "", email: "sam@example.com" }],
+    ["email", { phone: "+14155550123", email: "" }],
+    ["both", { phone: "", email: "" }],
+    ["both", { phone: "", email: "sam@example.com" }],
+  ] as const) {
+    const parsed = parseVisitDraft({ ...good, ...to, channel });
+    assert.equal(parsed.ok, true, `${channel} ${JSON.stringify(to)}`);
+    if (!parsed.ok) continue;
+    // The channel staff chose is what is stored: §8.3's delivery rows are written against it, and the
+    // narrowing is the sender's job rather than the parser's.
+    assert.equal(parsed.draft.channel, channel);
+    assert.equal(parsed.draft.phone, to.phone || null);
+    assert.equal(parsed.draft.email, to.email || null);
+  }
 
-  const noEmail = parseVisitDraft({ ...good, email: "", channel: "email" });
-  assert.equal(noEmail.ok, false);
-  if (!noEmail.ok) assert.match(noEmail.errors.join(" "), /emailed invite needs an email address/i);
-
-  // "both" wants both, which is the case a form with only a phone number falls into.
-  const onlyPhone = parseVisitDraft({ ...good, email: "" });
-  assert.equal(onlyPhone.ok, false);
+  // What the visit is created *with* is the whole of the change: the consent rule above is untouched, so a
+  // booking on a sending channel with no destination and no recorded consent is still refused, and for the
+  // reason that is about the practice rather than about a field on the patient.
+  const noConsent = parseVisitDraft({ ...good, phone: "", email: "", consentMethod: "" });
+  assert.equal(noConsent.ok, false);
+  if (!noConsent.ok) {
+    assert.deepEqual(noConsent.errors, ["Record how the patient's consent to be contacted was taken before sending anything."]);
+  }
 });
 
 test("a visit nobody will message needs no consent and no contact details at all", () => {
@@ -172,9 +198,12 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   assert.equal(parse.rows.length, 9);
 
   const ok = parse.rows.filter((r) => r.draft);
+  // T177 Yuki Sato joined this list: the last row of the fixture chose "both" with neither cell filled, and
+  // the parser refused it until §2.2 started taking a booking on a channel with nothing to send to. The
+  // appointment is real either way, so the row is created and the warning below is what it carries.
   assert.deepEqual(
     ok.map((r) => r.name),
-    ["Sam Taylor", "Ada Rivera", "Lee Okonkwo"],
+    ["Sam Taylor", "Ada Rivera", "Lee Okonkwo", "Yuki Sato"],
   );
   // The header aliases did their job: "Mobile", "Appointment", "Type" and "Called about" all landed.
   assert.deepEqual(ok[0].draft, {
@@ -190,8 +219,15 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   });
   // A quoted comma inside the reason stays one cell rather than shifting every column after it.
   assert.equal(ok[1].draft?.reason, "new dose, feels shaky");
-  // Every importable row in the fixture has a number or an address, so none of them warns (§5.3).
-  assert.deepEqual(ok.flatMap((r) => r.warnings), []);
+  // T177 Every importable row but the last has a number or an address, so only that one warns (§5.3) — and
+  // it warns rather than falling silent, which is the half of the old refusal that is still owed to staff:
+  // `warningsFor` names the gap and the remedy, and the preview prints it beside the row (lib/visitIntake.ts,
+  // app/provider/dashboard.tsx).
+  assert.deepEqual(
+    ok.map((r) => [r.name, r.warnings.length]),
+    [["Sam Taylor", 0], ["Ada Rivera", 0], ["Lee Okonkwo", 0], ["Yuki Sato", 1]],
+  );
+  assert.match(ok[3].warnings[0], /^No phone or email on file, /);
 
   const reasons = Object.fromEntries(parse.rows.filter((r) => !r.draft).map((r) => [r.line, r.errors.join(" | ")]));
   assert.match(reasons[5], /name is required/i);
@@ -199,8 +235,7 @@ test("a day of visits parses row by row, each bad row with its own reason", () =
   assert.match(reasons[7], /Visit type must be one of/);
   assert.match(reasons[8], /date and time could not be read/i);
   assert.match(reasons[9], /Record how the patient's consent/i);
-  assert.match(reasons[10], /mobile number/i);
-  assert.equal(Object.keys(reasons).length, 6);
+  assert.equal(Object.keys(reasons).length, 5, "line 10 is a warning rather than an error since T177");
 });
 
 // T08 (§5.3): opening the link sends a code to the phone or email on file, so a visit with neither cannot be
