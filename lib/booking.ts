@@ -286,7 +286,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   // picked, which have a destination to send to at all. `inviteReach`'s own opening narrowing
   // (`channelsFor`, lib/notify.ts), asked over the two fields step 1 has typed rather than over a patient
   // row that does not exist yet — and asked *before* §13.4 and before the deployment, which is the order
-  // that press answers in. A channel with nowhere to send to is not a channel a demo practice or an
+  // the press answers in. A channel with nowhere to send to is not a channel a demo practice or an
   // unconfigured office closed, so naming either of them would answer the wrong gap.
   //
   // T173 reached this for the patient with both fields blank, by reading the fields rather than the
