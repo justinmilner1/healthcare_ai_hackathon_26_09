@@ -1000,6 +1000,15 @@ function Messages({ visit }: { visit: Row }) {
   );
 }
 
+/** The panel beside the wizard's form, one pair per step, for the steps that are about the form rather than
+ *  about a booking. Step 3's is `bookedOutcome`'s (T177): it is the largest type on the card's screen, so it
+ *  is decided with the two sentences under it rather than beside them. */
+const WIZARD_SIDE_COPY = [
+  ["START WITH A PERSON", "A warm handoff starts with the basics."],
+  ["GIVE SWEETIE THE BRIEF", "The visit context shapes every question."],
+  ["SEND THE INVITE", "One secure link. No patient account needed."],
+];
+
 function PatientWizard({
   step,
   form,
@@ -1053,12 +1062,12 @@ function PatientWizard({
     codeChannels,
   });
 
-  const sideCopy = [
-    ["START WITH A PERSON", "A warm handoff starts with the basics."],
-    ["GIVE SWEETIE THE BRIEF", "The visit context shapes every question."],
-    ["SEND THE INVITE", "One secure link. No patient account needed."],
-    ["PATIENT ADDED", "Sweetie can take it from here."],
-  ][step];
+  // T177 The panel beside the form, and the one line of it that is a claim about a booking: step 3's used to
+  // read "Sweetie can take it from here." in the largest type on the screen, over a card whose own sentence
+  // was withdrawing the only way this patient could reach Sweetie at all (lib/booking.ts, §2.3, §5.3). So
+  // the finished step takes its line from the same answer the card's two sentences come from, and the three
+  // steps before it — which are about the form and not about any booking — keep their literals.
+  const sideCopy = step === 3 ? ["PATIENT ADDED", result?.hero ?? ""] : WIZARD_SIDE_COPY[step];
 
   return (
     <div className="patient-wizard-backdrop" role="presentation">
@@ -1325,10 +1334,17 @@ function PatientWizard({
                   sentence under it is retracting (lib/booking.ts, §2.3, §8.1, T122). */}
               <h3 className="ss-title">{result.heading}</h3>
               <p className="ss-lede">{result.lede}</p>
-              <div className="patient-link-card">
-                <span>Private Sweetie link</span>
-                <a href={result.link}>{result.link}</a>
-              </div>
+              {/* T177 And §8.1's link only where handing it over is a way in. The card showed it always, so
+                  the patient whose lede has just said the handover will not get them in was offered, in the
+                  next paragraph, the exact object to hand over. The answer is the lede's own
+                  (`bookedOutcome`, lib/booking.ts); the link itself is on the visit's row either way, for
+                  the moment a number or an address makes it open. */}
+              {result.offerLink && (
+                <div className="patient-link-card">
+                  <span>Private Sweetie link</span>
+                  <a href={result.link}>{result.link}</a>
+                </div>
+              )}
               <button
                 type="button"
                 className="ss-button ss-button-primary"

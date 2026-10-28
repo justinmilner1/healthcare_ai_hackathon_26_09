@@ -87,13 +87,41 @@ export type BookedSend = {
   handover?: boolean;
 };
 
-/** The two lines of the success card, decided together. */
+/** The whole of the success card, decided together. */
 export type BookedOutcome = {
+  /** T177 The line in the panel beside the card, which is the largest type on the screen — larger than
+   *  `heading`. It was a literal ("Sweetie can take it from here.") for as long as the card has existed, so
+   *  it said that over a lede withdrawing the only way this patient could get to Sweetie at all. Here rather
+   *  than in the wizard for T122's reason one size up: the largest type on the screen cannot promise what the
+   *  sentences under it are retracting, and the only way to hold that is to decide them in one place. */
+  hero: string;
   /** The heading: what happened to the patient, which is what the card is largest about. */
   heading: string;
   /** The sentence under it: what happened to the record, and what happened to the invite. */
   lede: string;
+  /** T177 Whether §8.1's link is offered on the card as a thing to hand over. The card showed it always, so
+   *  the patient whose lede says the handover is not a way in was shown the link to hand over in the very
+   *  next paragraph — the sharpest form of the claim, because it is the object the sentence above it has just
+   *  withdrawn. False is the same `handover` answer the lede reads, so the two cannot drift. */
+  offerLink: boolean;
 };
+
+/** The panel beside the card for a booking the patient can get to: the invite is going out, or the link is
+ *  staff's to hand over and opening it sends a code. Both are Sweetie's to carry from here. Unchanged from
+ *  the literal the wizard held before T177 — this is the line every reachable patient keeps. */
+const SWEETIE_TAKES_IT = "Sweetie can take it from here.";
+
+/**
+ * T177 And the panel for the patient the handover is not a way in for (§2.3, §5.3, §8.1).
+ *
+ * The largest type on the screen, so it makes the smallest claim the card can: the record exists, which is
+ * the one thing that is true of every booking and the whole of what this press did. Sweetie is deliberately
+ * not in it — she cannot take this one from here, which is the sentence it replaces — and neither is the
+ * remedy: the two fields are named by `warningsFor` on the step before (lib/visitIntake.ts) and by
+ * `NO_CODE_TO_SEND` on the row after (lib/delivery.ts), and a third copy on the card between them is the
+ * shape of T140, T168, T170 and T173. Nothing of the deployment's is in it either (§3.7, §10.6).
+ */
+const ON_FILE = "The visit is on file.";
 
 /**
  * The success card's heading and lede for one booking (§2.2, §2.3, §8.1).
@@ -107,10 +135,17 @@ export function bookedOutcome({ name, queued, channel, reason, patientReused, ha
   // largest line on the card and " is on the way." is not a sentence, so it has a subject either way.
   const who = name.trim() || "The patient";
   const added = patientReused ? "Visit added for a patient you already had." : "Patient added.";
+  // T177 One answer for the two things the card shows besides its sentences: the panel beside it and §8.1's
+  // link. Both are claims that the handover is a way in — the panel says Sweetie has the patient from here,
+  // and the link is the object that would get them there — so both read the fact that decides it, the way
+  // the lede's last clause already does. Absent is true, like everywhere else `handover` is read.
+  const canHandOver = handover !== false;
   if (queued) {
     return {
+      hero: SWEETIE_TAKES_IT,
       heading: `${who} is on the way.`,
       lede: `${added} The invite is on its way by ${channelLabel(channel).toLowerCase()}.`,
+      offerLink: canHandOver,
     };
   }
   // T173 §8.1's fallback is the last clause, and for one patient it is not a fallback: with neither a number
@@ -119,10 +154,12 @@ export function bookedOutcome({ name, queued, channel, reason, patientReused, ha
   // same one step 3's note three presses earlier reads, so the forecast and the report say it once each in
   // the same words. The heading is unchanged: the patient and their visit were added either way, which is
   // what "ready for Sweetie" says and all it says.
-  const fallback = handover === false ? NO_HANDOVER_SENTENCE : "Share the link below.";
+  const fallback = canHandOver ? "Share the link below." : NO_HANDOVER_SENTENCE;
   return {
+    hero: canHandOver ? SWEETIE_TAKES_IT : ON_FILE,
     heading: `${who} is ready for Sweetie.`,
     lede: `${added} No invite sent${reason ? `: ${reason}` : ""}. ${fallback}`,
+    offerLink: canHandOver,
   };
 }
 
@@ -189,6 +226,22 @@ const WILL_SEND = "Saving creates the patient and sends their private Sweetie li
  *  hand over. No send either way, so the one sentence covers a practice that chose silence and a deployment
  *  that cannot break it; the note below is what tells them apart. */
 const WILL_NOT_SEND = "Saving creates the patient and their private Sweetie link, which you hand over yourself.";
+
+/**
+ * T177 And the same sentence without its last clause, for the patient that clause is not true of.
+ *
+ * "which you hand over yourself" is §8.1's fallback in the future tense, and T170 and T173 spent two tickets
+ * withdrawing it from the *note* one line below this — leaving a step that offered the handover and retracted
+ * it in consecutive paragraphs, which is the shape of T140, T168 and T170 themselves. One sentence covered
+ * both branches because they used to say the same thing; since T173 they do not, so it branches on the fact
+ * `bookingPlan` has already settled rather than on a second copy of it.
+ *
+ * What is left is the whole of what the press really does for this patient: the row and the link are made.
+ * Nothing is added in the clause's place — the note beside it owns what the handover is worth, and
+ * `warningsFor` owns the gap and the remedy (lib/visitIntake.ts), so a third line here would be the thing
+ * every ticket in this family was filed about.
+ */
+const WILL_NOT_HAND_OVER = "Saving creates the patient and their private Sweetie link.";
 
 /** §8.1's fallback, worded for one patient at a desk rather than for a day of them (lib/importNote.ts).
  *  This is the clause §2.2's "Do not message" row has always carried, and T140's job was to reach it on the
@@ -261,6 +314,10 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   // T175 One answer, read by every branch that offers §8.1's fallback — and the reason the four of them are
   // one ticket: the fallback is the same remedy wherever it is offered, so what withdraws it is one fact.
   const handover = codeCanReach(planned);
+  // T177 The lede above the note, which offered the handover the note underneath it withdraws. One branch on
+  // the answer already in hand, read by all four of the non-sending returns below: whichever of them the
+  // screen is on, the sentence at the top and the sentence under the radios are about one patient.
+  const willNotSend = handover ? WILL_NOT_SEND : WILL_NOT_HAND_OVER;
   if (channel === "none") {
     // T170 The one thing this branch had never asked, although it has had both answers as parameters since
     // T140: whether there is anywhere to send the code it promises.
@@ -276,7 +333,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
     // (`.patient-consent-warning`, T168), and a missing sender is named by the branches below, which are the
     // ones that have the deployment's sentence to state.
     return {
-      lede: WILL_NOT_SEND,
+      lede: willNotSend,
       note: handover ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NO_WAY_IN,
       blocked: false,
       action: "Add patient →",
@@ -302,22 +359,24 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
     // same patient — nothing is sent, and the link that would be handed over does not open (§2.3, §5.3). The
     // reason and the remedy are `warningsFor`'s, three lines below on the same step (lib/visitIntake.ts).
     if (!(phone?.trim() || email?.trim())) {
-      return { lede: WILL_NOT_SEND, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
+      return { lede: willNotSend, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
     }
     // T176 And one field filled, on the channel staff did not pick. `wanted` is a single channel here —
     // "Text and email" with either field filled leaves `onFile` non-empty — so the gap is that one channel's
     // missing field, which is the front desk's own and the only one of the four this step can name a remedy
-    // for by naming the field. The sentence is the press's, from the module that owns it (`channelNeeds`,
-    // lib/visitIntake.ts): the forecast and the refusal are one wording, not two about one field.
+    // for by naming the field. The sentence comes from the module that owns it (`channelNeeds`,
+    // lib/visitIntake.ts), which since T177 is the only place it is said: the press used to refuse over it
+    // and no longer does, so the sentence states the gap rather than forecasting a 400.
     //
     // Nothing else is said. §13.4 and the deployment are not asked, because neither closed this channel;
     // `warningsFor` is silent here, so there is no line to split a reason or a remedy with (T170); and the
-    // handover is not offered, because saving is what the press refuses and "save this patient and …" would
-    // be the next promise in this family. It is only *withdrawn*, where the code cannot reach this patient
-    // either — the one thing a front desk reading "add the other field" would otherwise still get wrong.
+    // handover is not offered, because the lede above has already said what saving makes and "save this
+    // patient and …" would be one more sentence about it. It is only *withdrawn*, where the code cannot
+    // reach this patient either — the one thing a front desk reading "add the other field" would otherwise
+    // still get wrong.
     const needs = channelNeeds(wanted[0]);
     return {
-      lede: WILL_NOT_SEND,
+      lede: willNotSend,
       note: handover ? needs : `${needs} ${NO_HANDOVER_SENTENCE}`,
       blocked: false,
       action: "Add patient →",
@@ -336,7 +395,7 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   // remedy: what the deployment cannot do keeps `cannotSendYet`'s sentence, and what it costs the handover
   // is lib/delivery.ts's clause, said once wherever it is said (§3.7, §10.6).
   const refused = (why: string): BookingPlan => ({
-    lede: WILL_NOT_SEND,
+    lede: willNotSend,
     note: `No invite will be sent: ${why}. ${handover ? `Save this patient and ${HAND_IT_OVER}.` : NO_HANDOVER_SENTENCE}`,
     blocked: true,
     action: "Add patient →",
