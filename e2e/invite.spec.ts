@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { cannotSendYet, NO_CONSENT_TO_MESSAGE, NO_HANDOVER_SENTENCE } from "../lib/delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
+import { waitingOnPatientNote } from "../lib/sourState";
 import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo } from "./auth";
@@ -238,12 +239,76 @@ test("the brief withdraws the link where no code can reach the patient", async (
   const brief = await page.locator(".sour-brief").innerText();
   expect(brief, "no line on the brief hands over a link that will not open").not.toMatch(/\/s\//);
   expect(brief, "nor names a backend or a variable over it (§3.7, §10.6)").not.toMatch(/SES|SNS|AWS|_KEY|_SECRET|environment variable/);
+  // T183, on the screen T179's own frame was taken of: four inches under the note, the empty state was
+  // still telling the clinician to send that link. Both sentences are in one screenful, which is what made
+  // this the disagreement rather than a wording this ticket preferred — so they are asserted together, in
+  // the one place the committed frame shows them together.
+  expect(brief, "the instruction the note above it had just withdrawn").not.toMatch(/Send the link again/i);
+  expect(brief).toContain(waitingOnPatientNote(false));
 
   // `end` rather than the sibling shot's `center`: this note is one line longer, and centring it put the
   // top of the patient's name through the top edge of the 375px frame. Anchoring its foot to the bottom of
   // the viewport keeps the whole header — whose visit this is, and the **Send link** that was pressed — in
   // the picture above it.
   await shot(page, "sour-invite-no-handover", { ...SCREENFUL, scrollTo: note, block: "end" });
+});
+
+// T183 (§2.3, §2.6, §5.3, §7.4, §8.1) The two surfaces the ticket above could not reach: the brief's own
+// empty state and the §7.4 sheet that is the same brief on paper.
+//
+// The test above asserts that the empty state no longer contradicts the note, because that is where the
+// frame showing both of them is taken. This one is about the sentence itself, on both surfaces, with
+// nothing pressed: neither card is behind **Send link**, so this is what the clinician reads on opening a
+// brief for a patient no code can reach — which is the state T179's rule could not describe, its note
+// being rendered only after the route has answered.
+//
+// Same booking as above, and for the same reasons: a practice of its own so §13.4 is not what this
+// measures, a reserved number as well, one destination on file and it on the channel this deployment has no
+// sender behind (§11.3). The visit stays empty — nobody opens the link — which is `visitNotStarted`'s
+// branch (lib/sourState.ts) and the only branch either card renders on.
+test("the empty state and the printed sheet withdraw it too, where no code can reach the patient", async ({ page }) => {
+  const me = await signInAs(page, freshEmail("invite-empty-unreachable"));
+  const visit = await book(page, me.id, "Invite Empty Unreachable", "sms", { phone: reservedIn312(), email: undefined });
+
+  await page.goto(`/provider/${me.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText(visit.name, LOADED);
+
+  // The card renders at all: the visit was booked and never opened, so there is nothing to summarize and
+  // `EmptyIntake` is what the brief shows (T148's own branch, asserted in e2e/flows.spec.ts for the
+  // reachable patient this is the other direction of).
+  const waiting = page.locator(".sour-waiting");
+  await expect(waiting).toContainText("Waiting on the patient", LOADED);
+  // The lead sentence is the brief's own and unchanged; the one after it is the ticket.
+  await expect(waiting).toContainText("Nothing to summarize until the patient has talked to Sweetie");
+  await expect(waiting, "the instruction this patient's link cannot carry out").not.toContainText(/Send the link again/i);
+  await expect(waiting).toContainText(waitingOnPatientNote(false));
+  // Criterion 4, on the card rather than on the note: the brief states the consequence and leaves the
+  // remedy to the row that owns the visit's contact details (lib/delivery.ts `NO_CODE_CAN_REACH`), and
+  // names nothing of the deployment's (§3.7, §10.6).
+  await expect(waiting, "the dashboard row's remedy, which is not this surface's").not.toContainText(/call them/i);
+  await expect(waiting, "nor the clause the invite note ends on").not.toContainText(/hand(?:ing)? the link over/i);
+  await expect(waiting).not.toContainText(/SES|SNS|AWS|_KEY|_SECRET|environment variable|whoever set/i);
+
+  await shot(page, "sour-waiting-no-handover", { ...SCREENFUL, scrollTo: waiting, block: "center" });
+
+  // §7.4's sheet: the same two sentences, on the surface a clinician hands to a colleague, so the fix has
+  // to reach it from the same place. Server-rendered, so what is on screen is what would print.
+  const sheet = await page.goto(`/provider/visit/${visit.visitId}/print`);
+  expect(sheet?.status()).toBe(200);
+  const empty = page.locator(".sour-print-empty");
+  await expect(empty).toContainText("Nothing to summarize yet", LOADED);
+  await expect(empty).toContainText("The patient has not talked to Sweetie or shared any data for this visit");
+  await expect(empty, "the same literal, on paper").not.toContainText(/Send the link again/i);
+  await expect(empty).toContainText(waitingOnPatientNote(false));
+  // And the sheet reads the same words the screen does, which is the whole reason the sentence is in lib/.
+  const printed = (await empty.innerText()).trim();
+  expect(printed, "one wording in one place, read by both surfaces").toContain(waitingOnPatientNote(false));
+  expect(printed).not.toMatch(/\/s\//);
+
+  // No anchor: this sheet has nothing to summarize, so the whole document is shorter than a phone screen
+  // and the frame holds it end to end on both projects (T109, the same reason
+  // `provider-print-no-clinician` takes it that way in e2e/print.spec.ts).
+  await shot(page, "print-empty-no-handover");
 });
 
 // The other half of both sentences: an office whose deployment *can* send is still told the link is on its

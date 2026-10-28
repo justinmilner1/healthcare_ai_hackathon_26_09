@@ -6,6 +6,7 @@ import { DRAINED, LOADED } from "./budget";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { COUNTDOWN, EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
+import { waitingOnPatientNote } from "../lib/sourState";
 import { UNNAMED_PLACE } from "../lib/spikePlaces";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
@@ -177,6 +178,12 @@ test("practice flow: sign in, dashboard, add visit, invite link, Sour view", asy
   const waiting = page.locator(".sour-waiting");
   await expect(waiting).toContainText("Waiting on the patient");
   await expect(waiting).toContainText("Nothing to summarize until the patient has talked to Sweetie");
+  // T183's other direction, kept where it already was: this patient is the seeded demo practice's, with
+  // both destinations on file and a mailbox behind the email (§11.3), so a six-digit code *can* reach them
+  // and sending the link again is exactly what the clinician should do. The instruction is pinned to the
+  // word, because a fix that simply withdrew it everywhere would satisfy the unreachable test in
+  // e2e/invite.spec.ts and take this sentence with it, silently.
+  await expect(waiting).toContainText(waitingOnPatientNote(true));
   // And Generate stays shut on it, which is the same predicate the card is behind (§7.1).
   await expect(page.getByRole("button", { name: /^Generate$/ })).toBeDisabled();
   // T156: the sidebar beside that panel. This visit is in the list because it is the selected one, not

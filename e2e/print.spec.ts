@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { waitingOnPatientNote } from "../lib/sourState";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
@@ -209,6 +210,11 @@ test("a visit with no clinician's name on it prints the practice's words for tha
   await expect(caveat).not.toContainText(/uploaded data/i);
   await expect(caveat).toContainText("Nothing has been generated for this visit yet");
   await expect(caveat).toContainText("it flags, it does not diagnose");
+  // T183's reachable direction on the sheet, beside the footer that is the other claim about this same
+  // empty visit: the patient has an address on file and this gate has a mailbox behind it (§11.3), so a
+  // code can reach them and the sheet keeps the instruction, to the word (lib/sourState.ts). The
+  // unreachable direction is e2e/invite.spec.ts's, on a visit booked without one.
+  await expect(page.locator(".sour-print-empty"), "the branch this sheet is on").toContainText(waitingOnPatientNote(true), LOADED);
   const sheetCaveat = (await caveat.innerText()).trim();
   // No anchor on this one: this visit has nothing to summarize, so the whole sheet is shorter than a phone
   // screen and the frame holds it end to end on both projects (T109).
