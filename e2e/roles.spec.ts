@@ -139,7 +139,7 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // gateway carries at all. What is left is true of a practice with nothing in it, which is the state this
   // screen is in, and it still says the §2.6 thing a reader has to do about a summary.
   const emptyFooter = page.locator(".provider-footer");
-  await expect(emptyFooter).toContainText("Every summary is a clinician's to verify before it is acted on");
+  await expect(emptyFooter).toContainText("Verify every summary before acting on it");
   await expect(emptyFooter, "the claim T178 was filed for").not.toContainText(/AI-generated/i);
   await shot(page, "provider-dashboard-nothing-ready");
 

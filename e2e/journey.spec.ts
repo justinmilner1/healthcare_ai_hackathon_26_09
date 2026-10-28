@@ -487,7 +487,7 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // summaries off as AI-generated either. What it says instead is true of this summary and of a practice
   // with none (e2e/roles.spec.ts).
   const dashFooter = page.locator(".provider-footer");
-  await expect(dashFooter).toContainText("Every summary is a clinician's to verify before it is acted on");
+  await expect(dashFooter).toContainText("Verify every summary before acting on it");
   await expect(dashFooter, "the claim T178 was filed for").not.toContainText(/AI-generated/i);
   await shot(page, "14-dashboard-reviewed", {
     scrollTo: reviewed.locator(".provider-stage-cell"),
