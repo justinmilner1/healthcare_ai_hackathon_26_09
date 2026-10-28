@@ -779,11 +779,17 @@ test("a booking this office cannot text offers neither the invite nor the handov
   await expect(rowNote).toContainText("Handing the link over will not get this patient in either.");
   await expect(rowNote, "the remedy this row cannot offer").not.toContainText("Use Copy intake");
   await expect(rowNote, "and no claim of a send").not.toContainText(/Sending/i);
+  // Anchored on the note rather than on the row, and `end` rather than `center`, which is
+  // `provider-row-invite-not-sent`'s framing and for its reason (T57, T81): the table is `min-width: 1120px`
+  // inside a horizontal scroller, so at 375px the Actions column and this note are off to the right until
+  // the shot asks for them. The two lines this ticket is about are in different columns, so no phone frame
+  // holds both — and the one that changed is the note, so that is the one anchored. The desktop frame is
+  // 1280 against a 1120px table and carries the pair.
   await shot(page, "provider-dashboard-no-sender-for-code-row", {
     ...SCREENFUL,
-    scrollTo: row.locator(".provider-invite"),
+    scrollTo: rowNote,
     block: "center",
-    inline: "center",
+    inline: "end",
   });
 });
 
