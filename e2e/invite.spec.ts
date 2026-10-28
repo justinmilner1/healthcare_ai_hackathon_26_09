@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { cannotSendYet, NO_CONSENT_TO_MESSAGE, NO_HANDOVER_SENTENCE } from "../lib/delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
 import { waitingOnPatientNote } from "../lib/sourState";
+import { NO_NAME_SET } from "../lib/team";
 import { SENDABLE_PORT } from "../playwright.config";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo } from "./auth";
@@ -245,6 +246,16 @@ test("the brief withdraws the link where no code can reach the patient", async (
   // the one place the committed frame shows them together.
   expect(brief, "the instruction the note above it had just withdrawn").not.toMatch(/Send the link again/i);
   expect(brief).toContain(waitingOnPatientNote(false));
+
+  // T186 (§2.1, §2.6, §12.5), asserted on the frame it was found in: `me` is a fresh sign-in, so the row
+  // has no name and nothing will ever write one (§5.1, lib/authAdapter.ts). The sidebar heading over the
+  // practice line used to read the ellipsis a page still fetching shows, which is why a committed picture
+  // of a loaded screen looked unfinished. e2e/briefSidebar.spec.ts is the ticket's own test; this is the
+  // one line that keeps *this* frame from going back to two states in one.
+  if (test.info().project.name === "desktop") {
+    await expect(page.locator(".sour-practice h1")).toHaveText(NO_NAME_SET);
+    await expect(page.locator(".sour-practice p"), "the line it sits over, already painted").toHaveText(me.practice!);
+  }
 
   // `end` rather than the sibling shot's `center`: this note is one line longer, and centring it put the
   // top of the patient's name through the top edge of the 375px frame. Anchoring its foot to the bottom of
