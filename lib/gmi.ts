@@ -96,6 +96,12 @@ export type GmiReport = {
  */
 export function clinicianGmi(stats: { days: number; gmi: number }): GmiReport {
   const value = stats.gmi.toFixed(1);
+  // The threshold is `GMI_A1C_MIN_DAYS` above, where it is defended: fourteen days, because that is the span
+  // lib/sweetie.ts already asks the patient to export and the span the CGM consensus puts the A1c
+  // correspondence at. A floor and not an equality — ninety days is what Clarity offers and what a real
+  // upload ordinarily holds.
   if (stats.days >= GMI_A1C_MIN_DAYS) return { value, hint: GMI_A1C_HINT, overview: `GMI ${value}%` };
+  // Short of it the figure is still true of the readings that arrived, so it stays. What cannot stay is the
+  // name of a three-month average over a span of one.
   return { value, hint: GMI_SHORT_SPAN_HINT, overview: null };
 }
