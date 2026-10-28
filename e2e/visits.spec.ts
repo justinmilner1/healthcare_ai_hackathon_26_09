@@ -95,6 +95,11 @@ const STEP_3: ShotOptions = {
  * position step 3 left it at, clamped to this shorter step, so the frame began mid-word in the hero panel at
  * whatever height the last interaction happened to leave. Anchoring the card itself makes the frame the
  * card's own, from any starting scroll, and leaves the desktop frames alone the way the anchor above does.
+ *
+ * T177 `.patient-link-card` is not on every card any more — it is withdrawn where handing the link over is
+ * not a way in — so the pair in `wholeRows` is read as "whichever of these the card has is whole", which is
+ * what `expectWholeRows` already does with a group selector. The card is shorter without it, so the frame
+ * holds it either way.
  */
 const SUCCESS_CARD: ShotOptions = {
   ...MODAL,
@@ -618,9 +623,9 @@ test("a booking with nothing on file promises no send, and the row says the link
     "Nothing is sent, and handing the link over will not get this patient in either.",
     LOADED,
   );
-  await expect(wizard.locator(".ss-lede")).toHaveText(
-    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
-  );
+  // T177 The lede over that note, which offered the handover the note withdraws — the two sentences this
+  // ticket was filed for, one above the other in the frame T173 committed.
+  await expect(wizard.locator(".ss-lede")).toHaveText("Saving creates the patient and their private Sweetie link.");
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   // Nothing about this is a gap in the deployment, so nothing on the step is marked as something to fix:
   // the two empty fields are the front desk's own and the warning's element is what marks them (T168).
@@ -637,31 +642,36 @@ test("a booking with nothing on file promises no send, and the row says the link
     wholeRows: ".patient-consent-note, .patient-consent-warning, .patient-wizard-actions",
   });
 
-  // And the press on this default, which §2.2's own field rule refuses: a text needs a number and an
-  // emailed invite needs an address (`parseVisitDraft`, lib/visitIntake.ts). So the three lines above are
-  // the whole of what this channel can promise — and what they must not promise is the press refusing
-  // after a "& send" button, which is the shape every ticket in this family is about.
+  // T177 And the press on this default, which §2.2 now takes. It used to answer 400 with "A text message
+  // needs a mobile number." over a step that had just said "Nothing is sent": the refusal was about a send
+  // the step had already stopped promising, and the way through was **Do not message**, three cards up the
+  // list, which nothing on the screen pointed at (T168). The channel narrows to nothing instead, which is
+  // what the stored visit has always done (`invitableChannels`, `inviteReach`), so the step and the press
+  // say one thing about one patient.
   await wizard.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
-  await wizard.getByRole("button", { name: SAVE }).click();
-  await expect(wizard.locator(".ss-error")).toContainText(/needs a mobile number|needs an email address/, LOADED);
-  await expect(page.locator(".patient-wizard-success"), "and no card claims anything").toHaveCount(0);
-
-  // §2.2 still books this visit, on the channel that asks for no destination — which is the reachable way
-  // to a created visit with nothing on file, and what the card and the row below are about.
-  await wizard.getByText("Do not message", { exact: true }).click();
   await wizard.getByRole("button", { name: SAVE }).click();
 
   const card = page.locator(".patient-wizard-success");
   await expect(card.locator(".ss-title")).toHaveText(`${name} is ready for Sweetie.`, LOADED);
+  await expect(wizard.locator(".ss-error"), "the button the step offered is the button that worked").toHaveCount(0);
   // §8.1's fallback is the last clause of this lede for every other patient, and for this one it is not a
   // fallback: the link does not open without a code and there is nowhere to send one. The clause that
-  // withdraws it is the note's, three presses earlier (lib/delivery.ts).
+  // withdraws it is the note's, one press earlier (lib/delivery.ts), and the reason before it is §2.2's own
+  // gap rather than the practice's choice, because this booking chose a channel and had nowhere to send on it.
   await expect(card.locator(".ss-lede")).toHaveText(
-    "Patient added. No invite sent: no consent to message this patient. Handing the link over will not get this patient in either.",
+    "Patient added. No invite sent: no phone or email on file. Handing the link over will not get this patient in either.",
   );
+  // T177 The two things on this screen that are not sentences out of lib/booking.ts, and that said the
+  // opposite of the one above until this ticket: the panel beside the card — the largest type on the screen
+  // — and §8.1's link, offered one paragraph under the clause withdrawing it.
+  await expect(wizard.locator(".patient-wizard-side h2")).toHaveText("The visit is on file.");
+  await expect(wizard.locator(".patient-link-card"), "the link is not a thing to hand over here").toHaveCount(0);
   const cardText = await card.innerText();
   expect(cardText, "nothing on the card claims the invite is going anywhere").not.toMatch(/on (?:the|its) way/i);
   expect(cardText, "nor offers the handover it has just withdrawn").not.toMatch(/Share the link below/);
+  const dialogText = await wizard.innerText();
+  expect(dialogText, "nor says Sweetie has a patient who cannot reach her").not.toMatch(/Sweetie can take it from here/);
+  expect(dialogText, "nor shows the link itself as the thing to hand over").not.toMatch(/\/s\/[A-Za-z0-9_-]+/);
   await shot(page, "provider-add-visit-no-contact-card", SUCCESS_CARD);
 
   // The row, which is the surface staff are on once the creation screen is behind them — and the one that
@@ -738,9 +748,9 @@ test("a booking this office cannot text offers neither the invite nor the handov
     LOADED,
   );
   await expect(note, "the deployment's gap is still somebody's to fix").toHaveClass(/patient-consent-note-blocked/);
-  await expect(wizard.locator(".ss-lede")).toHaveText(
-    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
-  );
+  // T177 The lede above that note, which used to end on the handover the note withdraws: it keeps what
+  // pressing the button really does and stops there (lib/booking.ts).
+  await expect(wizard.locator(".ss-lede")).toHaveText("Saving creates the patient and their private Sweetie link.");
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   const step = await wizard.innerText();
   expect(step, "nothing on the step offers a send this office cannot make").not.toMatch(PROMISES_SEND);
@@ -760,6 +770,10 @@ test("a booking this office cannot text offers neither the invite nor the handov
   const cardText = await card.innerText();
   expect(cardText, "nothing on the card claims the invite is going anywhere").not.toMatch(/on (?:the|its) way/i);
   expect(cardText, "nor offers the handover it has just withdrawn").not.toMatch(/Share the link below/);
+  // T177 And the two things beside those sentences, which said the opposite of them: the panel is the
+  // largest type on the screen and the link card is the object the lede has just withdrawn.
+  await expect(wizard.locator(".patient-wizard-side h2")).toHaveText("The visit is on file.");
+  await expect(wizard.locator(".patient-link-card")).toHaveCount(0);
 
   // And the row, which is where the two answers used to sit one line apart.
   await card.getByRole("button", { name: "Back to dashboard" }).click();
@@ -805,9 +819,9 @@ test("a booking this office cannot text offers neither the invite nor the handov
 // The two gaps are told apart on one screen a radio apart, which is the ordering this ticket fixes: *Email*
 // with no address is the front desk's own missing field and names it; *Text message*, which this patient
 // does have, is the deployment's missing sender and keeps T111's sentence and the mark that says somebody
-// can fix it. Nothing is pressed — the route refuses a sending channel with no destination
-// (`parseVisitDraft`), which is the sentence the step now quotes — so this books into the seeded practice
-// without adding a row to it.
+// can fix it. Nothing is pressed — the subject is the three lines the step writes, and T177 is where the
+// press on a channel with no destination is read — so this books into the seeded practice without adding a
+// row to it.
 test("a channel with no destination names the field it needs, not a send", async ({ page }) => {
   await signInAsDemo(page);
   await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
@@ -835,9 +849,9 @@ test("a channel with no destination names the field it needs, not a send", async
   // Not marked: the missing address is the front desk's own field and not a gap in the deployment, which is
   // what `.patient-consent-note-blocked` is for (T131, T140).
   await expect(note, "an empty field is nobody else's to fix").not.toHaveClass(/patient-consent-note-blocked/);
-  await expect(wizard.locator(".ss-lede")).toHaveText(
-    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
-  );
+  // T177 This gate can carry no code to the number on file either, so the lede over the note stops offering
+  // the handover the note's second sentence withdraws (lib/booking.ts).
+  await expect(wizard.locator(".ss-lede")).toHaveText("Saving creates the patient and their private Sweetie link.");
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
 
   // The whole step, because the next literal would be somewhere else on it: no promise of a send anywhere,
@@ -1034,9 +1048,9 @@ test("a demo practice is told before the button that this number will not be mes
     LOADED,
   );
   await expect(blocked).toHaveClass(/patient-consent-note-blocked/);
-  await expect(wizard.locator(".ss-lede")).toHaveText(
-    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
-  );
+  // T177 §13.4 closes the code's way in as well as the invite's, so the lede over the note stops offering
+  // the handover the note has just withdrawn (lib/booking.ts).
+  await expect(wizard.locator(".ss-lede")).toHaveText("Saving creates the patient and their private Sweetie link.");
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   // The whole step, because the next literal promising a send would be somewhere else on it — and because
   // the number must not be named as a destination by a screen that has just refused it.
@@ -1062,10 +1076,12 @@ test("a demo practice is told before the button that this number will not be mes
     /on (?:the|its) way/i,
   );
   expect(await card.innerText(), "nor offers the handover it has just withdrawn").not.toMatch(/Share the link below/);
-  // The link itself stays on the screen, which is the one thing this branch does not withdraw: §2.2 created
-  // the patient and the link is theirs, and what the lede above has stopped claiming is that handing it over
-  // gets anybody in. Whoever fixes the number can use it; nothing is gained by hiding it.
-  await expect(page.locator(".patient-link-card")).toContainText("/s/");
+  // T177 The link itself is gone with the sentence that offered it. T175 left it here — "whoever fixes the
+  // number can use it; nothing is gained by hiding it" — and what that missed is where it was standing: one
+  // paragraph under a lede saying handing this link over gets nobody in, which is the retraction and the
+  // offer in consecutive paragraphs that T140, T168 and T170 are each about. It is not lost: the visit's row
+  // carries it behind **Copy intake**, for the moment a destination §13.4 allows makes it open.
+  await expect(page.locator(".patient-link-card")).toHaveCount(0);
   await shot(page, "provider-add-visit-demo-blocked-card", SUCCESS_CARD);
 
   // 3. The destination §13.4 does allow, on the same screen in the same practice: this is the walkable demo
