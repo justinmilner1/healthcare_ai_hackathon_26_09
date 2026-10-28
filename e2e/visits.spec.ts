@@ -1231,9 +1231,13 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   expect(await page.locator(".import-dialog").innerText(), "nothing in the dialog promises a code the file cannot reach").not.toMatch(
     /sends? (?:them|you|the patient)/i,
   );
-  await expect(page.locator(".import-dialog .ss-lede")).toContainText(
-    "a row with a blank channel is created without an invite — hand those patients the link yourself.",
-  );
+  // T180 And the clause T170 left in that paragraph, which is §8.1's fallback stated flatly about every
+  // blank-`channel` row: line 4 of this file is a row with neither a number nor an address, so the offer
+  // and the warning that its link will not open were in the same frame one clause further apart. The offer
+  // is gone rather than qualified — the paragraph is on screen before a file has been chosen, so it has no
+  // row to ask about, and the row that does is already saying it.
+  await expect(page.locator(".import-dialog .ss-lede")).toContainText("a row with a blank channel is created without an invite.");
+  await expect(page.locator(".import-dialog .ss-lede")).not.toContainText(/hand those patients the link yourself/i);
   // T135 One of the three creatable rows asked for a text and this deployment has no SMS backend, so the
   // screen the decision is made on says so — before the button, in the future tense, and naming what
   // pressing it will cost. The same single line the committed screen gets below, for the same reason: it is
@@ -1241,10 +1245,22 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   const previewFault = page.locator(".import-invite-fault");
   await expect(previewFault).toHaveCount(1, LOADED);
   await expect(previewFault).toContainText(/No invites will be sent: Sweet Spot cannot send texts yet/i);
-  await expect(previewFault).toContainText(/copy each link from the dashboard/i);
+  // T180 And it no longer ends by sending staff to the dashboard for that row's link. The one creatable row
+  // this line speaks for has a mobile number and nothing else, and this office has no SMS backend — so the
+  // six-digit code the link needs has nowhere to go either, and the link does not open (§2.3, §5.3). Which
+  // is the fact row 4's own warning states three lines below, and this line used to contradict.
+  await expect(previewFault).toContainText(/Handing the link over will not get this patient in either\./);
+  await expect(previewFault).not.toContainText(/copy each link from the dashboard/i);
   // Nothing has happened yet, and this screen must not read as though it had (T111's sentence is the other
   // tense, asserted after the press).
   await expect(previewFault).not.toContainText(/No invites sent:/i);
+  // The whole dialog, which is where the contradiction lived: no line of it offers a link that will not
+  // open, while the row that will not open still says so. One frame holds both (the shot below).
+  const previewText = await page.locator(".import-dialog").innerText();
+  expect(previewText, "nothing in the dialog hands over a link it also says will not open").not.toMatch(
+    /copy each link from the dashboard|hand those patients the link yourself/i,
+  );
+  expect(previewText).toMatch(/the six-digit code their link needs has nowhere to go/i);
   // MODAL at either width: this is a dialog over the dashboard, and a full-page shot anchors at the top of
   // a very tall document, which cut the dialog's own header off above the image (T57).
   //
@@ -1276,6 +1292,14 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // T135 And it has changed tense: the forecast asserted on the preview above is now a report on rows that
   // exist. lib/importNote.test.ts holds both sentences word for word.
   await expect(faults).not.toContainText(/will be sent|will have to/i);
+  // T180 The same withdrawal in the committed tense, over the same row and the same warning: both tenses
+  // move together, which is what `importInviteNote` owning the pair is for.
+  await expect(faults).toContainText(/Handing the link over will not get this patient in either\./);
+  const createdText = await page.locator(".import-dialog").innerText();
+  expect(createdText, "and the result screen offers it no more than the preview did").not.toMatch(
+    /copy each link from the dashboard|hand those patients the link yourself/i,
+  );
+  expect(createdText).toMatch(/the six-digit code their link needs has nowhere to go/i);
   await shot(page, "provider-import-created", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
