@@ -402,6 +402,11 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
   // note is the line that names neither of the two (lib/delivery.ts, via `inviteSendability`) — and the lede
   // and the button have to agree with it, because the bug was one literal above another.
   const step3 = page.getByRole("dialog", { name: "Add a booked patient" });
+  // T182 The heading over that lede, which is the largest type in the column. This patient has both details
+  // on file and the gate carries a code by email, so handing their link over is a way in and the heading
+  // this step has always carried is the true one — the half of the rule that keeps it from being met by
+  // saying less to everybody (lib/booking.ts).
+  await expect(step3.locator(".patient-wizard-step .ss-title")).toHaveText("Ready for the handoff.");
   await expect(step3.locator(".ss-lede")).toHaveText(
     "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
   );
@@ -625,6 +630,10 @@ test("a booking with nothing on file promises no send, and the row says the link
   );
   // T177 The lede over that note, which offered the handover the note withdraws — the two sentences this
   // ticket was filed for, one above the other in the frame T173 committed.
+  // T182 And the heading over both of them, the largest type in the column and the last line of the three
+  // that still promised the handover: there is nowhere to send this patient a code, so the link does not
+  // open and the handover is not what this booking is ready for (lib/booking.ts).
+  await expect(wizard.locator(".patient-wizard-step .ss-title")).toHaveText("Ready to go on file.");
   await expect(wizard.locator(".ss-lede")).toHaveText("Saving creates the patient and their private Sweetie link.");
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   // Nothing about this is a gap in the deployment, so nothing on the step is marked as something to fix:
@@ -633,6 +642,7 @@ test("a booking with nothing on file promises no send, and the row says the link
   await expect(wizard.locator(".patient-consent-warning")).toHaveCount(1);
   const step = await wizard.innerText();
   expect(step, "nothing on the step offers a send").not.toMatch(PROMISES_SEND);
+  expect(step, "nor heads any of it with the handover it withdraws (T182)").not.toMatch(/Ready for the handoff/);
   expect(step, "nor a code this patient cannot receive").not.toMatch(/sends? (?:them|you|the patient)/i);
   expect(step, "nor a destination for a link that has none").not.toMatch(/goes to/);
   await shot(page, "provider-add-visit-no-contact-default", {
@@ -640,6 +650,17 @@ test("a booking with nothing on file promises no send, and the row says the link
     scrollTo: ".patient-consent-warning",
     block: "center",
     wholeRows: ".patient-consent-note, .patient-consent-warning, .patient-wizard-actions",
+  });
+  // T182 And the top of the same step, which the frame above cannot hold: at 375px the four channel cards
+  // sit between the lede and the note, so no one phone frame carries all three paragraphs — and the two the
+  // frame above leaves out are the pair this ticket is about. Anchored on the stepper rather than on the
+  // heading itself, so the frame opens where the step does — the eyebrow above the heading and the lede
+  // under it — which is how `expectStepThreeScrolls` photographs the reachable practice's step one test up
+  // (`provider-add-visit-step3-scroll-top`). The pair is then the same frame of two bookings (§6.5, T155).
+  await shot(page, "provider-add-visit-no-contact-heading", {
+    ...MODAL,
+    scrollTo: ".patient-wizard-top",
+    wholeRows: ".ss-lede",
   });
 
   // T177 And the press on this default, which §2.2 now takes. It used to answer 400 with "A text message
@@ -750,10 +771,14 @@ test("a booking this office cannot text offers neither the invite nor the handov
   await expect(note, "the deployment's gap is still somebody's to fix").toHaveClass(/patient-consent-note-blocked/);
   // T177 The lede above that note, which used to end on the handover the note withdraws: it keeps what
   // pressing the button really does and stops there (lib/booking.ts).
+  // T182 And the heading above the lede, off the same answer: no code can reach a number this office cannot
+  // text, so the step heads what the press really does rather than a handover it has withdrawn twice below.
+  await expect(wizard.locator(".patient-wizard-step .ss-title")).toHaveText("Ready to go on file.");
   await expect(wizard.locator(".ss-lede")).toHaveText("Saving creates the patient and their private Sweetie link.");
   await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
   const step = await wizard.innerText();
   expect(step, "nothing on the step offers a send this office cannot make").not.toMatch(PROMISES_SEND);
+  expect(step, "nor heads any of it with the handover it withdraws (T182)").not.toMatch(/Ready for the handoff/);
   expect(step, "nor the handover it has just withdrawn").not.toMatch(/copy the link from the dashboard/i);
   expect(step, "nor a code that has nowhere to arrive").not.toMatch(/sends? (?:them|you|the patient)/i);
   await shot(page, "provider-add-visit-no-sender-for-code", STEP_3);
