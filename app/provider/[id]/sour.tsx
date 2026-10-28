@@ -25,6 +25,7 @@ import SleepChart from "@/components/SleepChart";
 import SourJobState from "@/components/SourJobState";
 import SpikeTable from "@/components/SpikeTable";
 import StatTile from "@/components/StatTile";
+import { clinicianGmi } from "@/lib/gmi";
 import { sourInviteNote, type InviteAnswer } from "@/lib/inviteNote";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
@@ -299,6 +300,10 @@ export default function SourView({ id }: { id: string }) {
   const visible = (provider?.visits ?? []).filter((v) => v.hasSummary || v.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
+  // What this visit's span lets the two clinician surfaces say about GMI (lib/gmi.ts, T185). The tile below
+  // and the overview line read the one report, so a screen cannot carry the figure unqualified in one place
+  // and scoped in the other.
+  const gmi = st ? clinicianGmi(st) : null;
   // A job someone else queued (an intake that just wrapped, another clinician's Generate) counts as busy too,
   // so the button does not invite a second run while the first is still in the queue.
   const jobBusy = bundle?.sourJob?.status === "queued" || bundle?.sourJob?.status === "running";
@@ -450,7 +455,7 @@ export default function SourView({ id }: { id: string }) {
                     <h3 className="text-sm font-semibold">Summary</h3>
                     {st && bundle.status.hasDexcom && (
                       <p className="text-sm text-[var(--viz-ink-2)]">
-                        In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg} · GMI {st.gmi.toFixed(1)}% · {countOf(bundle.spikeTotal, "spike")}
+                        In range <span className="font-semibold text-[var(--viz-ink)]">{Math.round(st.tir * 100)}%</span> · avg {st.avg}{gmi?.overview && ` · ${gmi.overview}`} · {countOf(bundle.spikeTotal, "spike")}
                         {st.sleepAvgHours !== null && ` · sleep ${st.sleepAvgHours}h`}
                       </p>
                     )}
@@ -509,7 +514,7 @@ export default function SourView({ id }: { id: string }) {
                 {!bundle.status.hasDexcom && (
                   <p className="ss-notice sour-no-glucose-note">No glucose data was shared. This summary is from the conversation only.</p>
                 )}
-                {st && bundle.status.hasDexcom && (
+                {st && gmi && bundle.status.hasDexcom && (
                   <section className="sour-card sour-metrics-card">
                     <div className="flex flex-wrap items-end justify-between gap-4">
                       <div>
@@ -520,7 +525,12 @@ export default function SourView({ id }: { id: string }) {
                       {/* min-w-full below sm keeps the tiles from being squeezed beside the time-in-range block: the row wraps. */}
                       <div className="grid min-w-full flex-1 grid-cols-2 gap-2 sm:min-w-0 sm:grid-cols-4">
                         <StatTile label="Average" value={String(st.avg)} unit="mg/dL" />
-                        <StatTile label="GMI" value={st.gmi.toFixed(1)} unit="%" hint="est. A1c from CGM" />
+                        {/* The hint is a claim about the span and not a label, so it comes out of lib/gmi.ts:
+                            GMI stands in for a three-month average, and "est. A1c from CGM" over the single
+                            day an upload may hold is the overclaim five patient-side tickets took out of the
+                            hero and the consent screen (T185, §7). The figure stays either way — it is true
+                            of the readings that arrived — and the sub-line says what the span makes it. */}
+                        <StatTile label="GMI" value={gmi.value} unit="%" hint={gmi.hint} />
                         {/* The hint is not a count unless a Timeline was shared: with none, a "0 linked to
                             a place" would report an absence of optional data as a measurement, beside a
                             Sleep tile that names the same absence for WHOOP (T160, §2.5, §2.6).
