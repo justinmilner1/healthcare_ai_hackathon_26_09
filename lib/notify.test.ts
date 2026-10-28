@@ -439,43 +439,51 @@ test("one backend of the two is a narrower invite, not a refused one", () => {
 // and what staff need before they press the button is one sentence per distinct reason rather than one per
 // row. The set is the whole of it; the rest is `inviteSendability` above, row by row.
 
+/** T180 `inviteFaults` takes rows and answers `{ fault, handover }`, because the sentence each reason ends
+ *  on is §8.1's fallback and that is a fact about the row (`canHandOver`). The tests in this block are about
+ *  the *set of reasons*, which the ticket did not change, so they ask for it through this. The contact pair
+ *  is the seed's own synthetic one, so §13.4 is not quietly what any of them is about; the handover arm of
+ *  the rule has its own block below. */
+const reasonsFor = (channels: (string | null | undefined)[]): string[] =>
+  inviteFaults(channels.map((channel) => ({ channel, phone: "+14155550100", email: "sam.sample@sweetspot.local" }))).map((f) => f.fault);
+
 test("a file of invites nothing can send is one sentence, not one per row (T135)", () => {
   // Twenty-five texted rows in an office with no SMS backend is one fact about the deployment, which is the
   // reason this answers with a set: the sentence the import screen prints is about the office and not about
   // any patient in the file.
-  assert.deepEqual(inviteFaults(Array(25).fill("sms")), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"]);
-  assert.deepEqual(inviteFaults([]), [], "a file with no creatable row promises nothing");
+  assert.deepEqual(reasonsFor(Array(25).fill("sms")), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"]);
+  assert.deepEqual(reasonsFor([]), [], "a file with no creatable row promises nothing");
 });
 
 test("two channels nothing can send are two sentences, because each names its own", () => {
   // `cannotSendYet` names the channel staff chose (lib/delivery.ts), so a file holding both kinds has two
   // things to say and the Invite column beside them says which rows each is about.
-  assert.deepEqual(inviteFaults(["sms", "email", "sms"]), [
+  assert.deepEqual(reasonsFor(["sms", "email", "sms"]), [
     "Sweet Spot cannot send texts yet — ask whoever set it up for your office",
     "Sweet Spot cannot send email yet — ask whoever set it up for your office",
   ]);
   // "both" is neither of the two, and the line that names no channel is the true one when neither can send.
-  assert.deepEqual(inviteFaults(["both"]), ["Sweet Spot cannot send this message yet — ask whoever set it up for your office"]);
+  assert.deepEqual(reasonsFor(["both"]), ["Sweet Spot cannot send this message yet — ask whoever set it up for your office"]);
 });
 
 test("a row that chose to message nobody is not a gap in the deployment (T120)", () => {
   // §2.2's blank `channel` column, which the CSV parser reads as "none" (lib/visitIntake.ts). Lines 3 and 4
   // of the example file are this case: they must stay clean on a screen full of faults, because nothing is
   // wrong with them and `NO_CONSENT_TO_MESSAGE` is their sentence.
-  assert.deepEqual(inviteFaults(["none", "none"]), []);
-  assert.deepEqual(inviteFaults(["none", "sms"]), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"], "and it hides nothing beside it");
+  assert.deepEqual(reasonsFor(["none", "none"]), []);
+  assert.deepEqual(reasonsFor(["none", "sms"]), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"], "and it hides nothing beside it");
 });
 
 test("a configured deployment reports no fault for a file at all (T135)", () => {
   withEnv({ EMAIL_FROM: "clinic@sweetspot.example" }, () => {
-    assert.deepEqual(inviteFaults(["email", "email", "none"]), []);
+    assert.deepEqual(reasonsFor(["email", "email", "none"]), []);
     // One backend of the two still sends, so "both" is a narrower invite and not a refused one — the same
     // judgement `inviteSendability` makes one row at a time.
-    assert.deepEqual(inviteFaults(["both"]), []);
-    assert.deepEqual(inviteFaults(["sms", "email"]), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"], "the channel with no backend is still named");
+    assert.deepEqual(reasonsFor(["both"]), []);
+    assert.deepEqual(reasonsFor(["sms", "email"]), ["Sweet Spot cannot send texts yet — ask whoever set it up for your office"], "the channel with no backend is still named");
   });
   withEnv({ EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: "+14155550199" }, () => {
-    assert.deepEqual(inviteFaults(["sms", "email", "both", "none"]), [], "nothing to say about a deployment that can send");
+    assert.deepEqual(reasonsFor(["sms", "email", "both", "none"]), [], "nothing to say about a deployment that can send");
   });
 });
 
@@ -520,10 +528,124 @@ test("a configured deployment has nothing to say on the step at all (T140)", () 
 test("every sentence a file can carry stays in staff's words (§3.7, §10.6)", () => {
   // The same shape lib/delivery.ts's own tests use: a new sentence in this family cannot smuggle a variable
   // name or a backend onto a practice's screen, and this is the screen a whole day of patients is decided on.
-  for (const fault of inviteFaults(["sms", "email", "both"])) {
+  for (const fault of reasonsFor(["sms", "email", "both"])) {
     assert.match(fault, /^Sweet Spot cannot send/);
     assert.doesNotMatch(fault, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// T180 (§2.2, §2.3, §5.3, §8.1) The other half of each of those sentences: the remedy they end on is §8.1's
+// fallback, which rests on the link opening — and the link opens on a six-digit code reaching the patient.
+// So `inviteFaults` answers `handover` beside each reason, and the three values are the shape a *batch*
+// forces: the sentence is per import and the answer is per row. lib/importNote.test.ts holds the sentences;
+// this block is the answer the route computes for them.
+//
+// `DEV_MAIL_DIR` is set in one arm and cleared in the other, deliberately: the code's email goes through
+// `sendOrMailbox`, so the gate's own checkout can carry a code where no invite can (T05, T113) — which is
+// why a file can have a fault and a usable handover at the same time.
+
+/** An office with no sender behind either channel and the gate's mailbox, which is what
+ *  `scripts/agent-check.sh` runs as (§11.3). A code reaches an address; an invite reaches nothing. Only the
+ *  mailbox is named, because this file's own setup has already cleared every sender and the mailbox itself. */
+const GATE = { DEV_MAIL_DIR: "e2e/.mail" };
+
+/** And an office that can text and not email, with no mailbox — a deployment, which has none. */
+const TEXTS_ONLY = { SNS_ORIGINATION_NUMBER: "+14155550199" };
+
+/** §8.1's bounce on the one address a row has, which closes that channel to a code as completely as a
+ *  missing sender does (lib/suppression.ts). Its own copy, because the shared one below is declared after
+ *  this block and this is the one filter only a written row can carry. */
+const BOUNCED_HERE: SuppressionFacts = { emailUndeliverableAt: new Date("2026-10-08T00:00:00Z"), emailUndeliverableReason: "bounce" };
+
+const row = (channel: string | null, contact: { phone?: string | null; email?: string | null }) => ({ channel, ...contact });
+
+test("a reason whose every row a code can reach keeps §8.1's fallback (T180)", () => {
+  withEnv(GATE, () => {
+    // The gate: nothing can send an invite, so the file has a reason — and the mailbox carries the code, so
+    // handing these patients their link really is a way in.
+    assert.deepEqual(inviteFaults([row("email", { email: "sam.sample@sweetspot.local" })]), [
+      { fault: "Sweet Spot cannot send email yet — ask whoever set it up for your office", handover: "all" },
+    ]);
+  });
+});
+
+test("a reason no row of which a code can reach withdraws it (T180)", () => {
+  withEnv(GATE, () => {
+    // The ticket's own frame: a texted row with a number and nothing else, in an office with no SMS backend.
+    // The invite cannot go, and nor can the code, so the link the line would hand over does not open.
+    assert.deepEqual(inviteFaults([row("sms", { phone: "+14155550100" }), row("sms", { phone: "+14155550101" })]), [
+      { fault: "Sweet Spot cannot send texts yet — ask whoever set it up for your office", handover: "none" },
+    ]);
+    // And the row §2.2 has nothing at all on file for, which is where this family started (T173).
+    assert.deepEqual(inviteFaults([row("sms", {})]), [
+      { fault: "Sweet Spot cannot send texts yet — ask whoever set it up for your office", handover: "none" },
+    ]);
+  });
+});
+
+test("a mixed batch is neither, because either answer would be false for a row on the screen (T180)", () => {
+  withEnv(GATE, () => {
+    // Both rows chose a text and this office cannot text, so they share one reason. One of them has an
+    // address the gate's mailbox can carry a code to and the other has not, so §8.1's fallback is a way in
+    // for one of the two — and a line that offered it would be false for the second, while a line that
+    // withdrew it would keep the first patient's link from ever being handed over.
+    assert.deepEqual(inviteFaults([row("sms", { phone: "+14155550100" }), row("sms", { phone: "+14155550101", email: "ada@example.com" })]), [
+      { fault: "Sweet Spot cannot send texts yet — ask whoever set it up for your office", handover: "some" },
+    ]);
+  });
+});
+
+test("the answer is per reason, so one file's two lines can differ (T180)", () => {
+  withEnv(TEXTS_ONLY, () => {
+    // This office texts and does not email. The emailed rows are the ones with a fault, and the code has
+    // nowhere to go for the one whose only detail is that same address — one reason, two rows, mixed. The
+    // texted rows can send, so they contribute no line at all.
+    assert.deepEqual(
+      inviteFaults([
+        row("sms", { phone: "+14155550100" }),
+        row("email", { email: "ada@example.com" }),
+        row("email", { phone: "+14155550101", email: "sam@example.com" }),
+      ]),
+      [{ fault: "Sweet Spot cannot send email yet — ask whoever set it up for your office", handover: "some" }],
+    );
+    // And with only the reachable one of those two emailed rows, the same reason keeps the offer.
+    assert.deepEqual(inviteFaults([row("email", { phone: "+14155550101", email: "sam@example.com" })]), [
+      { fault: "Sweet Spot cannot send email yet — ask whoever set it up for your office", handover: "all" },
+    ]);
+  });
+});
+
+test("§13.4 closes the handover for a batch the way it closes it for one patient (T145, T180)", () => {
+  withEnv(GATE, () => {
+    // A demo practice may write only to a reserved address or number (lib/demo.ts), and that closes the
+    // channel as completely as a missing sender does — so the remedy goes with it, whatever is on the row.
+    const real = { phone: "+16505552652", email: "prospect@example-endo.com" };
+    assert.deepEqual(inviteFaults([{ channel: "sms", ...real, demo: true }]), [
+      { fault: "Sweet Spot cannot send texts yet — ask whoever set it up for your office", handover: "none" },
+    ]);
+    assert.deepEqual(inviteFaults([{ channel: "sms", ...real, demo: false }])[0].handover, "all", "the same row in a real practice");
+  });
+});
+
+test("§8.1's bounce and STOP close it too, which is why the press reads the written row (T180)", () => {
+  withEnv(GATE, () => {
+    // The two filters only a patient row carries, which is why the committed half of the route asks off
+    // `InviteReachRows` and the preview cannot (lib/visitStore.ts, app/api/visits/import/route.ts).
+    const sam = { phone: "+14155550100", email: "sam.sample@sweetspot.local" };
+    assert.deepEqual(inviteFaults([{ channel: "sms", ...sam, suppression: BOUNCED_HERE }])[0].handover, "none", "the only channel a code had is the bounced one");
+    assert.deepEqual(inviteFaults([{ channel: "sms", ...sam }])[0].handover, "all");
+  });
+});
+
+test("a row that chose to message nobody contributes no answer either (T120, T180)", () => {
+  withEnv(GATE, () => {
+    // It has no reason, so it has no line — and therefore no handover answer to pull a line's one way or
+    // the other. `NO_CONSENT_TO_MESSAGE` is its sentence and the dashboard row is where it is said.
+    assert.deepEqual(inviteFaults([row("none", {}), row("sms", { email: "sam.sample@sweetspot.local" })]), [
+      { fault: "Sweet Spot cannot send texts yet — ask whoever set it up for your office", handover: "all" },
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
