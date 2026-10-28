@@ -184,6 +184,30 @@ export function warningsFor(draft: Pick<VisitDraft, "phone" | "email">): string[
 }
 
 /**
+ * §2.2, T176 The field a sending channel cannot go without, as the clause the sentence is built from.
+ *
+ * `parseVisitDraft` below has refused a sending channel with no destination since T07, and the sentence it
+ * refuses with is the only line in the product that names the gap — which is why step 3 spent nine tickets
+ * promising a send over it. The forecast now says the same thing *before* the button (`bookingPlan`,
+ * lib/booking.ts), so the clause lives here and both tenses are built from it rather than worded twice: a
+ * front desk that reads it on the step and then presses anyway reads one sentence, not two about one field.
+ *
+ * Lowercase, with the capital derived, for `NO_HANDOVER_SENTENCE`'s reason (lib/delivery.ts): one clause,
+ * one capital, one place to reword either. Staff's words throughout — the two fields are theirs, and
+ * nothing about this is the deployment's (§3.7, §10.6).
+ */
+export const CHANNEL_NEEDS: Record<"sms" | "email", string> = {
+  sms: "a text message needs a mobile number",
+  email: "an emailed invite needs an email address",
+};
+
+/** The same clause as the sentence both the step and the press say it in. */
+export function channelNeeds(channel: "sms" | "email"): string {
+  const clause = CHANNEL_NEEDS[channel];
+  return `${clause[0].toUpperCase()}${clause.slice(1)}.`;
+}
+
+/**
  * One visit's worth of input, validated. Every error is a whole sentence a receptionist can act on, because
  * the same strings are shown under the wizard's fields and next to a CSV row.
  *
@@ -228,8 +252,10 @@ export function parseVisitDraft(input: VisitInput): DraftResult {
   if (channel && channel !== "none") {
     if (!consentMethod) errors.push("Record how the patient's consent to be contacted was taken before sending anything.");
     const wanted = channelsOf(channel);
-    if (wanted.includes("sms") && !phone) errors.push("A text message needs a mobile number.");
-    if (wanted.includes("email") && !email) errors.push("An emailed invite needs an email address.");
+    // T176 The same sentence step 3's forecast now reads from, so the press and the screen before it cannot
+    // word one missing field two ways (`channelNeeds` above, `bookingPlan` in lib/booking.ts).
+    if (wanted.includes("sms") && !phone) errors.push(channelNeeds("sms"));
+    if (wanted.includes("email") && !email) errors.push(channelNeeds("email"));
   }
 
   if (errors.length) return { ok: false, errors };

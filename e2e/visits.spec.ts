@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { cannotSendYet } from "../lib/delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "../lib/demo";
+import { channelNeeds } from "../lib/visitIntake";
 import { SENDABLE_PORT } from "../playwright.config";
 import { expectNoFocusRing, expectVisibleFocusRing } from "./a11y";
 import { postJson } from "./api";
@@ -791,6 +792,72 @@ test("a booking this office cannot text offers neither the invite nor the handov
     block: "center",
     inline: "end",
   });
+});
+
+// T176 (design §2.2, §8.1, §13.4) The combination one field short of the test above, and of T173's: the
+// patient has a detail on file and staff picked the channel it is *not* on.
+//
+// `warningsFor` is silent here — it fires only when both fields are blank — so there was no line beside the
+// three this step writes to contradict them, and all three were wrong: the lede promised "sends their
+// private Sweetie link", the note rendered "The secure link goes to — add a number or address on the first
+// step." (naming a step the front desk had already filled in), and the button read **Add patient & send →**.
+//
+// The two gaps are told apart on one screen a radio apart, which is the ordering this ticket fixes: *Email*
+// with no address is the front desk's own missing field and names it; *Text message*, which this patient
+// does have, is the deployment's missing sender and keeps T111's sentence and the mark that says somebody
+// can fix it. Nothing is pressed — the route refuses a sending channel with no destination
+// (`parseVisitDraft`), which is the sentence the step now quotes — so this books into the seeded practice
+// without adding a row to it.
+test("a channel with no destination names the field it needs, not a send", async ({ page }) => {
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  await wizard.getByLabel("Patient name").fill(uniqueName("One Field Patient"));
+  // From the reserved range, so §13.4 is not what this measures: the seeded practice is a demo one, and a
+  // number outside that range would close the text channel for the demo rule rather than for the gap under
+  // test (T145, lib/demo.ts). The email field is left blank, which is the whole of the case.
+  await wizard.getByLabel("Mobile number").fill(reservedPhone());
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+  await wizard.getByText("Follow-up", { exact: true }).click();
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  // The channel this patient has nothing on. The sentence is the one the press refuses with, from the module
+  // that owns it (`channelNeeds`, lib/visitIntake.ts), and the clause after it is T175's: this gate has no
+  // SMS sender either (§11.3), so the number on file cannot carry the six-digit code the link opens on.
+  await wizard.getByText("Email", { exact: true }).click();
+  const note = wizard.locator(".patient-consent-note").first();
+  await expect(note).toHaveText(
+    `${channelNeeds("email")} Handing the link over will not get this patient in either.`,
+    LOADED,
+  );
+  // Not marked: the missing address is the front desk's own field and not a gap in the deployment, which is
+  // what `.patient-consent-note-blocked` is for (T131, T140).
+  await expect(note, "an empty field is nobody else's to fix").not.toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
+  );
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+
+  // The whole step, because the next literal would be somewhere else on it: no promise of a send anywhere,
+  // and no sentence naming a destination for a channel that has none (criteria 1 and 2).
+  const step = await wizard.innerText();
+  expect(step, "nothing on the step offers a send with nowhere to send it").not.toMatch(PROMISES_SEND);
+  expect(step, "nor names a destination for a channel with none").not.toMatch(/goes to/i);
+  expect(step, "nor the half-written sentence this ticket deletes").not.toMatch(/add a number or address on the first step/i);
+  // And §2.2's warning is not on the step either, which is why these three lines had nothing to correct them.
+  await expect(wizard.locator(".patient-consent-warning")).toHaveCount(0);
+  await shot(page, "provider-add-visit-no-destination-for-channel", STEP_3);
+
+  // One radio along, the gap the other sentence is for: this patient does have a number, so what is missing
+  // is the sender behind it — the deployment's, marked as something somebody can fix. Two gaps, two
+  // sentences, and the order between them is what this ticket settles.
+  await wizard.getByText("Text message", { exact: true }).click();
+  await expect(note).toHaveText(
+    `No invite will be sent: ${cannotSendYet("sms")}. Handing the link over will not get this patient in either.`,
+  );
+  await expect(note, "a missing sender is somebody's to fix").toHaveClass(/patient-consent-note-blocked/);
 });
 
 // T166 (design §2.2, §6.4) Both of the wizard's radio groups hide their input inside the styled card, so

@@ -17,7 +17,7 @@ import {
   sendSummaryEmails,
   summaryTemplates,
 } from "./notify";
-import { cannotSendYet, NO_CONTACT_ON_FILE } from "./delivery";
+import { cannotSendYet, DELIVERY_NO_EMAIL, DELIVERY_NO_PHONE, NO_CONTACT_ON_FILE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import { channelsFor } from "./patientSession";
 import type { SuppressionFacts } from "./suppression";
@@ -905,8 +905,8 @@ test("one detail on file narrows the invite to it instead of claiming the other 
     assert.deepEqual(smsOnly.channels, ["sms"]);
     assert.equal(smsOnly.reason, undefined);
     // And the channel staff chose with nothing behind it is the refused one, not the other.
-    assert.equal(inviteReach({ channel: "sms", phone: null, email: SAM.email }).reason, NO_CONTACT_ON_FILE);
-    assert.equal(inviteReach({ channel: "email", phone: SAM.phone, email: null }).reason, NO_CONTACT_ON_FILE);
+    assert.deepEqual(inviteReach({ channel: "sms", phone: null, email: SAM.email }).channels, []);
+    assert.deepEqual(inviteReach({ channel: "email", phone: SAM.phone, email: null }).channels, []);
   });
 });
 
@@ -944,6 +944,73 @@ test("every refusal for this patient stays in staff's words (§3.7, §10.6, T173
     const reason = inviteReach({ channel: "both", ...NOBODY, demo: true }).reason!;
     assert.doesNotMatch(reason, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, reason);
     assert.match(reason, /^[a-z]/, "it is dropped into a sentence of the caller's");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T176 (§2.2, §8.1, §13.4) The same filter, told apart from itself: "no phone or email on file" is one
+// sentence about two different gaps, and for the patient who has one of the two it is false about them.
+
+test("one detail on file is not no detail on file (T176)", () => {
+  // The ticket's own case, both ways round. The number is on the row one column to the left of the sentence,
+  // so the gap is the half staff picked the channel for — and that is the clause `sendIntakeInvite` would
+  // have written on the delivery row for the same cause, which is why it is the same constant.
+  withEnv(SENDING, () => {
+    assert.equal(inviteReach({ channel: "email", phone: SAM.phone, email: null }).reason, DELIVERY_NO_EMAIL);
+    assert.equal(inviteReach({ channel: "sms", phone: null, email: SAM.email }).reason, DELIVERY_NO_PHONE);
+    // Neither is the other, and neither is the sentence for the patient who has nothing: three gaps, three
+    // clauses, none of them claiming a detail the patient has not got or denying one they have.
+    for (const reason of [DELIVERY_NO_EMAIL, DELIVERY_NO_PHONE]) assert.notEqual(reason, NO_CONTACT_ON_FILE);
+    assert.equal(inviteReach({ channel: "email", ...NOBODY }).reason, NO_CONTACT_ON_FILE);
+  });
+  // Whatever the deployment is: this is a fact about the patient's row, so configuring a sender reopens
+  // nothing and the unconfigured gate answers the same thing (§11.3).
+  for (const env of [MAILBOX, {}]) {
+    withEnv(env, () => {
+      assert.equal(inviteReach({ channel: "email", phone: SAM.phone, email: null }).reason, DELIVERY_NO_EMAIL);
+    });
+  }
+});
+
+test("the missing half is still asked before the rows and the deployment (T173, T176)", () => {
+  withEnv(SENDING, () => {
+    // A bounce recorded against an address that is now blank, and §13.4 as a column on the practice: neither
+    // is the thing to say to someone whose chosen channel has no destination, for T173's own reason one
+    // field along. The number here is one §13.4 refuses, so the demo rule would have answered if it were
+    // asked first.
+    assert.equal(inviteReach({ channel: "email", phone: REAL.phone, email: null, demo: true }).reason, DELIVERY_NO_EMAIL);
+    assert.equal(
+      inviteReach({ channel: "email", phone: SAM.phone, email: null, suppression: BOUNCED }).reason,
+      DELIVERY_NO_EMAIL,
+    );
+    // And it is not the deployment's sentence either, on an office that has both senders.
+    const reason = inviteReach({ channel: "sms", phone: null, email: SAM.email }).reason!;
+    assert.notEqual(reason, cannotSendYet("sms"));
+    assert.doesNotMatch(reason, /cannot send|whoever set/i);
+    assert.notEqual(reason, DEMO_ONLY_TEST_ADDRESSES);
+    // Staff's words, dropped into a sentence of the caller's, naming no variable and no backend.
+    assert.doesNotMatch(reason, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, reason);
+    assert.match(reason, /^[a-z]/);
+  });
+});
+
+test("the half that can send still sends, so the narrowing is not a refusal (T176)", () => {
+  // The other direction: "Text and email" with one detail on file is a narrower invite and not a refused
+  // one, which is T173's own assertion above — this ticket must not have turned it into a reason.
+  withEnv(SENDING, () => {
+    for (const to of [{ phone: SAM.phone, email: null }, { phone: null, email: SAM.email }]) {
+      const reach = inviteReach({ channel: "both", ...to });
+      assert.equal(reach.channels.length, 1, JSON.stringify(to));
+      assert.equal(reach.reason, undefined, JSON.stringify(to));
+    }
+  });
+});
+
+test("`channel: \"none\"` says nothing about a missing half either (T120, T176)", () => {
+  // The practice's own choice is answered before this function is asked, and a second reason competing with
+  // it is the shape of the bug rather than a fix for it — the same point T173 makes for the empty row.
+  withEnv(SENDING, () => {
+    assert.equal(inviteReach({ channel: "none", phone: SAM.phone, email: null }).reason, undefined);
   });
 });
 

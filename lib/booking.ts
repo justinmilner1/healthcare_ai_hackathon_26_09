@@ -44,6 +44,14 @@
 // handover — the practice's own silence, §13.4's refusal and the deployment's gap — all read one answer
 // (`codeCanReach`), and the sentence that offers a way in is only said where there is one.
 //
+// T176 is the sixth, and it is T173's branch one field short of it. T173 asked the two *fields* whether this
+// patient has anywhere to send to, and that answers "yes" for a patient with a number whose invite staff
+// chose to email: the chosen channel still has nothing, so the step read the sending branch — the promise,
+// the half-written "The secure link goes to — add a number or address on the first step." and **Add patient
+// & send →** — with no warning beside it to contradict it, because `warningsFor` fires only when both fields
+// are blank. So the question is asked of the *channels* staff picked, which is `inviteReach`'s own first
+// filter, and the gap it leaves is named by the sentence the press has always refused it with (§2.2).
+//
 // Pure, and in lib/ rather than in the wizard, so every branch is held to in a unit test (§12.1). The words
 // for *why* nothing went out are mostly not here: the deployment's are the route's `reason`, which comes
 // from lib/notify.ts and is spelled in lib/delivery.ts, staff's words for a gap in the deployment and never
@@ -55,7 +63,7 @@
 import { NO_HANDOVER_EITHER, NO_HANDOVER_SENTENCE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
 import type { NotifyChannel } from "./suppression";
-import { channelLabel, channelOf, channelsOf, type ContactChannel } from "./visitIntake";
+import { channelLabel, channelNeeds, channelOf, channelsOf, type ContactChannel } from "./visitIntake";
 
 /** What POST /api/book answered, plus the name the wizard has on screen. */
 export type BookedSend = {
@@ -274,29 +282,54 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
       action: "Add patient →",
     };
   }
-  // T173 The same patient, on any of the three sending channels — and the step opens on "Text and email",
-  // so this is the combination a front desk sees first and the one the "Do not message" branch above was
-  // reached only by choosing away from. It read the sending branch at the bottom of this function: the lede
-  // promised "sends their private Sweetie link", the button read **Add patient & send →**, and the note
-  // rendered with a hole in it — "The secure link goes to — add a number or address on the first step." —
-  // all three lines above a warning saying the link will not open. Nothing can be sent, because nothing was
-  // chosen to send to; so this is the "Do not message" answer word for word, which is right for the same
-  // reason it is right there. `blocked` stays false: nothing about it is a gap in the deployment, and the
-  // missing details are marked by the warning's own element (`.patient-consent-warning`, T168).
+  // T173, T176 The first filter, and the one this function spent nine tickets without: of the channels staff
+  // picked, which have a destination to send to at all. `inviteReach`'s own opening narrowing
+  // (`channelsFor`, lib/notify.ts), asked over the two fields step 1 has typed rather than over a patient
+  // row that does not exist yet — and asked *before* §13.4 and before the deployment, which is the order
+  // that press answers in. A channel with nowhere to send to is not a channel a demo practice or an
+  // unconfigured office closed, so naming either of them would answer the wrong gap.
   //
-  // Asked before §13.4 and before the deployment, which is the order `inviteReach` now answers the press in
-  // (lib/notify.ts) and what keeps the forecast and the press quoting one sentence: a channel with nowhere
-  // to send to is not a channel a demo practice or an unconfigured office closed.
-  if (!(phone?.trim() || email?.trim())) {
-    return { lede: WILL_NOT_SEND, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
+  // T173 reached this for the patient with both fields blank, by reading the fields rather than the
+  // channels; T176 is the combination that leaves: one field filled and the *other* channel picked, where
+  // reading the fields answers "there is something on file" and the chosen channel still has nothing. That
+  // fell through to the sending branch at the bottom of this function, which promised the send, rendered
+  // "The secure link goes to — add a number or address on the first step." and offered **Add patient &
+  // send →** — with no warning beside it, because `warningsFor` fires only when both fields are blank.
+  const wanted = channelsOf(channel);
+  const onFile = wanted.filter((c) => (c === "sms" ? phone : email)?.trim());
+  if (!onFile.length) {
+    // Both fields blank: the "Do not message" answer word for word, because it is the same fact about the
+    // same patient — nothing is sent, and the link that would be handed over does not open (§2.3, §5.3). The
+    // reason and the remedy are `warningsFor`'s, three lines below on the same step (lib/visitIntake.ts).
+    if (!(phone?.trim() || email?.trim())) {
+      return { lede: WILL_NOT_SEND, note: NO_WAY_IN, blocked: false, action: "Add patient →" };
+    }
+    // T176 And one field filled, on the channel staff did not pick. `wanted` is a single channel here —
+    // "Text and email" with either field filled leaves `onFile` non-empty — so the gap is that one channel's
+    // missing field, which is the front desk's own and the only one of the four this step can name a remedy
+    // for by naming the field. The sentence is the press's, from the module that owns it (`channelNeeds`,
+    // lib/visitIntake.ts): the forecast and the refusal are one wording, not two about one field.
+    //
+    // Nothing else is said. §13.4 and the deployment are not asked, because neither closed this channel;
+    // `warningsFor` is silent here, so there is no line to split a reason or a remedy with (T170); and the
+    // handover is not offered, because saving is what the press refuses and "save this patient and …" would
+    // be the next promise in this family. It is only *withdrawn*, where the code cannot reach this patient
+    // either — the one thing a front desk reading "add the other field" would otherwise still get wrong.
+    const needs = channelNeeds(wanted[0]);
+    return {
+      lede: WILL_NOT_SEND,
+      note: handover ? needs : `${needs} ${NO_HANDOVER_SENTENCE}`,
+      blocked: false,
+      action: "Add patient →",
+    };
   }
   // §13.4 before the deployment's own gap, which is the order `inviteReach` answers the press in
   // (lib/notify.ts) and the reason the two cannot disagree. A demo practice may only write to a reserved
   // address or number, so the destinations typed on step 1 are what decides it — and a channel it may not
   // write to is closed however well this office is configured, which is what the sentence has to say.
-  // `channelsOf` is empty only for "none", which returned above, so an empty `open` here means §13.4 closed
-  // every channel staff chose — the case the route answers `queued: false` for.
-  const open = channelsOf(channel).filter((c) => !demoBlockReason(Boolean(demo), c, c === "sms" ? phone : email));
+  // Over `onFile` and not over everything staff picked (T176): an empty `open` here means §13.4 closed every
+  // channel that had somewhere to send, which is the case the route answers `queued: false` for.
+  const open = onFile.filter((c) => !demoBlockReason(Boolean(demo), c, c === "sms" ? phone : email));
   // T175 The two branches that state a reason of their own — §13.4's rule and the deployment's own gap —
   // used to end on §8.1's fallback unconditionally, and that last clause is the one this ticket withdraws.
   // One shape for both, because the reason is all that differs between them and the remedy is the same
@@ -310,7 +343,8 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   });
   if (!open.length) return refused(DEMO_ONLY_TEST_ADDRESSES);
   // The destination is what is left open, so the step cannot name a number §13.4 has just refused while the
-  // other channel carries the invite. Blank until step 1 has one of them, which is not a fault.
+  // other channel carries the invite. T176 Never blank: `open` is a subset of the channels that have a
+  // destination, so every channel in it contributes one and the sentence always names what it is about.
   const to = [open.includes("sms") && phone?.trim(), open.includes("email") && email?.trim()].filter(Boolean).join(" and ");
   // And the deployment is asked about what §13.4 left open, not about what staff picked — `channelOf(open)`
   // is the same subset `inviteReach` hands `inviteSendability`, so the forecast and the press ask one
@@ -327,8 +361,11 @@ export function bookingPlan(planned: PlannedSend): BookingPlan {
   if (fault) return refused(fault);
   return {
     lede: WILL_SEND,
-    // Blank until step 1 has a number or an address, which is not a fault and is said where it happens.
-    note: `The secure link goes to ${to || "— add a number or address on the first step"}.`,
+    // T176 The `${to || …}` fallback is gone with the branch that reached it: a sentence that names a
+    // destination is only ever shown where there is one, and the half-written one it rendered instead —
+    // "The secure link goes to — add a number or address on the first step." — named a step the front desk
+    // had already filled in.
+    note: `The secure link goes to ${to}.`,
     blocked: false,
     action: "Add patient & send →",
   };

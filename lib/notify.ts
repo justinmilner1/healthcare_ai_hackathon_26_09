@@ -356,8 +356,10 @@ export type InviteReach = {
   /** The chosen channels an invite can really go out on, in `channelsOf` order. */
   channels: NotifyChannel[];
   /** What staff read when `channels` is empty although they chose one: `NO_CONTACT_ON_FILE` when there is no
-   *  number and no address to send to (T173), else the rows' own reason when the rows closed every channel
-   *  that had one, and the deployment's when something was still open and it could not serve it.
+   *  number and no address to send to (T173), the missing one of the two when the patient has the other and
+   *  staff chose the channel it is not on (T176), else the rows' own reason when the rows closed every
+   *  channel that had a destination, and the deployment's when something was still open and it could not
+   *  serve it.
    *  Undefined when an invite is going out, and when staff chose to message nobody — which is the practice's
    *  own choice with its own sentence (`NO_CONSENT_TO_MESSAGE`, T120) and not a gap in anything. */
   reason?: string;
@@ -411,11 +413,22 @@ export function inviteReach(p: {
 }): InviteReach {
   const wanted = channelsOf(p.channel);
   // T173 What staff chose, narrowed to what there is to send to — `invitableChannels`'s own narrowing, which
-  // is what the job sends by. Empty with something chosen means the patient has neither detail on file: the
-  // one gap here that is the front desk's own, said in the words §2.2's warning says it in and without its
-  // remedy, which that one line owns (lib/delivery.ts, lib/visitIntake.ts).
-  const onFile = channelsFor(p).filter((c) => wanted.includes(c));
-  if (!onFile.length) return { channels: [], reason: wanted.length ? NO_CONTACT_ON_FILE : undefined };
+  // is what the job sends by. Empty with something chosen is the one gap here that is the front desk's own,
+  // said in the words §2.2's warning says it in and without its remedy, which that one line owns
+  // (lib/delivery.ts, lib/visitIntake.ts).
+  const reachable = channelsFor(p);
+  const onFile = reachable.filter((c) => wanted.includes(c));
+  if (!onFile.length) {
+    if (!wanted.length) return { channels: [], reason: undefined };
+    // T176 Two gaps, not one. T173 answered both with "no phone or email on file", and for the patient who
+    // has one of the two that sentence is false about them: the detail is in the row one column to the left,
+    // and what is missing is the half staff picked the channel for. `wanted` is a single channel here —
+    // "Text and email" with either detail on file leaves `onFile` non-empty — so the clause is that
+    // channel's own, and it is the one a delivery row would have carried for the same cause
+    // (`sendIntakeInvite` writes it when the destination is absent, lib/delivery.ts).
+    const missing = reachable.length ? (wanted[0] === "sms" ? DELIVERY_NO_PHONE : DELIVERY_NO_EMAIL) : NO_CONTACT_ON_FILE;
+    return { channels: [], reason: missing };
+  }
   const open = allowedChannels(onFile, p.suppression).filter((c) => !rowBlockReason(p, c));
   const { channels } = inviteSendability(channelOf(open));
   if (channels.length) return { channels };

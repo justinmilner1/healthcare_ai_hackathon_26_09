@@ -16,7 +16,7 @@ import { fixture } from "./fixtures";
 import { newLinkNote, sendLinkNote } from "./inviteNote";
 import { canHandOver, codeReach, codeSenders, inviteFaultByChannel, inviteReach } from "./notify";
 import { channelsFor } from "./patientSession";
-import { channelLabel, parseVisitCsv, warningsFor } from "./visitIntake";
+import { channelNeeds, channelLabel, channelsOf, parseVisitCsv, warningsFor } from "./visitIntake";
 
 /** Anything that reads as the message being in motion. The two surfaces word it differently — "is on the
  *  way" of the patient, "is on its way" of the invite — and neither may appear on an unsent card. */
@@ -697,8 +697,9 @@ describe("nothing offers the handover where no code can reach the patient (T175)
                 // Whichever sentence this patient's branch produces, the clause it ends on is §8.1's
                 // fallback and not the withdrawal — which is what keeps the rule from being satisfied by
                 // saying nothing to anybody. The reason it states is `bookingPlan`'s own and is not compared
-                // with `inviteReach`'s here: the two disagree about a channel with no destination behind it,
-                // which is its own open ticket and not this one's claim.
+                // with `inviteReach`'s here: T176 made the two name one gap, but each words it for the press
+                // it pairs with — the step with `parseVisitDraft`'s refusal, which is what the button gets
+                // for this combination, and `inviteReach` with the dashboard row's note.
                 if (plan.note.startsWith("No invite will be sent:")) {
                   assert.match(plan.note, /Save this patient and copy the link from the dashboard and hand it over yourself\.$/, where);
                 }
@@ -801,6 +802,172 @@ describe("nothing offers the handover where no code can reach the patient (T175)
         /Save this patient and copy the link from the dashboard and hand it over yourself\.$/,
       );
       assert.match(bookingPlan({ channel: "none", ...phoneOnly }).note, /opening it still sends them a code\.$/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T176 (§2.2, §8.1, §13.4, §3.7, §10.6) T173's rule with "the patient has nothing" relaxed to "this channel
+// has nothing" — the combination one field short of it, and the one that still read exactly as the bug T173
+// fixed.
+//
+// T173 asked the two fields; this asks the channels staff picked. A number on step 1 with *Email* chosen is
+// a patient with something on file and a channel with nothing, so the sending branch promised the send,
+// rendered "The secure link goes to — add a number or address on the first step." and offered **Add patient
+// & send →** — and `warningsFor` was silent beside it, because it fires only when both fields are blank.
+//
+// Both arms matter for the same reason they do above: with no sender the honest "cannot send yet" answers
+// first and hides the branch, so the configured arm is the one that can see it.
+
+/** The destinations `CONTACT_COMBINATIONS` hands step 3, which are `SAM`'s. A line may name one only where
+ *  the channel it belongs to is a channel staff picked *and* a channel that has it. */
+const DESTINATIONS = [
+  ["sms", SAM.phone],
+  ["email", SAM.email],
+] as const;
+
+/** The sentence with the hole in it, which criterion 2 deletes: it named a step the front desk had already
+ *  filled in. Matched on the fragment rather than the whole literal, so a reworded hole is caught too. */
+const HALF_WRITTEN = /add a number or address on the first step/i;
+
+describe("nothing claims a send, or names a destination, for a channel that has none (T176)", () => {
+  for (const [arm, env] of [["a deployment that can send", SENDING], ["one that cannot", UNCONFIGURED]] as const) {
+    it(`holds over ${arm}`, () => {
+      withEnv(env, () => {
+        for (const to of CONTACT_COMBINATIONS) {
+          for (const channel of EVERY_CHANNEL) {
+            for (const demo of [false, true]) {
+              const where = `${arm}, channel=${channel}, demo=${demo}, to=${JSON.stringify(to)}`;
+              const plan = bookingPlan({ channel, faults: inviteFaultByChannel(), codeChannels: codeSenders(), demo, ...to });
+              const lines = [plan.lede, plan.note, plan.action];
+
+              // Criterion 2, over every combination of inputs there is: the half-written sentence is not
+              // reachable, and neither is the `${to || …}` fallback that rendered it.
+              for (const line of lines) assert.doesNotMatch(line, HALF_WRITTEN, `${where}: ${line}`);
+
+              // Of the channels staff picked, the ones there is somewhere to send to — `inviteReach`'s own
+              // first filter, asked here the way the step asks it (lib/notify.ts).
+              const onFile = channelsOf(channel).filter((c) => (c === "sms" ? to.phone : to.email));
+
+              // Criterion 1: with none of them having a destination, nothing on the step offers to send.
+              if (!onFile.length && channel !== "none") {
+                for (const line of lines) {
+                  assert.doesNotMatch(line, PROMISES_SEND, `${where}: ${line}`);
+                  assert.doesNotMatch(line, MOTION, `${where}: ${line}`);
+                }
+                assert.equal(plan.action, "Add patient \u2192", where);
+                // And it is not the deployment's gap, nor §13.4's: neither of them closed this channel, and
+                // `blocked` is what marks a reason somebody else has to fix (criterion 1).
+                assert.equal(plan.blocked, false, where);
+                assert.doesNotMatch(plan.note, /cannot send|whoever set/i, `${where}: ${plan.note}`);
+                assert.notEqual(plan.note.includes(DEMO_ONLY_TEST_ADDRESSES), true, where);
+              }
+
+              // Criterion 2's other half, in both directions: a destination is named only where the channel
+              // it belongs to is one staff picked and one that has it.
+              for (const [c, destination] of DESTINATIONS) {
+                for (const line of lines) {
+                  if (!line.includes(destination)) continue;
+                  assert.ok(onFile.includes(c), `${where}: names ${c}'s destination for a channel with none`);
+                }
+              }
+
+              // Staff's words throughout: the gap this ticket is about is two fields on their own screen.
+              for (const line of lines) {
+                assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  it("is the ticket's own case, both ways round", () => {
+    // A number on step 1, *Email* on step 3, on an office that can send both — the lede, the note and the
+    // button, which is the whole of criterion 1. The sentence is the one the press refuses with
+    // (`parseVisitDraft`), so the forecast and the refusal are one wording and not two about one field.
+    withEnv(SENDING, () => {
+      const plan = bookingPlan({
+        channel: "email",
+        faults: inviteFaultByChannel(),
+        codeChannels: codeSenders(),
+        phone: SAM.phone,
+        email: null,
+      });
+      assert.equal(plan.lede, "Saving creates the patient and their private Sweetie link, which you hand over yourself.");
+      assert.equal(plan.note, "An emailed invite needs an email address.");
+      assert.equal(plan.note, channelNeeds("email"));
+      assert.equal(plan.action, "Add patient \u2192");
+      assert.equal(plan.blocked, false);
+
+      // The mirror: an address on step 1 and *Text message* chosen.
+      const mirror = bookingPlan({
+        channel: "sms",
+        faults: inviteFaultByChannel(),
+        codeChannels: codeSenders(),
+        phone: null,
+        email: SAM.email,
+      });
+      assert.equal(mirror.note, channelNeeds("sms"));
+      assert.equal(mirror.action, "Add patient \u2192");
+    });
+  });
+
+  it("says the same thing on the gate, where the deployment's own gap used to answer first", () => {
+    // The unconfigured arm is what both routines run (§11.3), and it read `cannotSendYet("email")` here —
+    // sending a front desk with an empty field after whoever set Sweet Spot up (§3.7, §10.6). The missing
+    // destination is asked first now, as `inviteReach` asks it, so the sentence names the field.
+    withEnv(UNCONFIGURED, () => {
+      const plan = bookingPlan({
+        channel: "email",
+        faults: inviteFaultByChannel(),
+        codeChannels: codeSenders(),
+        phone: SAM.phone,
+        email: null,
+      });
+      // The field sentence first, whatever follows it: this office has no SMS sender either, so the number
+      // on file cannot carry a code and §8.1's fallback is withdrawn after it (T175, the arm below).
+      assert.ok(plan.note.startsWith(channelNeeds("email")), plan.note);
+      assert.doesNotMatch(plan.note, /cannot send|whoever set/i);
+    });
+  });
+
+  it("withdraws the handover where no code can reach this patient either (T175, T176)", () => {
+    // The two tickets meet here: the patient's one detail is a number, the chosen channel is the other one,
+    // and this office cannot text — so the field sentence is right and §8.1's fallback the lede offers is
+    // not a way in. The clause that withdraws it is lib/delivery.ts's, said once wherever it is said.
+    withEnv(EMAIL_ONLY, () => {
+      const phoneOnly = { phone: SAM.phone, email: null };
+      assert.equal(canHandOver(phoneOnly), false);
+      const plan = bookingPlan({ channel: "email", faults: inviteFaultByChannel(), codeChannels: codeSenders(), ...phoneOnly });
+      assert.equal(plan.note, `${channelNeeds("email")} Handing the link over will not get this patient in either.`);
+      // And where a code can reach them, the note says the one thing it owes them and stops: the handover is
+      // the lede's and this line has no remedy of its own to offer or withdraw (T170's split).
+      const emailOnly = { phone: null, email: SAM.email };
+      assert.equal(canHandOver(emailOnly), true, "the gate's mailbox carries a code by email (T05, T113)");
+      const open = bookingPlan({ channel: "sms", faults: inviteFaultByChannel(), codeChannels: codeSenders(), ...emailOnly });
+      assert.equal(open.note, channelNeeds("sms"));
+    });
+  });
+
+  it("leaves the channel that does have a destination exactly as it was", () => {
+    // The other direction, which keeps the rule from being satisfied by refusing everybody: "Text and
+    // email" with one detail on file is a narrower invite and not a refused one, and the step names the
+    // destination it does have.
+    withEnv(SENDING, () => {
+      const plan = bookingPlan({ channel: "both", faults: inviteFaultByChannel(), codeChannels: codeSenders(), phone: SAM.phone, email: null });
+      assert.match(plan.lede, /sends their private Sweetie link/);
+      assert.equal(plan.note, `The secure link goes to ${SAM.phone}.`);
+      assert.equal(plan.action, "Add patient & send \u2192");
+      assert.equal(plan.blocked, false);
+      // And the deployment is asked about the channel that is left, not about the pair staff picked: an
+      // office that can text and cannot mail still sends this booking (T145's narrowing, one filter on).
+    });
+    withEnv(SMS_ONLY, () => {
+      const plan = bookingPlan({ channel: "both", faults: inviteFaultByChannel(), codeChannels: codeSenders(), phone: SAM.phone, email: null });
+      assert.equal(plan.note, `The secure link goes to ${SAM.phone}.`);
+      assert.equal(plan.action, "Add patient & send \u2192");
     });
   });
 });
