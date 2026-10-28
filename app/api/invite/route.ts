@@ -40,8 +40,8 @@ import { NO_CONSENT_TO_MESSAGE } from "@/lib/delivery";
 import { requireCapability, requireVisitInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { log, withRoute } from "@/lib/log";
-import { inviteReach } from "@/lib/notify";
-import { channelsFor, revokeSessions } from "@/lib/patientSession";
+import { canHandOver, inviteReach } from "@/lib/notify";
+import { revokeSessions } from "@/lib/patientSession";
 import { intakeLink } from "@/lib/sms";
 
 async function postHandler(req: Request) {
@@ -65,10 +65,20 @@ async function postHandler(req: Request) {
   nudge(after);
 
   // T173 Whether handing the link over is a way in at all, which neither note could ask before: the link
-  // opens on a six-digit code sent to the number or address on file (§2.3, §5.3), and this patient may have
-  // neither — in which case §8.1's fallback is not one and lib/inviteNote.ts says so instead of naming Copy
-  // intake. The same row `inviteReach` below reads, so the two answers cannot disagree about one patient.
-  const handover = channelsFor(visit.patient).length > 0;
+  // opens on a six-digit code sent to the number or address on file (§2.3, §5.3), and where there is nowhere
+  // to send one §8.1's fallback is not one — lib/inviteNote.ts says so instead of naming Copy intake.
+  //
+  // T175 `canHandOver` and not `channelsFor`: a detail on file is only the first of the four things between
+  // this patient and a code, and the dashboard row has been reading all four since T121 (`codeReach`,
+  // app/api/provider/route.ts). So the row could carry "No code can reach this patient, so their link will
+  // not open" and, one press later, a note offering **Copy intake** — one row saying both. The same row and
+  // the same four facts `inviteReach` reads below, so neither answer can drift from the other.
+  const handover = canHandOver({
+    phone: visit.patient.phone,
+    email: visit.patient.email,
+    suppression: visit.patient,
+    demo: visit.patient.practice.isDemo,
+  });
   const sent = { link: intakeLink(token), jobId: job.id, deduped, regenerated: Boolean(body.regenerate), handover };
   // Two different statements, kept apart the way POST /api/book keeps them: a practice that chose to message
   // nobody is not a deployment that cannot (§2.2 against §8.1). Only the second one is anybody's to fix.

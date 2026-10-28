@@ -10,11 +10,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { bookedOutcome, bookingPlan, type BookedSend } from "./booking";
-import { cannotSendYet, NO_CONTACT_ON_FILE } from "./delivery";
+import { cannotSendYet, NO_CONSENT_TO_MESSAGE, NO_CONTACT_ON_FILE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
 import { fixture } from "./fixtures";
 import { newLinkNote, sendLinkNote } from "./inviteNote";
-import { inviteFaultByChannel, inviteReach } from "./notify";
+import { canHandOver, codeReach, codeSenders, inviteFaultByChannel, inviteReach } from "./notify";
 import { channelsFor } from "./patientSession";
 import { channelLabel, parseVisitCsv, warningsFor } from "./visitIntake";
 
@@ -263,7 +263,14 @@ describe("bookingPlan", () => {
     assert.deepEqual(bookingPlan({ channel: "none", faults: { email: NO_EMAIL }, ...SAM }), chosen);
     // And a demo practice booking a destination §13.4 refuses still reads as the practice's own choice:
     // nothing was going to be sent, so there is no rule to explain (T145).
-    assert.deepEqual(bookingPlan({ channel: "none", demo: true, phone: REAL.phone, email: REAL.email }), chosen);
+    const refusedDestinations = bookingPlan({ channel: "none", demo: true, phone: REAL.phone, email: REAL.email });
+    assert.equal(refusedDestinations.lede, chosen.lede);
+    assert.equal(refusedDestinations.blocked, false, "still nobody's to fix");
+    assert.equal(refusedDestinations.action, chosen.action);
+    // T175 What does differ is the last clause, and it is this row's own promise rather than §13.4's rule:
+    // the code goes to the same destinations the invite would have, so a practice that may write to neither
+    // cannot send one either and "opening it still sends them a code" is not true of this patient.
+    assert.equal(refusedDestinations.note, "Nothing is sent, and handing the link over will not get this patient in either.");
   });
 
   // T170 (§2.2, §2.3, §5.3, §8.1) The half of that row it had never asked about. The sentence asserted above
@@ -362,9 +369,13 @@ describe("bookingPlan", () => {
     // this branch used to be missed.
     for (const channel of ["both", "sms", "email"] as const) {
       const plan = bookingPlan({ channel, demo: true, ...REAL });
+      // T175 The clause this ends on is no longer §8.1's fallback, because §13.4 is `codeReach`'s rule too:
+      // a practice that may write to neither of these destinations cannot send the six-digit code to them
+      // either, so the link it would be handing over does not open (lib/notify.ts `canHandOver`). The reason
+      // is untouched — what is withdrawn is the remedy.
       assert.equal(
         plan.note,
-        `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+        `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Handing the link over will not get this patient in either.`,
         channel,
       );
       assert.equal(plan.blocked, true, channel);
@@ -610,5 +621,186 @@ describe("nothing claims an invite or a code is in motion to a patient with noth
     // An answer with no `handover` field is the old one and reads as it always did: the field withdraws the
     // fallback on an explicit `false` only.
     assert.match(bookedOutcome({ name: "Sam Nobody", queued: false, reason: NO_CONTACT_ON_FILE }).lede, /Share the link below\.$/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T175 (§2.2, §2.3, §3.7, §5.3, §8.1, §10.6) The same rule on the other way to have nowhere to send a code:
+// a deployment with no sender behind the one channel the patient does have.
+//
+// The block above closed the branch where the patient has no contact details, and it asked `channelsFor` —
+// "has this patient a detail on file" — which is only the first of `codeReach`'s four filters. This block is
+// the arm that can see the rest: **one** sender configured and not the other, so a patient whose single
+// detail is the unserved channel has a field filled in and still no way to receive a code. Neither of T173's
+// two arms can see it — with both senders every combination is reachable, and with neither the honest
+// "cannot send yet" empties every channel for every patient, which is the trap that family of tickets keeps
+// falling into.
+//
+// `DEV_MAIL_DIR` is cleared in both arms, and that is the whole reason the bug could not be observed. The
+// code's email goes through `sendOrMailbox`, so its sender test is `canSendOrMailbox` (lib/mailer.ts), which
+// that variable satisfies — and `scripts/agent-check.sh` exports it for the length of the run. In the gate
+// the invite is unsendable while the code is deliverable and the handover really is a way in; a deployment
+// has no mailbox. The mailbox case is lib/notify.test.ts's, where it is held unchanged.
+
+/** An office that can text and cannot email, and its mirror. Each backend is still selected by the setting
+ *  it cannot send without (T94, T110), and the mailbox is cleared because a deployment has none. */
+const SMS_ONLY = { EMAIL_FROM: undefined, SNS_ORIGINATION_NUMBER: "+14155550199", DEV_MAIL_DIR: undefined };
+const EMAIL_ONLY = { EMAIL_FROM: "clinic@sweetspot.example", SNS_ORIGINATION_NUMBER: undefined, DEV_MAIL_DIR: undefined };
+
+describe("nothing offers the handover where no code can reach the patient (T175)", () => {
+  for (const [arm, env] of [["an office that can only text", SMS_ONLY], ["one that can only email", EMAIL_ONLY]] as const) {
+    it(`holds over ${arm}`, () => {
+      withEnv(env, () => {
+        for (const to of CONTACT_COMBINATIONS) {
+          for (const channel of EVERY_CHANNEL) {
+            for (const demo of [false, true]) {
+              const where = `${arm}, channel=${channel}, demo=${demo}, to=${JSON.stringify(to)}`;
+              // The fact the two routes answer `handover` with, asked exactly as they ask it (`canHandOver`,
+              // app/api/book/route.ts, app/api/invite/route.ts), against the `codeReach` it is a reduction of.
+              const reach = codeReach({ channels: channelsFor(to), ...to, demo });
+              const handover = canHandOver({ ...to, demo });
+              assert.equal(handover, reach.channels.length > 0, `${where}: one question, one answer`);
+
+              const invite = inviteReach({ channel, demo, ...to });
+              // What the routes actually hand the three surfaces: a practice that chose to message nobody is
+              // answered before `inviteReach` is asked at all, and with its own sentence (T120,
+              // app/api/book/route.ts, app/api/invite/route.ts). Modelled rather than skipped, because
+              // "none" is one of the rows that offers the handover.
+              const reason = channel === "none" ? NO_CONSENT_TO_MESSAGE : invite.reason;
+              const plan = bookingPlan({ channel, faults: inviteFaultByChannel(), codeChannels: codeSenders(), demo, ...to });
+              const card = bookedOutcome({
+                name: "Sam Unreachable",
+                queued: invite.channels.length > 0,
+                channel: invite.channels.length ? invite.channels.join(",") : channel,
+                reason,
+                handover,
+              });
+              const answer = { queued: invite.channels.length > 0, reason, handover };
+              const lines = [plan.lede, plan.note, plan.action, card.heading, card.lede, sendLinkNote(answer), newLinkNote(answer)];
+
+              for (const line of lines) {
+                if (!handover) {
+                  // Criterion 1, over all four surfaces: the handover is offered only where a code can reach.
+                  assert.doesNotMatch(line, OFFERS_HANDOVER, `${where}: ${line}`);
+                  // And no line puts the code itself in motion to that patient either.
+                  assert.doesNotMatch(line, CODE_IN_MOTION, `${where}: ${line}`);
+                }
+                // Criterion 5, on every arm: a half-configured office is the one most likely to be told
+                // about a variable, and it is the one this block is about.
+                assert.doesNotMatch(line, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, line);
+              }
+
+              // The other direction, in the same block, so the rule cannot be satisfied by saying nothing to
+              // anybody: the patient a code *can* reach keeps §8.1's fallback word for word, in each of the
+              // four places it is worded.
+              if (handover) {
+                // Whichever sentence this patient's branch produces, the clause it ends on is §8.1's
+                // fallback and not the withdrawal — which is what keeps the rule from being satisfied by
+                // saying nothing to anybody. The reason it states is `bookingPlan`'s own and is not compared
+                // with `inviteReach`'s here: the two disagree about a channel with no destination behind it,
+                // which is its own open ticket and not this one's claim.
+                if (plan.note.startsWith("No invite will be sent:")) {
+                  assert.match(plan.note, /Save this patient and copy the link from the dashboard and hand it over yourself\.$/, where);
+                }
+                if (!answer.queued) assert.match(card.lede, /Share the link below\.$/, where);
+                assert.match(sendLinkNote(answer), answer.queued ? /^Sending now$/ : /Use Copy intake to give them the link\.$/, where);
+                assert.match(
+                  newLinkNote(answer),
+                  answer.queued ? /^New link sent\./ : /Use Copy intake to give them the new link\.$/,
+                  where,
+                );
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  it("is the pilot's own case: one detail, on the channel this office cannot serve", () => {
+    // The ticket's reproduction, in both halves. This office can email and the patient has a mobile number:
+    // the invite cannot go for want of an SMS backend, and neither can the code, so the line that refuses
+    // the send must not end by offering a link that will not open.
+    withEnv(EMAIL_ONLY, () => {
+      const phoneOnly = { phone: SAM.phone, email: null };
+      assert.equal(canHandOver(phoneOnly), false, "no code can reach a number this office cannot text");
+      const plan = bookingPlan({ channel: "sms", faults: inviteFaultByChannel(), codeChannels: codeSenders(), ...phoneOnly });
+      assert.equal(
+        plan.note,
+        `No invite will be sent: ${cannotSendYet("sms")}. Handing the link over will not get this patient in either.`,
+      );
+      // The deployment's own gap is still named and still marked as something somebody can fix: criterion 5
+      // withdraws the remedy, not the reason (§3.7, §10.6).
+      assert.equal(plan.blocked, true);
+      assert.equal(plan.action, "Add patient →");
+      // And the three surfaces after the press say the same thing in their own tense.
+      const answer = { queued: false, reason: cannotSendYet("sms"), handover: false };
+      assert.match(bookedOutcome({ name: "Sam Unreachable", ...answer }).lede, /Handing the link over will not get this patient in either\.$/);
+      assert.match(sendLinkNote(answer), /Handing the link over will not get this patient in either\.$/);
+      assert.match(newLinkNote(answer), /Handing the link over will not get this patient in either\.$/);
+    });
+    // The mirror, which is the half the e2e suite photographs: an office that can text and a patient with
+    // only an address needs no new configuration to reach, because the gate has no SMS sender either.
+    withEnv(SMS_ONLY, () => {
+      const emailOnly = { phone: null, email: SAM.email };
+      assert.equal(canHandOver(emailOnly), false);
+      assert.match(
+        bookingPlan({ channel: "email", faults: inviteFaultByChannel(), codeChannels: codeSenders(), ...emailOnly }).note,
+        /Handing the link over will not get this patient in either\.$/,
+      );
+    });
+  });
+
+  it("§13.4 closes the handover the same way, which is the branch above the deployment's (T145, T175)", () => {
+    // A demo practice may write only to a reserved destination, and that rule is `codeReach`'s as much as
+    // the invite's — so a demo practice booking a number somebody owns cannot send the code either, however
+    // well the office is configured. That branch ended on the handover too.
+    withEnv({ ...SMS_ONLY, EMAIL_FROM: "clinic@sweetspot.example" }, () => {
+      const real = { phone: REAL.phone, email: null };
+      assert.equal(canHandOver({ ...real, demo: true }), false);
+      const plan = bookingPlan({ channel: "sms", faults: inviteFaultByChannel(), codeChannels: codeSenders(), demo: true, ...real });
+      assert.equal(
+        plan.note,
+        `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Handing the link over will not get this patient in either.`,
+      );
+      // Nobody is sent after a sender over a rule: this office has both (§3.7, §10.6).
+      assert.doesNotMatch(plan.note, /cannot send|whoever set/);
+      // And the destination §13.4 allows is untouched: the walkable demo still offers the handover.
+      assert.match(
+        bookingPlan({ channel: "sms", faults: inviteFaultByChannel(), codeChannels: codeSenders(), demo: true, phone: SAM.phone }).note,
+        /goes to \+14155550123\.$/,
+      );
+    });
+  });
+
+  it("the practice's own silence stops promising a code it cannot send (T170, T175)", () => {
+    // "Do not message" answers the whole question itself, and its last clause is the promise this ticket
+    // makes false: "opening it still sends them a code". A number in an office that cannot text is the same
+    // dead end as no number at all.
+    withEnv(EMAIL_ONLY, () => {
+      assert.equal(
+        bookingPlan({ channel: "none", codeChannels: codeSenders(), phone: SAM.phone, email: null }).note,
+        "Nothing is sent, and handing the link over will not get this patient in either.",
+      );
+      // The patient a code can reach keeps the sentence word for word, so the branch is narrowed and not
+      // removed — and neither arm is marked as a gap in the deployment, which is what `blocked` is for.
+      const open = bookingPlan({ channel: "none", codeChannels: codeSenders(), phone: null, email: SAM.email });
+      assert.equal(open.note, "Nothing is sent. Copy the link from the dashboard and hand it over yourself; opening it still sends them a code.");
+      assert.equal(open.blocked, false);
+    });
+  });
+
+  it("a caller with no answer about the code's senders is left exactly as it was", () => {
+    // `codeChannels` is optional and absent means unnarrowed, the way `handover` is read as true when absent
+    // (lib/booking.ts): the deployment's half cannot be guessed, and every caller the product has passes it
+    // (app/provider/page.tsx). So the branches read as they did before this ticket.
+    withEnv(EMAIL_ONLY, () => {
+      const phoneOnly = { phone: SAM.phone, email: null };
+      assert.match(
+        bookingPlan({ channel: "sms", faults: inviteFaultByChannel(), ...phoneOnly }).note,
+        /Save this patient and copy the link from the dashboard and hand it over yourself\.$/,
+      );
+      assert.match(bookingPlan({ channel: "none", ...phoneOnly }).note, /opening it still sends them a code\.$/);
+    });
   });
 });

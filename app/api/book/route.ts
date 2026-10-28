@@ -32,8 +32,7 @@ import { NO_CONSENT_TO_MESSAGE } from "@/lib/delivery";
 import { requireCapability, requireMemberInPractice } from "@/lib/guard";
 import { enqueue, nudge } from "@/lib/jobs";
 import { withRoute } from "@/lib/log";
-import { inviteReach } from "@/lib/notify";
-import { channelsFor } from "@/lib/patientSession";
+import { canHandOver, inviteReach } from "@/lib/notify";
 import { intakeLink } from "@/lib/sms";
 import { channelOf, parseVisitDraft } from "@/lib/visitIntake";
 import { createVisit } from "@/lib/visitStore";
@@ -53,12 +52,18 @@ async function postHandler(req: Request) {
   // and address, and this response is ids and a link (§10.3, lib/visitStore.ts `InviteReachRows`).
   const { reach: rows, ...created } = await createVisit(me, provider.id, parsed.draft);
 
-  // T173 Whether handing the link over is a way in, which is a fact about the patient and not about the send:
-  // opening the link sends a six-digit code to the number or address on file (§2.3, §5.3), so with neither
-  // there is nowhere for one to go and the link does not open. The card says it in place of §8.1's fallback
-  // (`bookedOutcome`, lib/booking.ts). Off the written row rather than the draft, like everything else here:
-  // §2.2 reuses a patient matched on phone or email, so the row can carry a detail the draft did not.
-  const handover = channelsFor(rows).length > 0;
+  // T173 Whether handing the link over is a way in: opening the link sends a six-digit code to the number or
+  // address on file (§2.3, §5.3), so where there is nowhere for one to go the link does not open and §8.1's
+  // fallback is not one. The card says so in place of it (`bookedOutcome`, lib/booking.ts). Off the written
+  // row rather than the draft, like everything else here: §2.2 reuses a patient matched on phone or email,
+  // so the row can carry a detail the draft did not.
+  //
+  // T175 `canHandOver` and not `channelsFor`, which was only the first of the four filters between a field
+  // with something in it and a code the patient really receives: §13.4's rule, §8.1's bounce or STOP, and a
+  // deployment with no sender behind what is left all end in the same place. `rows` is the four fields it
+  // asks about, assembled once by `createVisit` and already passed whole to `inviteReach` below, so the
+  // claim about the send and the claim about the handover read one set of facts (lib/notify.ts).
+  const handover = canHandOver(rows);
 
   const booked = { ...created, link: intakeLink(created.token), handover };
   if (parsed.draft.channel === "none") return NextResponse.json({ ...booked, queued: false, reason: NO_CONSENT_TO_MESSAGE });

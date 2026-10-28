@@ -14,7 +14,7 @@ import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { IMPORT_INTRO, importInviteNote } from "@/lib/importNote";
 import { newLinkNote, sendLinkNote } from "@/lib/inviteNote";
 import { confirmsDeletion } from "@/lib/retention";
-import { suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
+import { type NotifyChannel, suppressionLabel, suppressions, type SuppressionFacts } from "@/lib/suppression";
 import { VISIT_TYPES, visitLabel, visitStatusLabel, visitStatusTone } from "@/lib/visits";
 import {
   channelLabel,
@@ -115,6 +115,7 @@ const EMPTY_FORM: PatientForm = {
 export default function ProviderDashboard({
   providerId,
   channelFaults,
+  codeChannels,
   isDemo,
 }: {
   providerId: string;
@@ -122,6 +123,11 @@ export default function ProviderDashboard({
    *  per channel id and only for the ones that have a fault. Settled on the server (app/provider/page.tsx)
    *  so the wizard's step 3 can say it before the button, with no route and no fetch of its own. */
   channelFaults: Partial<Record<ContactChannel, string>>;
+  /** T175 (§2.3, §5.3, §8.1) Which channels have a sender behind the six-digit code, which is what §8.1's
+   *  handover rests on and not what `channelFaults` above answers (`codeSenders`, lib/notify.ts). Settled on
+   *  the server for the same reason, and read by step 3 to decide whether the handover it offers is a way
+   *  in at all. */
+  codeChannels: NotifyChannel[];
   /** T145 (§13.4) Whether this practice is marked synthetic, which closes every channel whose destination is
    *  not itself reserved. A column on the practice (`Practice.isDemo`), so it arrives the same way
    *  `channelFaults` does — settled on the server, handed down as a prop, no route and no fetch. */
@@ -740,6 +746,7 @@ export default function ProviderDashboard({
           form={form}
           setForm={setForm}
           channelFaults={channelFaults}
+          codeChannels={codeChannels}
           isDemo={isDemo}
           busy={busy}
           error={error}
@@ -998,6 +1005,7 @@ function PatientWizard({
   form,
   setForm,
   channelFaults,
+  codeChannels,
   isDemo,
   busy,
   error,
@@ -1010,6 +1018,7 @@ function PatientWizard({
   form: PatientForm;
   setForm: React.Dispatch<React.SetStateAction<PatientForm>>;
   channelFaults: Partial<Record<ContactChannel, string>>;
+  codeChannels: NotifyChannel[];
   isDemo: boolean;
   busy: boolean;
   error: string;
@@ -1037,6 +1046,11 @@ function PatientWizard({
     demo: isDemo,
     phone: form.phone,
     email: form.email,
+    // T175 (§2.3, §5.3, §8.1) And the question §8.1's fallback rests on: the link opens on a six-digit code,
+    // so which channels can carry one decides whether the handover this step offers is a way in. The
+    // deployment's half is the prop; the destinations are this form's, asked against it as it is typed, the
+    // way §13.4's are above.
+    codeChannels,
   });
 
   const sideCopy = [

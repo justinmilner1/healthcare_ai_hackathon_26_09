@@ -31,17 +31,25 @@
 // answers whether the handover is a way in (`handover` below); the clause that withdraws it is
 // lib/delivery.ts's, shared with the booking step and card that say it three presses earlier.
 //
+// T175 widened that answer rather than these sentences: having a detail on file is only the first of the
+// four things between this patient and a code, and the same row has been reading all four since T121. So the
+// row could carry "No code can reach this patient, so their link will not open" and, one press later, a note
+// from here naming **Copy intake** — one row saying both. `POST /api/invite` now answers `handover` with
+// `canHandOver` (lib/notify.ts), which is that whole question, and the branch below is unchanged: it was
+// always right about what to do with the answer, and wrong only about how narrow the answer was.
+//
 // Pure, no Prisma and no network: the dashboard is a client component, and lib/inviteNote.test.ts holds
 // every branch (§12.1).
 
-import { NO_HANDOVER_EITHER } from "./delivery";
+import { NO_HANDOVER_SENTENCE } from "./delivery";
 
 /** §8.1's fallback on this screen is a button a press away, not a link in a note under four of them. */
 const FALLBACK = "Use Copy intake to give them";
 
-/** T173 And what stands in its place where it is not a fallback, as its own sentence: the clause is
- *  lib/delivery.ts's, so this note, step 3's and the success card's are one wording of one fact. */
-const NO_FALLBACK = `${NO_HANDOVER_EITHER[0].toUpperCase()}${NO_HANDOVER_EITHER.slice(1)}.`;
+/** T173, T175 And what stands in its place where it is not a fallback: the sentence is lib/delivery.ts's, so
+ *  this note, step 3's and the success card's are one wording of one fact — and since T175 one constant,
+ *  rather than the same capital derived in three modules. */
+const NO_FALLBACK = NO_HANDOVER_SENTENCE;
 
 /** What `POST /api/invite` answered, as much of it as a note depends on. Structural, so a test can pass two
  *  fields: `queued` is the claim about the deployment, `reason` is staff's words for why not. */
@@ -52,11 +60,12 @@ export type InviteAnswer = {
   reason?: string | null;
   /** The route's own failure, for the branch where there is no answer to read. */
   error?: string | null;
-  /** T173 Whether handing the link over is a way in: false for a patient with neither a number nor an
-   *  address on file, whose link cannot open because the code it needs has nowhere to go (§2.3, §5.3).
-   *  `POST /api/invite` answers it off the patient row it already has in hand (`channelsFor`). Optional and
-   *  read as true when absent: it is a fact about the patient and not about the send, and a note with no
-   *  answer for it keeps §8.1's fallback, which is right for every patient but this one. */
+  /** T173, T175 Whether handing the link over is a way in: false wherever the code the link needs cannot
+   *  reach this patient at all (§2.3, §5.3) — no destination on file, none §13.4 allows, none §8.1 leaves
+   *  open, or none this deployment has a sender behind. `POST /api/invite` answers it off the patient row it
+   *  already has in hand (`canHandOver`, lib/notify.ts). Optional and read as true when absent: it is a fact
+   *  about the patient and the deployment rather than about the send, and a note with no answer for it keeps
+   *  §8.1's fallback, which is right for every patient a code can reach. */
   handover?: boolean;
 };
 

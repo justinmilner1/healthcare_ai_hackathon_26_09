@@ -37,6 +37,13 @@
 // been filed to stop. The two sentences the code is true of and false of are therefore one branch on one
 // value here, like the three above it.
 //
+// T175 is the fifth, and it is T170's branch one filter along. §8.1's fallback rests on the link opening, and
+// the link opens on a six-digit code reaching the patient — which needs more than a field with something in
+// it. It needs a destination §13.4 allows and a sender behind it, and "a number and no SMS backend" is a
+// state this product is being piloted in and the gate cannot stand in. So the three branches that offer the
+// handover — the practice's own silence, §13.4's refusal and the deployment's gap — all read one answer
+// (`codeCanReach`), and the sentence that offers a way in is only said where there is one.
+//
 // Pure, and in lib/ rather than in the wizard, so every branch is held to in a unit test (§12.1). The words
 // for *why* nothing went out are mostly not here: the deployment's are the route's `reason`, which comes
 // from lib/notify.ts and is spelled in lib/delivery.ts, staff's words for a gap in the deployment and never
@@ -45,8 +52,9 @@
 // so nothing here may pull in Prisma — lib/demo.ts has no imports at all, which is what makes it quotable
 // from a browser bundle.
 
-import { NO_HANDOVER_EITHER } from "./delivery";
+import { NO_HANDOVER_EITHER, NO_HANDOVER_SENTENCE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES, demoBlockReason } from "./demo";
+import type { NotifyChannel } from "./suppression";
 import { channelLabel, channelOf, channelsOf, type ContactChannel } from "./visitIntake";
 
 /** What POST /api/book answered, plus the name the wizard has on screen. */
@@ -61,11 +69,13 @@ export type BookedSend = {
   reason?: string | null;
   /** Whether §2.2 matched a patient already on file instead of creating one. */
   patientReused?: boolean;
-  /** T173 Whether handing the link over is a way in: false for a patient with neither a number nor an
-   *  address, where the code the link needs has nowhere to go and §8.1's fallback is not one (§2.3, §5.3).
-   *  `POST /api/book` answers it off the patient row it has just written (`channelsFor`). Optional and
-   *  treated as true when absent, because it is a fact about the patient rather than about the send and a
-   *  caller that has not got it must not be made to guess: the two routes that have it pass it. */
+  /** T173, T175 Whether handing the link over is a way in: false wherever the six-digit code the link needs
+   *  cannot reach this patient at all (§2.3, §5.3), which is `canHandOver`'s question (lib/notify.ts).
+   *  T173 asked only whether a detail was on file; a detail this deployment has no sender behind, or one
+   *  §13.4 or §8.1 has closed, is the same dead end. `POST /api/book` answers it off the patient row it has
+   *  just written. Optional and treated as true when absent, because it is a fact about the patient and the
+   *  deployment rather than about the send, and a caller that has not got it must not be made to guess: the
+   *  two routes that have it pass it. */
   handover?: boolean;
 };
 
@@ -101,7 +111,7 @@ export function bookedOutcome({ name, queued, channel, reason, patientReused, ha
   // same one step 3's note three presses earlier reads, so the forecast and the report say it once each in
   // the same words. The heading is unchanged: the patient and their visit were added either way, which is
   // what "ready for Sweetie" says and all it says.
-  const fallback = handover === false ? `${NO_HANDOVER_EITHER[0].toUpperCase()}${NO_HANDOVER_EITHER.slice(1)}.` : "Share the link below.";
+  const fallback = handover === false ? NO_HANDOVER_SENTENCE : "Share the link below.";
   return {
     heading: `${who} is ready for Sweetie.`,
     lede: `${added} No invite sent${reason ? `: ${reason}` : ""}. ${fallback}`,
@@ -137,6 +147,18 @@ export type PlannedSend = {
    *  channel whose destination is not itself reserved. Settled on the server and handed down as a prop, the
    *  way `fault` is: `Practice.isDemo` is a column and the dashboard is a client component (T145). */
   demo?: boolean;
+  /** T175 Which of the two channels this deployment has a sender behind for the *six-digit code* — the
+   *  message §8.1's handover rests on (§2.3, §5.3). `codeSenders()`, settled on the server and handed down
+   *  beside `faults` (lib/notify.ts, app/provider/page.tsx).
+   *
+   *  Not derivable from `faults`, which is the *invite's* answer: the code's email goes through
+   *  `sendOrMailbox` and the invite's does not, so a checkout naming `DEV_MAIL_DIR` can carry one and not
+   *  the other — and that checkout is the gate (§11.3). Reading the invite's faults as the code's would have
+   *  made the gate's own screens disagree with a deployment's.
+   *
+   *  Absent means unnarrowed, the way `handover` above is read as true when absent: a caller without the
+   *  answer is not made to guess it, and every caller the product has passes it. */
+  codeChannels?: readonly NotifyChannel[];
 };
 
 /** The three things step 3 says about the invite, decided together. */
@@ -191,6 +213,28 @@ const HAND_IT_OVER_FIRST = `${HAND_IT_OVER[0].toUpperCase()}${HAND_IT_OVER.slice
 const NO_WAY_IN = `Nothing is sent, and ${NO_HANDOVER_EITHER}.`;
 
 /**
+ * T175 Whether handing this patient their link is a way in, as step 3 can ask it: the link opens on a
+ * six-digit code reaching them (§2.3, §5.3), which needs a destination on file that §13.4 allows and this
+ * deployment has a sender behind.
+ *
+ * `canHandOver`'s question (lib/notify.ts), over the two fields step 1 has typed rather than over a patient
+ * row that does not exist yet — the same asymmetry `bookingPlan` already has for §13.4 and for the invite's
+ * own faults. §8.1's bounce and STOP are therefore not asked here and are asked at the press: they are the
+ * one filter that needs a row, and §2.2 may not even have matched one yet.
+ *
+ * The code is sent on whatever the patient has, not on the channel staff chose for the invite, so this does
+ * not look at `channel` at all — which is why one answer serves all four of the branches below.
+ */
+function codeCanReach({ phone, email, demo, codeChannels }: PlannedSend): boolean {
+  const onFile: NotifyChannel[] = [];
+  if (phone?.trim()) onFile.push("sms");
+  if (email?.trim()) onFile.push("email");
+  return onFile.some(
+    (c) => !demoBlockReason(Boolean(demo), c, c === "sms" ? phone : email) && (!codeChannels || codeChannels.includes(c)),
+  );
+}
+
+/**
  * What step 3 of the booking wizard says about the invite, before anything is saved (§2.2, §8.1, T140).
  *
  * One branch on one value, like `bookedOutcome` above: a lede, the note under the channel radios and the
@@ -204,16 +248,28 @@ const NO_WAY_IN = `Nothing is sent, and ${NO_HANDOVER_EITHER}.`;
  * the practice and a destination typed on step 1 — both on this screen, and neither fixable by configuring
  * anything (T145). Only then is the deployment asked whether it can serve what is left.
  */
-export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend): BookingPlan {
+export function bookingPlan(planned: PlannedSend): BookingPlan {
+  const { channel, faults, phone, email, demo } = planned;
+  // T175 One answer, read by every branch that offers §8.1's fallback — and the reason the four of them are
+  // one ticket: the fallback is the same remedy wherever it is offered, so what withdraws it is one fact.
+  const handover = codeCanReach(planned);
   if (channel === "none") {
     // T170 The one thing this branch had never asked, although it has had both answers as parameters since
-    // T140: whether there is anywhere to send the code it promises. `blocked` stays false on both arms —
-    // nothing about either is a gap in the deployment, and the missing contact details are marked by the
-    // warning's own element rather than by this note (`.patient-consent-warning`, T168).
-    const reachable = Boolean(phone?.trim() || email?.trim());
+    // T140: whether there is anywhere to send the code it promises.
+    //
+    // T175 And the same question one filter wider, which is this ticket: a number with no SMS backend behind
+    // it, or an address §13.4 will not write to, is as much nowhere to send a code as an empty field. What
+    // promised one is this note's own last clause — "opening it still sends them a code" — so that is the
+    // clause that goes, and `NO_WAY_IN` already says what is left.
+    //
+    // `blocked` stays false on both arms, which is what it is for: it marks a *reason* that is a gap in the
+    // deployment, and neither arm states one. "Do not message" is the practice's own choice and the only
+    // reason either sentence gives; the missing contact details are marked by the warning's own element
+    // (`.patient-consent-warning`, T168), and a missing sender is named by the branches below, which are the
+    // ones that have the deployment's sentence to state.
     return {
       lede: WILL_NOT_SEND,
-      note: reachable ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NO_WAY_IN,
+      note: handover ? `Nothing is sent. ${HAND_IT_OVER_FIRST}; opening it still sends them a code.` : NO_WAY_IN,
       blocked: false,
       action: "Add patient →",
     };
@@ -241,14 +297,18 @@ export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend
   // `channelsOf` is empty only for "none", which returned above, so an empty `open` here means §13.4 closed
   // every channel staff chose — the case the route answers `queued: false` for.
   const open = channelsOf(channel).filter((c) => !demoBlockReason(Boolean(demo), c, c === "sms" ? phone : email));
-  if (!open.length) {
-    return {
-      lede: WILL_NOT_SEND,
-      note: `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Save this patient and ${HAND_IT_OVER}.`,
-      blocked: true,
-      action: "Add patient →",
-    };
-  }
+  // T175 The two branches that state a reason of their own — §13.4's rule and the deployment's own gap —
+  // used to end on §8.1's fallback unconditionally, and that last clause is the one this ticket withdraws.
+  // One shape for both, because the reason is all that differs between them and the remedy is the same
+  // remedy: what the deployment cannot do keeps `cannotSendYet`'s sentence, and what it costs the handover
+  // is lib/delivery.ts's clause, said once wherever it is said (§3.7, §10.6).
+  const refused = (why: string): BookingPlan => ({
+    lede: WILL_NOT_SEND,
+    note: `No invite will be sent: ${why}. ${handover ? `Save this patient and ${HAND_IT_OVER}.` : NO_HANDOVER_SENTENCE}`,
+    blocked: true,
+    action: "Add patient →",
+  });
+  if (!open.length) return refused(DEMO_ONLY_TEST_ADDRESSES);
   // The destination is what is left open, so the step cannot name a number §13.4 has just refused while the
   // other channel carries the invite. Blank until step 1 has one of them, which is not a fault.
   const to = [open.includes("sms") && phone?.trim(), open.includes("email") && email?.trim()].filter(Boolean).join(" and ");
@@ -257,18 +317,14 @@ export function bookingPlan({ channel, faults, phone, email, demo }: PlannedSend
   // question. Asking about the unnarrowed channel is what let an SMS-only office promise a send on the email
   // half of a `"both"` booking that §13.4 had already reduced to that half (T145).
   const fault = faults?.[channelOf(open)];
-  if (fault) {
-    // The tense is the whole of this branch: the rows do not exist yet, so the sentence names the press it
-    // is a forecast about — the cost of pressing the button is what the screen was missing — and stops
-    // there. Nothing about the six-digit code, which the "none" sentence above can promise and this one
-    // cannot: a deployment with no sender behind this channel may well have none behind the code either.
-    return {
-      lede: WILL_NOT_SEND,
-      note: `No invite will be sent: ${fault}. Save this patient and ${HAND_IT_OVER}.`,
-      blocked: true,
-      action: "Add patient →",
-    };
-  }
+  // The tense is the whole of this branch: the rows do not exist yet, so the sentence names the press it is
+  // a forecast about — the cost of pressing the button is what the screen was missing — and stops there.
+  //
+  // T175 It stopped one clause too late. "A deployment with no sender behind this channel may well have none
+  // behind the code either" is what the comment here used to say, and where that is so the handover it was
+  // offering is not one: the pilot's own case is a patient whose single detail is the channel this office
+  // cannot serve, and `codeCanReach` is now what decides which remedy the sentence ends on.
+  if (fault) return refused(fault);
   return {
     lede: WILL_SEND,
     // Blank until step 1 has a number or an address, which is not a fault and is said where it happens.

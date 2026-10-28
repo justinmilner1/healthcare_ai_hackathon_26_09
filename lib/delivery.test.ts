@@ -21,6 +21,7 @@ import {
   NO_CONSENT_TO_MESSAGE,
   NO_CONTACT_ON_FILE,
   NO_HANDOVER_EITHER,
+  NO_HANDOVER_SENTENCE,
   type DeliveryFacts,
 } from "./delivery";
 import { DEMO_BLOCKED } from "./demo";
@@ -352,6 +353,18 @@ describe("the lines for a patient with nothing on file (T173)", () => {
     assert.match(NO_HANDOVER_EITHER, /hand(?:ing)? the link over/i);
     assert.doesNotMatch(NO_HANDOVER_EITHER, ADDS_A_DETAIL);
     assert.doesNotMatch(NO_HANDOVER_EITHER, /^[A-Z]|[.]$/, "a clause its callers put in their own sentence");
+  });
+
+  it("is one constant where the callers want a sentence of it, not three capitals (T175)", () => {
+    // The clause above goes mid-sentence ("Nothing is sent, and …"); four lines want it as a sentence of its
+    // own, after a reason they state first ("No invite will be sent: <why>. …"). T175 was the fourth, by
+    // which point the same `[0].toUpperCase()` had been written in lib/booking.ts and lib/inviteNote.ts —
+    // so the sentence form lives here too, and rewording either is one edit.
+    assert.equal(NO_HANDOVER_SENTENCE, "Handing the link over will not get this patient in either.");
+    assert.equal(NO_HANDOVER_SENTENCE.toLowerCase(), `${NO_HANDOVER_EITHER.toLowerCase()}.`, "the same clause, capitalised");
+    assert.doesNotMatch(NO_HANDOVER_SENTENCE, ADDS_A_DETAIL, "the remedy is still §2.2's warning's");
+    assert.doesNotMatch(NO_HANDOVER_SENTENCE, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/);
+    assert.doesNotMatch(NO_HANDOVER_SENTENCE, /whoever set|administrator/i, "nothing of the deployment's (§3.7, §10.6)");
   });
 
   it("gives the row the conclusion and the one remedy that works there", () => {

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canHandOver,
   codeChannels,
   codeReach,
+  codeSenders,
   codeTemplates,
   deletionTemplates,
   inviteFaultByChannel,
@@ -17,6 +19,7 @@ import {
 } from "./notify";
 import { cannotSendYet, NO_CONTACT_ON_FILE } from "./delivery";
 import { DEMO_ONLY_TEST_ADDRESSES } from "./demo";
+import { channelsFor } from "./patientSession";
 import type { SuppressionFacts } from "./suppression";
 import type { Summary } from "./types";
 
@@ -942,4 +945,106 @@ test("every refusal for this patient stays in staff's words (§3.7, §10.6, T173
     assert.doesNotMatch(reason, /[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bSES\b|\bSNS\b|\bAWS\b|Twilio|Resend/, reason);
     assert.match(reason, /^[a-z]/, "it is dropped into a sentence of the caller's");
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T175 (§2.3, §5.3, §8.1) The second way to have nowhere to send a code, and the one `handover` was not
+// asking about: a deployment with no sender behind the channel the patient does have.
+//
+// T173's `handover` was `channelsFor(row).length > 0` in both routes — the first of `codeReach`'s four
+// filters. The dashboard row has read all four since T121, so one row could carry `NO_CODE_CAN_REACH` ("No
+// code can reach this patient, so their link will not open") and, one press later, a note offering **Copy
+// intake**. `canHandOver` is that question asked once, and what is pinned here is that it and `codeReach`
+// cannot answer one patient differently — including in the mailbox environment the gate itself runs in.
+
+/** Every pair of contact details a patient row can hold, which is lib/booking.test.ts's
+ *  `CONTACT_COMBINATIONS`: the rule is about all four and not only about the empty one T173 closed. */
+const EVERY_CONTACT = [
+  { phone: null, email: null },
+  { phone: SAM.phone, email: null },
+  { phone: null, email: SAM.email },
+  { phone: SAM.phone, email: SAM.email },
+  // And the pair §13.4 refuses from a demo practice, so the `demo` arm below has a closing destination too.
+  { phone: REAL.phone, email: null },
+  { phone: null, email: REAL.email },
+  { phone: REAL.phone, email: REAL.email },
+] as const;
+
+/** An office with one sender and not the other, which is the arm this ticket exists for: neither `SENDING`
+ *  nor the file's own senderless default can tell the two questions apart, because with both senders every
+ *  channel is open and with neither every channel is closed. `DEV_MAIL_DIR` is absent from both, which is
+ *  what makes them deployments rather than checkouts. */
+const SMS_ONLY = { SNS_ORIGINATION_NUMBER: "+14155550199" };
+const EMAIL_ONLY = { EMAIL_FROM: "clinic@sweetspot.example" };
+
+test("`canHandOver` is `codeReach` over what is on file, on every deployment and every row (T175)", () => {
+  // The identity criterion 7 asks for. `withEnv` here only sets, so each arm is reached from the file's
+  // senderless default and the mailbox is only present in the arm that names it.
+  for (const [arm, env] of [
+    ["an office with both senders", SENDING],
+    ["one that can only text", SMS_ONLY],
+    ["one that can only email", EMAIL_ONLY],
+    ["the gate's own mailbox", MAILBOX],
+    ["a deployment with nothing configured", {}],
+  ] as const) {
+    withEnv(env, () => {
+      for (const to of EVERY_CONTACT) {
+        for (const demo of [false, true]) {
+          for (const suppression of [null, BOUNCED, STOPPED]) {
+            const where = `${arm}, demo=${demo}, to=${JSON.stringify(to)}, suppression=${JSON.stringify(suppression)}`;
+            const reach = codeReach({ channels: channelsFor(to), ...to, demo, suppression });
+            assert.equal(canHandOver({ ...to, demo, suppression }), reach.channels.length > 0, where);
+          }
+        }
+      }
+    });
+  }
+});
+
+test("the mailbox the gate runs in still carries a code, so the handover is still a way in there (T175)", () => {
+  // Criterion 7's other half, and the reason this ticket could not be seen in `scripts/agent-check.sh`: the
+  // code's email goes through `sendOrMailbox`, so `DEV_MAIL_DIR` really is somewhere for one to go (§11.3,
+  // T113). Nothing here may change, because the suite's own screens read it.
+  withEnv(MAILBOX, () => {
+    assert.equal(canHandOver({ phone: null, email: SAM.email }), true, "the address this checkout can write to a file");
+    assert.equal(canHandOver({ phone: SAM.phone, email: SAM.email }), true, "and the pair, by that same address");
+    // The number is the half the mailbox is not: no SMS backend and no mailbox for one, which is the arm
+    // the e2e suite photographs and needs no new configuration to reach.
+    assert.equal(canHandOver({ phone: SAM.phone, email: null }), false, "a number this checkout cannot text");
+  });
+  // And a deployment, where the mailbox is gone and the address is in the same position as the number.
+  assert.equal(canHandOver({ phone: null, email: SAM.email }), false, "no sender at all");
+  withEnv(EMAIL_ONLY, () => assert.equal(canHandOver({ phone: null, email: SAM.email }), true));
+  withEnv(EMAIL_ONLY, () => assert.equal(canHandOver({ phone: SAM.phone, email: null }), false));
+});
+
+test("the row's own facts close the handover as completely as the environment does (§8.1, §13.4, T175)", () => {
+  withEnv({ ...SENDING, ...MAILBOX }, () => {
+    // §8.1: the only address on file has bounced, so there is nowhere for a code to go and the link will
+    // not open — which is `NO_CODE_CAN_REACH` on the row and must be the handover's answer too.
+    assert.equal(canHandOver({ phone: null, email: SAM.email, suppression: BOUNCED }), false);
+    assert.equal(canHandOver({ phone: SAM.phone, email: null, suppression: STOPPED }), false);
+    assert.equal(canHandOver({ ...SAM, suppression: { ...BOUNCED, ...STOPPED } }), false);
+    // One of the two closed is still a way in, by the other.
+    assert.equal(canHandOver({ ...SAM, suppression: BOUNCED }), true);
+    // §13.4: a demo practice may write only to a reserved destination, the code included.
+    assert.equal(canHandOver({ phone: REAL.phone, email: null, demo: true }), false);
+    assert.equal(canHandOver({ phone: REAL.phone, email: REAL.email, demo: true }), false);
+    assert.equal(canHandOver({ phone: REAL.phone, email: SAM.email, demo: true }), true, "the reserved half is a way in");
+    // And nothing on file at all, which is T173's case and still answers the same way.
+    assert.equal(canHandOver({ phone: "  ", email: "" }), false, "blank fields are not destinations");
+  });
+});
+
+test("`codeSenders` asks the code's senders and not the invite's (T175)", () => {
+  // The prop step 3 of the booking wizard reads (app/provider/page.tsx). It is `codeChannels` over both
+  // channels, and the pair it must not be confused with is `inviteFaultByChannel`: in the mailbox the code
+  // has somewhere to go by email and the invite has not, which is the state the gate runs in.
+  withEnv(MAILBOX, () => {
+    assert.deepEqual(codeSenders(), ["email"]);
+    assert.ok(inviteFaultByChannel().email, "while no invite can be emailed from the same checkout");
+  });
+  withEnv(SMS_ONLY, () => assert.deepEqual(codeSenders(), ["sms"]));
+  withEnv({ ...SMS_ONLY, ...MAILBOX }, () => assert.deepEqual(codeSenders(), ["sms", "email"]));
+  assert.deepEqual(codeSenders(), [], "a deployment with neither sender");
 });

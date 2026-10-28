@@ -84,6 +84,16 @@ export const NO_CONTACT_ON_FILE = "no phone or email on file";
 export const NO_HANDOVER_EITHER = "handing the link over will not get this patient in either";
 
 /**
+ * §8.1, T175 The same clause as a sentence of its own, for the lines that state a reason of their own first
+ * and then withdraw the remedy: "No invite will be sent: <why>. <this>".
+ *
+ * Derived from the clause rather than written out again, because by the time T175 needed a fourth caller the
+ * same `NO_HANDOVER_EITHER[0].toUpperCase()` had been copied into two modules (lib/booking.ts,
+ * lib/inviteNote.ts). One clause, one capital, one place to reword either.
+ */
+export const NO_HANDOVER_SENTENCE = `${NO_HANDOVER_EITHER[0].toUpperCase()}${NO_HANDOVER_EITHER.slice(1)}.`;
+
+/**
  * §2.3, §5.3, T121 What staff read on a visit whose patient cannot be sent a six-digit code: every channel
  * on file is closed, by a bounce or a STOP (§8.1), by §13.4's demo rule, or because this deployment has no
  * sender behind it. `codeReach` (lib/notify.ts) is what decides it; this is the one sentence for all of them.

@@ -251,6 +251,54 @@ export function codeReach(p: {
 }
 
 /**
+ * §2.3, §8.1, T175 Which of §2.2's two channels this deployment has a sender behind for the code, asked of
+ * both of them rather than of one patient's details.
+ *
+ * `inviteFaultByChannel` below is the same shape for the same reason, and the two are not interchangeable:
+ * an invite's email goes straight to `sendEmail` and the code's goes through `sendOrMailbox`, so a checkout
+ * naming `DEV_MAIL_DIR` can carry a code where no invite can (§11.3, `canSendOrMailbox` in lib/mailer.ts).
+ * That is the state `scripts/agent-check.sh` runs in, which is why the booking step cannot read the invite's
+ * faults and call it an answer about the code.
+ *
+ * Settled from the environment with no client and no network call, so app/provider/page.tsx can hand it to
+ * step 3 of the booking wizard as a prop: the destinations are typed in a client component, and this module
+ * reaches lib/email.ts and lib/sms.ts, which have no business in that bundle (§10.6).
+ */
+export function codeSenders(): NotifyChannel[] {
+  return codeChannels(["sms", "email"]);
+}
+
+/**
+ * §2.3, §5.3, §8.1, T175 Is handing this patient their link a way in at all?
+ *
+ * §8.1's fallback — "copy the link from the dashboard and hand it over yourself" — rests on the link
+ * opening, and the link opens on a six-digit code reaching the patient. So the question is `codeReach`'s
+ * above, asked over every detail on file (`channelsFor`) rather than over the channel staff chose for the
+ * invite: the code goes to whatever the patient has, whatever they consented to be invited on.
+ *
+ * T173 asked a narrower question in both routes — has this patient a detail on file — and that is only the
+ * first of `codeReach`'s four filters. The other three close a channel just as completely: §13.4's demo
+ * rule, §8.1's bounce or STOP, and a deployment with no sender behind what is left. The last is the pilot's
+ * own state and the one no test in the gate can stand in — email's sender test for the code is
+ * `canSendOrMailbox`, which `DEV_MAIL_DIR` satisfies — so a patient whose only detail was an address in an
+ * office with no email backend had their row say "No code can reach this patient, so their link will not
+ * open" and offer **Copy intake** on the next line of it. A number and no SMS backend is the same state and
+ * needs no configuration to reach at all.
+ *
+ * One function, so the two routes and the dashboard's own `codeUnreachable` cannot answer one patient
+ * differently: all three read `codeReach`, and this is the whole of it reduced to the yes-or-no the notes
+ * and the cards branch on (`handover`, lib/booking.ts, lib/inviteNote.ts).
+ */
+export function canHandOver(p: {
+  phone?: string | null;
+  email?: string | null;
+  suppression?: SuppressionFacts | null;
+  demo?: boolean;
+}): boolean {
+  return codeReach({ ...p, channels: channelsFor(p) }).channels.length > 0;
+}
+
+/**
  * Which of the channels staff chose this deployment can actually send on, and what staff read when the
  * answer is none of them (T111). The fallback is the senders' own contract — "Unconfigured -> { sent:
  * false, error } with no `provider`, and the UI shows the link instead" (lib/email.ts, lib/sms.ts) — which

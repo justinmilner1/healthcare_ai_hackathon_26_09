@@ -4,7 +4,7 @@
 
 import { redirect } from "next/navigation";
 import { currentProvider } from "@/lib/auth";
-import { inviteFaultByChannel } from "@/lib/notify";
+import { codeSenders, inviteFaultByChannel } from "@/lib/notify";
 import { practiceIsDemo } from "@/lib/practice";
 import ProviderDashboard from "./dashboard";
 
@@ -22,5 +22,17 @@ export default async function ProviderPage() {
   // one the booking wizard had no way of knowing. One column (`practiceIsDemo`, lib/practice.ts), read here
   // for the same reasons as the faults above: step 3 needs it before anything is typed, and the client has
   // no business holding a Prisma client (§10.6).
-  return <ProviderDashboard providerId={provider.id} channelFaults={inviteFaultByChannel()} isDemo={await practiceIsDemo(provider.practiceId)} />;
+  // T175 (§2.3, §5.3, §8.1): and which of the two channels has a sender behind the *six-digit code*, which
+  // is the message §8.1's handover rests on and a different question from the faults above — the code's
+  // email goes through `sendOrMailbox`, so a checkout naming `DEV_MAIL_DIR` carries one and no invite
+  // (lib/notify.ts `codeSenders`). Settled here for the same two reasons: step 3 needs it before a
+  // destination is typed, and the senders have no business in a client bundle (§10.6).
+  return (
+    <ProviderDashboard
+      providerId={provider.id}
+      channelFaults={inviteFaultByChannel()}
+      codeChannels={codeSenders()}
+      isDemo={await practiceIsDemo(provider.practiceId)}
+    />
+  );
 }
