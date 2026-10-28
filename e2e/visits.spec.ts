@@ -691,6 +691,102 @@ test("a booking with nothing on file promises no send, and the row says the link
   });
 });
 
+// T175 (design §2.2, §2.3, §5.3, §8.1) The other way to have nowhere to send a code, and the one this gate
+// *can* stand in for: the patient has a detail on file and this deployment has no sender behind it.
+//
+// The test above is about two empty fields, which `channelsFor` sees. This is about one filled field on a
+// channel nothing can carry, which `channelsFor` cannot see and `codeReach` always could — the dashboard row
+// has read it since T121 and said so: "No code can reach this patient, so their link will not open — call
+// them". What the row said on the next line, one press later, was "Use Copy intake to give them the link",
+// and step 3 had offered the same handover before the button. One screen, two answers about whether the link
+// opens.
+//
+// The SMS half is the arm with no configuration behind it, which is why it is the one photographed: this
+// gate has no SMS backend (§11.3) and no mailbox for a text the way it has one for a code by email
+// (`DEV_MAIL_DIR`, T05, T113) — so a patient with only a mobile number is unreachable here exactly as they
+// would be in a deployment. The email half needs `DEV_MAIL_DIR` unset, which the gate cannot do while
+// e2e/auth.ts reads sign-in links out of it; that arm is lib/booking.test.ts's and lib/notify.test.ts's,
+// under `withEnv`.
+//
+// A practice of its own, like the test above and for the same two reasons: this one presses the button, and
+// the row it creates is half the subject.
+test("a booking this office cannot text offers neither the invite nor the handover", async ({ page }) => {
+  await signInAs(page, freshEmail("no-sender-admin"));
+  const name = uniqueName("Unreachable Patient");
+  // From the reserved range so §13.4 is not what this measures — this practice is not a demo one, but a
+  // reserved number keeps the one fact under test the deployment's missing sender (T145, lib/demo.ts).
+  const phone = reservedPhone();
+
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+  const wizard = page.getByRole("dialog", { name: "Add a booked patient" });
+  await wizard.getByLabel("Patient name").fill(name);
+  await wizard.getByLabel("Mobile number").fill(phone);
+  // Email left blank, which is the whole of the case: the one channel this patient has is the one this
+  // office cannot serve, so there is no second destination for a code to arrive by.
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+  await wizard.getByText("Follow-up", { exact: true }).click();
+  await wizard.getByRole("button", { name: /Continue/i }).click();
+
+  // Step 3, on the channel the patient has. The reason is the deployment's and is unchanged — somebody can
+  // fix it, and the note is still marked as something to fix — and the clause after it is what this ticket
+  // withdraws: §8.1's fallback is not a fallback for a link that will not open.
+  await wizard.getByText("Text message", { exact: true }).click();
+  const note = wizard.locator(".patient-consent-note").first();
+  await expect(note).toHaveText(
+    `No invite will be sent: ${cannotSendYet("sms")}. Handing the link over will not get this patient in either.`,
+    LOADED,
+  );
+  await expect(note, "the deployment's gap is still somebody's to fix").toHaveClass(/patient-consent-note-blocked/);
+  await expect(wizard.locator(".ss-lede")).toHaveText(
+    "Saving creates the patient and their private Sweetie link, which you hand over yourself.",
+  );
+  await expect(wizard.getByRole("button", { name: SAVE })).toHaveText("Add patient \u2192");
+  const step = await wizard.innerText();
+  expect(step, "nothing on the step offers a send this office cannot make").not.toMatch(PROMISES_SEND);
+  expect(step, "nor the handover it has just withdrawn").not.toMatch(/copy the link from the dashboard/i);
+  expect(step, "nor a code that has nowhere to arrive").not.toMatch(/sends? (?:them|you|the patient)/i);
+  await shot(page, "provider-add-visit-no-sender-for-code", STEP_3);
+
+  // The press, and the card's own tense of the same sentence — out of the same answer, because POST /api/book
+  // reads it off the row it has just written (`canHandOver`, lib/notify.ts).
+  await wizard.getByLabel(/How did the patient agree to be contacted/i).selectOption("phone");
+  await wizard.getByRole("button", { name: SAVE }).click();
+  const card = page.locator(".patient-wizard-success");
+  await expect(card.locator(".ss-title")).toHaveText(`${name} is ready for Sweetie.`, LOADED);
+  await expect(card.locator(".ss-lede")).toHaveText(
+    `Patient added. No invite sent: ${cannotSendYet("sms")}. Handing the link over will not get this patient in either.`,
+  );
+  const cardText = await card.innerText();
+  expect(cardText, "nothing on the card claims the invite is going anywhere").not.toMatch(/on (?:the|its) way/i);
+  expect(cardText, "nor offers the handover it has just withdrawn").not.toMatch(/Share the link below/);
+
+  // And the row, which is where the two answers used to sit one line apart.
+  await card.getByRole("button", { name: "Back to dashboard" }).click();
+  const row = page.locator(".provider-table tbody tr", { hasText: name });
+  await expect(row, "the visit was created (§2.2)").toHaveCount(1, LOADED);
+  await expect(row.locator(".provider-no-code")).toHaveText(
+    "No code can reach this patient, so their link will not open \u2014 call them",
+  );
+  // The sibling line is not also on the row: this patient has a detail on file, so the gap is not §2.2's and
+  // "add a phone number or an email address" is not the remedy (lib/delivery.ts).
+  await expect(row).not.toContainText("Nowhere to send their code");
+
+  // Criterion 4: whichever line survives, the row says one thing about whether the link opens. The note
+  // under those buttons used to point at a **Copy intake** that hands over a locked door.
+  await row.getByRole("button", { name: "Send link" }).click();
+  const rowNote = row.locator(".provider-row-note");
+  await expect(rowNote).toContainText(`No invite sent: ${cannotSendYet("sms")}`, LOADED);
+  await expect(rowNote).toContainText("Handing the link over will not get this patient in either.");
+  await expect(rowNote, "the remedy this row cannot offer").not.toContainText("Use Copy intake");
+  await expect(rowNote, "and no claim of a send").not.toContainText(/Sending/i);
+  await shot(page, "provider-dashboard-no-sender-for-code-row", {
+    ...SCREENFUL,
+    scrollTo: row.locator(".provider-invite"),
+    block: "center",
+    inline: "center",
+  });
+});
+
 // T166 (design §2.2, §6.4) Both of the wizard's radio groups hide their input inside the styled card, so
 // until this ticket the only non-selected state either card had was `:hover` — which a keyboard never
 // reaches. A person arrowing through "what kind of visit is this" saw the group stand still.
@@ -856,8 +952,12 @@ test("a demo practice is told before the button that this number will not be mes
   // 1. The number somebody could own. Nothing is wrong with this office — it can text — so the sentence is
   //    §13.4's own, in lib/demo.ts's words, and it is marked the way a blocked note is.
   const blocked = await toStep3(real, name);
+  // T175 The clause this sentence ends on is no longer §8.1's fallback, and the reason is one screen over:
+  // §13.4 is `codeReach`'s rule as much as the invite's, so the six-digit code this patient's link needs may
+  // not be written to this number either — the link would not open, and handing it over is not a way in
+  // (lib/notify.ts `canHandOver`). The reason is untouched; what is withdrawn is the remedy.
   await expect(blocked).toHaveText(
-    `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Save this patient and copy the link from the dashboard and hand it over yourself.`,
+    `No invite will be sent: ${DEMO_ONLY_TEST_ADDRESSES}. Handing the link over will not get this patient in either.`,
     LOADED,
   );
   await expect(blocked).toHaveClass(/patient-consent-note-blocked/);
@@ -880,13 +980,18 @@ test("a demo practice is told before the button that this number will not be mes
   await wizard.getByRole("button", { name: SAVE }).click();
   const card = page.locator(".patient-wizard-success");
   await expect(card.locator(".ss-title")).toHaveText(`${name} is ready for Sweetie.`, LOADED);
+  // T175 And the same withdrawal in the card's own tense, out of the same answer: `POST /api/book` reads
+  // `canHandOver` off the row it has just written, so the forecast above and the report here are one fact.
   await expect(card.locator(".ss-lede")).toHaveText(
-    `Patient added. No invite sent: ${DEMO_ONLY_TEST_ADDRESSES}. Share the link below.`,
+    `Patient added. No invite sent: ${DEMO_ONLY_TEST_ADDRESSES}. Handing the link over will not get this patient in either.`,
   );
   expect(await card.innerText(), "nothing on the card claims the invite is going anywhere").not.toMatch(
     /on (?:the|its) way/i,
   );
-  // §8.1's fallback: the link is on the screen that just refused to send it, which is the whole answer here.
+  expect(await card.innerText(), "nor offers the handover it has just withdrawn").not.toMatch(/Share the link below/);
+  // The link itself stays on the screen, which is the one thing this branch does not withdraw: §2.2 created
+  // the patient and the link is theirs, and what the lede above has stopped claiming is that handing it over
+  // gets anybody in. Whoever fixes the number can use it; nothing is gained by hiding it.
   await expect(page.locator(".patient-link-card")).toContainText("/s/");
   await shot(page, "provider-add-visit-demo-blocked-card", SUCCESS_CARD);
 
