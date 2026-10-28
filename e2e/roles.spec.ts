@@ -134,6 +134,13 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   // expectNoHorizontalScroll passed while "Sign out" was cut in half and the wordmark sat under a button
   // (T79). Run at both widths, so the desktop bar is held to the same thing.
   await expectRowIntact(page, ".ss-topbar", "the admin top bar on the dashboard");
+  // T178 (§2.6, §6.3): the footer under `ALL VISITS 0` used to read "Verify all AI-generated summaries" —
+  // a claim about who wrote summaries this practice does not have, and one no deployment without a model
+  // gateway carries at all. What is left is true of a practice with nothing in it, which is the state this
+  // screen is in, and it still says the §2.6 thing a reader has to do about a summary.
+  const emptyFooter = page.locator(".provider-footer");
+  await expect(emptyFooter).toContainText("Every summary is a clinician's to verify before it is acted on");
+  await expect(emptyFooter, "the claim T178 was filed for").not.toContainText(/AI-generated/i);
   await shot(page, "provider-dashboard-nothing-ready");
 
   // The other half of what a brand-new practice sees (§2.1, §2.2): nothing is booked, so the patient-flow

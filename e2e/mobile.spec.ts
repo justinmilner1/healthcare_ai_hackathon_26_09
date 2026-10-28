@@ -412,7 +412,10 @@ test("the three footers keep their caveat at 375px", async ({ page }) => {
   await page.goto("/provider");
   const providerFooter = page.locator(".provider-footer");
   await expect(providerFooter).toContainText("Sweet Spot · Provider workspace", LOADED);
-  await expect(providerFooter.getByText("Verify all AI-generated summaries")).toBeVisible();
+  await expect(providerFooter.getByText("Every summary is a clinician's to verify before it is acted on")).toBeVisible();
+  // T178: and it does not tell the reader who wrote them. This is workspace chrome, outside every branch,
+  // on a deployment where no model wrote any summary (§6.3, §11.3) — the state this suite runs in.
+  await expect(providerFooter, "the claim T178 was filed for").not.toContainText(/AI-generated/i);
   await expectNoHorizontalScroll(page, "the provider dashboard footer");
   await footerShot("375-footer-provider", ".provider-footer");
   await signOutOfBrowser(page);

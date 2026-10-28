@@ -480,6 +480,15 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   const reviewed = page.locator(".provider-table tbody tr", { hasText: email });
   await expect(reviewed).toContainText("Reviewed", LOADED);
   await expect(reviewed.locator(".provider-reviewed-by")).toContainText(clinicianName);
+  // T178: the practice now holds exactly one summary — this one, whose `patterns` and `questions` are
+  // empty because the suite runs with no model gateway (§6.3, §11.3) and whose own footer says in as many
+  // words that no model wrote it (lib/disclaimer.ts, asserted above). The dashboard's footer is the staff
+  // half of that handover — §5.2 never gives the front desk a brief — so it may not sign the practice's
+  // summaries off as AI-generated either. What it says instead is true of this summary and of a practice
+  // with none (e2e/roles.spec.ts).
+  const dashFooter = page.locator(".provider-footer");
+  await expect(dashFooter).toContainText("Every summary is a clinician's to verify before it is acted on");
+  await expect(dashFooter, "the claim T178 was filed for").not.toContainText(/AI-generated/i);
   await shot(page, "14-dashboard-reviewed", {
     scrollTo: reviewed.locator(".provider-stage-cell"),
     block: "center",

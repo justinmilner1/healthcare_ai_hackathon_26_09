@@ -713,9 +713,27 @@ export default function ProviderDashboard({
           </div>
         </section>
 
+        {/* T178 (design §2.6, §5.2, §6.3): workspace chrome, so it sits outside every branch — and it
+            used to read "Verify all AI-generated summaries", which is a claim about who wrote the
+            summaries that the deployment does not carry. With no model gateway (§6.3, §3.5, §11.3 — the
+            gate's, the demo's and any circuit-open configuration) `runSour` saves the numbers with
+            `patterns` and `questions` empty, so no model wrote any of it, and the clinician's own footer
+            two clicks away says so (lib/disclaimer.ts). It was false on an empty practice too: the claim
+            did not wait for a summary to exist. A staff member never opens a brief (§5.2), so this is the
+            only sentence about a summary they read, and "AI-generated" over §7's code-computed numbers
+            tells them to discount the one part that is not a guess.
+            The line does not need the claim to do its job. What §2.6 asks of a reader is that a summary
+            is verified before it is acted on, which is true of every summary, on every branch and on a
+            practice with nothing in it — so that is what it says, and `Row` keeps its payload rather than
+            growing `narrativeMissing` for one line of chrome. It names no variable and no backend (§3.7,
+            §10.6), and it is not the brief's footer restated (the T170 split): that line owns what one
+            summary is and where it came from, this one owns whose job it is and when. Held by e2e
+            assertions on `.provider-footer` at all three states — an empty practice
+            (e2e/roles.spec.ts), a practice holding a signed-off summary (e2e/journey.spec.ts) and 375px
+            (e2e/mobile.spec.ts) — so the literal cannot come back. */}
         <footer className="provider-footer">
           <span>Sweet Spot · Provider workspace</span>
-          <span>Verify all AI-generated summaries</span>
+          <span>Every summary is a clinician&apos;s to verify before it is acted on</span>
         </footer>
       </div>
 
