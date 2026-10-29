@@ -145,6 +145,13 @@ own coordinates, three decimals (`placeLabel`) — never by its place id, which 
 A spike matches a visit if the visit ended within 30 minutes before the spike start, or overlaps it. Pick the
 closest.
 
+An overlap is two stories and not one: the visit was already running when the rise began, or it began after
+the rise did, any time up to the peak. The matcher distinguishes neither — every overlap scores a gap of
+zero and the first one seen wins — so the `visit` on a spike names a place and never a story.
+`spikeVisitRelation` in `lib/spikePlaces.ts` is the one rule that tells the three apart (`after`, `during`,
+`arrived`), and everything that says where the patient was reads it: the clinician's Place column, the chart
+caption over it, and the relation word `lib/sour.ts` hands the model (T191, T192).
+
 ## The two agents
 
 **Sweetie** (patient-facing) lives in `lib/sweetie.ts` and `lib/sweetieTurn.ts`, not in `prompts.ts`.

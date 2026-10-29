@@ -147,30 +147,54 @@ export function patientPlaceName(visit: Visit): string {
 }
 
 /**
- * Which of lib/match.ts's two branches linked this rise to the stop on it, and by how long (T191).
+ * Which story linked this rise to the stop on it, and by how long (T191, T192).
  *
  * The matcher takes a visit that *overlaps* the rise and a visit that *ended within 30 minutes before* it,
  * picks the closest, and leaves the same `visit` field behind either way — so the field says a place and
- * not a story. The two are different stories: a rise that began during a sit-down meal is the patient still
- * at the table, and a rise that began after the stop is the patient already somewhere else. The clinical
+ * not a story. The stories are different: a rise that began during a sit-down meal is the patient still at
+ * the table, and a rise that began after the stop is the patient already somewhere else. The clinical
  * reading of one place label depends on which, and §2.6's card has always had it per row ("while there",
  * "left 25 min before"); the caption over the chart asserted the second for every label on it.
  *
- * So the derivation lives here, once, and both elements read it. `null` is a rise the matcher placed
- * nowhere, which is the `NO_MATCH_CELL` case and carries no relation at all.
+ * So the derivation lives here, once, and every element that says where the patient was reads it: the
+ * Place column, the caption over it, and the relation word lib/sour.ts hands the model. `null` is a rise
+ * the matcher placed nowhere, which is the `NO_MATCH_CELL` case and carries no relation at all.
  *
- * The test is the sign of the gap and not `lib/match.ts`'s `overlaps` predicate, because the gap is what
- * the row already shows: a visit that ends after the rise begins has nothing to count down from, and
- * "while there" is the true thing to say about every one of them. Rounded to the minute before the
- * comparison, so the cell's number and this answer cannot disagree about a stop that ended seconds before.
+ * `overlaps` is **two** of those stories and not one, which is T192. It holds when the stop was already
+ * running as the readings began to climb — the sit-down meal above — and it holds just as readily when the
+ * stop began *after* the rise had started, any time up to the peak: the patient walked in while their
+ * glucose was already going up. §7's spike window is up to two hours from start to peak, and
+ * `matchSpikesToVisits` scores every overlap at `gap = 0` and keeps the first one it sees, so the stop on a
+ * rise need not be the one that was running when it began. Collapsing the two gave the clinician a caption
+ * reading "the place the patient was at when the rise began" over a place they reached ten minutes into the
+ * climb, and a row reading "while there" beside it — the two agreeing with each other and both false. A
+ * rise that began before the patient arrived somewhere did not start with a meal there, which is why the
+ * distinction is clinical and not cosmetic.
+ *
+ * Three kinds, told apart by two gaps rather than by lib/match.ts's predicate, because a gap is what the
+ * row already shows:
+ *
+ * | the stop | kind | the cell |
+ * |---|---|---|
+ * | ended before the rise began | `after` | `left 25 min before` |
+ * | was running when the rise began | `during` | `while there` |
+ * | began after the rise had | `arrived` | `arrived 10 min after` |
+ *
+ * Both gaps are rounded to the minute before they are compared, so a cell's number and this answer cannot
+ * disagree about a stop that ended, or began, seconds either side of the rise. A stop that began in the
+ * same minute the readings turned is `during`: "while there" is the true thing to say about it, and there
+ * is no "arrived 0 min after" to draw.
  */
-export type SpikeVisitRelation = { kind: "during" } | { kind: "after"; gapMin: number };
+export type SpikeVisitRelation = { kind: "during" } | { kind: "after"; gapMin: number } | { kind: "arrived"; gapMin: number };
 
 /** The relation between a rise and the stop the matcher put on it, or `null` where it placed none. */
 export function spikeVisitRelation(spike: Spike): SpikeVisitRelation | null {
   if (!spike.visit) return null;
-  const gapMin = Math.round((Date.parse(spike.start) - Date.parse(spike.visit.end)) / 60000);
-  return gapMin > 0 ? { kind: "after", gapMin } : { kind: "during" };
+  const start = Date.parse(spike.start);
+  const sinceStopEnded = Math.round((start - Date.parse(spike.visit.end)) / 60000);
+  if (sinceStopEnded > 0) return { kind: "after", gapMin: sinceStopEnded };
+  const untilArrival = Math.round((Date.parse(spike.visit.start) - start) / 60000);
+  return untilArrival > 0 ? { kind: "arrived", gapMin: untilArrival } : { kind: "during" };
 }
 
 /**
@@ -181,11 +205,22 @@ export function spikeVisitRelation(spike: Spike): SpikeVisitRelation | null {
  * is answerable for, and the caption over the card is written off the same relation, so the two cannot come
  * to different conclusions about one match (T191). Empty for a rise with no place, which is the cell that
  * reads `NO_MATCH_CELL` or `UNKNOWN_PLACE` instead and has no suffix to carry.
+ *
+ * "arrived 10 min after" is the mirror of "left 25 min before" and elides the same three words: both gaps
+ * are counted from the minute the readings began to climb, which is the one instant all three cells are
+ * about (T192).
  */
 export function spikeRelationCell(spike: Spike): string {
   const relation = spikeVisitRelation(spike);
   if (!relation) return "";
-  return relation.kind === "after" ? `left ${relation.gapMin} min before` : "while there";
+  switch (relation.kind) {
+    case "after":
+      return `left ${relation.gapMin} min before`;
+    case "arrived":
+      return `arrived ${relation.gapMin} min after`;
+    case "during":
+      return "while there";
+  }
 }
 
 /**
@@ -248,34 +283,42 @@ function markerSentence(shown: number, total: number): string {
 
 /**
  * What the matched caption says a place label is, worded for the relations the labelled rises actually have
- * (T191).
+ * (T191, T192).
  *
  * The sentence used to be one literal: "the place the patient had just left". That is `spikeVisitRelation`'s
- * `after` branch, asserted over a chart whose labels can be either branch — and on the seeded week it was
+ * `after` branch, asserted over a chart whose labels can be any of three — and on the seeded week it was
  * the wrong one for all three of them, four inches above a Place column reading "while there" three times.
  * The genre is T165's and T184's: two elements of one card reporting different things about one match.
  *
- * Three readings, from the relations present rather than from a count, so the clause is true of whatever
- * mix the week holds:
+ * Each of the two specific clauses is a claim about where a person stood at a specific minute, so each is
+ * reserved for a set of labels that is wholly the one relation. Everything else names the place and stops:
  *
  * | the labelled rises | the clause |
  * |---|---|
  * | every one began after its stop ended | the place the patient had just left |
  * | every one began while its stop was running | the place the patient was at when the rise began |
- * | some of each | the place the rise was linked to |
+ * | any other mix, an `arrived` among them included | the place the rise was linked to |
  *
- * The mixed reading names the place and stops, which is all criterion 1 asks: the per-row relation in the
- * Place column is the element that says which of the two a given label is, and a caption saying both would
- * be a sentence with two "or"s in it that still left the reader to pair them up. It borrows "linked" from
- * `clinicianSpikeCardHeading`'s own "Spikes linked to places" rather than minting a fourth word for a match.
+ * The last row widening is T192. The middle clause used to cover `arrived` too, because the two were one
+ * `during` — and over a stop the patient reached ten minutes into the climb that sentence is simply false,
+ * the more so since T191 sharpened it from "the place the patient had just left" into a claim about one
+ * minute. There is no fourth clause for an all-`arrived` week: naming the place and asserting no relation
+ * is what the mixed reading does, and the per-row cell ("arrived 10 min after") is the element that says
+ * which of the three a given label is — the same division of labour T191 settled for the first two.
  *
- * Only ever called on the `matched` report, where at least one rise carries a place — so the set is never
- * empty and there is no fourth branch to write.
+ * The neutral clause borrows "linked" from `clinicianSpikeCardHeading`'s own "Spikes linked to places"
+ * rather than minting a fourth word for a match.
+ *
+ * Only ever called on the `matched` report, where at least one rise carries a place — so the set of kinds
+ * is never empty, and the unplaced rises alongside them, which contribute no kind, are the half of the
+ * sentence that comes after this clause.
  */
 export function matchedPlaceClause(spikes: Spike[]): string {
-  const kinds = new Set(spikes.map(spikeVisitRelation).map((r) => r?.kind));
-  if (!kinds.has("during")) return "the place the patient had just left";
-  if (!kinds.has("after")) return "the place the patient was at when the rise began";
+  const kinds = new Set(spikes.map((s) => spikeVisitRelation(s)?.kind).filter((kind) => kind !== undefined));
+  if (kinds.size === 1) {
+    if (kinds.has("after")) return "the place the patient had just left";
+    if (kinds.has("during")) return "the place the patient was at when the rise began";
+  }
   return "the place the rise was linked to";
 }
 
@@ -298,9 +341,11 @@ export function matchedPlaceClause(spikes: Spike[]): string {
  * labels are the ones that fit. And not that the markers are the week's rises when they are the largest few
  * of them — `markerSentence` above, which takes the `total` the stat tile shows so that the chart and the
  * tile cannot be counted against each other (T165). And not that the patient had left the place a label
- * names, unless they had: the matcher links a rise to a stop it overlaps as readily as to one that ended
- * just before it, so the clause comes from `matchedPlaceClause` above and the relations the labelled rises
- * actually have, which is the same derivation the Place column under the chart shows per row (T191).
+ * names, nor that they were standing in it when the rise began, unless the labels on the chart are all one
+ * or all the other: the matcher links a rise to a stop it overlaps as readily as to one that ended just
+ * before it, and an overlap is itself either the stop they were already in or one they walked into partway
+ * up the climb (T192). So the clause comes from `matchedPlaceClause` above and the relations the labelled
+ * rises actually have, which is the same derivation the Place column under the chart shows per row (T191).
  *
  * `status` is `PatientBundle.status`, the argument order `clinicianSpikePlacesHint` already takes it in.
  */
