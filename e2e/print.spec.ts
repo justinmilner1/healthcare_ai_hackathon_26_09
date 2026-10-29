@@ -128,7 +128,7 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   const caption = page.locator(".sour-chart-caption");
   // T191, T192 (§7.4): the paper carries the relation the rows carry, too. The matched rises on this week
   // are two relations, not one — two Office stops that were running as the readings turned, and a Home
-  // stop the patient reached ten minutes into the Sunday evening climb — so the sheet a clinician takes
+  // stop the patient reached ten minutes into the Friday evening climb — so the sheet a clinician takes
   // into the room may assert neither that they had left nor that they were standing there
   // (lib/spikePlaces.ts `spikeVisitRelation`, read by the caption and by the brief's Place column).
   await expect(caption, "a place the patient had left, over a row saying 'while there'").not.toContainText("had just left");

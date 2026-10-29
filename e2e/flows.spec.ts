@@ -254,13 +254,13 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   expect(placed.some((s) => s.visit), "the seeded week has a rise the matcher placed").toBeTruthy();
   const caption = page.locator(".sour-chart-caption");
   // T191, T192 (§2.6): and it says the *right* place-ish thing about them. The matched rises on the seeded
-  // week are not one relation: two began while an Office stop was running, and the Sunday evening rise is
+  // week are not one relation: two began while an Office stop was running, and the Friday evening rise is
   // one the patient reached Home ten minutes into — so the caption may assert neither of the two specific
   // readings over the three of them, and the Place column a few inches below says which each one is. Both
   // halves read lib/spikePlaces.ts `spikeVisitRelation`, so this assertion and that column cannot drift.
   //
   // T192 is why this is the mixed clause and not "the place the patient was at when the rise began". That
-  // sentence stood here until the Sunday rise was read properly: `overlaps` covered a stop the patient had
+  // sentence stood here until the Friday rise was read properly: `overlaps` covered a stop the patient had
   // not yet reached as readily as one they were sitting in, and the caption and the row then agreed with
   // each other about a place the patient was not in.
   await expect(caption, "a place the patient had left, over a row saying 'while there'").not.toContainText("had just left");
