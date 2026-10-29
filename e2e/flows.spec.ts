@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
+import { expectTimeAxisLabelled } from "./charts";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { COUNTDOWN, EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
@@ -870,6 +871,14 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   // the frame that caught it is taken. Uppercase in the DOM like every other `.ss-eyebrow` — the CSS
   // transform is the same either way, and a test should read what the markup says.
   await expect(EYEBROW(page), "the hero names the span that arrived").toHaveText("YOUR DAY WITH SWEETIE");
+
+  // T187 (§2.7, §6.5): the chart in that card, which on this page is the whole of what the patient has to
+  // place a rise with — there is no flag text here to read an hour out of, as the brief has. 84 readings
+  // between 06:00 and 12:55 hold no local midnight, so the axis under the line was empty: a curve
+  // floating over nothing, beside a rises table saying "Sat 8:00 AM". lib/timeAxis.ts chooses the ticks;
+  // this is them painted, at 1280px and at the 375px §6.5 names, where the plot is about 230px.
+  await expectTimeAxisLabelled(page, "the patient's own summary, one morning of readings", "hour");
+  await shot(page, "patient-summary-single-day-chart", { ...SCREENFUL, scrollTo: ".patient-chart-wrap" });
 
   // The per-project default rather than WHOLE_PAGE (e2e/shot.ts): the desktop gets the document, and the
   // phone gets one screenful, with the overview scrolled to the top of it — a whole-page phone shot of this

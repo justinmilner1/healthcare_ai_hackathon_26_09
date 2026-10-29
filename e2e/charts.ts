@@ -71,3 +71,47 @@ export async function expectChartTooltipsLabelled(
   expect(await tooltipRow(page, lineChart(page)), `${where}: the glucose tooltip`).toMatch(GLUCOSE);
   await photograph?.("glucose");
 }
+
+// T187 (design §2.6, §2.7, §7.4, §6.5): and what is written under the glucose line, on the same three
+// surfaces. A chart whose readings all fell inside one calendar day drew an axis line with an empty tick
+// array under it — no time anywhere on the picture — on the brief, on the printed sheet and on the
+// patient's own summary. lib/timeAxis.ts is the decision and lib/timeAxis.test.ts holds it at spans no
+// fixture has; what only the running app can show is that the ticks reach Recharts and are painted.
+
+/** The labels Recharts writes under the x-axis of whichever line chart this surface is showing. */
+const axisLabels = (page: Page): Locator =>
+  lineChart(page).locator(".recharts-xAxis .recharts-cartesian-axis-tick-value");
+
+/** A weekday as `weekday: "short"` writes one, in the en-US locale these browsers run in. */
+const WEEKDAY = /^[A-Za-z]{2,4}$/;
+/** And a clock time as the axis writes one: "6 AM", "6:30 AM" — or a weekday, where a day turns over. */
+const CLOCK = /^(\d{1,2}(:\d{2})? ?[AaPp]\.?[Mm]\.?|\d{1,2}:\d{2}|[A-Za-z]{2,4})$/;
+
+/**
+ * The glucose chart's time axis is readable: labelled at all, labelled distinctly, and in the unit of its
+ * span.
+ *
+ * Three assertions rather than one, because "not empty" is the weakest half of what T187 asks for and the
+ * easiest to satisfy wrongly: the axis this replaced would have passed it with three ticks all reading
+ * "Sun", which is the same chart telling the same reader nothing. So the labels must also differ from each
+ * other, and they must be in the unit the span calls for — hours inside a day, weekdays over one.
+ */
+export async function expectTimeAxisLabelled(page: Page, where: string, unit: "hour" | "day"): Promise<void> {
+  const ticks = axisLabels(page);
+  await expect(ticks.first(), `${where}: the glucose chart's time axis carries no labels at all`).toBeVisible(DRAWN);
+  const labels = (await ticks.allTextContents()).map((s) => s.trim()).filter(Boolean);
+
+  expect(labels.length, `${where}: a time axis needs both ends of the line named, and got ${labels.join(" | ") || "nothing"}`).toBeGreaterThanOrEqual(2);
+  expect(new Set(labels).size, `${where}: two labels read the same, so the axis says less than it looks: ${labels.join(" | ")}`).toBe(labels.length);
+
+  if (unit === "day") {
+    // The week, unchanged: criterion 2's other half. Nothing on a multi-day axis carries a digit.
+    for (const label of labels) expect(label, `${where}: a week's axis is weekdays`).toMatch(WEEKDAY);
+    return;
+  }
+  for (const label of labels) expect(label, `${where}: a day's axis is clock times`).toMatch(CLOCK);
+  expect(
+    labels.some((l) => /\d/.test(l)),
+    `${where}: a chart of one day labelled in weekdays places nothing in it: ${labels.join(" | ")}`,
+  ).toBeTruthy();
+}
