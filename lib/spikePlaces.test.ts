@@ -542,20 +542,45 @@ const during = (name: string): Visit => ({
   lng: -122.41,
 });
 
-test("the relation is the matcher's two branches, told apart by the gap (T191)", () => {
+// T192 (§2.6, §7.4, §7, lib/match.ts): `overlaps` is the other branch twice over. The spike above starts
+// at 12:50 and peaks at 13:30, so a stop beginning anywhere in that 40 minutes overlaps it and matches —
+// and the patient was somewhere else when the readings turned. Both elements said otherwise, in agreement
+// with each other, so T191's cross-product property passed on it.
+
+/** A stop the patient reached `min` minutes into the climb; it matches up to the peak, 40 minutes in. */
+const arriving = (name: string, min: number): Visit => ({
+  start: new Date(Date.parse("2026-09-19T12:50:00Z") + min * 60000).toISOString(),
+  end: "2026-09-19T15:00:00Z",
+  place: name,
+  lat: 37.77,
+  lng: -122.41,
+});
+
+test("the relation is the matcher's three readings, told apart by two gaps (T191, T192)", () => {
   // `somewhere` ends at 12:40 and the rise begins at 12:50: the patient had left, by ten minutes.
   assert.deepEqual(spikeVisitRelation(spike(somewhere("Noe Cafe"))), { kind: "after", gapMin: 10 });
   // `during` is still running at 12:50, so there is no gap to count down from.
   assert.deepEqual(spikeVisitRelation(spike(during("Pizzeria Delfina"))), { kind: "during" });
+  // T192, at both ends of the window a stop can begin in and still match: one minute into the climb, and
+  // at the peak itself, 40 minutes in. Neither is a stop the patient was standing in when it began.
+  assert.deepEqual(spikeVisitRelation(spike(arriving("Office", 1))), { kind: "arrived", gapMin: 1 });
+  assert.deepEqual(spikeVisitRelation(spike(arriving("Office", 40))), { kind: "arrived", gapMin: 40 });
+  // Arriving in the same minute the readings turned is `during`: there is no "arrived 0 min after" to draw.
+  assert.deepEqual(spikeVisitRelation(spike(arriving("Office", 0))), { kind: "during" });
+  assert.deepEqual(spikeVisitRelation(spike({ ...arriving("Office", 0), start: "2026-09-19T12:50:20Z" })), { kind: "during" });
   // A rise the matcher placed nowhere has no relation at all — that cell reads NO_MATCH_CELL instead.
   assert.equal(spikeVisitRelation(spike()), null);
   // A stop that ended exactly as the rise began is "while there": nothing to say "left 0 min before" about.
   assert.deepEqual(spikeVisitRelation(spike({ ...somewhere("Gym"), end: "2026-09-19T12:50:00Z" })), { kind: "during" });
 });
 
-test("the cell SpikeTable draws is that relation, in the card's own words (T191)", () => {
+test("the cell SpikeTable draws is that relation, in the card's own words (T191, T192)", () => {
   assert.equal(spikeRelationCell(spike(somewhere("Noe Cafe"))), "left 10 min before");
   assert.equal(spikeRelationCell(spike(during("Pizzeria Delfina"))), "while there");
+  // T192: the mirror of the first cell, counted from the same minute — and emphatically not "while there",
+  // which is what this row read while `overlaps` was one case.
+  assert.equal(spikeRelationCell(spike(arriving("Office", 10))), "arrived 10 min after");
+  assert.equal(spikeRelationCell(spike(arriving("Office", 40))), "arrived 40 min after");
   // Empty rather than a sentence: the place cell for an unplaced rise has no suffix to carry.
   assert.equal(spikeRelationCell(spike()), "");
 });
@@ -588,20 +613,28 @@ test("a mix names the place and leaves the relation to the rows (T191)", () => {
   assert.doesNotMatch(caption, /had just left|was at when/, caption);
 });
 
-test("the caption and the rows cannot contradict each other, on any mix (T191)", () => {
+test("the caption and the rows cannot contradict each other, on any mix (T191, T192)", () => {
   // Criterion 2, as the property rather than as three examples: for every mix of matches, whatever the
   // caption asserts about the relation has to be true of every row it captions. The caption claims
-  // "had just left" only where no row reads "while there", and "was at when the rise began" only where
-  // none reads "left N min before" — and claims nothing either way where both are present.
-  const placed = [during("Pizzeria Delfina"), somewhere("Noe Cafe")];
-  for (let mask = 0; mask < 1 << 4; mask++) {
-    const spikes = [0, 1, 2, 3].map((i) => (mask & (1 << i) ? spike(placed[i % 2]) : spike()));
+  // "had just left" only where every row counts a gap down to the rise, and "was at when the rise began"
+  // only where every row reads "while there" — and claims nothing either way otherwise.
+  //
+  // T192 is why the mix is now drawn from three placed kinds and not two. With `arrived` folded into
+  // `during` this loop could not reach the case the ticket was filed on: the caption and the row agreed,
+  // and both said the patient was somewhere they had not yet reached, so a property about the two matching
+  // each other passed on it. The third assertion below is the one that would have caught it.
+  const placed = [undefined, somewhere("Noe Cafe"), during("Pizzeria Delfina"), arriving("Office", 10)];
+  for (let code = 0; code < 4 ** 4; code++) {
+    const spikes = [0, 1, 2, 3].map((i) => spike(placed[Math.floor(code / 4 ** i) % 4]));
     if (!anyPlaceKnown(spikes)) continue;
     const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
     const cells = spikes.map(spikeRelationCell).filter(Boolean);
     const where = `${cells.join(" / ")}: ${caption}`;
-    if (/had just left/.test(caption)) assert.ok(cells.every((c) => c !== "while there"), where);
+    if (/had just left/.test(caption)) assert.ok(cells.every((c) => c.startsWith("left ")), where);
     if (/was at when the rise began/.test(caption)) assert.ok(cells.every((c) => c === "while there"), where);
+    // Neither specific clause survives a row the patient arrived at partway up the climb: both are claims
+    // about where a person stood when the readings turned, and that row says they were elsewhere (T192).
+    if (cells.some((c) => c.startsWith("arrived "))) assert.doesNotMatch(caption, /had just left|was at when the rise began/, where);
     // Whichever clause it took, it is the one the module's own rule returns for these rises.
     assert.ok(caption.includes(matchedPlaceClause(spikes)), where);
     // And it still says the place-less labels are numbers, which is T99's half of the sentence.
@@ -609,7 +642,7 @@ test("the caption and the rows cannot contradict each other, on any mix (T191)",
   }
 });
 
-test("the three shapes of a matched week are three clauses, and nothing else is (T191)", () => {
+test("the shapes of a matched week are three clauses, and nothing else is (T191, T192)", () => {
   // Criterion 5. One rise placed is enough for each shape, because the clause reads the relations present
   // and not a count — so a week of one overlap says the same thing as a week of five.
   assert.equal(matchedPlaceClause([spike(somewhere("Noe Cafe"))]), "the place the patient had just left");
@@ -617,6 +650,36 @@ test("the three shapes of a matched week are three clauses, and nothing else is 
   assert.equal(matchedPlaceClause([spike(during("Office")), spike(somewhere("Noe Cafe"))]), "the place the rise was linked to");
   // Unplaced rises alongside them change none of the three: they are the half of the sentence after it.
   assert.equal(matchedPlaceClause([spike(), spike(during("Office")), spike()]), "the place the patient was at when the rise began");
+  // T192: an `arrived` week takes the neutral clause, and so does any mix holding one. There is no fourth
+  // clause — the place is named and the relation is left to the per-row cell, which is T191's own answer
+  // for a reading the caption cannot assert over every label.
+  for (const spikes of [
+    [spike(arriving("Office", 10))],
+    [spike(arriving("Office", 1)), spike(arriving("Home", 40))],
+    [spike(arriving("Office", 10)), spike(during("Home"))],
+    [spike(arriving("Office", 10)), spike(somewhere("Noe Cafe"))],
+    [spike(arriving("Office", 10)), spike(during("Home")), spike(somewhere("Noe Cafe")), spike()],
+  ]) {
+    assert.equal(matchedPlaceClause(spikes), "the place the rise was linked to", spikes.map(spikeRelationCell).join(" / "));
+  }
+});
+
+test("a stop that began after the rise did: no element says the patient was there (T192)", () => {
+  // The ticket's own reproduction. Glucose starts climbing at 12:50, the patient reaches the office at
+  // 13:00, the peak is 13:30 — so the stop overlaps and matches, and on `cac155e` the row read "while
+  // there" under a caption reading "the place the patient was at when the rise began".
+  const office = arriving("Office", 10);
+  const matched = spike(office);
+  assert.deepEqual(spikeVisitRelation(matched), { kind: "arrived", gapMin: 10 });
+  assert.equal(spikeRelationCell(matched), "arrived 10 min after");
+  const caption = clinicianChartCaption([matched], SHARED, 1);
+  assert.doesNotMatch(caption, /was at when the rise began/, caption);
+  assert.doesNotMatch(caption, /had just left/, caption);
+  assert.match(caption, /give the place the rise was linked to, or the peak mg\/dL where no place matched\.$/);
+  // Criterion 1 is about what is not asserted, and the place itself is still named: the label on the
+  // marker and the cell under it are the office, as they were before.
+  assert.equal(markerLabel(matched, { patient: false }), "Office");
+  assert.equal(clinicianSpikeCardHeading([matched], SHARED), "Spikes linked to places");
 });
 
 test("the other two branches and the clinician's register are untouched (T191)", () => {

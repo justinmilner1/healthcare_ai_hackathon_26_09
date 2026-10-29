@@ -4,6 +4,7 @@ import { fixture } from "./fixtures";
 import { parseClarityCsv, detectSpikes } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv } from "./location";
 import { matchSpikesToVisits } from "./match";
+import { spikeVisitRelation } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const place = (name: string, start: string, end: string): Visit => ({ start, end, place: name, lat: 37.77, lng: -122.41 });
@@ -29,6 +30,31 @@ test("a visit overlapping the climb matches", () => {
   // A visit that starts after the peak is not an overlap.
   const [after] = matchSpikesToVisits([s], [place("Later", "2026-09-19T13:30:00Z", "2026-09-19T14:00:00Z")]);
   assert.equal(after.visit, undefined);
+});
+
+test("a visit that began after the climb did still overlaps it, to the peak (T192)", () => {
+  // The half of `overlaps` the matcher has always accepted and nothing used to name: the patient walked in
+  // while their glucose was already going up. Both ends of the window the predicate allows — one minute
+  // into the climb, and the peak itself, 45 minutes in — and one minute past it.
+  const s = spike("2026-09-19T12:30:00Z", "2026-09-19T13:15:00Z");
+  const match = (start: string, end: string) => matchSpikesToVisits([s], [place("Arrived mid-rise", start, end)])[0].visit?.place;
+  assert.equal(match("2026-09-19T12:31:00Z", "2026-09-19T14:00:00Z"), "Arrived mid-rise");
+  assert.equal(match("2026-09-19T13:15:00Z", "2026-09-19T14:00:00Z"), "Arrived mid-rise");
+  assert.equal(match("2026-09-19T13:16:00Z", "2026-09-19T14:00:00Z"), undefined);
+  // And the matcher keeps saying nothing about which of the two it is: the field is a place, and
+  // lib/spikePlaces.ts `spikeVisitRelation` is the rule that reads it as a story (T191, T192).
+  const [matched] = matchSpikesToVisits([s], [place("Arrived mid-rise", "2026-09-19T12:40:00Z", "2026-09-19T14:00:00Z")]);
+  assert.deepEqual(spikeVisitRelation(matched), { kind: "arrived", gapMin: 10 });
+});
+
+test("an overlap beating a gap can be the stop the patient had not reached yet (T192)", () => {
+  // Why the distinction is not pathological: every overlap scores gap 0, so an overlap outranks a visit
+  // the patient genuinely had just left, even when the overlap began after the climb was under way.
+  const s = spike("2026-09-19T12:30:00Z", "2026-09-19T13:15:00Z");
+  const candidates = [place("Left 5 min before", "2026-09-19T12:10:00Z", "2026-09-19T12:25:00Z"), place("Arrived later", "2026-09-19T12:45:00Z", "2026-09-19T15:00:00Z")];
+  const [matched] = matchSpikesToVisits([s], candidates);
+  assert.equal(matched.visit?.place, "Arrived later");
+  assert.deepEqual(spikeVisitRelation(matched), { kind: "arrived", gapMin: 15 });
 });
 
 test("the closest qualifying visit wins, and an overlap beats a gap", () => {

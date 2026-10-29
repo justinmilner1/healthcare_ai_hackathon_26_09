@@ -4,6 +4,7 @@ import { fixture, pinUtcTimeZone } from "./fixtures";
 import { detectSpikes, parseClarityCsv } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv } from "./location";
 import { matchSpikesToVisits } from "./match";
+import { sourSystem } from "./prompts";
 import { parseWhoopCsv } from "./sleep";
 import { buildSourInput, renderSourInput, safetyFlags, summaryTimeZone } from "./sour";
 import type { GlucoseReading, Spike, Visit } from "./types";
@@ -200,6 +201,26 @@ test("a meal-length stay is an association; an all-day stay is only a weak one",
   const rendered = renderSourInput(build({ spikes: [spike] }));
   assert.match(rendered, /no visit within 30 min/);
   assert.match(renderSourInput(build({ spikes: [allDay] })), /during a long stay at Fixture Office .*weak association/);
+});
+
+test("a stop the patient reached partway up the climb is its own relation, and a weak one (T192)", () => {
+  // AC3: the row the model is handed has to agree with the row the clinician reads, so the temporal split
+  // is lib/spikePlaces.ts's one rule. Before T192 a stop beginning after the rise answered "at" whenever
+  // it was meal-length — and lib/prompts.ts then invited the model to count it with the real meals.
+  const spike: Spike = { start: "2026-09-19T12:30:00Z", peak: "2026-09-19T13:15:00Z", from: 100, to: 210 };
+  const arrived = { ...spike, visit: place("Fixture Taqueria", "2026-09-19T12:40:00Z", "2026-09-19T13:30:00Z") };
+  const atPeak = { ...spike, visit: place("Fixture Taqueria", "2026-09-19T13:15:00Z", "2026-09-19T14:00:00Z") };
+  assert.equal(build({ spikes: [arrived] }).spikes[0].placeRelation, "arrived during the rise at");
+  assert.equal(build({ spikes: [atPeak] }).spikes[0].placeRelation, "arrived during the rise at");
+  // The place is still named and its window still printed; what the row adds is why it is not a meal.
+  const rendered = renderSourInput(build({ spikes: [arrived] }));
+  assert.match(rendered, /arrived during the rise at Fixture Taqueria \(.*weak association — the climb had started before the patient got there\)/);
+  assert.doesNotMatch(rendered, /during a long stay at/);
+  // And the relation word the brief uses is one lib/prompts.ts tells the model what to do with (AC3).
+  assert.match(sourSystem(), /"arrived during the rise at"/);
+  // A stop that was already running keeps "at", which is the association this one is not.
+  const meal = { ...spike, visit: place("Fixture Taqueria", "2026-09-19T12:15:00Z", "2026-09-19T13:00:00Z") };
+  assert.equal(build({ spikes: [meal] }).spikes[0].placeRelation, "at");
 });
 
 test("nights are labelled by the evening before, and a late dinner out is named", () => {
