@@ -1206,7 +1206,7 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   await expect(rises.getByRole("columnheader")).toHaveText(["When", "Rise", "Where"]);
 
   // T193 (§2.7): and it says the *right* place-ish thing about them. These two samples place three rises
-  // and they are not one relation: two began while an Office stop was still running, and the Sunday
+  // and they are not one relation: two began while an Office stop was still running, and the Friday
   // evening rise is one the patient reached ten minutes into — so the caption may assert neither specific
   // reading over the three of them. It said "where you had just been" of all three until this ticket,
   // which is the matcher's `endedJustBefore` branch and true of none of them.
