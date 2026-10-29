@@ -462,11 +462,15 @@ test("a visit that did share a Timeline keeps every word it had, zero matches in
   // And a visit with matches on it, in the seeded demo's *shape* -- three placed rises and two not.
   // Not in its relations, which is a distinction this fixture did not have to make until T191: two of
   // these three began after their stop ended and one began during it, so this is the mixed week and the
-  // clause names the place without asserting either relation. The seeded demo's three are all the
-  // overlap case, so the sheet it is modelled on carries the other clause -- compare
-  // docs/screenshots/tickets/t191/desktop-provider-print.png, which reads "the place the patient was at
-  // when the rise began". It read "the place the patient had just left" here until T191, which was
-  // false of the third row.
+  // clause names the place without asserting either relation. It read "the place the patient had just
+  // left" here until T191, which was false of the third row.
+  //
+  // The seeded demo reaches this same clause by a different mix (T192), so the sheet modelled on it
+  // agrees with this fixture after all: two of its three placed rises are stops that were running as the
+  // readings turned, and the third is Home, which the patient reached ten minutes into the Friday evening
+  // climb -- `arrived`, not `during`. Compare docs/screenshots/tickets/t192/desktop-provider-print.png.
+  // The T191 copy of that frame reads "the place the patient was at when the rise began" because
+  // `arrived` was folded into `during` until T192, and that sentence was false of its third row.
   const placed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
   assert.equal(
     clinicianChartCaption(placed, SHARED, 7),
