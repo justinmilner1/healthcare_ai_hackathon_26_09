@@ -78,9 +78,21 @@ export async function expectChartTooltipsLabelled(
 // patient's own summary. lib/timeAxis.ts is the decision and lib/timeAxis.test.ts holds it at spans no
 // fixture has; what only the running app can show is that the ticks reach Recharts and are painted.
 
-/** The labels Recharts writes under the x-axis of whichever line chart this surface is showing. */
+/**
+ * The labels Recharts writes under the x-axis of whichever line chart this surface is showing.
+ *
+ * `.recharts-xAxis-tick-labels` and not `.recharts-xAxis`, which is the obvious selector and matches
+ * nothing. Since Recharts 3.4 a tick label is wrapped in a `ZIndexLayer`, and SVG has no `z-index`, so the
+ * library renders those children through a React portal into a `<g class="recharts-zIndex-layer_2000">` of
+ * its own at the end of the chart's surface: the `<text>` is still inside `.recharts-wrapper` and is no
+ * longer inside the axis group it belongs to. The group that carries the labels is portalled with them and
+ * keeps its own class, which is what names the axis here. The Y axis's ticks are
+ * `.recharts-yAxis-tick-labels`, and telling the two apart is the whole reason this is not simply
+ * `.recharts-cartesian-axis-tick-value`: that matches 70, 180 and 250 as well, which are digits on an axis
+ * whose unit this is asserting.
+ */
 const axisLabels = (page: Page): Locator =>
-  lineChart(page).locator(".recharts-xAxis .recharts-cartesian-axis-tick-value");
+  lineChart(page).locator(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value");
 
 /** A weekday as `weekday: "short"` writes one, in the en-US locale these browsers run in. */
 const WEEKDAY = /^[A-Za-z]{2,4}$/;
