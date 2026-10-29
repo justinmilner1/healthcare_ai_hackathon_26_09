@@ -21,6 +21,37 @@ const at = (month: number, day: number, hour: number, minute = 0) => new Date(20
 const DESK = 700;
 const PHONE = 230;
 
+/**
+ * And the three plots §6.5's 375px page actually hands this chart, measured in the suite's own Chromium on
+ * the seven-day sample the demo and the e2e suite both summarize (T190).
+ *
+ * `PHONE` above is a round number standing in for all three, and that is how T190 got through: at 230px the
+ * old width model and the corrected one agree — both allow a week's seven weekdays — so a test written only
+ * against it could not see that the brief's card is 21px narrower than that and the printed sheet 25px, nor
+ * that the patient's own card is 7px wider. The two cases the three numbers separate are exactly the ones
+ * acceptance criteria 1 and 2 are about: the width where all seven arrive, and the width where they must
+ * thin rather than have one dropped without saying so.
+ *
+ * Measured as `wrapper.clientWidth - 80`, which is what components/GlucoseChart.tsx passes: 289, 285 and 317
+ * less the y-axis and right margin it takes off first.
+ */
+const BRIEF_375 = 209;
+const PRINT_375 = 205;
+const PATIENT_375 = 237;
+
+/**
+ * The widest weekday label this axis draws, in pixels at its 11px, and the gap Recharts refuses to paint
+ * two labels inside of (T190).
+ *
+ * 22.56px is `"Wed"` measured in the suite's Chromium the way Recharts measures — a hidden span at
+ * `font-size: 11px` with `white-space: pre` — and 5 is `minTickGap`, which `XAxis` defaults to. Together
+ * they are the pitch a weekday needs, and the rule `lib/timeAxis.ts` is now written against. Here rather
+ * than imported because the module states them as one rounded-up figure per grain with a margin on top:
+ * a test that read its own constants back could not tell a corrected model from the old one.
+ */
+const WIDEST_WEEKDAY = 22.56;
+const RECHARTS_MIN_TICK_GAP = 5;
+
 /** What a weekday label looks like, whatever the locale: the reader's own `weekday: "short"`. */
 const weekdayOf = (t: number) => new Date(t).toLocaleDateString(undefined, { weekday: "short" });
 /** And the hour, the reading the chart's own tooltip has always used. */
@@ -110,6 +141,67 @@ test("a week is the axis it has always been: one weekday per local midnight", ()
       assert.equal(d.getMinutes(), 0);
       assert.equal(axis.format(t), weekdayOf(t), "and reads as its weekday");
     }
+  }
+});
+
+test("the brief's own 375px plot keeps every weekday it asks for, or asks for fewer (T190)", () => {
+  // Acceptance criteria 1, 2 and 5. Recharts measures each label itself and silently drops any that would
+  // land within its `minTickGap` of 5px of one it has kept, so a count this module allows and Recharts
+  // refuses is an axis missing a day with its remaining labels still evenly spaced — nothing on screen says
+  // one is absent. The brief at 375px gave its seven midnights 26.0px each, a weekday needs 27.56px there,
+  // and `Sun` was the one that went while the spike table under the same card named it twice.
+  //
+  // The span is the seven-day sample (data/dexcom_clarity_sample.csv runs Sat 00:00 to the following Fri
+  // 23:55), so these are the three frames the ticket was filed against, not a constructed width.
+  const first = at(8, 19, 0);
+  const last = at(8, 25, 23, 55);
+
+  // Every tick is one Recharts will paint: the pitch each label is given clears its measured width plus
+  // Recharts' own 5px. This is the assertion the module exists to make true, and it is written as the rule
+  // rather than as a count so it holds at every width between.
+  for (const plot of [BRIEF_375, PRINT_375, PATIENT_375, 230, 300, 420, DESK, 1400]) {
+    const axis = timeAxis(first, last, plot);
+    const pitch = axis.ticks.length >= 2 ? (plot * (axis.ticks[1] - axis.ticks[0])) / (last - first) : plot;
+    assert.ok(pitch >= WIDEST_WEEKDAY + RECHARTS_MIN_TICK_GAP, `at plot ${plot} the ${axis.ticks.length} weekdays sit ${pitch.toFixed(1)}px apart, and one needs ${WIDEST_WEEKDAY + RECHARTS_MIN_TICK_GAP}px`);
+  }
+
+  // Criterion 2: the patient's own summary paints all seven today and keeps them, and so does every desk.
+  for (const plot of [PATIENT_375, DESK, 788, 581, 894]) {
+    assert.equal(timeAxis(first, last, plot).ticks.length, 7, `a week at plot ${plot}`);
+  }
+
+  // Criterion 1's other branch: the two narrower cards thin to a coarser step instead. Both ends of the
+  // line are still named, the labels are still distinct weekdays, and the gaps are still equal — which is
+  // the difference between an axis that has thinned and one that has lost a day.
+  for (const plot of [BRIEF_375, PRINT_375]) {
+    const axis = timeAxis(first, last, plot);
+    const labels = axis.ticks.map(axis.format);
+    assert.ok(axis.ticks.length >= 3 && axis.ticks.length < 7, `a week at plot ${plot} drew ${axis.ticks.length} ticks`);
+    assert.equal(axis.unit, "day", `a week at plot ${plot} is still read in days`);
+    assert.equal(new Set(labels).size, labels.length, `two labels read the same at plot ${plot}: ${labels.join(" | ")}`);
+    for (const t of axis.ticks) assert.equal(axis.format(t), weekdayOf(t), `and each reads as its weekday at plot ${plot}`);
+    const gaps = new Set(axis.ticks.slice(1).map((t, i) => Math.round((t - axis.ticks[i]) / 86_400_000)));
+    assert.equal(gaps.size, 1, `unevenly spaced at plot ${plot}, in days: ${[...gaps].join(", ")}`);
+  }
+});
+
+test("the sub-day hour axis T187 added is the one it was (T190 criterion 3)", () => {
+  // Correcting the day grain's width must not move the hour grain's, and the counts below are the frames
+  // T187 is judged on: data/fixtures/clarity_window.csv, 06:00 to 12:55, at the widths the three surfaces
+  // give it. Seven hourly labels on a desk, four two-hourly on any of the three 375px cards.
+  const first = at(8, 19, 6);
+  const last = at(8, 19, 12, 55);
+  for (const plot of [BRIEF_375, PRINT_375, PATIENT_375]) {
+    const axis = timeAxis(first, last, plot);
+    assert.equal(axis.unit, "hour", `a morning at plot ${plot}`);
+    assert.equal(axis.ticks.length, 4, `a morning at plot ${plot} drew ${axis.ticks.map(axis.format).join(" · ")}`);
+    assert.equal(axis.format(axis.ticks[0]), hourOf(axis.ticks[0]));
+  }
+  for (const plot of [788, 581, 894, DESK]) {
+    const axis = timeAxis(first, last, plot);
+    assert.equal(axis.unit, "hour", `a morning at plot ${plot}`);
+    assert.equal(axis.ticks.length, 7, `a morning at plot ${plot} drew ${axis.ticks.map(axis.format).join(" · ")}`);
+    for (const t of axis.ticks) assert.equal(axis.format(t), hourOf(t), "and every one of them is a whole hour");
   }
 });
 
