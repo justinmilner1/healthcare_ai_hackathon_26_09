@@ -223,6 +223,35 @@ test("a stop the patient reached partway up the climb is its own relation, and a
   assert.equal(build({ spikes: [meal] }).spikes[0].placeRelation, "at");
 });
 
+// The lede of `sourSystem()` used to introduce the data as "spikes with the place the patient had just
+// left" — `relationTo`'s `after leaving` branch asserted over rows that can carry any of four, in the
+// sentence the model reads first about what it is looking at. The paragraph a few lines below it was
+// already written against all four, so the prompt described the rows one way and then told the model to
+// read them another (T194; T191 and T193 are the same drift on the two captions).
+//
+// The guard is over the words the brief can actually print, built here rather than listed, so a fifth
+// relation fails this test instead of going unexplained in the one place the model is reading.
+test("every relation the brief can print is one the prompt explains, and none is asserted of all of them (T194)", () => {
+  const spike: Spike = { start: "2026-09-19T12:30:00Z", peak: "2026-09-19T13:15:00Z", from: 100, to: 210 };
+  const rows = [
+    { ...spike, visit: place("Fixture Cafe", "2026-09-19T11:40:00Z", "2026-09-19T12:20:00Z") },
+    { ...spike, visit: place("Fixture Taqueria", "2026-09-19T12:15:00Z", "2026-09-19T13:00:00Z") },
+    { ...spike, visit: place("Fixture Taqueria", "2026-09-19T12:40:00Z", "2026-09-19T13:30:00Z") },
+    { ...spike, visit: place("Fixture Office", "2026-09-19T09:00:00Z", "2026-09-19T17:00:00Z") },
+  ];
+  const relations = new Set(rows.map((s) => build({ spikes: [s] }).spikes[0].placeRelation));
+  assert.equal(relations.size, 4, "the four relations relationTo can return");
+  for (const relation of relations) {
+    assert.ok(sourSystem().includes(`"${relation}`), `the prompt says what to do with "${relation}"`);
+  }
+  // A rise with no stop within half an hour is a fifth kind of row, and the lede now admits it rather
+  // than promising a place for every one of them.
+  assert.equal(build({ spikes: [spike] }).spikes[0].placeRelation, null);
+  assert.match(sourSystem(), /or says no stop matched/);
+  // The regression itself: no one relation is claimed of every placed row.
+  assert.doesNotMatch(sourSystem(), /the place the patient had just left/);
+});
+
 test("nights are labelled by the evening before, and a late dinner out is named", () => {
   // WHOOP dates a cycle by the morning it ended; the clinician thinks in evenings.
   const pizzeria = visits().find((v) => v.place === "Fixture Pizzeria")!;
