@@ -3,7 +3,7 @@
 // same spikes on the clinician's surfaces (lib/spikePlaces.ts `clinicianSpikeCardHeading`, T157) and the
 // patient's own words on theirs ("Your biggest rises", §2.7).
 
-import { anyPlaceKnown, clinicianPlaceColumn, NO_MATCH_CELL, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE } from "@/lib/spikePlaces";
+import { anyPlaceKnown, clinicianPlaceColumn, NO_MATCH_CELL, patientPlaceName, placeIsUnnamed, spikeRelationCell, UNKNOWN_PLACE } from "@/lib/spikePlaces";
 import type { Spike } from "@/lib/types";
 
 /**
@@ -55,9 +55,11 @@ export default function SpikeTable({
       <tbody className="tabular-nums">
         {spikes.map((s, i) => {
           // "left 25 min before" when the visit ended before the rise began; "while there" when the rise
-          // began during the visit, which is normal for a sit-down meal.
-          const gapMin = s.visit ? Math.round((Date.parse(s.start) - Date.parse(s.visit.end)) / 60000) : null;
-          const relation = gapMin === null ? "" : gapMin > 0 ? `left ${gapMin} min before` : "while there";
+          // began during the visit, which is normal for a sit-down meal. The derivation is in
+          // lib/spikePlaces.ts because the caption over this card is written off the same relation, and
+          // the two used to disagree: it called every label on the chart a place the patient had left,
+          // over rows saying "while there" (T191).
+          const relation = spikeRelationCell(s);
           // Muted like "not sure" below it, and for the same reason: both are the page saying what it does
           // not know, which is not the same kind of cell as "Pizzeria Delfina" (T128).
           const unnamed = patient && s.visit !== undefined && placeIsUnnamed(s.visit);

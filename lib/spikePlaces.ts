@@ -147,6 +147,48 @@ export function patientPlaceName(visit: Visit): string {
 }
 
 /**
+ * Which of lib/match.ts's two branches linked this rise to the stop on it, and by how long (T191).
+ *
+ * The matcher takes a visit that *overlaps* the rise and a visit that *ended within 30 minutes before* it,
+ * picks the closest, and leaves the same `visit` field behind either way — so the field says a place and
+ * not a story. The two are different stories: a rise that began during a sit-down meal is the patient still
+ * at the table, and a rise that began after the stop is the patient already somewhere else. The clinical
+ * reading of one place label depends on which, and §2.6's card has always had it per row ("while there",
+ * "left 25 min before"); the caption over the chart asserted the second for every label on it.
+ *
+ * So the derivation lives here, once, and both elements read it. `null` is a rise the matcher placed
+ * nowhere, which is the `NO_MATCH_CELL` case and carries no relation at all.
+ *
+ * The test is the sign of the gap and not `lib/match.ts`'s `overlaps` predicate, because the gap is what
+ * the row already shows: a visit that ends after the rise begins has nothing to count down from, and
+ * "while there" is the true thing to say about every one of them. Rounded to the minute before the
+ * comparison, so the cell's number and this answer cannot disagree about a stop that ended seconds before.
+ */
+export type SpikeVisitRelation = { kind: "during" } | { kind: "after"; gapMin: number };
+
+/** The relation between a rise and the stop the matcher put on it, or `null` where it placed none. */
+export function spikeVisitRelation(spike: Spike): SpikeVisitRelation | null {
+  if (!spike.visit) return null;
+  const gapMin = Math.round((Date.parse(spike.start) - Date.parse(spike.visit.end)) / 60000);
+  return gapMin > 0 ? { kind: "after", gapMin } : { kind: "during" };
+}
+
+/**
+ * What the clinician's place cell says after the place name, when the card has room for it
+ * (components/SpikeTable.tsx; `compact` drops it on the patient's page and the printed sheet).
+ *
+ * In this module rather than in the component for the reason `NO_MATCH_CELL` is: it is a string this file
+ * is answerable for, and the caption over the card is written off the same relation, so the two cannot come
+ * to different conclusions about one match (T191). Empty for a rise with no place, which is the cell that
+ * reads `NO_MATCH_CELL` or `UNKNOWN_PLACE` instead and has no suffix to carry.
+ */
+export function spikeRelationCell(spike: Spike): string {
+  const relation = spikeVisitRelation(spike);
+  if (!relation) return "";
+  return relation.kind === "after" ? `left ${relation.gapMin} min before` : "while there";
+}
+
+/**
  * The label GlucoseChart draws over a spike's marker: the place where there is one, the peak reading where
  * there is not (components/GlucoseChart.tsx picks which markers get a label at all).
  *
@@ -205,6 +247,39 @@ function markerSentence(shown: number, total: number): string {
 }
 
 /**
+ * What the matched caption says a place label is, worded for the relations the labelled rises actually have
+ * (T191).
+ *
+ * The sentence used to be one literal: "the place the patient had just left". That is `spikeVisitRelation`'s
+ * `after` branch, asserted over a chart whose labels can be either branch — and on the seeded week it was
+ * the wrong one for all three of them, four inches above a Place column reading "while there" three times.
+ * The genre is T165's and T184's: two elements of one card reporting different things about one match.
+ *
+ * Three readings, from the relations present rather than from a count, so the clause is true of whatever
+ * mix the week holds:
+ *
+ * | the labelled rises | the clause |
+ * |---|---|
+ * | every one began after its stop ended | the place the patient had just left |
+ * | every one began while its stop was running | the place the patient was at when the rise began |
+ * | some of each | the place the rise was linked to |
+ *
+ * The mixed reading names the place and stops, which is all criterion 1 asks: the per-row relation in the
+ * Place column is the element that says which of the two a given label is, and a caption saying both would
+ * be a sentence with two "or"s in it that still left the reader to pair them up. It borrows "linked" from
+ * `clinicianSpikeCardHeading`'s own "Spikes linked to places" rather than minting a fourth word for a match.
+ *
+ * Only ever called on the `matched` report, where at least one rise carries a place — so the set is never
+ * empty and there is no fourth branch to write.
+ */
+export function matchedPlaceClause(spikes: Spike[]): string {
+  const kinds = new Set(spikes.map(spikeVisitRelation).map((r) => r?.kind));
+  if (!kinds.has("during")) return "the place the patient had just left";
+  if (!kinds.has("after")) return "the place the patient was at when the rise began";
+  return "the place the rise was linked to";
+}
+
+/**
  * The caption under the glucose chart on the two clinician surfaces: the brief (§2.6) and the printed
  * one-pager (§7.4). One function, so the two strings cannot drift apart (T99).
  *
@@ -214,7 +289,7 @@ function markerSentence(shown: number, total: number): string {
  * Dexcom-only visit every label was a number the caption called a place, beside a Spikes card already
  * reading "0 linked to a place".
  *
- * Four things it therefore does not say. Not that a label is a place, unless one is: where a Timeline was
+ * Five things it therefore does not say. Not that a label is a place, unless one is: where a Timeline was
  * shared and nothing matched, the caption names the peak reading and says outright that nothing matched,
  * which is what the card beside it says. Not that a match was tried where no Timeline was shared, which is
  * T184 and the `no-timeline` branch: the sentence stops at what a label is, and the stat tile beside it is
@@ -222,7 +297,10 @@ function markerSentence(shown: number, total: number): string {
  * label: GlucoseChart drops a label that would collide with the one before it, keeping the marker, so the
  * labels are the ones that fit. And not that the markers are the week's rises when they are the largest few
  * of them — `markerSentence` above, which takes the `total` the stat tile shows so that the chart and the
- * tile cannot be counted against each other (T165).
+ * tile cannot be counted against each other (T165). And not that the patient had left the place a label
+ * names, unless they had: the matcher links a rise to a stop it overlaps as readily as to one that ended
+ * just before it, so the clause comes from `matchedPlaceClause` above and the relations the labelled rises
+ * actually have, which is the same derivation the Place column under the chart shows per row (T191).
  *
  * `status` is `PatientBundle.status`, the argument order `clinicianSpikePlacesHint` already takes it in.
  */
@@ -231,7 +309,7 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
   const labels = "Labels, where they fit,";
   switch (clinicianPlaceReport(spikes, status)) {
     case "matched":
-      return `${TARGET_BAND} ${markers} ${labels} give the place the patient had just left, or the peak mg/dL where no place matched.`;
+      return `${TARGET_BAND} ${markers} ${labels} give ${matchedPlaceClause(spikes)}, or the peak mg/dL where no place matched.`;
     case "unmatched":
       return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL: no place matched any of these rises.`;
     case "no-timeline":
