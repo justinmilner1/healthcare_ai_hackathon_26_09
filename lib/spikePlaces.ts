@@ -147,7 +147,7 @@ export function patientPlaceName(visit: Visit): string {
 }
 
 /**
- * Which story linked this rise to the stop on it, and by how long (T191, T192).
+ * Which story linked this rise to the stop on it, and by how long (T191, T192, T193).
  *
  * The matcher takes a visit that *overlaps* the rise and a visit that *ended within 30 minutes before* it,
  * picks the closest, and leaves the same `visit` field behind either way — so the field says a place and
@@ -157,8 +157,9 @@ export function patientPlaceName(visit: Visit): string {
  * "left 25 min before"); the caption over the chart asserted the second for every label on it.
  *
  * So the derivation lives here, once, and every element that says where the patient was reads it: the
- * Place column, the caption over it, and the relation word lib/sour.ts hands the model. `null` is a rise
- * the matcher placed nowhere, which is the `NO_MATCH_CELL` case and carries no relation at all.
+ * Place column, the caption over it, the relation word lib/sour.ts hands the model, and — since T193 — the
+ * subtitle on the patient's own chart. `null` is a rise the matcher placed nowhere, which is the
+ * `NO_MATCH_CELL` case and carries no relation at all.
  *
  * `overlaps` is **two** of those stories and not one, which is T192. It holds when the stop was already
  * running as the readings began to climb — the sit-down meal above — and it holds just as readily when the
@@ -238,15 +239,59 @@ export function markerLabel(spike: Spike, { patient }: { patient: boolean }): st
 }
 
 /**
+ * What the patient's caption says a marker's label is, worded for the relations the labelled rises actually
+ * have (T193). `matchedPlaceClause` above is the same derivation in the clinician's register.
+ *
+ * The sentence used to be one literal: "where you had just been". That is `spikeVisitRelation`'s `after`
+ * branch, asserted for every label on the chart — and on both of the fixtures this page is ever seen with,
+ * the seeded demo week and the mixed-places sample, not one labelled rise is that branch. Two began while a
+ * stop was still running and one began before the patient arrived at all, so the subtitle asked them to
+ * remember leaving three places they had not left.
+ *
+ * Three clauses, the same split the Place column shows the clinician per row, because each of the two
+ * specific ones is a claim about where the patient stood at one minute:
+ *
+ * | the labelled rises | the clause |
+ * |---|---|
+ * | every one began after its stop ended | where you had just been |
+ * | every one began while its stop was running | where you were at the time |
+ * | any other mix, an `arrived` among them included | where you were around then |
+ *
+ * None of it is the matcher's vocabulary (T82), and none of it is the clinician's: §2.7 is the second
+ * person throughout, so "while there" and "the place the rise was linked to" are not the words to reach
+ * for. "Around then" is the neutral one — true of a stop they had left, one they were sitting in and one
+ * they walked into partway up the climb — and it is what the mixed week gets, because the page has nothing
+ * under it that tells the three apart: `compact` drops the relation suffix from the rises table
+ * (components/SpikeTable.tsx), so this sentence is the only thing on the screen saying anything about the
+ * relation and it may not say more than it knows.
+ *
+ * Only ever called where some rise carries a place, so the set of kinds is never empty.
+ */
+function patientPlaceClause(spikes: Spike[]): string {
+  const kinds = new Set(spikes.map((s) => spikeVisitRelation(s)?.kind).filter((kind) => kind !== undefined));
+  if (kinds.size === 1) {
+    if (kinds.has("after")) return "where you had just been";
+    if (kinds.has("during")) return "where you were at the time";
+  }
+  return "where you were around then";
+}
+
+/**
  * The subtitle under the patient's glucose card, which names what the markers on it carry.
  *
  * GlucoseChart labels a marker with its spike's place when there is one and with the peak reading when there
- * is not, so the half-sentence about places is only true in the first case — and a caption promising "where
- * you had just been" above a table with no Where column is the same bug read twice (T82).
+ * is not, so the half-sentence about places is only true in the first case — and a caption promising a place
+ * above a table with no Where column is the same bug read twice (T82). `anyPlaceKnown` is therefore still
+ * the predicate, the one the table's column reads, so the two cannot disagree about whether this week has
+ * places in it at all.
+ *
+ * What the clause then says about those places is `patientPlaceClause` above and the relations they have
+ * (T193). It said "where you had just been" of all of them until then — the one thing the matcher's
+ * `endedJustBefore` branch means, over a chart whose labels can be any of three.
  */
 export function patientChartCaption(spikes: Spike[]): string {
   return anyPlaceKnown(spikes)
-    ? "Markers show your biggest rises and where you had just been, when available."
+    ? `Markers show your biggest rises and ${patientPlaceClause(spikes)}, when available.`
     : "Markers show your biggest rises.";
 }
 
