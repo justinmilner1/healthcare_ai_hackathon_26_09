@@ -5,6 +5,7 @@ import { GMI_A1C_HINT, GMI_SHORT_SPAN_HINT } from "../lib/gmi";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
+import { expectTimeAxisLabelled } from "./charts";
 import { patientEmail, verifyByApi } from "./patient";
 import { SCREENFUL, shot } from "./shot";
 
@@ -61,6 +62,15 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   await expect(briefGmi).toContainText(GMI_SHORT_SPAN_HINT);
   await expect(briefGmi, "an estimated A1c off one day of readings").not.toContainText(GMI_A1C_HINT);
   await expect(page.locator(".sour-overview-line"), "the figure unqualified, on the line read at a glance").not.toContainText(/GMI/);
+
+  // T187 (§2.6, §6.5): the same single day, read off the chart. `clarity_window.csv` is 06:00 to 12:55,
+  // so the old "one tick per local midnight" rule had no candidate inside the span and the brief drew an
+  // axis line with nothing under it — on the one card where a clinician sees the shape of the day, under
+  // a heading that says "Glucose, last 1 day" out loud. lib/timeAxis.ts chooses the ticks now; this is
+  // that choice arriving in the browser, at 1280px and at 375px, where the plot is about 230px and the
+  // labels thin themselves to fit.
+  await expectTimeAxisLabelled(page, "the clinician's brief, one morning of readings", "hour");
+  await shot(page, "provider-sour-single-day-chart", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
 
   // Before the press: the button is offered and there is no record.
   const markReviewed = page.getByRole("button", { name: "Mark reviewed" });
@@ -119,6 +129,14 @@ test("a clinician marks a summary reviewed: the record is on the one-pager and t
   // No anchor: the single day this shot exists to show is in the header's sub-line, so it is in the frame
   // on both projects without one (T109, design §12.3).
   await shot(page, "provider-print-single-day");
+
+  // T187 (§7.4): and on paper, which is the copy carried into the room — the surface with no tooltip to
+  // fall back on at all. The same assertion as the brief's, because the sheet draws the same component
+  // off the same bundle and the two may not read differently.
+  await expectTimeAxisLabelled(page, "the printed one-pager, one morning of readings", "hour");
+  // Anchored, unlike the shot above: this one is about the chart rather than the header, and a phone
+  // shot of a whole sheet is the 5,489-pixel column the §12.3 size gate stops (T109).
+  await shot(page, "provider-print-single-day-chart", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
 
   // Pressing again is not an error and does not move the record: the first sign-off is the one that stands.
   const again = await postJson(page.request, "/api/review", { visitId: booked.visitId });

@@ -4,8 +4,9 @@ import { GMI_A1C_HINT, GMI_A1C_MIN_DAYS, GMI_SHORT_SPAN_HINT } from "../lib/gmi"
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { DRAINED, LOADED } from "./budget";
+import { expectTimeAxisLabelled } from "./charts";
 import { patientEmail, verifyByApi } from "./patient";
-import { shot } from "./shot";
+import { SCREENFUL, shot } from "./shot";
 
 // T108 (design §2.6, §7, §12.3): "Safety flags are at the top in red."
 //
@@ -312,6 +313,14 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   const weekGmi = page.locator(".sour-metrics-card .summary-stat-tile", { hasText: "GMI" });
   await expect(weekGmi).toContainText(GMI_SHORT_SPAN_HINT);
   await expect(weekGmi, "an estimated A1c off a week of readings").not.toContainText(GMI_A1C_HINT);
+
+  // T187 (§2.6): the half of that ticket which is a promise to leave something alone. The seven-day
+  // sample is the span the chart was written for, and its axis — one weekday per local midnight — is the
+  // one a reader of a week wants and the one the fix must not touch. Asserted beside the single-day
+  // charts in e2e/review.spec.ts and e2e/flows.spec.ts, so "the labels are in the unit of the span" is
+  // driven in both units rather than only in the one that was broken.
+  await expectTimeAxisLabelled(page, "the clinician's brief, a week of readings", "day");
+  await shot(page, "provider-sour-week-chart", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
 
   const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
   expect(opened?.status()).toBe(200);
