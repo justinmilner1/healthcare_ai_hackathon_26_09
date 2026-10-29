@@ -66,8 +66,12 @@ test("the chart caption promises places only when there are places (T82)", () =>
 });
 
 test("the caption and the column agree, because both read one predicate", () => {
+  // Probed on "where" rather than on one of the clauses the caption can take: since T193 the wording of
+  // the promise depends on the relations, and a probe naming one clause would quietly stop testing this
+  // the moment a week took another. What `anyPlaceKnown` decides is whether a place is promised at all.
+  // The two relations whose helpers are declared further down are probed the same way in the T193 block.
   for (const spikes of [[], [spike()], [spike(somewhere("Noe Cafe"))], [spike(), spike(somewhere("Home"))]]) {
-    assert.equal(/where you had just been/.test(patientChartCaption(spikes)), anyPlaceKnown(spikes));
+    assert.equal(/\bwhere\b/.test(patientChartCaption(spikes)), anyPlaceKnown(spikes), patientChartCaption(spikes));
   }
 });
 
@@ -704,4 +708,105 @@ test("the other two branches and the clinician's register are untouched (T191)",
     assert.doesNotMatch(caption, new RegExp(NO_MATCH_CELL), caption);
     assert.match(caption, /^Shaded band is 70–180 mg\/dL\. /);
   }
+});
+
+// T193 (§2.7, lib/match.ts): the patient's twin of the sentence T191 and T192 fixed on the two clinician
+// surfaces. `patientChartCaption` still asserted the matcher's `endedJustBefore` branch — "where you had
+// just been" — for every labelled marker on the patient's own chart, and the patient's page is worse placed
+// to recover from it than the brief was: `compact` drops the relation suffix from the rises table
+// (components/SpikeTable.tsx), so the caption is the only element on that screen saying anything about the
+// relation and there is nothing under it to read against it.
+
+test("every matched rise an overlap: the patient is not told they had just been somewhere (T193)", () => {
+  // Criterion 1, in the direction the ticket was filed on. Every one of these stops was still running when
+  // the readings began to climb, so "where you had just been" asks the patient to remember leaving places
+  // they were sitting in — the wrong memory to go looking for, and the memory aid is the whole job of that
+  // column (T128).
+  const spikes = [spike(during("Office")), spike(during("Office")), spike(), spike(), spike(during("Home"))];
+  const caption = patientChartCaption(spikes);
+  assert.doesNotMatch(caption, /had just been/, caption);
+  assert.equal(caption, "Markers show your biggest rises and where you were at the time, when available.");
+});
+
+test("every matched rise an ended-just-before: the patient's caption keeps the words it had (T193)", () => {
+  // Criterion 4's other half, and the direction that must not move: this is the branch the sentence was
+  // written for, still the exact string §2.7 has shown since T82.
+  const spikes = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike()];
+  assert.equal(patientChartCaption(spikes), "Markers show your biggest rises and where you had just been, when available.");
+});
+
+test("a mix tells the patient only where they were around then (T193)", () => {
+  // Criterion 1: being accurate for both cases is enough. Neither specific reading is true of all of these,
+  // and unlike the clinician's card there is no per-row suffix on this page to tell them apart — so the
+  // clause asserts neither and the page claims no more than it knows.
+  for (const spikes of [
+    [spike(during("Office")), spike(somewhere("Noe Cafe")), spike()],
+    [spike(arriving("Office", 10))],
+    [spike(arriving("Office", 10)), spike(during("Home"))],
+    [spike(arriving("Office", 10)), spike(somewhere("Noe Cafe"))],
+    [spike(arriving("Office", 1)), spike(during("Home")), spike(somewhere("Noe Cafe")), spike()],
+  ]) {
+    const caption = patientChartCaption(spikes);
+    assert.equal(caption, "Markers show your biggest rises and where you were around then, when available.", spikes.map(spikeRelationCell).join(" / "));
+    assert.doesNotMatch(caption, /had just been|at the time/, caption);
+  }
+});
+
+test("both fixtures this page is ever seen with are that mix (T193)", () => {
+  // The ticket's own reproduction, and why neither specific clause reaches a screenshot. The seeded demo
+  // week and the mixed-places sample (data/timeline_sample.json over data/dexcom_clarity_sample.csv) place
+  // three rises each and have the same shape: two Office stops that were running as the readings turned,
+  // and one the patient reached ten minutes into the climb.
+  //
+  // The issue body reads those three as all-`during` — gaps of -155, -145 and -250 minutes — which is the
+  // pre-T192 reading, where `overlaps` was one case and an `arrived` stop counted as one the patient was
+  // standing in. It is the mixed clause that is true of them, not "where you were at the time".
+  const spikes = [spike(during("Office")), spike(during("Office")), spike(arriving("Home", 10)), spike(), spike()];
+  assert.deepEqual(spikes.map((s) => spikeVisitRelation(s)?.kind ?? null), ["during", "during", "arrived", null, null]);
+  assert.equal(patientChartCaption(spikes), "Markers show your biggest rises and where you were around then, when available.");
+});
+
+test("the patient's caption and the clinician's cannot disagree about one match (T193)", () => {
+  // Criterion 2, as the property rather than as three examples: both surfaces read one
+  // `spikeVisitRelation`, so for every mix of matches the patient's clause has to be specific in exactly
+  // the cases the clinician's is, and about the same relation. This is the assertion that stops §2.7
+  // drifting back out of step with §2.6 the next time either sentence is reworded.
+  const placed = [undefined, somewhere("Noe Cafe"), during("Pizzeria Delfina"), arriving("Office", 10)];
+  for (let code = 0; code < 4 ** 4; code++) {
+    const spikes = [0, 1, 2, 3].map((i) => spike(placed[Math.floor(code / 4 ** i) % 4]));
+    if (!anyPlaceKnown(spikes)) continue;
+    const patient = patientChartCaption(spikes);
+    const clinician = matchedPlaceClause(spikes);
+    const cells = spikes.map(spikeRelationCell).filter(Boolean);
+    const where = `${cells.join(" / ")}: ${patient}`;
+    assert.equal(/had just been/.test(patient), clinician === "the place the patient had just left", where);
+    assert.equal(/at the time/.test(patient), clinician === "the place the patient was at when the rise began", where);
+    assert.equal(/around then/.test(patient), clinician === "the place the rise was linked to", where);
+    // And each specific clause is true of every row it captions, which is what the clinician's own
+    // cross-product asserts one surface over.
+    if (/had just been/.test(patient)) assert.ok(cells.every((c) => c.startsWith("left ")), where);
+    if (/at the time/.test(patient)) assert.ok(cells.every((c) => c === "while there"), where);
+    // A row the patient walked into partway up the climb leaves no specific reading standing (T192).
+    if (cells.some((c) => c.startsWith("arrived "))) assert.doesNotMatch(patient, /had just been|at the time/, where);
+  }
+});
+
+test("all three clauses keep §2.7's register and borrow nothing from the matcher (T193)", () => {
+  // Criterion 3. The second person throughout, and none of the clinician's vocabulary: not "while there",
+  // not "linked", and above all not "visit", which on this page is the appointment the patient is
+  // preparing for (§4.4). Criterion 4's first half too — the no-places branch is still the bare sentence.
+  for (const spikes of [
+    [spike(somewhere("Noe Cafe"))],
+    [spike(during("Office"))],
+    [spike(arriving("Home", 10))],
+    [spike(during("Office")), spike(somewhere("Noe Cafe")), spike()],
+  ]) {
+    const caption = patientChartCaption(spikes);
+    assert.match(caption, /^Markers show your biggest rises and where you /, caption);
+    assert.match(caption, /, when available\.$/, caption);
+    assert.doesNotMatch(caption, MATCHER, caption);
+    assert.doesNotMatch(caption, /visit|linked|while there|mg\/dL/i, caption);
+  }
+  assert.equal(patientChartCaption([spike(), spike()]), "Markers show your biggest rises.");
+  assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
 });
