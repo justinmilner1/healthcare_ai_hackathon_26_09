@@ -2438,13 +2438,20 @@ textarea.ss-input {
   color: #8c3b33;
 }
 
-/* Tall enough for a day's rows at a glance, and never more than half the window: a long paste still scrolls
-   in here rather than pushing the tally and the Create button out of reach. 260px was less than the height
+/* As many of a day's rows at a glance as half the window will hold: a long paste still scrolls in here
+   rather than pushing the tally and the Create button out of reach. 260px was less than the height
    of the five rows e2e/visits.spec.ts previews, so whichever way the box was scrolled it cut one of them in
    half -- including in the only screenshot of this screen, which showed the three rows that passed and
-   neither of the two §2.2 refused (T107). */
+   neither of the two §2.2 refused (T107).
+   T188 replaced that with half the window, flatly. It was `min(420px, 50svh)`, and the 420px was the same
+   kind of number 260px had been: measured against the rows one fixture happened to have, and binding on
+   every window over 840px. A row's height here is the height of its wrapped cells, so a longer name or a
+   seventh row grew the table into that cap and left the last row behind the scroller's edge -- on a screen
+   whose whole subject is reading the rows and their errors. Half the window is the rule this comment always
+   stated; dropping the pixel term means a tall monitor is allowed to show what it has room for, and leaves
+   nothing here that a window cannot relieve. */
 .import-table-scroll {
-  max-height: min(420px, 50svh);
+  max-height: 50svh;
   overflow: auto;
   border: 1px solid var(--ss-line);
   border-radius: 14px;
