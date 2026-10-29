@@ -459,11 +459,15 @@ test("a visit that did share a Timeline keeps every word it had, zero matches in
   assert.equal(clinicianSpikeCardHeading(unplaced, SHARED), "Spikes over 180");
   assert.equal(clinicianSpikePlacesHint(unplaced, SHARED, 7), "top 5 shown · 0 linked to a place");
   assert.equal(clinicianPlaceColumn(unplaced, SHARED), true);
-  // And the matched visit, which is the seeded demo one (desktop-provider-print.png).
+  // And a visit with matches on it, in the seeded demo's *shape* -- three placed rises and two not.
+  // Not in its relations, which is a distinction this fixture did not have to make until T191: two of
+  // these three began after their stop ended and one began during it, so this is the mixed week and the
+  // clause names the place without asserting either relation. The seeded demo's three are all the
+  // overlap case, so the sheet it is modelled on carries the other clause -- compare
+  // docs/screenshots/tickets/t191/desktop-provider-print.png, which reads "the place the patient was at
+  // when the rise began". It read "the place the patient had just left" here until T191, which was
+  // false of the third row.
   const placed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
-  // Two of its three placed rises began after their stop ended and one began during it, so this is the
-  // mixed week, and the clause names the place without asserting either relation (T191). It read "the
-  // place the patient had just left" here until T191, which was false of the third row.
   assert.equal(
     clinicianChartCaption(placed, SHARED, 7),
     "Shaded band is 70\u2013180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the place the rise was linked to, or the peak mg/dL where no place matched.",
