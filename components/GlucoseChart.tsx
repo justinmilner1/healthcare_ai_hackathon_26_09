@@ -82,8 +82,13 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
     }
   }
 
+  // `data-axis-ticks` is how the suite checks that every tick this chart chose was painted (T190): Recharts
+  // measures each label itself and silently drops the ones it finds too close, so a count chosen in
+  // lib/timeAxis.ts and a count under the line are two different numbers and only one of them is in the DOM.
+  // `data-axis-plot` is the width that count was chosen against — 0 until the ResizeObserver above has
+  // measured, which is the state e2e/charts.ts waits past before it compares the two.
   return (
-    <div ref={wrap} style={{ height }}>
+    <div ref={wrap} style={{ height }} data-axis-ticks={axis.ticks.length} data-axis-plot={Math.round(plot)}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 20, right: 56, bottom: 4, left: -8 }}>
           <CartesianGrid stroke={GRID} strokeWidth={1} vertical={false} />
@@ -138,6 +143,13 @@ const trim = (name: string) => (name.length > 16 ? name.slice(0, 15).trimEnd() +
 
 /** The y-axis and the right margin the labels are kept clear of, from the LineChart margin above. */
 const PLOT_CHROME = 80;
-/** Half the advance width of one character at the 10px label size, and the clear space between two labels. */
+/**
+ * Half the advance width of one character at the 10px label size, and the clear space between two labels.
+ *
+ * These two are about the marker labels over the rises, and the collision test they feed is this file's own:
+ * a label that loses it is dropped here and the tooltip and SpikeTable still carry it. The axis labels under
+ * the line are a different pair of numbers in lib/timeAxis.ts, measured rather than estimated and sized for
+ * a test Recharts runs after we have answered (T190) — not figures to borrow in either direction.
+ */
 const HALF_CHAR = 2.7;
 const LABEL_GAP = 10;

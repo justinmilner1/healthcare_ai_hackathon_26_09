@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
+import { expectTimeAxisLabelled } from "./charts";
 import { acceptConsent, enterCode, expectNoCoordinates, patientEmail } from "./patient";
 import { expectMobileReady, expectNoHorizontalScroll, expectNothingScrollsSideways, expectTapTargets, expectTranscriptUncut, OPENING_BUBBLE_ROOM, transcriptCue } from "./mobile";
 import { shot, WHOLE_PAGE } from "./shot";
@@ -476,6 +477,12 @@ test("the patient summary fits a 375px phone, empty and full", async ({ page }) 
   // some of the week's rises and nothing uploads the hand labels, so every one of them is a stop with no
   // name — the case that used to put a lat/long in the Where column and over the chart's markers.
   await expectNoCoordinates(page, "the patient summary at 375px");
+  // T190 (§2.6, §2.7, §6.5): the week's axis on the one 375px card that holds all seven of its weekdays.
+  // The brief's card is 28px narrower and thins to every second day rather than losing one; this is the
+  // surface the ticket promised to leave alone, so it is asserted at the width where that is a claim —
+  // and through the helper, so "all seven" means all seven the chart asked for and not a number written
+  // out here.
+  await expectTimeAxisLabelled(page, "the patient summary at 375px, a week of readings", "day");
   await expectNoHorizontalScroll(page, "the patient summary, full");
   await expectNothingScrollsSideways(page, "the patient summary, full");
   await expectTapTargets(page, "the patient summary, full");

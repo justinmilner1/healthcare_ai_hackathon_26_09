@@ -27,6 +27,14 @@ const lineChart = (page: Page): Locator =>
   page.locator(".recharts-wrapper").filter({ has: page.locator(".recharts-line") }).first();
 const barChart = (page: Page): Locator =>
   page.locator(".recharts-wrapper").filter({ has: page.locator(".recharts-bar") });
+/**
+ * And the element the glucose chart writes its own decisions on (T190): the wrapper
+ * components/GlucoseChart.tsx measures, which sits outside `.recharts-wrapper` and above it. Filtered by
+ * the line rather than taken as the only match, because the attribute is this one chart's and a page that
+ * grew a second one would otherwise silently read whichever came first.
+ */
+const lineChartDecisions = (page: Page): Locator =>
+  page.locator("[data-axis-ticks]").filter({ has: page.locator(".recharts-line") }).first();
 
 /**
  * Hover one chart and read back the single row of the tooltip it opens.
@@ -100,21 +108,43 @@ const WEEKDAY = /^[A-Za-z]{2,4}$/;
 const CLOCK = /^(\d{1,2}(:\d{2})? ?[AaPp]\.?[Mm]\.?|\d{1,2}:\d{2}|[A-Za-z]{2,4})$/;
 
 /**
- * The glucose chart's time axis is readable: labelled at all, labelled distinctly, and in the unit of its
- * span.
+ * The glucose chart's time axis is readable: labelled at all, labelled distinctly, in the unit of its span
+ * — and all of it there.
  *
- * Three assertions rather than one, because "not empty" is the weakest half of what T187 asks for and the
- * easiest to satisfy wrongly: the axis this replaced would have passed it with three ticks all reading
- * "Sun", which is the same chart telling the same reader nothing. So the labels must also differ from each
- * other, and they must be in the unit the span calls for — hours inside a day, weekdays over one.
+ * Four assertions rather than one. "Not empty" is the weakest half of what T187 asks for and the easiest to
+ * satisfy wrongly: the axis this replaced would have passed it with three ticks all reading "Sun", which is
+ * the same chart telling the same reader nothing. So the labels must also differ from each other, and they
+ * must be in the unit the span calls for — hours inside a day, weekdays over one.
+ *
+ * The fourth is T190, and it is the one this helper used to be blind to. `lib/timeAxis.ts` decides how many
+ * ticks to hand Recharts; Recharts measures the labels itself and silently drops any it finds too close to
+ * one it has kept. So a chart can paint six evenly spaced weekdays out of the seven it was given, with
+ * nothing on screen saying one is absent — which is what the clinician's brief did at 375px while the spike
+ * table under the same card named `Sun` twice. The three assertions above all passed on that frame: six
+ * weekdays are non-empty, distinct and in the right unit. Only the count against what the chart was *given*
+ * catches it, and `data-axis-ticks` on the chart's wrapper is where that number is (components/GlucoseChart.tsx).
  */
 export async function expectTimeAxisLabelled(page: Page, where: string, unit: "hour" | "day"): Promise<void> {
   const ticks = axisLabels(page);
   await expect(ticks.first(), `${where}: the glucose chart's time axis carries no labels at all`).toBeVisible(DRAWN);
+
+  // The tick count is chosen against the measured plot, and the plot is 0 until the chart's ResizeObserver
+  // has run — the server render allows a count no width was consulted for. Waiting past that is a wait on
+  // asynchronous work, under the budget this file already uses for Recharts drawing (e2e/budget.ts, T95);
+  // the comparison itself is then immediate, so a real mismatch fails as an assertion and not as a clock.
+  const decisions = lineChartDecisions(page);
+  await expect(decisions, `${where}: the glucose chart never measured its own plot`).not.toHaveAttribute("data-axis-plot", "0", DRAWN);
+  const given = Number(await decisions.getAttribute("data-axis-ticks"));
+  const plot = await decisions.getAttribute("data-axis-plot");
+
   const labels = (await ticks.allTextContents()).map((s) => s.trim()).filter(Boolean);
 
   expect(labels.length, `${where}: a time axis needs both ends of the line named, and got ${labels.join(" | ") || "nothing"}`).toBeGreaterThanOrEqual(2);
   expect(new Set(labels).size, `${where}: two labels read the same, so the axis says less than it looks: ${labels.join(" | ")}`).toBe(labels.length);
+  expect(
+    labels.length,
+    `${where}: the chart chose ${given} ticks for a ${plot}px plot and ${labels.length} were painted, so Recharts dropped one and the axis is short a label nothing on screen names: ${labels.join(" | ")}`,
+  ).toBe(given);
 
   if (unit === "day") {
     // The week, unchanged: criterion 2's other half. Nothing on a multi-day axis carries a digit.
