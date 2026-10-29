@@ -1158,8 +1158,10 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
   await expect(page.locator(".patient-summary-content")).not.toContainText(/no matching visit/i);
 
   // And the caption over the chart does not promise the column that is not there. Both read one predicate
-  // in lib/spikePlaces.ts, so they cannot drift apart.
-  await expect(page.locator(".patient-summary-content")).not.toContainText(/where you had just been/i);
+  // in lib/spikePlaces.ts, so they cannot drift apart. Matched on "where you" because T193 made the
+  // promise's wording depend on the relations: all three of its clauses open that way, and none of them
+  // may appear over a week with no places in it.
+  await expect(page.locator(".patient-summary-content")).not.toContainText(/where you /i);
 
   // T100 (§2.7): the other side of the single-day assertion above. dexcom_clarity_sample.csv really is
   // seven days, so here the sentence keeps the wording the page was written with, and the figure and its
@@ -1202,7 +1204,28 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   // So the column has something to say and is drawn, and the caption may promise places again.
   const rises = page.locator(".patient-spikes");
   await expect(rises.getByRole("columnheader")).toHaveText(["When", "Rise", "Where"]);
-  await expect(page.locator(".patient-summary-content")).toContainText(/where you had just been/i);
+
+  // T193 (§2.7): and it says the *right* place-ish thing about them. These two samples place three rises
+  // and they are not one relation: two began while an Office stop was still running, and the Sunday
+  // evening rise is one the patient reached ten minutes into — so the caption may assert neither specific
+  // reading over the three of them. It said "where you had just been" of all three until this ticket,
+  // which is the matcher's `endedJustBefore` branch and true of none of them.
+  //
+  // Unlike the clinician's card there is nothing under this caption to read it against: SpikeTable is
+  // `compact` here and drops the relation suffix, so this sentence is the only element on the screen
+  // saying anything about the relation. Both it and the clinician's read lib/spikePlaces.ts
+  // `spikeVisitRelation`, so this assertion and the brief's cannot drift.
+  // The negatives are asserted on the whole page, so a clause this week has not earned is caught wherever
+  // it appears; the positive is pinned to the subtitle of the glucose card itself, which is the element
+  // §2.7 puts it in (app/patient/[id]/page.tsx).
+  const content = page.locator(".patient-summary-content");
+  const glucoseCaption = page
+    .locator(".patient-report-card")
+    .filter({ has: page.getByRole("heading", { name: "Your glucose" }) })
+    .locator(".patient-report-subtitle");
+  await expect(content, "a place they had left, over stops they had not left").not.toContainText(/where you had just been/i);
+  await expect(content, "where they stood, over a stop they reached mid-climb").not.toContainText(/where you were at the time/i);
+  await expect(glucoseCaption, "the clause the mixed week earns").toContainText(/where you were around then/i);
 
   // The rows it cannot place answer in the patient's own words. "visit" is barred outright, for the reason
   // above: on §2.7's page that word is their appointment, never a place they went.

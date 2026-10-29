@@ -315,8 +315,11 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   await expect(rises.getByRole("columnheader"), "When and Rise, with no Where to draw").toHaveText(["When", "Rise"]);
   await expect(page.locator(".patient-summary-content"), "the matcher's vocabulary on the patient's page")
     .not.toContainText(/no matching visit/i);
+  // Matched on "where you" rather than on one clause of it: since T193 the caption's promise is worded
+  // from the relations the labelled rises have, and this patient has none at all — so what must not be on
+  // the page is any of the three, not just the one it used to be (T193).
   await expect(page.locator(".patient-summary-content"), "a caption promising a column that is not there")
-    .not.toContainText(/where you had just been/i);
+    .not.toContainText(/where you /i);
 
   // T162 (§2.7): the hero's countdown, pinned to the booking this test made. `bookedFor()` is three
   // calendar days out, so the sentence is "3 days until your visit with …" — it read "4 days" in this
