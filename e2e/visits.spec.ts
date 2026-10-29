@@ -24,8 +24,31 @@ import { MODAL, SCREENFUL, shot, type ShotOptions } from "./shot";
  * the window and not of the dialog: 720px of desktop project leaves 160px of it behind an edge whatever the
  * shot is anchored on, and what went missing was the two refused rows the test above asserts on (T107).
  * e2e/shot.ts grows the window for the shot and hands it straight back.
+ *
+ * Where the growing starts, since T188 — not where it stops. See `IMPORT_FRAME` below.
  */
 const IMPORT_WINDOW = 1000;
+
+/**
+ * The frame all three §2.2 import shots are taken in: the whole dialog, with every row of the table whole.
+ *
+ * One constant rather than three identical option objects, because the three shots are three states of one
+ * screen — the preview, the preview on a deployment that can send, and the same dialog after the button —
+ * and T188 was the second ticket in a row to find them having to be fixed one at a time.
+ *
+ * `viewportFits` is what makes the frame a property of the dialog rather than of this run's random names
+ * (T188). `IMPORT_WINDOW` alone fitted the content to within 14 pixels, and a row's height here is the
+ * height of its wrapped cells: `uniqueName` ends every patient in eleven base-36 characters, so one cell
+ * wrapping or not was worth more than that margin, and `wholeRows` refused the frame on about one run in
+ * ten. e2e/shot.ts now measures what the dialog's own scrollers are hiding and grows the window by it, so
+ * the 1000 is a realistic desk window to start from and no longer a number the frame depends on.
+ */
+const IMPORT_FRAME: ShotOptions = {
+  ...MODAL,
+  viewportHeight: IMPORT_WINDOW,
+  viewportFits: ".import-dialog",
+  wholeRows: ".import-table tr",
+};
 
 /**
  * No card in either of §2.2's radio groups is wearing `:hover` in the frame that was just taken (T167).
@@ -1318,7 +1341,7 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
   // whole dialog in one frame: the title, the tally, and all five rows with their errors and the warning.
   // `wholeRows` is the assertion that keeps it true — a row half in the frame fails here rather than being
   // committed as evidence about a validator nobody can see working.
-  await shot(page, "provider-import-preview", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
+  await shot(page, "provider-import-preview", IMPORT_FRAME);
 
   const beforeImport = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
   expect(beforeImport.visits.some((v) => v.name === goodName), "the preview writes nothing").toBeFalsy();
@@ -1347,7 +1370,7 @@ test("a day of visits imports from a CSV, one error per bad row", async ({ page 
     /copy each link from the dashboard|hand those patients the link yourself/i,
   );
   expect(createdText).toMatch(/the six-digit code their link needs has nowhere to go/i);
-  await shot(page, "provider-import-created", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
+  await shot(page, "provider-import-created", IMPORT_FRAME);
   await page.getByRole("button", { name: /Back to dashboard/i }).click();
 
   // Both rows are on the dashboard, and the one with no channel says it is not being messaged (§8.3).
@@ -1404,11 +1427,69 @@ test("a deployment with a sender previews a day of invites with nothing to warn 
   // Not just the one line: nothing on this screen says anything cannot be sent, which is the criterion a
   // warning rendered somewhere else on the row would also have to meet.
   await expect(page.locator(".import-preview")).not.toContainText(/cannot send/i);
-  await shot(page, "provider-import-preview-sendable", { ...MODAL, viewportHeight: IMPORT_WINDOW, wholeRows: ".import-table tr" });
+  await shot(page, "provider-import-preview-sendable", IMPORT_FRAME);
 
   // And it is still a preview: a stubbed answer about the environment must not have written a visit.
   const rows = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
   expect(rows.visits.some((v) => v.name.startsWith("CSV Sendable")), "the preview writes nothing").toBeFalsy();
+});
+
+// T188 (design §2.2, §12.3): the same six rows, under names long enough to wrap every patient cell.
+//
+// The frame above is the one the ticket was filed about, and what was wrong with it was not that it was
+// wrong — it was that whether it was wrong depended on the run. A row's height in this table is the height
+// of its wrapped cells, `uniqueName` ends every patient in eleven base-36 characters, and the frame had 14
+// pixels of margin: one more cell wrapping than the last run and the last row hung past `.import-scroll`'s
+// bottom edge, which the §12.3 gate refused — intermittently, naming the product, twice costing a routine a
+// run (#259, #260).
+//
+// So the margin is no longer what the shot rests on, and this is the test that says so: a name far longer
+// than anything `uniqueName` can generate, on every row, which is 56px of overflow where the real fixture
+// has 14. If `viewportFits` ever stops being derived from the dialog, or `.import-table-scroll` grows a cap
+// a window cannot relieve again, this fails on every run rather than on one in ten.
+//
+// The committed frame is the other half of it (docs/screenshots/tickets/t188/): the worst case the suite can
+// manufacture, with its last row whole, is what says the ordinary one is not resting on luck.
+test("a preview of rows whose names all wrap still holds every row in one frame", async ({ page }, testInfo) => {
+  testInfo.skip(testInfo.project.name === "mobile", "the CSV import control is desktop-only by design");
+  await signInAsDemo(page);
+  await expect(page.locator("body")).toContainText("Sam Sample", LOADED);
+
+  // Long enough that the patient column wraps to three lines at this dialog's width, where the generated
+  // names of the test above wrap to one or two. Not a realistic name; a realistic worst case for the cell.
+  const wrapping = (prefix: string) => uniqueName(`${prefix} Wolfeschlegelsteinhausenbergerdorff`);
+  const lastName = wrapping("CSV Bad");
+  const csv = [
+    "Patient Name,Mobile,Email,Appointment,Type,Called about,Channel,Consent",
+    `${wrapping("CSV Good")},${uniquePhone()},,2026-11-04 09:30,Follow-up,"mornings running high, every day",sms,phone`,
+    `${wrapping("CSV Quiet")},${uniquePhone()},,2026-11-04 10:00,annual,,,`,
+    `${wrapping("CSV Unreachable")},,,2026-11-04 10:45,follow_up,nothing on file,,`,
+    `${wrapping("CSV Texted")},,${freshEmail("csv-wrapped")},2026-11-04 11:15,follow_up,address on file and a text asked for,sms,phone`,
+    `,${uniquePhone()},,2026-11-04 10:30,follow_up,no name at all,sms,phone`,
+    `${lastName},${uniquePhone()},,2026-11-04 11:00,screening,unknown visit type,sms,phone`,
+  ].join("\n");
+
+  await page.getByRole("button", { name: /Import a day/i }).click();
+  await page.getByLabel("CSV file").setInputFiles({ name: "wrapped.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByRole("button", { name: /Check the rows/i }).click();
+
+  // The same preview as the test above, so the frame is being asked the same question about the same subject.
+  await expect(page.locator(".import-tally")).toContainText("4 ready to create, 2 to fix", LOADED);
+  await expect(page.locator(".import-table")).toContainText(/Visit type must be one of/);
+  // The row the gate reported, by its own name: last in the table, and the one a frame with no margin cuts.
+  const last = page.locator(".import-table tbody tr").last();
+  await expect(last).toContainText(lastName);
+  // Every cell of it really is wrapping, so this is the case the test claims to be: a row of single-line
+  // cells is 30px here and the ordinary fixture's tallest is 44.
+  expect((await last.boundingBox())!.height, "the last row's name wraps, which is what makes this the worst case").toBeGreaterThan(50);
+
+  // And the frame holds all seven rows whole, measured rather than hoped: `wholeRows` inside IMPORT_FRAME
+  // is the assertion, and it is the one that used to fail here.
+  await shot(page, "provider-import-preview-wrapped", IMPORT_FRAME);
+
+  // Still a preview, like every other shot of this dialog before the button.
+  const rows = (await (await page.request.get("/api/provider")).json()) as { visits: { name: string }[] };
+  expect(rows.visits.some((v) => v.name === lastName), "the preview writes nothing").toBeFalsy();
 });
 
 test("a second visit for the same person reuses the patient, matched on phone", async ({ page }) => {
