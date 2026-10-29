@@ -1248,7 +1248,11 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   // and scrolls it off the top of the phone's viewport. The desktop frame holds the subtitle and the Where
   // column together — which is the pair this ticket is about — and on the phone they do not fit in one
   // screenful, so this is where the 375px reading of the sentence is evidenced (§6.5).
-  await shot(page, "patient-summary-places-caption", { ...SCREENFUL, scrollTo: ".patient-chart-wrap" });
+  //
+  // Anchored on the card's heading and not on `.patient-chart-wrap`, which is the element *under* the
+  // subtitle: scrolling that to the top of the viewport puts the sentence just above the frame, which is
+  // the whole subject missing from a shot named for it. `.patient-card-heading` is this card's alone.
+  await shot(page, "patient-summary-places-caption", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
 });
 
 /**
