@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
 import { markerLabel } from "@/lib/spikePlaces";
+import { timeAxis } from "@/lib/timeAxis";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
 const INK2 = "var(--viz-ink-2)";
@@ -43,13 +44,8 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   const data = readings.map((r) => ({ t: Date.parse(r.t), mgdl: r.mgdl }));
   if (data.length === 0) return <p className="text-sm text-[var(--viz-muted)]">No glucose data yet.</p>;
 
-  // One tick per local midnight.
   const first = data[0].t;
   const last = data[data.length - 1].t;
-  const ticks: number[] = [];
-  const d = new Date(first);
-  d.setHours(0, 0, 0, 0);
-  for (let t = d.getTime(); t <= last; t += 86400000) if (t >= first) ticks.push(t);
 
   // Direct labels are selective: a spike whose label would collide with an already-labeled one keeps its
   // marker but drops its label (tooltip and SpikeTable still carry it). Long place names are trimmed, and
@@ -61,6 +57,14 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   // right on a desk and merely generous on a phone.
   const span = Math.max(1, last - first);
   const plot = Math.max(0, width - PLOT_CHROME);
+
+  // The time axis is lib/timeAxis.ts's, whole: which ticks and how they read, off the span and the plot
+  // this chart actually got. It used to be one line here — a tick per local midnight, labelled with the
+  // weekday — and a span inside one day holds no midnight at or after its first reading, so the array
+  // came out empty and all three surfaces painted an axis line with nothing under it (T187). Nothing in
+  // this component chooses a tick any more, for the reason `markerLabel` is not written here either: it
+  // is arithmetic over a span, so it belongs where a unit test can reach it (§12.1).
+  const axis = timeAxis(first, last, plot);
   const ordered = [...spikes].sort((a, b) => Date.parse(a.peak) - Date.parse(b.peak));
   const labelFor = new Map<Spike, string>();
   let lastLabeledAt = -Infinity;
@@ -88,8 +92,8 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
             type="number"
             scale="time"
             domain={[first, last]}
-            ticks={ticks}
-            tickFormatter={(v) => new Date(v).toLocaleDateString(undefined, { weekday: "short" })}
+            ticks={axis.ticks}
+            tickFormatter={(v) => axis.format(Number(v))}
             stroke={AXIS}
             tick={{ fill: MUTED, fontSize: 11 }}
             tickLine={false}
