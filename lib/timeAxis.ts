@@ -160,6 +160,12 @@ const LABEL_GAP = 8;
  *
  * Eight, which is one more than the week this chart was written for, so the first paint of the seven-day
  * export is the axis it has always had rather than a thinned one that fills in on the next frame.
+ *
+ * It is the one place T190's correction cannot reach, and deliberately: a count allowed before any width is
+ * known is a guess either way, and the two surfaces §6.5 narrows below seven weekdays settle on the right
+ * count as soon as the observer fires — one frame, which e2e/charts.ts waits past before it reads the axis
+ * (`data-axis-plot`). Lowering it to the narrowest card's six would thin every desk's first paint to buy
+ * that frame on a phone, which is the trade the other direction.
  */
 const UNMEASURED_LABELS = 8;
 

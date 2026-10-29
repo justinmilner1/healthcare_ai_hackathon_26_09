@@ -143,7 +143,7 @@ export async function expectTimeAxisLabelled(page: Page, where: string, unit: "h
   expect(new Set(labels).size, `${where}: two labels read the same, so the axis says less than it looks: ${labels.join(" | ")}`).toBe(labels.length);
   expect(
     labels.length,
-    `${where}: the chart chose ${given} ticks for a ${plot}px plot and ${labels.length} were painted, so Recharts dropped one and the axis is short a label nothing on screen names: ${labels.join(" | ")}`,
+    `${where}: the chart chose ${given} ticks for a ${plot}px plot and ${labels.length} were painted, so the axis is short ${given - labels.length} label(s) that nothing on screen names as absent: ${labels.join(" | ")}`,
   ).toBe(given);
 
   if (unit === "day") {
