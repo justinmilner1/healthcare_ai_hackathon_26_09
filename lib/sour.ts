@@ -3,6 +3,7 @@
 // Owner: Justin (taken over from the scaffold).
 
 import { averageGlucose, timeInRange } from "./glucose";
+import { spikeVisitRelation } from "./spikePlaces";
 import type { GlucoseReading, SleepNight, Spike } from "./types";
 
 const LO = 70;
@@ -45,6 +46,16 @@ export type DayRow = {
   minutesBelow70: number;
 };
 
+/**
+ * The words the brief uses for how a matched place relates to a rise, and the vocabulary lib/prompts.ts
+ * tells the model what to do with. `after leaving` is the stop the patient had left; the other three are
+ * the overlap lib/match.ts does not split, told apart here. Only `at` of those three is a meal-length
+ * association — a stay of up to three hours that was already running when the readings turned. The other
+ * two are weak for opposite reasons: a long stay overlaps everything, and an `arrived` climb had already
+ * started before the patient got there (T192).
+ */
+export type SourPlaceRelation = "after leaving" | "at" | "during a long stay at" | "arrived during the rise at" | null;
+
 export type SourInput = {
   timeZone: string;
   visit: { type: string | null; reason: string | null };
@@ -61,7 +72,7 @@ export type SourInput = {
     minutesAbove180: number;
     after: string | null; // place name or null
     placeLeftAt: string | null; // local time the visit ended
-    placeRelation: "after leaving" | "at" | "during a long stay at" | null; // "at" = meal-length stay (≤3 h); long stays that merely overlap are weak
+    placeRelation: SourPlaceRelation;
     placeArrivedAt: string | null;
   }[];
   /** Every spike in the readings, not just the rows above: `spikes` is cut to the top few by rise for the
@@ -229,14 +240,7 @@ export function renderSourInput(x: SourInput): string {
     L.push(`SPIKES (${x.spikeTotal}${listed}; rise ≥50 to a peak >180): day | start→peak | from→to | min above 180 | place context`);
     if (x.spikes.length === 0) L.push("  none");
     for (const s of x.spikes) {
-      const ctx = !s.after
-        ? "no visit within 30 min"
-        : s.placeRelation === "after leaving"
-          ? `after leaving ${s.after} at ${s.placeLeftAt}`
-          : s.placeRelation === "at"
-            ? `at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt})`
-            : `during a long stay at ${s.after} (${s.placeArrivedAt}–${s.placeLeftAt}; weak association)`;
-      L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${ctx}`);
+      L.push(`  ${s.day} | ${s.start}→${s.peak} | ${s.from}→${s.to} (+${s.rise}) | ${s.minutesAbove180} | ${placeContext(s)}`);
     }
     L.push("");
   }
@@ -254,6 +258,31 @@ export function renderSourInput(x: SourInput): string {
   L.push("PATIENT'S OWN WORDS (from the pre-visit chat):");
   L.push(x.patientNotes.trim() ? x.patientNotes.trim() : "  (nothing recorded)");
   return L.join("\n");
+}
+
+/**
+ * The "place context" column of the SPIKES table: the matched place with the relation `relationTo` gave it.
+ *
+ * A `switch` rather than the chain of ternaries this was, because T192 made it a fourth case and because
+ * the compiler can then say so when a fifth is added: every word `SourPlaceRelation` carries has to be
+ * rendered somewhere, or the model reads a row the brief never explained. The two weak overlaps say so in
+ * the row itself, in the same parenthesis, so a pattern that leans on one has been warned off in the one
+ * place the model is reading.
+ */
+function placeContext(s: SourInput["spikes"][number]): string {
+  const stay = `${s.placeArrivedAt}–${s.placeLeftAt}`;
+  switch (s.after ? s.placeRelation : null) {
+    case "after leaving":
+      return `after leaving ${s.after} at ${s.placeLeftAt}`;
+    case "at":
+      return `at ${s.after} (${stay})`;
+    case "arrived during the rise at":
+      return `arrived during the rise at ${s.after} (${stay}; weak association — the climb had started before the patient got there)`;
+    case "during a long stay at":
+      return `during a long stay at ${s.after} (${stay}; weak association)`;
+    case null:
+      return "no visit within 30 min";
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -304,14 +333,29 @@ export function safetyFlags(glucose: GlucoseReading[]): string[] {
 
 const MEAL_STAY_MS = 3 * 60 * 60 * 1000;
 
-/** How the matched place relates to the spike. Meal-length stays count as real associations even when the
- *  climb begins before the patient leaves; only long stays (office, home) that merely overlap are weak. */
-function relationTo(s: Spike): "after leaving" | "at" | "during a long stay at" | null {
-  if (!s.visit) return null;
-  const vStart = Date.parse(s.visit.start);
-  const vEnd = Date.parse(s.visit.end);
-  if (vEnd <= Date.parse(s.start)) return "after leaving";
-  return vEnd - vStart <= MEAL_STAY_MS ? "at" : "during a long stay at";
+/**
+ * How the matched place relates to the spike, in the words above.
+ *
+ * The temporal question — had the patient left, were they already there as the climb began, or did they
+ * arrive during it — is lib/spikePlaces.ts's `spikeVisitRelation`, the one rule the clinician's own Place
+ * column and chart caption read (T191, T192). Asking it there rather than re-deriving the predicate here
+ * is what keeps the row the model is handed from disagreeing with the row the clinician reads: this
+ * function used to test the sign of the gap to the visit's *end* alone, which answered "at" for a stop the
+ * patient walked into ten minutes into the rise, and lib/prompts.ts then invited the model to count it as
+ * a meal.
+ *
+ * What is sour's own is the refinement on top of `during`: a meal-length stay counts as a real association
+ * even though the climb begins before the patient leaves, while a long stay (office, home) that merely
+ * overlaps is weak. `arrived` gets its own word rather than either of those, because it is weak for a
+ * reason neither covers — the climb had already started before the patient got there, so it cannot have
+ * started with a meal there however short the stay was.
+ */
+function relationTo(s: Spike): SourPlaceRelation {
+  const relation = spikeVisitRelation(s);
+  if (!relation || !s.visit) return null;
+  if (relation.kind === "after") return "after leaving";
+  if (relation.kind === "arrived") return "arrived during the rise at";
+  return Date.parse(s.visit.end) - Date.parse(s.visit.start) <= MEAL_STAY_MS ? "at" : "during a long stay at";
 }
 
 function medianStepMinutes(rs: GlucoseReading[]): number {
