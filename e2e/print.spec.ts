@@ -126,12 +126,14 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   // T99 (§7.4): this visit has a Timeline, so some rises are placed and some are not — and the caption says
   // both, rather than calling every marker a place. It is the brief's own string (lib/spikePlaces.ts).
   const caption = page.locator(".sour-chart-caption");
-  // T191 (§7.4): the paper carries the relation the rows carry, too. Every matched rise on this week began
-  // while its stop was still running, so the sheet a clinician takes into the room may not tell them the
-  // patient had left — the Place column under the same caption says "while there" (lib/spikePlaces.ts
-  // `spikeVisitRelation`, read by both).
-  await expect(caption, "a place the patient had left, over rows saying 'while there'").not.toContainText("had just left");
-  await expect(caption).toContainText("the place the patient was at when the rise began");
+  // T191, T192 (§7.4): the paper carries the relation the rows carry, too. The matched rises on this week
+  // are two relations, not one — two Office stops that were running as the readings turned, and a Home
+  // stop the patient reached ten minutes into the Sunday evening climb — so the sheet a clinician takes
+  // into the room may assert neither that they had left nor that they were standing there
+  // (lib/spikePlaces.ts `spikeVisitRelation`, read by the caption and by the brief's Place column).
+  await expect(caption, "a place the patient had left, over a row saying 'while there'").not.toContainText("had just left");
+  await expect(caption, "where the patient stood, over a row they arrived at mid-climb (T192)").not.toContainText("was at when the rise began");
+  await expect(caption).toContainText("the place the rise was linked to");
   await expect(caption).toContainText("peak mg/dL");
   // The sheet's own column is `compact` and carries no relation suffix (components/SpikeTable.tsx), so the
   // rows this caption can be checked against are the brief's, asserted in e2e/flows.spec.ts. What matters

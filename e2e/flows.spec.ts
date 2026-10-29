@@ -253,17 +253,25 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const placed = ((await (await page.request.get(`/api/patient/${seeded.id}`)).json()) as { spikes: { visit?: unknown }[] }).spikes;
   expect(placed.some((s) => s.visit), "the seeded week has a rise the matcher placed").toBeTruthy();
   const caption = page.locator(".sour-chart-caption");
-  // T191 (§2.6): and it says the *right* place-ish thing about them. Every matched rise on the seeded week
-  // began while its stop was still running (lib/match.ts `overlaps`), which is what the Place column says
-  // three times a few inches below — so the caption may not call them places the patient had left. Both
+  // T191, T192 (§2.6): and it says the *right* place-ish thing about them. The matched rises on the seeded
+  // week are not one relation: two began while an Office stop was running, and the Sunday evening rise is
+  // one the patient reached Home ten minutes into — so the caption may assert neither of the two specific
+  // readings over the three of them, and the Place column a few inches below says which each one is. Both
   // halves read lib/spikePlaces.ts `spikeVisitRelation`, so this assertion and that column cannot drift.
-  await expect(caption, "a place the patient had left, over rows saying 'while there'").not.toContainText("had just left");
-  await expect(caption).toContainText("the place the patient was at when the rise began");
+  //
+  // T192 is why this is the mixed clause and not "the place the patient was at when the rise began". That
+  // sentence stood here until the Sunday rise was read properly: `overlaps` covered a stop the patient had
+  // not yet reached as readily as one they were sitting in, and the caption and the row then agreed with
+  // each other about a place the patient was not in.
+  await expect(caption, "a place the patient had left, over a row saying 'while there'").not.toContainText("had just left");
+  await expect(caption, "where the patient stood, over a row they arrived at mid-climb").not.toContainText("was at when the rise began");
+  await expect(caption).toContainText("the place the rise was linked to");
   await expect(caption).toContainText("peak mg/dL");
   const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes linked to places" }) });
   const placeCells = spikeCard.locator("tbody tr td:nth-child(3)");
   await expect(placeCells.filter({ hasText: "while there" }).first(), "the rows the caption is written over").toBeVisible();
-  await expect(placeCells.filter({ hasText: /left \d+ min before/ }), "no row on this week is the other branch").toHaveCount(0);
+  await expect(placeCells.filter({ hasText: /arrived \d+ min after/ }).first(), "the row the mixed clause is written for (T192)").toBeVisible();
+  await expect(placeCells.filter({ hasText: /left \d+ min before/ }), "no row on this week is the ended-just-before branch").toHaveCount(0);
   await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
   // T165 (§2.6): the fourth of the four clinician shapes — the capped week on the brief, with a Timeline.
   // The chart draws the five rises the card lists and the tile counts the week's seven, so the caption says
