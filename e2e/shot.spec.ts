@@ -246,6 +246,18 @@ test.describe("a window grown until the subject fits", () => {
       "a subject behind a max-height in pixels",
     ).rejects.toThrow(/Growing the window does not relieve it[\s\S]*max-height in pixels/);
   });
+
+  test("a subject that is not on the page fails instead of passing for a subject that fits", async ({ page }) => {
+    // The other way `overflowOf` can answer zero. A selector matching nothing has no scroller hiding
+    // anything, which reads exactly like a subject with nothing behind an edge -- so without this the
+    // growing would be skipped and the frame would fall back to `viewportHeight` alone, which is the named
+    // number T188 replaced and the silence it was filed about. `expectWholeRows` guards its own selector
+    // the same way and for the same reason.
+    await expect(
+      shot(page, "shot-fits-missing", { fullPage: false, viewportFits: "#nowhere", wholeRows: "#dialog .row" }),
+      "a viewportFits selector that matches nothing",
+    ).rejects.toThrow(/nothing matched #nowhere/);
+  });
 });
 
 // T167 (design §12.3): the pointer, which `shot()` moves off the page before every capture.

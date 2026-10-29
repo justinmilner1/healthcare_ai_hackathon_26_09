@@ -336,6 +336,12 @@ function overflowOf(page: Page, selector: string): Promise<{ overflow: number; w
  * on it, is the difference between a diagnosis and `wholeRows` reporting a cut row for the ninth time.
  */
 async function growToFit(page: Page, selector: string, name: string, width: number, from: number): Promise<number> {
+  // The subject has to be on the page, for the same reason `expectWholeRows` says so below: `overflowOf`
+  // answers "nothing behind an edge" for a selector that matches nothing, which is indistinguishable from a
+  // subject that fits. A mistyped `viewportFits` would then hand the frame back to `viewportHeight` alone --
+  // the named number this exists to replace -- and the shot would go back to depending on what the run's
+  // content happened to do to its height, silently, which is the whole of T188 reopening itself.
+  await expect(page.locator(selector).first(), `${name}: nothing matched ${selector}`).toBeVisible();
   // `fullPage: false` is what a grown window is for, so the PNG is one window at this project's device
   // scale: growing the window grows the image. Not a way around e2e/screenshotSize.ts — a subject that
   // needs more than the gate allows fails below, by name, rather than writing a file the gate then refuses.
