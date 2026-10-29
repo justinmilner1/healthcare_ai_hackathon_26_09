@@ -155,6 +155,99 @@ test.describe("the slack at the frame's edges", () => {
   });
 });
 
+// T188 (design §12.3): `viewportFits`, which grows the window until the subject has nothing of its own
+// behind one of its own scrolling edges — the derived half of `viewportHeight`.
+//
+// A named height fits the content it was measured against, and the §2.2 import dialog's content is not
+// fixed: its rows are named by `uniqueName`, so 1000px answered them to within 14 pixels and whether the
+// last row was whole in the frame came down to whether one more cell happened to wrap (#259, #260). The
+// product's own use of it is asserted where it is taken (e2e/visits.spec.ts, two frames of the same dialog);
+// what is pinned here is the helper's behaviour, on a fixture where both outcomes can be staged exactly.
+//
+// `#dialog` is the shape the dialog is: capped in viewport units, with a scroller inside it holding more
+// than the cap allows. Its six rows are 606px of content and the cap is 80% of the window, which is 576px of
+// the desktop project's 720 and 533px of the phone's 667 — so at either project the scroller is hiding the
+// bottom of row 6 and the gate refuses the frame. 758px of window is 606px of dialog, so the growth that
+// fits it is real, bounded and the same at both widths; the arithmetic is nowhere in the helper, which only
+// ever grows the window by what it measures.
+//
+// `#capped` is the same subject with a cap no window can relieve: four of those rows into a box fixed at
+// 300 pixels. It is what separates a diagnosis from a loop that spins.
+const FITS = `<!doctype html>
+<html><head><meta charset="utf-8"><title>viewportFits fixture</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body { margin: 0; font: 16px/1.25 system-ui, sans-serif }
+  #dialog { display: flex; flex-direction: column; max-height: 80svh; overflow: hidden; background: #eef }
+  #body { flex: 1 1 auto; min-height: 0; overflow-y: auto }
+  .row { height: 100px; border-bottom: 1px solid #99a }
+  #capped { max-height: 300px; overflow-y: auto; background: #fee }
+</style></head>
+<body>
+  <div id="dialog"><div id="body">
+    <div class="row">1</div><div class="row">2</div><div class="row">3</div>
+    <div class="row">4</div><div class="row">5</div><div class="row">6</div>
+  </div></div>
+  <div id="capped">
+    <div class="row">1</div><div class="row">2</div><div class="row">3</div><div class="row">4</div>
+  </div>
+</body></html>`;
+
+/** The height this project's window starts at, which is what a grown shot has to hand back. */
+const projectHeight = (page: Page) => page.viewportSize()!.height;
+
+test.describe("a window grown until the subject fits", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setContent(FITS);
+    // The fixture's own geometry, so none of the three cases below can pass for the wrong reason: both
+    // subjects start with content behind an edge, by a margin far wider than the gate's two-pixel slack,
+    // and the row that straddles the dialog's scroller is its last one.
+    const placed = await page.evaluate(() => {
+      const hiding = (id: string) => {
+        const element = document.getElementById(id)!;
+        return element.scrollHeight - element.clientHeight;
+      };
+      const body = document.getElementById("body")!.getBoundingClientRect();
+      const last = document.querySelector("#dialog .row:last-child")!.getBoundingClientRect();
+      return {
+        dialogHiding: hiding("body"),
+        cappedHiding: hiding("capped"),
+        lastRowStraddles: last.top < body.bottom && last.bottom > body.bottom,
+      };
+    });
+    expect(placed.dialogHiding, "the dialog's scroller starts with content behind its edge").toBeGreaterThan(20);
+    expect(placed.lastRowStraddles, "and it is the last row that straddles that edge").toBe(true);
+    expect(placed.cappedHiding, "the pixel-capped box starts with content behind its edge too").toBeGreaterThan(20);
+  });
+
+  test("the gate refuses the frame at the project's own window", async ({ page }) => {
+    // The case `viewportFits` exists for, staged: a row across a scroller's bottom edge, which no capture of
+    // any size holds whole. Without it the shot is a coin toss on how tall the content happens to be.
+    await expect(
+      shot(page, "shot-fits-ungrown", { fullPage: false, wholeRows: "#dialog .row" }),
+      "a subject taller than the window's share of it",
+    ).rejects.toThrow(CUT);
+  });
+
+  test("and takes it once the window has been grown to the subject", async ({ page }) => {
+    const started = projectHeight(page);
+    await shot(page, "shot-fits-grown", { fullPage: false, viewportFits: "#dialog", wholeRows: "#dialog .row" });
+    // The window is handed straight back, like every other grown shot: the next assertion in a test runs at
+    // the height the project asked for, not at whatever the shutter needed.
+    expect(projectHeight(page), "the project's window is back").toBe(started);
+  });
+
+  test("an overflow no window can relieve fails with the scroller that is holding it", async ({ page }) => {
+    // The diagnosis half. `#capped` is `max-height: 300px`, so growing the window shrinks nothing and the
+    // loop would spin: it stops, names the scroller, and says the window is not what is capping it — which
+    // is the sentence that was missing while this was `wholeRows` reporting a cut row for the ninth time.
+    await expect(
+      shot(page, "shot-fits-uncappable", { fullPage: false, viewportFits: "#capped", wholeRows: "#capped .row" }),
+      "a subject behind a max-height in pixels",
+    ).rejects.toThrow(/Growing the window does not relieve it[\s\S]*max-height in pixels/);
+  });
+});
+
 // T167 (design §12.3): the pointer, which `shot()` moves off the page before every capture.
 //
 // Playwright leaves the mouse wherever the last gesture put it and the helper then scrolls the page under it,

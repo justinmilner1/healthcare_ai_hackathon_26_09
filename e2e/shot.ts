@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { MAX_HEIGHT } from "./screenshotSize";
 
 // The one place a screenshot gets taken (T57, design §12.3).
 //
@@ -95,8 +96,49 @@ export type ShotOptions = {
    * It is not a way around `SCREENFUL` or the §12.3 size gate. A page whose height is the practice's own
    * data has no window that holds it, and growing the window for one would produce exactly the picture T81
    * took out of the suite.
+   *
+   * **This is where the growing starts, not where it stops** (T188). A height on its own is a number that
+   * fits the content it was measured against, and the import dialog's content is not fixed: its rows are
+   * named by `uniqueName`, so a cell's wrap — and the row's height with it — is a property of the run. 1000
+   * answered that content to within 14 pixels, which is two thirds of a line of type, so whether the last
+   * row was whole in the frame was decided by whether one more generated name happened to wrap. Pair it
+   * with `viewportFits` to have those pixels measured rather than guessed.
    */
   viewportHeight?: number;
+  /**
+   * Grow the window until this subject has nothing of its own behind one of its own scrolling edges.
+   *
+   * The derived half of `viewportHeight` above, and the fix for the one thing a named height cannot promise
+   * (T188): that the frame holds the whole subject whatever this run's content does to its height. The §2.2
+   * import preview is the one of those — `.import-scroll` measured 785px of content in the 771px a 1000px
+   * window leaves it, so the table's last row hung 13px past that scroller's bottom edge and `wholeRows`
+   * refused the frame, on about one run in ten and never twice for the same reason, because a row's height
+   * there is the height of its wrapped cells and the cells are named by `uniqueName`.
+   *
+   * It measures instead: how much the worst of the subject's own scrollers is hiding, grow the window by
+   * exactly that, measure again. The dialog is `max-height: 88svh`, so 14px of overflow is relieved by about
+   * 16px of window and the second round closes the rest; nothing here knows that ratio, which is why it is a
+   * loop and not an arithmetic.
+   *
+   * **The subject and not `wholeRows`' rows**, although the rows are what the gate below judges. A scroller
+   * with nothing behind its edges is at the top of its content as well as the bottom of it, and the rows are
+   * not all a frame of this dialog is for: asking only that the rows fit was answered once by the body
+   * scrolling to its end, which put every row in the picture and took the dialog's title out of it. What
+   * `wholeRows` adds on top is the other half T107 asked for — a row *wholly* past an edge is not half a
+   * row, so the gate alone is content with a frame that has lost three of them.
+   *
+   * A form control is not one of the subject's scrollers: a `<textarea>`'s scrollbar is the value somebody
+   * typed into a box sized in pixels, so no window height has ever moved it. The import dialog's paste box
+   * is exactly that, and counting it sent the first draft of this growing the window to 1,496px chasing 62
+   * pixels of CSV.
+   *
+   * Growing the window is all it does — the page is never restyled for a shot, so the frame stays a picture
+   * of the product on a taller screen. That also sets its limit, and the limit is asserted rather than
+   * silently accepted: an overflow the window cannot relieve (a `max-height` in pixels rather than viewport
+   * units, inside a subject that needs more than it allows) fails here, naming the scroller, instead of
+   * reaching `wholeRows` as a cut row with no explanation on it.
+   */
+  viewportFits?: string;
   /**
    * Every element matching this is either wholly in the frame or wholly out of it, or the shot fails here.
    *
@@ -192,17 +234,15 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
     animations = "disabled",
     pointer = "parked",
     viewportHeight,
+    viewportFits,
     wholeRows,
   } = options;
   const projectWindow = page.viewportSize();
-  const grown = Boolean(viewportHeight && projectWindow && projectWindow.height < viewportHeight);
+  const start = Math.max(projectWindow?.height ?? 0, viewportHeight ?? 0);
+  const grown = Boolean(projectWindow && (start > projectWindow.height || viewportFits));
   try {
-    if (grown) {
-      await page.setViewportSize({ width: projectWindow!.width, height: viewportHeight! });
-      // The resize is applied in the renderer before this resolves; the wait is for the layout it causes,
-      // so the shutter cannot open on the old one. A condition, not a pause: e2e/budget.ts owns the clocks.
-      await page.waitForFunction((height) => window.innerHeight === height, viewportHeight);
-    }
+    if (grown && start > projectWindow!.height) await resizeWindow(page, projectWindow!.width, start);
+    if (grown && viewportFits) await growToFit(page, viewportFits, name, projectWindow!.width, start);
     if (scrollTo) {
       const target = typeof scrollTo === "string" ? page.locator(scrollTo) : scrollTo;
       await target.first().evaluate((element, position) => {
@@ -222,6 +262,105 @@ export async function shot(page: Page, name: string, options: ShotOptions = {}):
     // Whatever happened above, the next assertion runs at the window the project asked for.
     if (grown) await page.setViewportSize(projectWindow!);
   }
+}
+
+/**
+ * Give the window this height, and wait for the renderer to be laying out against it.
+ *
+ * The resize is applied in the renderer before `setViewportSize` resolves; the wait is for the layout it
+ * causes, so neither the shutter nor the measurement below can read the old one. A condition, not a pause:
+ * e2e/budget.ts owns the clocks.
+ */
+async function resizeWindow(page: Page, width: number, height: number): Promise<void> {
+  await page.setViewportSize({ width, height });
+  await page.waitForFunction((want) => window.innerHeight === want, height);
+}
+
+/**
+ * How many times `growToFit` may measure and grow.
+ *
+ * Each round grows the window by what the subject is hiding, and the subject takes only its own share of
+ * that — 88svh for the import dialog — so what is left shrinks by a constant factor every round, and the
+ * subject capped at the smallest share of the window is the one that takes the most rounds. The import
+ * dialog settles in two; a subject at `50svh`, where half of each round's growth is lost, is inside eight
+ * rounds from an overflow of 250px. A round is one resize and one measurement, so the cost of the headroom
+ * is milliseconds, and the bound is there for a subject that never settles — which then fails with the
+ * scroller's name on it rather than by running a test out of its budget.
+ */
+const FIT_ROUNDS = 8;
+
+/** When a subject counts as fitting: the same two pixels `expectWholeRows` reads as rounding rather than as
+ *  a row behind an edge, so this cannot stop one short of what the gate below asks for, or chase the
+ *  fraction of a pixel a sub-pixel layout leaves between a scroller and its content. */
+const FITS_WITHIN = 2;
+
+/**
+ * The most any of `selector`'s own scrollers is hiding, and which one it is.
+ *
+ * Scoped to the subject and down, so the page behind a dialog is not one of them — `expectWholeRows` below
+ * walks *up* from a row instead, because the question there is which edge is nearest, and the question here
+ * is what the window still owes this subject. The worst scroller rather than the sum of them: one window
+ * relieves them all at once.
+ *
+ * Form controls are not scrollers of the subject. A `<textarea>` is as tall as its CSS says and as full as
+ * what somebody typed into it, and no window height has ever changed either — see `viewportFits` above for
+ * the run this cost.
+ *
+ * Reading `scrollHeight` forces the layout a resize has just made dirty, so this cannot answer about the
+ * window the shot is not about: measured on the import dialog, `.import-dialog` came back at exactly 0.88 of
+ * each new window height, which is the resize-lag reading of #260 ruled out.
+ */
+function overflowOf(page: Page, selector: string): Promise<{ overflow: number; where: string }> {
+  return page.evaluate((sel) => {
+    const root = document.querySelector<HTMLElement>(sel);
+    let worst = { overflow: 0, where: sel };
+    if (!root) return worst;
+    const typed = new Set(["TEXTAREA", "INPUT", "SELECT"]);
+    for (const element of [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))]) {
+      if (typed.has(element.tagName)) continue;
+      if (getComputedStyle(element).overflowY === "visible") continue;
+      const overflow = element.scrollHeight - element.clientHeight;
+      if (overflow <= worst.overflow) continue;
+      worst = { overflow, where: element.className || element.tagName.toLowerCase() };
+    }
+    return worst;
+  }, selector);
+}
+
+/**
+ * Grow the window until `selector` has nothing behind a scrolling edge of its own — see `viewportFits` above.
+ *
+ * Returns the height it settled at. The failure is the interesting half: an overflow that growing the window
+ * does not shrink is a `max-height` in pixels rather than in viewport units, or a subject the §12.3 size gate
+ * has no room for, and either way no frame holds the subject whole. Saying so here, with the scroller's class
+ * on it, is the difference between a diagnosis and `wholeRows` reporting a cut row for the ninth time.
+ */
+async function growToFit(page: Page, selector: string, name: string, width: number, from: number): Promise<number> {
+  // `fullPage: false` is what a grown window is for, so the PNG is one window at this project's device
+  // scale: growing the window grows the image. Not a way around e2e/screenshotSize.ts — a subject that
+  // needs more than the gate allows fails below, by name, rather than writing a file the gate then refuses.
+  const ceiling = Math.floor(MAX_HEIGHT / (await page.evaluate(() => window.devicePixelRatio)));
+  let height = from;
+  for (let round = 0; round < FIT_ROUNDS; round += 1) {
+    const { overflow } = await overflowOf(page, selector);
+    if (overflow < FITS_WITHIN) return height;
+    // By what it is hiding, which is the least that can relieve it: the subject takes a share of the window
+    // and nothing here knows that share, so an under-grow is corrected by the next round and an over-grow
+    // could not be.
+    const wanted = Math.min(ceiling, height + overflow);
+    if (wanted <= height) break;
+    await resizeWindow(page, width, wanted);
+    height = wanted;
+  }
+  const { overflow, where } = await overflowOf(page, selector);
+  expect(
+    overflow,
+    `${name}: a ${height}px window still leaves ${overflow}px of ${selector} behind the bottom edge of ` +
+      `${where}, so no frame holds it whole (T188, design §12.3). Growing the window does not relieve it: ` +
+      `look for a max-height in pixels rather than viewport units, or a subject taller than the §12.3 size ` +
+      `gate allows.`,
+  ).toBeLessThan(FITS_WITHIN);
+  return height;
 }
 
 /**
