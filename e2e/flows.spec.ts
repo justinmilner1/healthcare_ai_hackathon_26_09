@@ -253,8 +253,17 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   const placed = ((await (await page.request.get(`/api/patient/${seeded.id}`)).json()) as { spikes: { visit?: unknown }[] }).spikes;
   expect(placed.some((s) => s.visit), "the seeded week has a rise the matcher placed").toBeTruthy();
   const caption = page.locator(".sour-chart-caption");
-  await expect(caption).toContainText("the place the patient had just left");
+  // T191 (§2.6): and it says the *right* place-ish thing about them. Every matched rise on the seeded week
+  // began while its stop was still running (lib/match.ts `overlaps`), which is what the Place column says
+  // three times a few inches below — so the caption may not call them places the patient had left. Both
+  // halves read lib/spikePlaces.ts `spikeVisitRelation`, so this assertion and that column cannot drift.
+  await expect(caption, "a place the patient had left, over rows saying 'while there'").not.toContainText("had just left");
+  await expect(caption).toContainText("the place the patient was at when the rise began");
   await expect(caption).toContainText("peak mg/dL");
+  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes linked to places" }) });
+  const placeCells = spikeCard.locator("tbody tr td:nth-child(3)");
+  await expect(placeCells.filter({ hasText: "while there" }).first(), "the rows the caption is written over").toBeVisible();
+  await expect(placeCells.filter({ hasText: /left \d+ min before/ }), "no row on this week is the other branch").toHaveCount(0);
   await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
   // T165 (§2.6): the fourth of the four clinician shapes — the capped week on the brief, with a Timeline.
   // The chart draws the five rises the card lists and the tile counts the week's seven, so the caption says

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { placeLabel } from "./location";
-import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -461,9 +461,12 @@ test("a visit that did share a Timeline keeps every word it had, zero matches in
   assert.equal(clinicianPlaceColumn(unplaced, SHARED), true);
   // And the matched visit, which is the seeded demo one (desktop-provider-print.png).
   const placed = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike(unnamed()), spike(), spike()];
+  // Two of its three placed rises began after their stop ended and one began during it, so this is the
+  // mixed week, and the clause names the place without asserting either relation (T191). It read "the
+  // place the patient had just left" here until T191, which was false of the third row.
   assert.equal(
     clinicianChartCaption(placed, SHARED, 7),
-    "Shaded band is 70\u2013180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.",
+    "Shaded band is 70\u2013180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the place the rise was linked to, or the peak mg/dL where no place matched.",
   );
   assert.equal(clinicianSpikeCardHeading(placed, SHARED), "Spikes linked to places");
   assert.equal(clinicianSpikePlacesHint(placed, SHARED, 7), "top 5 shown · 3 linked to a place");
@@ -493,7 +496,10 @@ test("the four elements are one decision, over the whole cross product (T184)", 
       // "linked to places" is a claim about the card, so only the matched report may make it.
       assert.equal(/linked to places/.test(heading), report === "matched", where);
       // The caption promises a place only there too, and reports an empty lookup only where one was run.
-      assert.equal(/the place the patient had just left/.test(caption), report === "matched", where);
+      // Compared against `matchedPlaceClause` rather than against one of the three strings it returns: the
+      // literal that used to stand here was the `after` wording, and it was this assertion passing on a
+      // mixed week that let T191 through (criterion 2).
+      assert.equal(caption.includes(matchedPlaceClause(spikes)), report === "matched", where);
       assert.equal(/no place matched any of these rises/.test(caption), report === "unmatched", where);
       // The tile names the source only where it is missing, and counts only where it is not.
       assert.equal(hint.endsWith(NO_TIMELINE_HINT), report === "no-timeline", where);
@@ -516,4 +522,115 @@ test("the patient's §2.7 copy is untouched by any of it (T184)", () => {
   // And the patient's own word for a rise with no place is still not the matcher's (T82).
   assert.doesNotMatch(UNKNOWN_PLACE, new RegExp(NO_MATCH_CELL));
   assert.match(NO_MATCH_CELL, MATCHER);
+});
+
+// T191 (§2.6, §7.4, lib/match.ts): the caption's matched branch, which asserted one of the matcher's two
+// branches for every label on the chart. On the seeded week every matched row is the other one, so the
+// sentence described none of the three places it was captioning, four inches above a Place column that
+// told them apart per row.
+
+/** A stop the rise began *during*: still running when the readings started to climb (lib/match.ts `overlaps`). */
+const during = (name: string): Visit => ({
+  start: "2026-09-19T12:20:00Z",
+  end: "2026-09-19T13:10:00Z",
+  place: name,
+  lat: 37.77,
+  lng: -122.41,
+});
+
+test("the relation is the matcher's two branches, told apart by the gap (T191)", () => {
+  // `somewhere` ends at 12:40 and the rise begins at 12:50: the patient had left, by ten minutes.
+  assert.deepEqual(spikeVisitRelation(spike(somewhere("Noe Cafe"))), { kind: "after", gapMin: 10 });
+  // `during` is still running at 12:50, so there is no gap to count down from.
+  assert.deepEqual(spikeVisitRelation(spike(during("Pizzeria Delfina"))), { kind: "during" });
+  // A rise the matcher placed nowhere has no relation at all — that cell reads NO_MATCH_CELL instead.
+  assert.equal(spikeVisitRelation(spike()), null);
+  // A stop that ended exactly as the rise began is "while there": nothing to say "left 0 min before" about.
+  assert.deepEqual(spikeVisitRelation(spike({ ...somewhere("Gym"), end: "2026-09-19T12:50:00Z" })), { kind: "during" });
+});
+
+test("the cell SpikeTable draws is that relation, in the card's own words (T191)", () => {
+  assert.equal(spikeRelationCell(spike(somewhere("Noe Cafe"))), "left 10 min before");
+  assert.equal(spikeRelationCell(spike(during("Pizzeria Delfina"))), "while there");
+  // Empty rather than a sentence: the place cell for an unplaced rise has no suffix to carry.
+  assert.equal(spikeRelationCell(spike()), "");
+});
+
+test("every matched rise an overlap: the caption does not say the patient had left (T191)", () => {
+  // The seeded demo week, which is what the ticket was filed on: three placed rises, every one of them a
+  // stop still running when the readings began to climb, and a caption telling the clinician otherwise.
+  const spikes = [spike(during("Office")), spike(during("Office")), spike(), spike(), spike(during("Home"))];
+  const caption = clinicianChartCaption(spikes, SHARED, 7);
+  assert.doesNotMatch(caption, /had just left/, caption);
+  assert.match(caption, /give the place the patient was at when the rise began/);
+  // And the other half of the sentence, which two of those five rises need (T99).
+  assert.match(caption, /or the peak mg\/dL where no place matched\./);
+});
+
+test("every matched rise an ended-just-before: the caption keeps the words it had (T191)", () => {
+  // The direction that must not move. This is the branch the sentence was written for, and it is still
+  // the exact string it was before this ticket.
+  const spikes = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike()];
+  const caption = clinicianChartCaption(spikes, SHARED, 3);
+  assert.match(caption, /give the place the patient had just left, or the peak mg\/dL where no place matched\.$/);
+});
+
+test("a mix names the place and leaves the relation to the rows (T191)", () => {
+  // Criterion 1: being accurate for both cases is enough. The Place column is the element that says which
+  // of the two a given label is, per row, so the clause asserts neither.
+  const spikes = [spike(during("Pizzeria Delfina")), spike(somewhere("Noe Cafe")), spike()];
+  const caption = clinicianChartCaption(spikes, SHARED, 3);
+  assert.match(caption, /give the place the rise was linked to, or the peak mg\/dL where no place matched\./);
+  assert.doesNotMatch(caption, /had just left|was at when/, caption);
+});
+
+test("the caption and the rows cannot contradict each other, on any mix (T191)", () => {
+  // Criterion 2, as the property rather than as three examples: for every mix of matches, whatever the
+  // caption asserts about the relation has to be true of every row it captions. The caption claims
+  // "had just left" only where no row reads "while there", and "was at when the rise began" only where
+  // none reads "left N min before" — and claims nothing either way where both are present.
+  const placed = [during("Pizzeria Delfina"), somewhere("Noe Cafe")];
+  for (let mask = 0; mask < 1 << 4; mask++) {
+    const spikes = [0, 1, 2, 3].map((i) => (mask & (1 << i) ? spike(placed[i % 2]) : spike()));
+    if (!anyPlaceKnown(spikes)) continue;
+    const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
+    const cells = spikes.map(spikeRelationCell).filter(Boolean);
+    const where = `${cells.join(" / ")}: ${caption}`;
+    if (/had just left/.test(caption)) assert.ok(cells.every((c) => c !== "while there"), where);
+    if (/was at when the rise began/.test(caption)) assert.ok(cells.every((c) => c === "while there"), where);
+    // Whichever clause it took, it is the one the module's own rule returns for these rises.
+    assert.ok(caption.includes(matchedPlaceClause(spikes)), where);
+    // And it still says the place-less labels are numbers, which is T99's half of the sentence.
+    assert.match(caption, /or the peak mg\/dL where no place matched\./, where);
+  }
+});
+
+test("the three shapes of a matched week are three clauses, and nothing else is (T191)", () => {
+  // Criterion 5. One rise placed is enough for each shape, because the clause reads the relations present
+  // and not a count — so a week of one overlap says the same thing as a week of five.
+  assert.equal(matchedPlaceClause([spike(somewhere("Noe Cafe"))]), "the place the patient had just left");
+  assert.equal(matchedPlaceClause([spike(during("Office"))]), "the place the patient was at when the rise began");
+  assert.equal(matchedPlaceClause([spike(during("Office")), spike(somewhere("Noe Cafe"))]), "the place the rise was linked to");
+  // Unplaced rises alongside them change none of the three: they are the half of the sentence after it.
+  assert.equal(matchedPlaceClause([spike(), spike(during("Office")), spike()]), "the place the patient was at when the rise began");
+});
+
+test("the other two branches and the clinician's register are untouched (T191)", () => {
+  // Criterion 4: T184's `unmatched` and `no-timeline` strings, and T165's marker count, word for word.
+  const unplaced = [spike(), spike(), spike(), spike(), spike()];
+  assert.equal(
+    clinicianChartCaption(unplaced, SHARED, 7),
+    "Shaded band is 70–180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.",
+  );
+  assert.equal(
+    clinicianChartCaption(unplaced, UNSHARED, 7),
+    "Shaded band is 70–180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the peak mg/dL.",
+  );
+  // And none of the three new clauses speaks to the patient or borrows the matcher's vocabulary (T82, T99).
+  for (const spikes of [[spike(during("Office"))], [spike(somewhere("Home"))], [spike(during("Office")), spike(somewhere("Home"))]]) {
+    const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
+    assert.doesNotMatch(caption, /\byour\b|\byou\b/i, caption);
+    assert.doesNotMatch(caption, new RegExp(NO_MATCH_CELL), caption);
+    assert.match(caption, /^Shaded band is 70–180 mg\/dL\. /);
+  }
 });

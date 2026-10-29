@@ -126,8 +126,16 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   // T99 (§7.4): this visit has a Timeline, so some rises are placed and some are not — and the caption says
   // both, rather than calling every marker a place. It is the brief's own string (lib/spikePlaces.ts).
   const caption = page.locator(".sour-chart-caption");
-  await expect(caption).toContainText("the place the patient had just left");
+  // T191 (§7.4): the paper carries the relation the rows carry, too. Every matched rise on this week began
+  // while its stop was still running, so the sheet a clinician takes into the room may not tell them the
+  // patient had left — the Place column under the same caption says "while there" (lib/spikePlaces.ts
+  // `spikeVisitRelation`, read by both).
+  await expect(caption, "a place the patient had left, over rows saying 'while there'").not.toContainText("had just left");
+  await expect(caption).toContainText("the place the patient was at when the rise began");
   await expect(caption).toContainText("peak mg/dL");
+  // The sheet's own column is `compact` and carries no relation suffix (components/SpikeTable.tsx), so the
+  // rows this caption can be checked against are the brief's, asserted in e2e/flows.spec.ts. What matters
+  // here is that the paper takes the same clause out of the same function as the screen.
   await expect(caption, "colliding labels are dropped, so not every marker carries one").toContainText("Labels, where they fit,");
   // T165 (§7.4): the capped week on the sheet's other branch. Seven rises, five markers, and the caption
   // scoped to what is drawn — the tile above it is asserted at 7 a few lines up, which is the pair the
