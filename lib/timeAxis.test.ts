@@ -25,6 +25,8 @@ const PHONE = 230;
 const weekdayOf = (t: number) => new Date(t).toLocaleDateString(undefined, { weekday: "short" });
 /** And the hour, the reading the chart's own tooltip has always used. */
 const hourOf = (t: number) => new Date(t).toLocaleTimeString(undefined, { hour: "numeric" });
+/** And the calendar date, which is the only honest label once a step lands every tick on one weekday. */
+const dateOf = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 test("a span inside one day gets an axis at all, which is the whole of the bug", () => {
   // data/fixtures/clarity_window.csv: 84 readings, 06:00 to 12:55 on one morning. The loop this replaces
@@ -156,6 +158,39 @@ test("a span of months thins to dates rather than repeating one weekday", () => 
   const labels = axis.ticks.map(axis.format);
   assert.ok(labels.length >= 2);
   assert.equal(new Set(labels).size, labels.length, `two ticks across a quarter read the same: ${labels.join(" | ")}`);
+});
+
+test("a span past the coarsest step thins it rather than falling back to the ends of the line", () => {
+  // Criterion 3's other direction, and the one the fallback below the ladder cannot answer. `DAY_STEPS`
+  // tops out at four weeks, so past about six months even that step has more ticks than fit, every step
+  // on the ladder is rejected, and the fallback used to hand back the two ends of the line at the finest
+  // grain there is: a year of readings labelled "7:23 AM · 7:23 AM", two identical clock times under a
+  // chart spanning twelve months. That is this ticket's own complaint — an axis that says nothing about
+  // when — reached from the long end instead of the short one, and nothing caps what a patient may
+  // upload: lib/bundle.ts downsamples the count and leaves the span alone.
+  const start = at(0, 5, 7, 23);
+  for (const days of [180, 365, 730]) {
+    for (const plot of [PHONE, DESK, 1400]) {
+      const where = `${days} days at plot ${plot}`;
+      const axis = timeAxis(start, start + days * 86_400_000, plot);
+      const labels = axis.ticks.map(axis.format);
+
+      assert.equal(axis.unit, "day", where);
+      assert.ok(labels.length >= 2, `${where} drew ${labels.length} labels`);
+      assert.equal(new Set(labels).size, labels.length, `${where}: two labels read the same: ${labels.join(" | ")}`);
+      // A date and not a clock time, which is what the abandoned fallback got wrong.
+      for (const t of axis.ticks) {
+        assert.equal(axis.format(t), dateOf(t), `${where}: a span of months is labelled by its dates`);
+        assert.equal(new Date(t).getHours(), 0, `${where}: a date's tick is its local midnight`);
+      }
+      // Thinned by taking every nth of one even walk, so the eye can still interpolate between two of
+      // them. Compared as whole days rather than as milliseconds: the walk keeps each tick on local
+      // midnight, so a gap spanning a daylight-saving change is an hour short of the others in `ms`.
+      const gaps = new Set(axis.ticks.slice(1).map((t, i) => Math.round((t - axis.ticks[i]) / 86_400_000)));
+      assert.equal(gaps.size, 1, `${where}: unevenly spaced, in days: ${[...gaps].join(", ")}`);
+      assert.ok(axis.ticks.length <= 8, `${where}: ${axis.ticks.length} labels is a wall, not an axis`);
+    }
+  }
 });
 
 test("no span renders an empty axis", () => {

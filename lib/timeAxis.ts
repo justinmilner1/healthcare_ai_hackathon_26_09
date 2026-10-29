@@ -196,12 +196,31 @@ export function timeAxis(first: number, last: number, plot: number): TimeAxis {
     if (ticks.length >= 2 && ticks.length <= labelsThatFit(plot, grainOf(step))) return axis(ticks, grainOf(step));
   }
 
-  // Nothing on the ladder gave two readable labels. The coarsest step can still have landed one inside the
-  // span — a week and a half against `DAY_STEPS`' four weeks — and one true label beats both ends of a
-  // line that is barely longer than the gap between them.
+  // Nothing on the ladder gave two readable labels, and that happens at *both* ends of the span range.
   const coarsest = ladder[ladder.length - 1];
+  const grain = grainOf(coarsest);
   const sparse = ticksEvery(coarsest, first, last);
-  if (sparse.length === 1) return axis(sparse, grainOf(coarsest));
+
+  // Too long for a finer step and too short for two of the coarsest — a week and a half against
+  // `DAY_STEPS`' four weeks. One true label beats both ends of a line barely longer than the gap.
+  if (sparse.length === 1) return axis(sparse, grain);
+
+  // Too long for every step on the ladder, which is the other direction and the one the ends of the line
+  // cannot answer. `DAY_STEPS` tops out at four weeks, so past about six months even that step has more
+  // ticks than fit and every step is rejected — and falling through to `[first, last]` labelled a year of
+  // readings "7:23 AM · 7:23 AM": two identical clock times under a chart spanning twelve months, which is
+  // this ticket's empty axis wearing its other disguise. Nothing caps the span a patient may upload —
+  // lib/bundle.ts downsamples the *count* and leaves the span alone — so a long Clarity export reaches
+  // here. Thin the coarsest step instead of abandoning it: every nth of an evenly spaced walk is still
+  // evenly spaced, still inside the line, and still reads as a date.
+  if (sparse.length >= 2) {
+    const every = Math.ceil(sparse.length / labelsThatFit(plot, grain));
+    return axis(
+      sparse.filter((_, i) => i % every === 0),
+      grain,
+    );
+  }
+
   // The ends of the line, at the one grain that can name any instant: a span this short is minutes wide,
   // or a single reading, and neither lands on a clock time worth rounding to.
   return axis(first === last ? [first] : [first, last], "minute");
