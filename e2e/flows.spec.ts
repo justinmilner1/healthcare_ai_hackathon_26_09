@@ -269,6 +269,12 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // The chart draws the five rises the card lists and the tile counts the week's seven, so the caption says
   // which of the two the markers are.
   await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
+  // T191 (§12.3): the frame the ticket was filed from, and the one it has to be judged on. The caption and
+  // the Place column it is written over have to be in one picture to see that they agree — the journey
+  // patient's caption has had its own shot since T165, but that is the no-Timeline branch, so the matched
+  // week's caption was in no frame anchored on it at either width. It is the longer of the two sentences
+  // and three lines at 375px, which is the other thing this shot is for.
+  await shot(page, "provider-sour-chart-caption-placed", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T174 (§6.3, §7): the footer at the bottom of this same frame. The note at the top of it says patterns
   // and questions were not generated and both lists read "Not generated." — so the line that goes into the
   // chart may not sign the page off as AI-generated. What it credits instead is the code that did write it:
