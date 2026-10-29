@@ -22,10 +22,13 @@
 //    is the other half of the same bug — and an hour says little about a week. The tooltip over this same
 //    chart has always known the finer reading (`hour: "numeric"`), but a tooltip is a hover and §7.4's
 //    sheet is paper.
-// 2. **How many labels fit is a measurement, not a guess.** §6.5's 375px page leaves the plot about 230px,
-//    and the marker labels on this same chart are already chosen against the measured width rather than a
-//    breakpoint (T23) — the same chart is drawn into a provider card, a phone and a print sheet at three
-//    different widths, so a count that suits one overlaps on another.
+// 2. **How many labels fit is a measurement, not a guess.** §6.5's 375px page leaves the plot 209px on the
+//    clinician's brief, 205px on the printed sheet and 237px on the patient's own summary, and the marker
+//    labels on this same chart are already chosen against the measured width rather than a breakpoint
+//    (T23) — the same chart is drawn into a provider card, a phone and a print sheet at three different
+//    widths, so a count that suits one overlaps on another. `LABEL_WIDTH` below measures the labels
+//    themselves, and T190 is what estimating them cost: three plots that differ by 32px, a rule tuned to
+//    the middle of them, and a weekday missing from the narrowest.
 //
 // Pure, and in lib/ rather than in the component, for the reason lib/spikePlaces.ts is (§12.1): it is
 // arithmetic over a span, so it can be held to a unit test at spans no fixture holds — a span with no
@@ -89,18 +92,67 @@ const grainOf = (step: number): Grain =>
   step >= 7 * DAY ? "date" : step >= DAY ? "day" : step % HOUR === 0 ? "hour" : "minute";
 
 /**
- * Half the advance width of one character at the axis's 11px, and the clear space between two labels.
+ * How much room one label of each grain needs, in pixels at the axis's 11px — and why these are widths
+ * and not a character count times a per-character estimate, which is what T190 was filed about.
  *
- * The sibling of `HALF_CHAR` in components/GlucoseChart.tsx, which measures the 10px marker labels the
- * same way (T23). Tuned against the shortest label this draws, because that is the case the week must
- * survive unchanged: seven weekdays on §6.5's 375px page have about 230px of plot, or 33px each, and a
- * rule that asked for more than that would thin an axis nobody has complained about.
+ * **Who drops a label.** This module decides how many ticks to hand Recharts; Recharts then decides for
+ * itself which of them to paint. `XAxis` defaults to `interval: "preserveEnd"` and `minTickGap: 5`
+ * (recharts/lib/state/selectors/axisSelectors.js), so `getTicksEnd` walks the ticks from the last to the
+ * first, measures each label's rendered width with a hidden span at the axis's font size, and **silently
+ * drops** any tick whose label would come within 5px of the one it has already kept. Nothing tells this
+ * module that happened. So a count this module allows but Recharts refuses is not a near miss — it is an
+ * axis missing a day, with its surviving labels still evenly spaced, so nothing on screen says one is
+ * absent (§2.6, §6.5). The pitch asked for here therefore has to be at least the widest label the grain
+ * draws plus Recharts' own 5px, or the two disagree and Recharts wins.
+ *
+ * **The measurement**, taken in the suite's own Chromium on the three surfaces' pages, through the span
+ * Recharts measures with (`getStringSize`, `position: absolute; white-space: pre; font-size: 11px`), over
+ * every label each grain can produce — seven weekdays, twenty-four hours, the minute labels, twelve
+ * months of dates:
+ *
+ * | Grain | Widest label it draws | Measured | Recharts needs | The old rule allowed |
+ * |---|---|---|---|---|
+ * | `day` | `"Wed"` | 22.56px | 27.56px | **26.5px** |
+ * | `hour` | `"10 AM"` | 30.94px | 35.94px | 37.5px |
+ * | `minute` | `"10:05 AM"` | 48.39px | 53.39px | 54px |
+ * | `date` | `"May 30"` | 38.03px | 43.03px | **43px** |
+ *
+ * So the honest answer to T190's criterion 4 is yes: a weekday needs more than 26.5px at 11px. It needs
+ * 27.56px, and the brief's 375px card gives its seven midnights 26.0px each — which is why `Sun` was not
+ * painted there while the spike table under the same card named it twice.
+ *
+ * **Why a single per-character figure could not get this right.** The rule this replaces was
+ * `CHARS[grain] * 5.5 + 10`, a character count times half a character's advance width. Per character the
+ * measurements above are 7.52px for a weekday, 6.19px for an hour, 6.05px for a minute label and 6.34px
+ * for a date: a weekday is three capital-initial letters with no space and no narrow punctuation in it,
+ * so it is the one grain whose characters are all wide. One figure covering all four is either too small
+ * for `day` or needlessly large for the rest, and 5.5 was too small for every one of them — the 10px gap
+ * was carrying the difference, and only `day` and `date` had drawn down enough of it to fail. Measured
+ * widths per grain is the model that cannot have that bug; it also puts the four figures where a reader
+ * can check them against the table above.
+ *
+ * Rounded up to the pixel, because a tick coordinate is a fraction of a plot width and the comparison is
+ * made against sub-pixel coordinates at both ends.
  */
-const CHAR = 5.5;
-const LABEL_GAP = 10;
+const LABEL_WIDTH: Record<Grain, number> = { minute: 49, hour: 31, day: 23, date: 39 };
 
-/** "6:30 AM", "6 AM", "Mon", "Sep 21", in characters. */
-const CHARS: Record<Grain, number> = { minute: 8, hour: 5, day: 3, date: 6 };
+/**
+ * The clear space asked for between two labels, in pixels.
+ *
+ * Eight, not Recharts' own five, because five is the figure a label is dropped *at* rather than a figure
+ * it is safe to plan against. The brief's seven weekdays sat 26.0px apart where the pairwise rule asks
+ * for 25.95 — inside a tenth of a pixel — and Recharts dropped one anyway: its walk measures and clamps
+ * in device pixels from the end of the axis, so a model sitting on the boundary is a coin toss, and the
+ * one it lost is a missing weekday on a clinician's brief. Three pixels buys the margin. It is not
+ * generosity that costs an axis anything: `day` at 23 + 8 is 31px, and the three surfaces that keep all
+ * seven weekdays give them 30px (the patient's page at 375px) to 125px each.
+ *
+ * `components/GlucoseChart.tsx` has a `LABEL_GAP` of its own, for the 10px marker labels over the rises
+ * (T23). That one is a gap in a collision test this product performs itself and then obeys, so nothing
+ * downstream can overrule it; this one has to leave room for a test Recharts performs after we have
+ * answered. They are not the same number and there is no reason they should be.
+ */
+const LABEL_GAP = 8;
 
 /**
  * How many labels to allow before the plot has been measured — the server render, and a browser with no
@@ -121,10 +173,16 @@ const UNMEASURED_LABELS = 8;
  */
 const MOST_LABELS = 8;
 
-/** How many of this label the plot holds. Always at least two: a line has two ends to name. */
+/**
+ * How many of this label the plot holds. Always at least two: a line has two ends to name.
+ *
+ * `MOST_LABELS` is a ceiling on density and `LABEL_WIDTH + LABEL_GAP` is the pitch Recharts will paint
+ * at, so a count this returns is one every chosen tick survives — which is the whole of T190: a tick
+ * chosen here and dropped there leaves a gap no reader can see.
+ */
 function labelsThatFit(plot: number, grain: Grain): number {
   if (plot <= 0) return UNMEASURED_LABELS;
-  return Math.max(2, Math.min(MOST_LABELS, Math.floor(plot / (CHARS[grain] * CHAR + LABEL_GAP))));
+  return Math.max(2, Math.min(MOST_LABELS, Math.floor(plot / (LABEL_WIDTH[grain] + LABEL_GAP))));
 }
 
 /**
