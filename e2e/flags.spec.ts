@@ -328,6 +328,13 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   await expect(page.locator(".sour-glucose-flags")).toHaveCount(0);
   await expect(page.locator(".sour-safety-flag")).toHaveCount(0);
 
+  // T190 (§7.4, §6.5): the week's axis on §7.4's sheet, which is the third of the three surfaces this one
+  // chart is drawn into and the one that was worst off — its 375px column is 4px narrower again than the
+  // brief's card, and it was asking for seven weekday labels and being painted five. Asserted here rather
+  // than in e2e/review.spec.ts, which reads this sheet at a single morning: a week is the span the dropping
+  // needed, and this test is already standing on a sheet that holds one.
+  await expectTimeAxisLabelled(page, "the printed one-pager, a week of readings", "day");
+
   // The span that *does* support the estimate, which is the half of T185 that has to be driven for the rule
   // to be more than a withholding: a tile reading the same at one day as at fourteen is the thing the
   // ticket rules out, and so is one that reads `—` for everybody. Nothing committed in this repository
