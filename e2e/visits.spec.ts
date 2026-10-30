@@ -7,6 +7,7 @@ import { expectNoFocusRing, expectVisibleFocusRing } from "./a11y";
 import { postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
+import { patientEmail, verifyByApi } from "./patient";
 import { MODAL, SCREENFUL, shot, type ShotOptions } from "./shot";
 
 // T07 (design §2.2, §4.4, §8.3): the two ways a practice creates visits, driven through the screens staff
@@ -536,6 +537,63 @@ test("staff add a visit in the wizard, with a channel and a recorded consent", a
     block: "center",
     inline: "center",
   });
+});
+
+// T198 (design §2.6, §7.3, §12.3): the "Needs attention" tile's detail, over a count greater than one.
+//
+// The tile printed a fixed singular — seven flagged check-ins under the words "safety flag to review" — and
+// no assertion anywhere read the line, so the only thing that ever noticed was a reviewer looking at
+// `mobile-provider-dashboard-visit-statuses.png`. The unit suite now owns the rule
+// (lib/dashboardTiles.test.ts); what this owns is that the tile on the screen is wired to it.
+//
+// The two flagged visits are made here rather than borrowed from the rest of the suite. A full check run
+// drives the demo practice to seven of them, but which specs have got there first is a property of the
+// shard and the worker, and an assertion about a plural that only holds when somebody else's test has
+// already run is one that passes for the wrong reason — or, on the run where it does not, fails for one.
+// Two is the whole of what the plural branch needs, and anything the rest of the suite adds only moves the
+// count further from the singular.
+//
+// A flagged intake needs no upload and no `sour.run`: §2.5's scan fires on the patient's message, wraps the
+// intake and leaves the reason on the visit, and the dashboard counts `Visit.intake.flagged` (lib/types.ts).
+// So each visit here is a booking, a verification and one sentence.
+test("the Needs attention tile counts its flags in the plural", async ({ page }) => {
+  const demo = await signInAsDemo(page);
+
+  for (const who of [uniqueName("Flag One"), uniqueName("Flag Two")]) {
+    const email = patientEmail(who);
+    const booked = (await (
+      await postJson(page.request, "/api/book", {
+        name: who,
+        email,
+        providerId: demo.id,
+        visitType: "follow_up",
+        reason: "highs after dinner",
+        channel: "none",
+      })
+    ).json()) as { visitId: string; token: string };
+    expect(booked.token, `booking ${who}`).toBeTruthy();
+    await verifyByApi(page.request, booked.token, email);
+
+    // The phrase e2e/flags.spec.ts uses, from RED_FLAGS in lib/sweetie.ts: the scan is deterministic, so
+    // this needs no model and runs the same with no key set (§6.3).
+    const turn = await (await postJson(page.request, "/api/sweetie", { token: booked.token, message: "I had chest pain yesterday evening and it scared me." })).json();
+    expect(turn.intake?.flagged, `the red-flag scan stopped ${who}'s interview (§2.5)`).toBe("cardiac_or_breathing");
+  }
+
+  await page.goto("/provider");
+  const tile = page.locator(".provider-metric", { hasText: "Needs attention" });
+  await expect(
+    tile.locator("small"),
+    'two flagged check-ins are "safety flags to review", not "safety flag" (T198)',
+  ).toHaveText("safety flags to review", LOADED);
+  // Read after the line, so the number asserted on is the one that line was drawn beside.
+  const counted = Number(await tile.locator("strong").innerText());
+  expect(counted, "the plural branch is only the plural branch above one").toBeGreaterThan(1);
+
+  // §12.3's frame for this ticket, at both widths. The tiles are below the hero on a phone, so the row is
+  // brought to the top of the viewport; `SCREENFUL` because the document below it is the practice's whole
+  // visit list (T81).
+  await shot(page, "provider-dashboard-needs-attention", { ...SCREENFUL, scrollTo: ".provider-stats" });
 });
 
 // T168 (design §2.2, §2.3, §5.3, §8.1) The other side of step 3, and the surface this ticket was filed
