@@ -456,8 +456,37 @@ test("a week with no rise over 180 claims no marker on any of the three surfaces
   // matched one either, so the clause T193 decides does not arise (T82's rule, read at nought).
   await expect(patientCaption, "the matcher's words on §2.7's page").not.toContainText(/matched|linked|mg\/dL|spike/i);
   await expect(page.locator(".patient-spikes"), "a rises card over a week with no rises").toHaveCount(0);
-  // Anchored on the chart rather than shot whole: this page is long by its own design at 375px — the one
-  // standing entry in e2e/screenshot-exceptions.json is a full-page phone shot of it — and the subject
-  // here is the sentence over the chart (T109's rule for a shot of a long page).
-  await shot(page, "patient-summary-flat-week", { ...SCREENFUL, scrollTo: ".patient-chart-wrap" });
+  // Anchored rather than shot whole: this page is long by its own design at 375px — the one standing entry
+  // in e2e/screenshot-exceptions.json is a full-page phone shot of it — and the subject here is the
+  // sentence over the chart (T109's rule for a shot of a long page). The anchor is the heading block the
+  // sentence is in, so the caption is in the frame rather than scrolled off the top of it.
+  await shot(page, "patient-summary-flat-week", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
+});
+
+test("the one-rise week reads in the singular on the patient's page too (T199)", async ({ page }) => {
+  // §2.7's half of acceptance criterion 3, and the surface the ticket's one-rise reading was never read
+  // on: "Markers show your biggest rises." over a chart carrying one dot, with a "Your biggest rises" card
+  // under it listing one row. The clinician's side of the same count is asserted on the flagged brief at
+  // the top of this file.
+  //
+  // data/fixtures/clarity_window.csv is the committed week with exactly one rise over 180 (96 → 214) —
+  // `data/fixtures/README.md` — so the count is the fixture's and not something this test arranges.
+  const visit = await visitWithReadings(page, "E2E One Rise", "data/fixtures/clarity_window.csv");
+
+  await page.goto(`/patient/${visit.token}`);
+  const glucoseCard = page
+    .locator("section.patient-report-card")
+    .filter({ has: page.getByRole("heading", { level: 2, name: "Your glucose" }) });
+  await expect(glucoseCard).toBeVisible(LOADED);
+  const caption = glucoseCard.locator(".patient-report-subtitle");
+  await expect(caption).toHaveText("Marker shows your biggest rise.");
+  await expect(caption, "a plural over the one marker this chart draws").not.toContainText("Markers");
+  // And the card under it, which is the element the sentence has to agree with: one row, one rise.
+  await expect(page.locator(".patient-spikes tbody tr")).toHaveCount(1);
+  // No Timeline was shared, so there is no place clause to carry either (T82, T193) — the sentence stops.
+  await expect(caption).not.toContainText(/where you/);
+  // Anchored on the card's heading block and not on the chart under it: the subject is the sentence, and
+  // `.patient-chart-wrap` puts the chart's own top at the top of the frame with the caption scrolled off
+  // above it. `.patient-card-heading` is the glucose card's alone on this page.
+  await shot(page, "patient-summary-one-rise", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
 });
