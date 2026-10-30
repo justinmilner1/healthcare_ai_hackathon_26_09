@@ -198,9 +198,16 @@ test("the brief offers no composer mid-intake on a deployment with no model, bef
 
   // Hold the window open: the page's own first-open generate is the thing that closes it (see above). Only
   // that call — it is the one with no `question` in its body — so nothing else on the route is staged.
+  //
+  // Refused rather than aborted, so the frame below is the product's. `route.abort()` fails the fetch at the
+  // transport, and the brief then shows the browser's own "Failed to fetch" across the top of the §12.3
+  // screenshot — a string the product never writes, in a picture meant to be evidence about it. A 503 goes
+  // down the page's `!res.ok` branch and the banner is the sentence it was written to show.
   await page.route("**/api/sour", async (route) => {
     const body = route.request().postData() ?? "";
-    if (route.request().method() === "POST" && !body.includes("question")) return route.abort();
+    if (route.request().method() === "POST" && !body.includes("question")) {
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "staged: the generate call this test holds off" }) });
+    }
     return route.continue();
   });
 
@@ -233,6 +240,10 @@ test("the brief offers no composer mid-intake on a deployment with no model, bef
   const log = (await (await page.request.get(`/api/sour?visitId=${booked.visitId}`)).json()) as { followUps: unknown[] };
   expect(log.followUps).toEqual([]);
 
+  // The one thing in the frame that is the staging's: the brief's own refusal sentence, not the browser's.
+  // Asserted so a future change to the interception cannot quietly put "Failed to fetch" back in a §12.3
+  // screenshot.
+  await expect(page.locator(".ss-error").first()).toContainText(/Could not generate the summary/i);
   await shot(page, "provider-sour-midintake-no-model", { scrollTo: ".sour-ask-card" });
   await page.unroute("**/api/sour");
 });
