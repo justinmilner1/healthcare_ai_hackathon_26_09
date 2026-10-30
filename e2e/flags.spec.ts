@@ -240,11 +240,18 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expect(flaggedSpikeTile.locator(".text-2xl")).toHaveText("1");
   await expect(flaggedSpikeTile, "a cap announced over a table that lists everything").not.toContainText(/shown/);
   // T165 (§2.6): and the chart caption on the same visit, which is the same guard one card down. The
-  // marker drawn is the only rise there is, so the caption says "Red markers are spikes." and nothing about
-  // a cap — acceptance criterion 2 (lib/spikePlaces.ts `clinicianChartCaption`). The capped week is
-  // asserted in e2e/journey.spec.ts, e2e/flows.spec.ts and e2e/print.spec.ts.
+  // marker drawn is the only rise there is, so the caption says nothing about a cap — acceptance
+  // criterion 2 (lib/spikePlaces.ts `clinicianChartCaption`). The capped week is asserted in
+  // e2e/journey.spec.ts, e2e/flows.spec.ts and e2e/print.spec.ts.
+  //
+  // T199 (§2.6): and it says it in the singular. This is the screen the ticket was filed on — the tile
+  // above reads 1, the card below lists one row, the chart draws one dot — and this assertion read
+  // "Red markers are spikes." over it, so the suite was pinning the defect. One marker, one verb, one
+  // noun: the agreement is `plural`'s in lib/plural.ts, the way T60 and T198 settled it for the counts on
+  // the tiles. Two and above is still the plural, read on the week in e2e/journey.spec.ts.
   const flaggedCaption = page.locator(".sour-chart-caption");
-  await expect(flaggedCaption).toContainText("Red markers are spikes.");
+  await expect(flaggedCaption).toContainText("Red marker is a spike.");
+  await expect(flaggedCaption, "a plural over the one marker this chart draws").not.toContainText("Red markers");
   await expect(flaggedCaption, "a cut disclosed over a chart that draws every rise").not.toContainText(/largest rises/);
   // T185 (§2.6, §7): the third element of that row asked the same question. This fixture is one evening of
   // readings, and the GMI tile called itself `est. A1c from CGM` over it — a stand-in for a three-month
@@ -371,4 +378,86 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   // avoid committing (T77, design §12.3).
   await expect(page.getByRole("button", { name: "Regenerate" })).toBeEnabled(DRAINED);
   await shot(page, "provider-sour-gmi-fortnight", { scrollTo: ".sour-metrics-card", wholeRows: ".sour-metrics-card .summary-stat-tile" });
+});
+
+test("a week with no rise over 180 claims no marker on any of the three surfaces (T199)", async ({ page }) => {
+  // The reading the ticket calls the worse of the two, because it is not a disagreement about number but a
+  // claim about something that is not drawn. The chart card is gated on `hasDexcom` alone on the
+  // clinician's two surfaces (app/provider/[id]/sour.tsx, app/provider/visit/[id]/print/page.tsx) and on
+  // nothing at all on the patient's (app/patient/[id]/page.tsx), so a week that never crossed 180 still
+  // gets a chart — and every caption over it promised red markers, and labels giving the peak mg/dL, over
+  // a chart that draws neither. That is the *well-controlled* week, the best outcome §7 has to report, and
+  // with no rises there is no rises table under it to contradict the sentence either.
+  //
+  // `provider-sour-conversation-only` is not this case: with no glucose at all the card is replaced
+  // outright. The gap is glucose shared and nothing over 180, which is what data/fixtures/clarity_flat.csv
+  // is for (AC5 and AC6) — 168 hourly readings between 88 and 174, so time in range is 100%, none of §7's
+  // three thresholds trips and `detectSpikes` finds nothing. It goes in through `POST /api/upload` exactly
+  // as a patient's own export does, so the three surfaces below are reading a parsed week and not a
+  // hand-built empty array; the array itself is read in lib/spikePlaces.test.ts.
+  //
+  // Here rather than in a spec of its own because `visitWithReadings` above is the one helper in the suite
+  // that books a visit and hands it a Clarity file, and because the sibling reading — the singular, over
+  // the one-rise brief — is asserted on the flagged visit at the top of this file.
+  const visit = await visitWithReadings(page, "E2E Flat Week", "data/fixtures/clarity_flat.csv");
+
+  await page.goto(`/provider/${visit.demo.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", DRAINED);
+  expect(await flagsOf(page, visit.visitId), "a week inside the band has nothing to flag").toEqual([]);
+
+  // The tile and the card first, so what the caption is being read against is on the record: nought rises
+  // is the state, not an absence of readings.
+  const flatMetrics = page.locator(".sour-metrics-card");
+  const flatSpikeTile = flatMetrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(flatSpikeTile.locator(".text-2xl")).toHaveText("0");
+  // T157's third heading, over a card with no rows: naming the threshold above it would read as though
+  // some had cleared it (lib/spikePlaces.ts `clinicianSpikeCardHeading`). The same filter-by-heading shape
+  // e2e/journey.spec.ts reads the other two with.
+  const flatSpikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes", exact: true }) });
+  await expect(flatSpikeCard.getByRole("heading")).toHaveText("Spikes");
+  await expect(flatSpikeCard).toContainText("No spikes over 180 detected.");
+
+  // §2.6's caption, which is the subject. The band sentence is true of a chart with nothing on it and
+  // stays; what used to follow it was two claims about an empty set.
+  const flatCaption = page.locator(".sour-chart-caption");
+  await expect(flatCaption).toContainText("Shaded band is 70–180 mg/dL.");
+  await expect(flatCaption).toContainText("No rises over 180 to mark.");
+  await expect(flatCaption, "red markers promised over a chart that draws none").not.toContainText(/marker/i);
+  await expect(flatCaption, "labels promised over markers that do not exist").not.toContainText(/Labels|peak mg\/dL/);
+  const briefCaption = (await flatCaption.textContent())?.trim();
+  expect(briefCaption, "the brief's caption").toBeTruthy();
+  // The chart is still drawn and still has its axis, so the sentence is about an empty set of markers and
+  // not about an empty card (T187's labelling, on the span this fixture holds).
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await expectTimeAxisLabelled(page, "the clinician's brief, a week with no rise in it", "day");
+  await shot(page, "provider-sour-flat-week", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
+
+  // §7.4's sheet is the brief on paper and reads this caption out of the one `clinicianChartCaption` that
+  // exists to keep the two from drifting (T99), so it is compared with the brief's string rather than
+  // re-derived here — the same way the flag blocks are compared in the test at the top of this file.
+  const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
+  expect(opened?.status(), "the sheet a clinician may open (§7.4)").toBe(200);
+  await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
+  await shot(page, "provider-print-flat-week", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
+
+  // §2.7's page, in the patient's own second person. "Markers show your biggest rises." was false here in
+  // the same way and had even less under it to contradict it: the rises table below is gated on there
+  // being a rise, so the caption was the only thing on the screen saying anything about markers at all.
+  await page.goto(`/patient/${visit.token}`);
+  const glucoseCard = page
+    .locator("section.patient-report-card")
+    .filter({ has: page.getByRole("heading", { level: 2, name: "Your glucose" }) });
+  await expect(glucoseCard).toBeVisible(LOADED);
+  const patientCaption = glucoseCard.locator(".patient-report-subtitle");
+  await expect(patientCaption).toHaveText("You had no rises over 180, so the chart shows no markers.");
+  // None of the clinician's three surfaces' vocabulary, and nothing about places: with no rise there is no
+  // matched one either, so the clause T193 decides does not arise (T82's rule, read at nought).
+  await expect(patientCaption, "the matcher's words on §2.7's page").not.toContainText(/matched|linked|mg\/dL|spike/i);
+  await expect(page.locator(".patient-spikes"), "a rises card over a week with no rises").toHaveCount(0);
+  // Anchored on the chart rather than shot whole: this page is long by its own design at 375px — the one
+  // standing entry in e2e/screenshot-exceptions.json is a full-page phone shot of it — and the subject
+  // here is the sentence over the chart (T109's rule for a shot of a long page).
+  await shot(page, "patient-summary-flat-week", { ...SCREENFUL, scrollTo: ".patient-chart-wrap" });
 });
