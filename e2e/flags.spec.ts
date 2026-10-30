@@ -32,8 +32,16 @@ import { SCREENFUL, shot } from "./shot";
 // asserted against each other for the same reason: §7.4's sheet is the brief on paper, and a flag that
 // reaches one and not the other is the shape of drift this ticket was filed to make visible.
 
-/** A verified patient of their own with one Clarity export shared (§3.3, §5.3), on the demo practice. */
-async function visitWithReadings(page: Page, who: string, fixture: string) {
+/**
+ * A verified patient of their own with one Clarity export shared (§3.3, §5.3), on the demo practice.
+ *
+ * `timeline` shares a Google Maps Timeline export as well, which §2.5 makes optional and which is what
+ * decides `hasLocation` and so which of `clinicianPlaceReport`'s three readings the card and the caption
+ * take (T184, T200). It goes up first, so the Dexcom upload that follows is the one §7.1 trigger in this
+ * path and the run it queues sees both exports (lib/sourQueue.ts `queueSourAfterImport`; a Timeline upload
+ * queues nothing).
+ */
+async function visitWithReadings(page: Page, who: string, fixture: string, timeline?: string) {
   // Booking is staff's job and needs their session (§5.2); the brief below is read as the clinician.
   const demo = await signInAsDemo(page);
   const email = patientEmail(who);
@@ -46,6 +54,7 @@ async function visitWithReadings(page: Page, who: string, fixture: string) {
   // patient session lands where the upload and the Sweetie turn below need it (§5.3).
   await verifyByApi(page.request, booked.token, email);
 
+  if (timeline) await shareTimeline(page, booked.token, readFileSync(timeline));
   await shareReadings(page, booked.token, readFileSync(fixture));
   return { demo, ...booked };
 }
@@ -101,6 +110,19 @@ function clarityOfDays(days: number): string {
 }
 
 /** The flags `lib/sour.ts` computed for this visit, read off the bundle the two surfaces both render. */
+/** The other optional export of §2.5, through the same route: what makes `hasLocation` true (T184, T200). */
+async function shareTimeline(page: Page, token: string, json: string | Buffer) {
+  const uploaded = await page.request.post("/api/upload", {
+    headers: { "x-csrf-token": await csrfToken(page.request) },
+    multipart: {
+      token,
+      kind: "timeline",
+      file: { name: "Timeline.json", mimeType: "application/json", buffer: Buffer.from(json) },
+    },
+  });
+  expect(uploaded.ok(), `POST /api/upload (timeline): ${await uploaded.text()}`).toBeTruthy();
+}
+
 async function flagsOf(page: Page, visitId: string): Promise<string[]> {
   const bundle = (await (await page.request.get(`/api/patient/${visitId}`)).json()) as {
     providerSummary: { flags?: string[] } | null;
@@ -489,4 +511,59 @@ test("the one-rise week reads in the singular on the patient's page too (T199)",
   // `.patient-chart-wrap` puts the chart's own top at the top of the frame with the caption scrolled off
   // above it. `.patient-card-heading` is the glucose card's alone on this page.
   await shot(page, "patient-summary-one-rise", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
+});
+
+test("the one unplaced rise is singular in the clause after the colon too (T200)", async ({ page }) => {
+  // The branch T199 left behind, on the two clinician surfaces that share this caption (§2.6, §7.4). T199
+  // made the marker half of it agree with the count and left the half after the colon a fixed plural, so a
+  // week with one unplaced rise read "Red marker is a spike … no place matched any of these rises" — the
+  // same one rise in both numbers, eleven words apart, in one sentence pair.
+  //
+  // `clinicianPlaceReport` returns `unmatched` only where a Timeline was shared and nothing in it matched,
+  // so the reading needs a pairing data/fixtures/ did not hold until this ticket (AC6): clarity_window.csv's
+  // single rise (96 → 214, 07:00 to 08:00) with timeline_no_match.json, whose three stops each fall outside
+  // lib/match.ts's window — a gym ending an hour before the climb, and the office and the pizzeria both
+  // starting after the peak. That is why T199's own screenshots could not show the defect. Both files go in
+  // through `POST /api/upload` as a patient's own exports do, so what is read below is a parsed export and a
+  // real `matchSpikesToVisits` result; the arrays themselves are read in lib/spikePlaces.test.ts and the
+  // three near misses in lib/match.test.ts.
+  const visit = await visitWithReadings(page, "E2E One Rise Unplaced", "data/fixtures/clarity_window.csv", "data/fixtures/timeline_no_match.json");
+
+  await page.goto(`/provider/${visit.demo.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", DRAINED);
+
+  // What the caption is being read against, on the record first: one rise, a Timeline shared, nothing
+  // linked. Without the Timeline this visit is the `no-timeline` branch, whose string carries no such
+  // clause at all — which is the state the one-rise brief was asserted in before this ticket.
+  const metrics = page.locator(".sour-metrics-card");
+  const spikeTile = metrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(spikeTile.locator(".text-2xl")).toHaveText("1");
+  await expect(spikeTile, "a measured zero over a Timeline that was shared (T160, T184)").toContainText("0 linked to a place");
+  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180" }) });
+  await expect(spikeCard.getByRole("heading")).toHaveText("Spikes over 180");
+  const rows = spikeCard.locator("tbody tr");
+  await expect(rows, "the row the clause counts").toHaveCount(1);
+  await expect(rows, "the Place column's cell, where a lookup was run and found nothing (T82)").toContainText("no matching visit");
+
+  // §2.6's caption, which is the subject.
+  const caption = page.locator(".sour-chart-caption");
+  await expect(caption).toHaveText(
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched this rise.",
+  );
+  await expect(caption, "a plural over the one rise this chart draws").not.toContainText("these rises");
+  await expect(caption, "the marker half T199 made singular, still singular").not.toContainText("Red markers");
+  const briefCaption = (await caption.textContent())?.trim();
+  expect(briefCaption, "the brief's caption").toBeTruthy();
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await shot(page, "provider-sour-one-rise-unplaced", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
+
+  // §7.4's sheet reads the same string out of the one `clinicianChartCaption` (T99), so it is compared with
+  // the brief's rather than re-derived — the way the flat week above and the flag blocks at the top of this
+  // file are.
+  const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
+  expect(opened?.status(), "the sheet a clinician may open (§7.4)").toBe(200);
+  await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
+  await shot(page, "provider-print-one-rise-unplaced", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
 });
