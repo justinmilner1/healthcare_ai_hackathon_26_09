@@ -27,7 +27,7 @@
 // Pure, and in lib/ rather than in the component, so both shapes can be held to this in a unit test (§12.1).
 
 import { placeLabel } from "./location";
-import { countOf } from "./plural";
+import { countOf, plural } from "./plural";
 import type { Spike, Visit } from "./types";
 
 /**
@@ -288,15 +288,46 @@ function patientPlaceClause(spikes: Spike[]): string {
  * What the clause then says about those places is `patientPlaceClause` above and the relations they have
  * (T193). It said "where you had just been" of all of them until then — the one thing the matcher's
  * `endedJustBefore` branch means, over a chart whose labels can be any of three.
+ *
+ * Two things about the markers themselves it also may not say (T199). Not "rises" in the plural over the
+ * one marker a single rise draws, and not that the markers show anything at all where there are none: with
+ * no rise over 180 the sentence is `NO_RISES_TO_MARK_PATIENT` above and the place clause does not arise,
+ * since a week with no rises has no matched one either. Everything from one rise up keeps the shape it had
+ * and takes its agreement from `plural`.
  */
 export function patientChartCaption(spikes: Spike[]): string {
+  if (spikes.length === 0) return NO_RISES_TO_MARK_PATIENT;
+  const n = spikes.length;
+  const markers = `${plural(n, "Marker")} ${plural(n, "shows", "show")} your ${plural(n, "biggest rise", "biggest rises")}`;
   return anyPlaceKnown(spikes)
-    ? `Markers show your biggest rises and ${patientPlaceClause(spikes)}, when available.`
-    : "Markers show your biggest rises.";
+    ? `${markers} and ${patientPlaceClause(spikes)}, when available.`
+    : `${markers}.`;
 }
 
 /** The one sentence about the target band, identical on the brief and on the printed sheet. */
 const TARGET_BAND = "Shaded band is 70–180 mg/dL.";
+
+/**
+ * What each caption says instead when the chart draws no marker at all (T199).
+ *
+ * The chart card is on screen for any visit that shared readings — gated on `hasDexcom` on the clinician's
+ * two surfaces, on nothing at all on the patient's — so a week that never crossed 180 still gets a chart,
+ * and every sentence the captions below are otherwise made of is a claim about a set that is empty: what
+ * the red markers are, and what the labels on them give. That is the *well-controlled* week, the best
+ * outcome §7 has to report, and it was the one the caption described least accurately; with no rises there
+ * is no rises table under it either (app/patient/[id]/page.tsx, components/SpikeTable.tsx), so nothing on
+ * the screen contradicted it.
+ *
+ * Naming the absence rather than falling silent, because the question a reader of a clean trace is left
+ * with is whether the markers are missing or the rises are — T82's bug read a third time, a caption
+ * promising something the element under it has not got. The threshold is the one the tile and the card
+ * heading already use ("Spikes > 180", "No spikes over 180 detected."), in each surface's own register:
+ * §2.6 and §7.4 are the clinician's, terse and third-person, and §2.7 is the patient's second person
+ * throughout. Neither says anything about the readings staying in range, which is a different claim and
+ * can be false of a week with no rise in it — a span spent under 70 clears this threshold too.
+ */
+const NO_RISES_TO_MARK = "No rises over 180 to mark.";
+const NO_RISES_TO_MARK_PATIENT = "You had no rises over 180, so the chart shows no markers.";
 
 /**
  * What the caption says the red markers are, which is a claim about how many of the week's rises are drawn.
@@ -317,12 +348,23 @@ const TARGET_BAND = "Shaded band is 70–180 mg/dL.";
  * `countOf`'s, so the sentence says "7 spikes" in the words the brief's own overview line uses for the same
  * number.
  *
- * Where the week holds no more than the card lists there is no cut to disclose, and the sentence is the one
- * it has always been: a caption reading "the 5 largest rises of 5 spikes" would invent the discrepancy
+ * Where the week holds no more than the card lists there is no cut to disclose, and the sentence says
+ * nothing about one: a caption reading "the 5 largest rises of 5 spikes" would invent the discrepancy
  * T160 and T164 were careful not to invent on the tile.
+ *
+ * That uncapped sentence was a fixed plural, and `total <= shown` is as true at one rise as at five (T199).
+ * So the visit whose week holds a single rise — e2e/flags.spec.ts's flagged brief, where the tile reads 1
+ * and the card lists one row — carried "Red markers are spikes." over one dot. It is T198 one card up and
+ * T60's "1 spikes" a third time, so the fix is the same one: the noun, the verb and the complement all
+ * agree with the number of markers through `plural`, never through a ternary written here (`lib/plural.ts`
+ * opens by saying why). At two and above the string is the one it has always been, which is what keeps
+ * every surface asserted on the capped and the multi-rise week unmoved.
+ *
+ * Never called at zero: a sentence about what the markers are is a claim about a set that is empty there,
+ * and the captions below answer that case before they reach this (`NO_RISES_TO_MARK`).
  */
 function markerSentence(shown: number, total: number): string {
-  if (total <= shown) return "Red markers are spikes.";
+  if (total <= shown) return `Red ${plural(shown, "marker")} ${plural(shown, "is", "are")} ${plural(shown, "a spike", "spikes")}.`;
   return `Red markers are the ${shown} largest rises of ${countOf(total, "spike")}.`;
 }
 
@@ -385,7 +427,10 @@ export function matchedPlaceClause(spikes: Spike[]): string {
  * label: GlucoseChart drops a label that would collide with the one before it, keeping the marker, so the
  * labels are the ones that fit. And not that the markers are the week's rises when they are the largest few
  * of them — `markerSentence` above, which takes the `total` the stat tile shows so that the chart and the
- * tile cannot be counted against each other (T165). And not that the patient had left the place a label
+ * tile cannot be counted against each other (T165). And not that there is more than one marker when the
+ * week holds one rise, nor that there are markers and labels at all when it holds none: the plural was
+ * fixed in that sentence and the labels clause followed it unconditionally, so both of them described an
+ * empty set on the cleanest week the product reports (T199, `NO_RISES_TO_MARK` above). And not that the patient had left the place a label
  * names, nor that they were standing in it when the rise began, unless the labels on the chart are all one
  * or all the other: the matcher links a rise to a stop it overlaps as readily as to one that ended just
  * before it, and an overlap is itself either the stop they were already in or one they walked into partway
@@ -395,6 +440,7 @@ export function matchedPlaceClause(spikes: Spike[]): string {
  * `status` is `PatientBundle.status`, the argument order `clinicianSpikePlacesHint` already takes it in.
  */
 export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: boolean }, total: number): string {
+  if (spikes.length === 0) return `${TARGET_BAND} ${NO_RISES_TO_MARK}`;
   const markers = markerSentence(spikes.length, total);
   const labels = "Labels, where they fit,";
   switch (clinicianPlaceReport(spikes, status)) {

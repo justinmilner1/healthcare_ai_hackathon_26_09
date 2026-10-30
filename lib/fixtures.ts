@@ -18,6 +18,7 @@ export const FIXTURE_DIR = join(process.cwd(), "data", "fixtures");
 export type FixtureName =
   | "clarity_window.csv"
   | "clarity_sustained_high.csv"
+  | "clarity_flat.csv"
   | "clarity_edge_cases.csv"
   | "timeline_android.json"
   | "timeline_ios.json"

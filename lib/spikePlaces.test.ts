@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fixture, pinUtcTimeZone } from "./fixtures";
+import { detectSpikes, parseClarityCsv } from "./glucose";
 import { placeLabel } from "./location";
+import { plural } from "./plural";
 import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
@@ -99,11 +102,14 @@ test("and names the place where one matched, with the number as the other case (
 test("neither shape promises that every marker is labeled (T99)", () => {
   // GlucoseChart keeps the marker and drops the label when two would collide, so "labeled with ..." of the
   // markers as a set was never true, even on a visit full of places.
-  for (const spikes of [[], [spike()], [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))]]) {
+  for (const spikes of [[spike()], [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))]]) {
     const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
     assert.match(caption, /Labels, where they fit,/);
     assert.doesNotMatch(caption, /Red markers are spikes, labeled with/);
   }
+  // The empty week is the one input with no such clause to qualify, which is the stronger form of the same
+  // statement and T199's: a chart with no marker on it promises no label either.
+  assert.doesNotMatch(clinicianChartCaption([], SHARED, 0), /Labels|labeled/);
 });
 
 test("the band sentence is the same on the brief and on the printed sheet (T99)", () => {
@@ -117,8 +123,9 @@ test("the clinician's caption keeps the clinician's register, not the patient's 
   for (const spikes of [[], [spike(somewhere("Home"))]]) {
     assert.doesNotMatch(clinicianChartCaption(spikes, SHARED, spikes.length), /\byour\b|\byou\b/i);
   }
-  // And the patient's page is unchanged by this ticket.
-  assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
+  // And the patient's page is unchanged by this ticket — its own empty-week sentence is T199's, in §2.7's
+  // second person, and carries none of the clinician's register either way.
+  assert.equal(patientChartCaption([]), "You had no rises over 180, so the chart shows no markers.");
 });
 
 // T128 (§2.7, §6.5): the same question for a stop the matcher placed and the export never named, which
@@ -227,6 +234,13 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
     // And it says the same thing as the caption beside it, which is why both live in this module. The
     // matched caption also carries the words "no place matched" -- of the individual label that has none --
     // so the clause to compare against is the one that speaks about the rises as a set.
+    // The empty card is outside that equivalence and always was: it is the one shape with no set of rises
+    // for either element to report a lookup against, so the heading is the bare "Spikes" asserted above and
+    // the caption is T199's `NO_RISES_TO_MARK` rather than either half of the matched/unmatched split.
+    if (spikes.length === 0) {
+      assert.equal(clinicianChartCaption(spikes, SHARED, 0), "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
+      continue;
+    }
     assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
   }
 });
@@ -350,13 +364,26 @@ test("the caption scopes the markers when the tile counts more rises than the ch
   assert.match(clinicianChartCaption([spike(), spike(), spike(), spike(), spike()], UNSHARED, 7), /the 5 largest rises of 7 spikes/);
 });
 
-test("a chart that draws every rise the week holds says nothing about a cap (T165)", () => {
-  // Acceptance criterion 2, which is T160's and T164's guard applied here: with nothing cut there is no
-  // discrepancy, and a caption naming one would invent it.
-  for (const spikes of [[], [spike()], [spike(), spike(somewhere("Home"))], [spike(), spike(), spike(), spike(), spike()]]) {
+test("a chart that draws every rise the week holds says nothing about a cap (T165, T199)", () => {
+  // T165's acceptance criterion 2, which is T160's and T164's guard applied here: with nothing cut there is
+  // no discrepancy, and a caption naming one would invent it. That is the property this test was written to
+  // protect, it is asserted below at every count, and T199 does not touch it.
+  //
+  // What the loop also did was read the uncapped sentence as the fixed plural "Red markers are spikes." at
+  // nought rises and at one, which is the defect T199 was filed on: the assertion was pinning it. So the
+  // sentence is now expected per count — and at nought there is no such sentence to expect, because what
+  // the markers are is a claim about an empty set (criterion 5).
+  const cases: [Spike[], string | null][] = [
+    [[], null],
+    [[spike()], "Red marker is a spike."],
+    [[spike(), spike(somewhere("Home"))], "Red markers are spikes."],
+    [[spike(), spike(), spike(), spike(), spike()], "Red markers are spikes."],
+  ];
+  for (const [spikes, markers] of cases) {
     const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
-    assert.match(caption, /Red markers are spikes\./);
-    assert.doesNotMatch(caption, /largest|of \d+ spikes/);
+    assert.doesNotMatch(caption, /largest|of \d+ spikes/, caption);
+    if (markers === null) assert.equal(caption, "Shaded band is 70\u2013180 mg/dL. No rises over 180 to mark.");
+    else assert.ok(caption.includes(markers), `${spikes.length} rises: ${caption}`);
   }
 });
 
@@ -442,7 +469,10 @@ test("no element reports a lookup on a visit that shared no Timeline (T184)", ()
       assert.equal(clinicianPlaceColumn(spikes, UNSHARED), false);
       // The caption still says what a label is, and what the markers are when the week holds more (T165).
       assert.match(strings[0], /^Shaded band is 70\u2013180 mg\/dL\. /);
-      assert.match(strings[0], /Labels, where they fit, give the peak mg\/dL\.$/);
+      // Except on the empty week, which has no label to call a number and no marker to call a spike: the
+      // band sentence above is the whole of what survives there, and then T199's own (criterion 2).
+      if (n === 0) assert.match(strings[0], /No rises over 180 to mark\.$/);
+      else assert.match(strings[0], /Labels, where they fit, give the peak mg\/dL\.$/);
       // The tile is the one element that names the absent source, and says it once (§7, the T170 split).
       assert.equal(strings[2].endsWith(NO_TIMELINE_HINT), true, strings[2]);
       assert.doesNotMatch(strings[0], /Timeline/i, strings[0]);
@@ -511,8 +541,15 @@ test("the four elements are one decision, over the whole cross product (T184)", 
       // Compared against `matchedPlaceClause` rather than against one of the three strings it returns: the
       // literal that used to stand here was the `after` wording, and it was this assertion passing on a
       // mixed week that let T191 through (criterion 2).
-      assert.equal(caption.includes(matchedPlaceClause(spikes)), report === "matched", where);
-      assert.equal(/no place matched any of these rises/.test(caption), report === "unmatched", where);
+      // The two caption halves are about the labels on the markers, so they are a claim the empty week
+      // makes neither way: there, whatever the report, the caption is T199's one sentence and the
+      // assertions below it carry the row (criterion 2).
+      if (spikes.length === 0) {
+        assert.equal(caption, "Shaded band is 70–180 mg/dL. No rises over 180 to mark.", where);
+      } else {
+        assert.equal(caption.includes(matchedPlaceClause(spikes)), report === "matched", where);
+        assert.equal(/no place matched any of these rises/.test(caption), report === "unmatched", where);
+      }
       // The tile names the source only where it is missing, and counts only where it is not.
       assert.equal(hint.endsWith(NO_TIMELINE_HINT), report === "no-timeline", where);
       assert.equal(/linked to a place/.test(hint), report !== "no-timeline", where);
@@ -747,7 +784,10 @@ test("a mix tells the patient only where they were around then (T193)", () => {
     [spike(arriving("Office", 1)), spike(during("Home")), spike(somewhere("Noe Cafe")), spike()],
   ]) {
     const caption = patientChartCaption(spikes);
-    assert.equal(caption, "Markers show your biggest rises and where you were around then, when available.", spikes.map(spikeRelationCell).join(" / "));
+    // The clause is the subject here, so it is asserted as the tail rather than inside a whole string: the
+    // half in front of it agrees with the number of markers since T199, and one of these mixes is a single
+    // placed rise.
+    assert.match(caption, /^Markers? shows? your biggest rises? and where you were around then, when available\.$/, spikes.map(spikeRelationCell).join(" / "));
     assert.doesNotMatch(caption, /had just been|at the time/, caption);
   }
 });
@@ -802,11 +842,121 @@ test("all three clauses keep §2.7's register and borrow nothing from the matche
     [spike(during("Office")), spike(somewhere("Noe Cafe")), spike()],
   ]) {
     const caption = patientChartCaption(spikes);
-    assert.match(caption, /^Markers show your biggest rises and where you /, caption);
+    assert.match(caption, /^Markers? shows? your biggest rises? and where you /, caption);
     assert.match(caption, /, when available\.$/, caption);
     assert.doesNotMatch(caption, MATCHER, caption);
     assert.doesNotMatch(caption, /visit|linked|while there|mg\/dL/i, caption);
   }
   assert.equal(patientChartCaption([spike(), spike()]), "Markers show your biggest rises.");
-  assert.equal(patientChartCaption([]), "Markers show your biggest rises.");
+  // Criterion 4's second half is now T199's sentence rather than that same string a third time: over no
+  // rises at all there is nothing for a marker to show, and §2.7's register is still the second person.
+  assert.equal(patientChartCaption([]), "You had no rises over 180, so the chart shows no markers.");
+});
+
+// T199 (§2.6, §2.7, §7, §7.4): the chart caption counted its own markers wrong in both directions the
+// repo had already ruled on. The uncapped marker sentence was a fixed plural and `total <= shown` is as
+// true at one rise as at five, so the one-rise visit — e2e/flags.spec.ts's flagged brief, tile reading 1,
+// one row in the card, one dot on the chart — read "Red markers are spikes."; and nothing gated either
+// caption on there being a marker at all, so a week that never crossed 180 was promised markers and
+// labels over a chart that draws neither. T198 is the same bug one card down with the number the other
+// way round, and T60's "1 spikes" is where lib/plural.ts came from.
+
+/** Every uncapped count the two captions are read at below, with the caption's own `total`. */
+const spikesOf = (n: number): Spike[] => Array.from({ length: n }, () => spike());
+
+test("the clinician's marker sentence agrees with the number of markers drawn (T199)", () => {
+  // Acceptance criterion 1, at the three counts criterion 5 names. One rise is the singular throughout —
+  // noun, verb and complement — and two is the string the sentence has always been, which is what keeps
+  // every surface asserted on a multi-rise week unmoved.
+  assert.equal(
+    clinicianChartCaption(spikesOf(1), SHARED, 1),
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.",
+  );
+  assert.match(clinicianChartCaption(spikesOf(2), SHARED, 2), /Red markers are spikes\./);
+  assert.match(clinicianChartCaption(spikesOf(5), SHARED, 5), /Red markers are spikes\./);
+  // And the capped branch is not reopened by any of it: T165's wording and T164's `total`, word for word.
+  assert.equal(
+    clinicianChartCaption(spikesOf(5), SHARED, 7),
+    "Shaded band is 70–180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.",
+  );
+});
+
+test("with no rise over 180 neither clinician surface claims a marker or a label (T199)", () => {
+  // Acceptance criterion 2. The band sentence is true of a chart with nothing on it and stays; what used
+  // to follow it was two claims about an empty set — what the red markers are, and what the labels on them
+  // give — on the one week §7 has nothing to report, where no rises table contradicts either.
+  for (const status of [SHARED, UNSHARED]) {
+    const caption = clinicianChartCaption([], status, 0);
+    assert.equal(caption, "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
+    assert.doesNotMatch(caption, /markers?\b|Labels|labeled|peak mg\/dL/i, caption);
+    // Still the clinician's register and still not the matcher's vocabulary (T82, T99).
+    assert.doesNotMatch(caption, /\byour\b|\byou\b/i, caption);
+    assert.doesNotMatch(caption, MATCHER, caption);
+    assert.doesNotMatch(caption, SEARCHED, caption);
+  }
+  // §7.4's sheet reads the same string as §2.6's brief because both render this one function, which is
+  // what T99 made it for; that the two surfaces really do call it is asserted on screen in
+  // e2e/flags.spec.ts, where the sheet's caption is compared with the brief's rather than re-derived.
+});
+
+test("the patient's caption counts its markers the same way, in §2.7's voice (T199)", () => {
+  // Acceptance criterion 3, on both counts. The marker half agrees; the place clause T193 decides is
+  // untouched, which is what the placed pair below reads.
+  assert.equal(patientChartCaption(spikesOf(1)), "Marker shows your biggest rise.");
+  assert.equal(patientChartCaption(spikesOf(2)), "Markers show your biggest rises.");
+  assert.equal(patientChartCaption(spikesOf(5)), "Markers show your biggest rises.");
+  assert.equal(
+    patientChartCaption([spike(somewhere("Noe Cafe"))]),
+    "Marker shows your biggest rise and where you had just been, when available.",
+  );
+  assert.equal(
+    patientChartCaption([spike(somewhere("Noe Cafe")), spike(somewhere("Home"))]),
+    "Markers show your biggest rises and where you had just been, when available.",
+  );
+  // And the empty week, where "Markers show your biggest rises." was not a disagreement about number but a
+  // claim about something that is not drawn. Second person, §2.7's threshold, none of the matcher's words.
+  const none = patientChartCaption([]);
+  assert.equal(none, "You had no rises over 180, so the chart shows no markers.");
+  assert.match(none, /\byou\b/i);
+  assert.doesNotMatch(none, MATCHER, none);
+  assert.doesNotMatch(none, /visit|linked|while there|mg\/dL/i, none);
+});
+
+test("neither caption says anything in range about a week with no rise in it (T199)", () => {
+  // The claim the two empty-week sentences were careful not to make: a rise over 180 is one threshold and
+  // 70–180 is two, so a week spent below 70 has no rise in it either and is the opposite of well
+  // controlled. `clarity_window.csv`'s urgent low is that week with one rise added.
+  for (const caption of [clinicianChartCaption([], SHARED, 0), patientChartCaption([])]) {
+    assert.doesNotMatch(caption, /in range|in target|well controlled|normal/i, caption);
+  }
+});
+
+test("the agreement in both captions comes from lib/plural.ts (T199)", () => {
+  // Acceptance criterion 4, which is T198's criterion 2 for the same reason: a ternary written beside the
+  // sentence is how the fixed plural got there, and the rule it would duplicate already has a module and a
+  // suite of its own. Read as the property `plural` guarantees and a literal cannot — every count from one
+  // up agrees, not just the three a test lists.
+  for (let n = 1; n <= 12; n++) {
+    const clinician = clinicianChartCaption(spikesOf(n), SHARED, n);
+    const patient = patientChartCaption(spikesOf(n));
+    assert.ok(clinician.includes(`Red ${plural(n, "marker")} ${plural(n, "is", "are")} ${plural(n, "a spike", "spikes")}.`), clinician);
+    assert.ok(patient.startsWith(`${plural(n, "Marker")} ${plural(n, "shows", "show")} your ${plural(n, "biggest rise", "biggest rises")}`), patient);
+    // No count reads as the other one's number, which is the failure mode in one assertion.
+    assert.doesNotMatch(clinician, n === 1 ? /Red markers/ : /Red marker\b/, clinician);
+    assert.doesNotMatch(patient, n === 1 ? /^Markers/ : /^Marker\b/, patient);
+  }
+});
+
+test("the flat fixture is the week the zero branch is about (T199)", () => {
+  // Acceptance criterion 6's fixture, read here as well as in the e2e suite: glucose shared, every reading
+  // inside the band, so `detectSpikes` finds nothing and the captions above take their empty branch on a
+  // real parsed export rather than on a hand-built `[]`. data/fixtures/README.md describes it.
+  pinUtcTimeZone();
+  const readings = parseClarityCsv(fixture("clarity_flat.csv"));
+  assert.ok(readings.length > 0, "the flat fixture parsed to nothing");
+  assert.ok(readings.every((r) => r.mgdl > 70 && r.mgdl < 180), "a reading outside the band in a flat fixture");
+  const spikes = detectSpikes(readings);
+  assert.deepEqual(spikes, []);
+  assert.equal(clinicianChartCaption(spikes, SHARED, spikes.length), "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
+  assert.equal(patientChartCaption(spikes), "You had no rises over 180, so the chart shows no markers.");
 });
