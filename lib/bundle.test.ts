@@ -214,6 +214,23 @@ describe("lib/bundle.ts", { skip: SKIP_WITHOUT_DB }, () => {
       assert.equal(b.dexcomConnect, "none");
     });
 
+    // T196 (§6.3, §7.5): the deployment's model state, which the brief's follow-up composer reads before it
+    // offers itself. It has to be a fact about the deployment and not a guess off the summary — a visit with
+    // no summary on a *configured* deployment keeps its composer — so both directions are asserted, on the
+    // one visit, with nothing saved against it either way.
+    it("carries whether this deployment has a model at all, in both directions", async () => {
+      const key = process.env.OPENAI_API_KEY;
+      try {
+        delete process.env.OPENAI_API_KEY;
+        assert.equal((await bundle.loadBundle(ids.visit))!.assistantConfigured, false, "the mode the check script and the demo run in (§11.3)");
+        process.env.OPENAI_API_KEY = "sk-not-a-real-key-for-a-unit-test";
+        assert.equal((await bundle.loadBundle(ids.visit))!.assistantConfigured, true, "read off the deployment, not off the absent summary");
+      } finally {
+        if (key === undefined) delete process.env.OPENAI_API_KEY;
+        else process.env.OPENAI_API_KEY = key;
+      }
+    });
+
     it("drops the reason from the template for a sandbox visit, whose reason is not a patient's", async () => {
       await fx.db.visit.update({ where: { id: ids.visit }, data: { isSandbox: true } });
       const b = (await bundle.loadBundle(ids.visit))!;
@@ -435,6 +452,10 @@ const BUNDLE: PatientBundle = {
   // `patientView` keeps it, for the three reasons stated where that decision is made (lib/bundle.ts), and
   // the assertion below says so.
   codeCanReach: true,
+  // T196 Whether this deployment has a model at all, which the brief's follow-up composer reads before
+  // offering itself (lib/sourState.ts `askSourClosedNote`). `patientView` keeps it; the assertion below
+  // says so and why.
+  assistantConfigured: false,
   // The control the patient's own empty state renders its invitation from (T118), so it is the patient's
   // half: `patientView` keeps it, and the assertion below says so.
   dexcomConnect: "oauth",
@@ -455,7 +476,15 @@ describe("patientView", () => {
     // screen their own link lands on (components/VerifyGate.tsx), it is about the patient and not material
     // written for a clinician, and `false` on a view a patient reached *by opening their link* would be a
     // wrong claim rather than an absence. lib/bundle.ts holds that decision in full.
-    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "spikeTotal", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "codeCanReach", "dexcomConnect"] as const) {
+    // `assistantConfigured` is in it for the same shape of reason (T196), and deliberately not read as
+    // contradicting the §10.6 assertion below. What that one keeps out is `narrativeMissing`: a field
+    // *inside* the clinician's `Summary`, written for a clinician, which leaves because the whole of
+    // `providerSummary` leaves. This is a bare boolean about the deployment, and the product already tells
+    // the patient it — `GET /api/sweetie` hands their own browser the identical `llmStatus().configured` as
+    // `agent.connected`, and the intake page they are reading renders "Demo mode" off it
+    // (app/api/sweetie/route.ts, app/s/[token]/page.tsx). Blanking it would make the claim T183 argues
+    // against, on the one view no surface reads it from.
+    for (const key of ["visitId", "visitStatus", "intakeConsentAt", "patient", "glucose", "visits", "sleep", "spikes", "spikeTotal", "stats", "status", "intake", "intakeFields", "patientMessages", "patientSummary", "patientSummaryAt", "codeCanReach", "assistantConfigured", "dexcomConnect"] as const) {
       assert.deepEqual(view[key], BUNDLE[key], `${key} is the patient's own`);
     }
   });

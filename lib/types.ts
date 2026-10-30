@@ -185,6 +185,25 @@ export type PatientBundle = {
    *  `POST /api/invite` reads for the brief's invite note, so the note and the empty state under it cannot
    *  answer one patient differently. `lib/sourState.ts` `waitingOnPatientNote` is what reads it. */
   codeCanReach: boolean;
+  /** §6.3, §7.5 Whether this deployment has a model at all — `llmStatus().configured`, settled once in
+   *  lib/bundle.ts. A fact about the deployment and not about this visit or this practice, and a boolean and
+   *  nothing else: §3.7 and §10.6 keep the key, its variable name and the gateway's URL server-side, and
+   *  T96's rule holds for whatever is said about it — there is no practice setting to go looking for.
+   *
+   *  Here because the saved summary cannot answer the question. `Summary.narrativeMissing` is written by a
+   *  run, so it reads `undefined` both on a deployment whose model wrote the narrative *and* on every visit
+   *  with no summary yet — and the clinician's follow-up composer branched on it, so from the patient's
+   *  first answer until the wrap's `sour.run` saved a pair, an unconfigured deployment offered a live Send
+   *  that `POST /api/sour` can only answer `LLMUnavailable` to, after §7.5 has written the question to the
+   *  visit's follow-up log and §10.2 an audit row for it (T196). Nothing already on the bundle could stand
+   *  in: `sourJob` says where a run got to, not whether a model exists. `lib/sourState.ts`
+   *  `askSourClosedNote` is what reads it.
+   *
+   *  `patientView` keeps it, for T183's reason: no patient-facing surface renders it, and `false` on the one
+   *  view a patient reaches is a claim rather than an absence. It is not the clinician's half of anything
+   *  either — `GET /api/sweetie` already hands the patient's own browser the same boolean as
+   *  `agent.connected`, which is what the intake page's "Demo mode" is (app/s/[token]/page.tsx). */
+  assistantConfigured: boolean;
   /** Which Dexcom connect control, if any, `/s/<token>` can offer this visit (§2.5, §9.2) — the same
    *  decision lib/dexcomHint.ts makes for the data panel itself. The patient's own summary renders its
    *  empty-state invitation from this, so it cannot promise a connection the destination has not got

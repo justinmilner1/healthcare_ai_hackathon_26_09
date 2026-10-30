@@ -106,7 +106,16 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
   });
 
   const sourJob = await latestJobForVisit("sour.run", visit.id);
-  const inputHash = sourInputHash(sourInputsFor(visit, visit.uploads, narrativeSource(llmStatus().configured)));
+  // §6.3, §7.5, T196 One reading of the deployment's model state, for the two things on this bundle that
+  // depend on it: §7.1's fingerprint below, which records which kind of run wrote a summary, and
+  // `assistantConfigured`, which is whether the clinician's follow-up composer can be offered at all
+  // (lib/sourState.ts `askSourClosedNote`). The saved summary cannot answer the second question —
+  // `narrativeMissing` is `undefined` both on a narrative a model wrote and on every visit with no summary
+  // yet — so it is a fact about the deployment, read here because a page renders from the bundle and never
+  // from Prisma or from `process.env` (AGENTS.md). A boolean and nothing else: §3.7 and §10.6 keep the key,
+  // its variable name and the gateway's URL server-side.
+  const llm = llmStatus();
+  const inputHash = sourInputHash(sourInputsFor(visit, visit.uploads, narrativeSource(llm.configured)));
   const summaryStale = Boolean(prov) && (prov?.inputHash !== inputHash || pat?.inputHash !== inputHash);
 
   return {
@@ -147,6 +156,7 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
     // and only for a visit that has actually been reviewed.
     review: await reviewRecord(visit),
     codeCanReach,
+    assistantConfigured: llm.configured,
     dexcomConnect,
   };
 }
@@ -173,6 +183,14 @@ export async function loadBundle(idOrToken: string): Promise<PatientBundle | nul
  * `false` on the one view a patient reaches *by having opened their link* would be the wrong one. No
  * patient-facing surface renders it — `waitingOnPatientNote` is the clinician's two — so it travels unread,
  * the way `visitStatus` and `intakeFields` do.
+ *
+ * **`assistantConfigured` stays too**, on the same three reasons (T196). `GET /api/sweetie` already hands
+ * the patient's own browser the identical boolean as `agent.connected`, and their intake page renders
+ * "Demo mode" off it (app/s/[token]/page.tsx), so it tells a patient nothing they are not already told. It
+ * is a fact about the deployment rather than the clinician's half of anything — unlike `providerSummary`,
+ * `sourJob` and `review`, which are material §5.2 and §7 write *for* a clinician. And `false` would be a
+ * claim and not an absence: the one surface that reads it is the brief's composer, which no patient view
+ * renders.
  */
 export function patientView(bundle: PatientBundle): PatientBundle {
   return { ...bundle, providerSummary: null, providerSummaryAt: null, sourJob: null, summaryStale: false, review: null };
