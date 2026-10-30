@@ -1,0 +1,46 @@
+{
+ "semanticSegments": [
+  {
+   "startTime": "2026-09-19T05:00:00+00:00",
+   "endTime": "2026-09-19T06:00:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_gym",
+     "semanticType": "UNKNOWN",
+     "probability": 0.87,
+     "placeLocation": { "latLng": "geo:37.7840,-122.4094" }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T09:00:00+00:00",
+   "endTime": "2026-09-19T17:00:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.95,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_office",
+     "semanticType": "UNKNOWN",
+     "probability": 0.91,
+     "placeLocation": { "latLng": "geo:37.7899,-122.4009" }
+    }
+   }
+  },
+  {
+   "startTime": "2026-09-19T19:30:00+00:00",
+   "endTime": "2026-09-19T20:40:00+00:00",
+   "visit": {
+    "hierarchyLevel": 0,
+    "probability": 0.9,
+    "topCandidate": {
+     "placeId": "ChIJ_fixture_pizzeria",
+     "semanticType": "UNKNOWN",
+     "probability": 0.84,
+     "placeLocation": { "latLng": "geo:37.7614,-122.4241" }
+    }
+   }
+  }
+ ]
+}

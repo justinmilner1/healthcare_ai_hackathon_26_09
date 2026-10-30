@@ -22,6 +22,7 @@ export type FixtureName =
   | "clarity_edge_cases.csv"
   | "timeline_android.json"
   | "timeline_ios.json"
+  | "timeline_no_match.json"
   | "visits.csv"
   | "visit_import.csv"
   | "whoop_cycles.csv"

@@ -83,3 +83,28 @@ test("the fixtures match the breakfast spike to the cafe the patient had just le
   assert.equal(matched[0].visit?.place, "Fixture Cafe");
   assert.equal(matched[0].visit?.end, "2026-09-19T06:50:00.000Z");
 });
+
+test("the no-match fixture pairs that same rise with three stops it cannot reach (T200)", () => {
+  // The other half of that pairing, and the input `clinicianPlaceReport` needs to read `unmatched` at a
+  // single rise: a Timeline shared and nothing in it this matcher will link to the one climb
+  // `clarity_window.csv` holds. Each of the three stops misses by a different one of the two predicates
+  // above, which is what makes the fixture a test of the window rather than of an empty file —
+  // data/fixtures/README.md spells the three out, and the rise is 07:00 to 08:00.
+  const spikes = detectSpikes(parseClarityCsv(fixture("clarity_window.csv")));
+  const visits = labelVisits(parseTimeline(fixture("timeline_no_match.json")), parseVisitsCsv(fixture("visits.csv")));
+  assert.equal(spikes.length, 1);
+  assert.equal(visits.length, 3, "a Timeline the clinician's surfaces would read as not shared at all");
+  const matched = matchSpikesToVisits(spikes, visits);
+  assert.deepEqual(matched, spikes, "a stop linked to the rise this fixture exists to leave unlinked");
+  assert.equal(matched[0].visit, undefined);
+  // The gym is the near miss, and the one that would start matching if `BEFORE_MS` ever grew: it ends
+  // 06:00, sixty minutes before the climb. The other two start after the peak.
+  assert.deepEqual(
+    visits.map((v) => [v.start, v.end]),
+    [
+      ["2026-09-19T05:00:00.000Z", "2026-09-19T06:00:00.000Z"],
+      ["2026-09-19T09:00:00.000Z", "2026-09-19T17:00:00.000Z"],
+      ["2026-09-19T19:30:00.000Z", "2026-09-19T20:40:00.000Z"],
+    ],
+  );
+});
