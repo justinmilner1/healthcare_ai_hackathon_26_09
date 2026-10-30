@@ -21,7 +21,13 @@ import { shot } from "./shot";
 // asked here is one the gateway refuses. That turns out to be the more interesting half of §7.5 anyway —
 // the question is written before the model is called, so an outage is exactly when a log that is only page
 // state loses what a clinician asked. The seeded visit carries an answered follow-up (scripts/seed.ts) for
-// the other shape, which the last test reads.
+// the other shape, which the second test reads.
+//
+// Since T195 that same fact decides whether there is a composer to drive at all, so two of the three tests
+// here are about the two states of `narrativeMissing` as much as about the log: with no model configured
+// the offer is withdrawn and the question goes in through the route, and with a gateway merely down it
+// stands and the last test presses it. The row and the audit row are the same either way, which is the
+// point — withdrawing the control withdraws nothing §7.5 records.
 //
 // The uploads go through `request` and not `page.request`: the patient's credential is the token plus the
 // verified session the six-digit code leaves behind (§5.3), and keeping them in separate contexts means the
@@ -86,25 +92,42 @@ test("a follow-up question is logged with the clinician and the time, survives a
   // Nothing has been asked about this visit yet, so the panel is empty rather than carrying another visit's.
   await expect(page.locator(".sour-followup")).toHaveCount(0);
 
-  await page.locator("input[aria-label='Message Sour']").fill(QUESTION);
-  await page.locator(".sour-ask-card form button").click();
+  // This server has no model configured, so since T195 the brief offers nothing to type into — the
+  // assertions for that are below, once there is a logged question beside them. §7.5's claims are about
+  // what the route records, so the question goes in the way the form used to send it: the same POST, with
+  // the CSRF header the page's own `apiFetch` adds (§10.8).
+  const asked = await postJson(page.request, "/api/sour", { visitId: booked.visitId, question: QUESTION });
+  expect(asked.status(), `POST /api/sour: ${await asked.text()}`).toBe(503);
+  expect(((await asked.json()) as { error?: string }).error).toMatch(/until the model is configured/i);
 
   // §7.5 on the screen: the question, the clinician who asked it, and when. There is no model here, so the
   // answer never arrives — and the question is on the record all the same, which is what writing it before
-  // the call buys (lib/followUps.ts).
+  // the call buys (lib/followUps.ts). It is a row and not a piece of page state, which is why reading it
+  // back on a fresh load of the one-pager is the same assertion as reading it at all.
+  await page.reload();
   const logged = page.locator(".sour-followup").first();
   await expect(logged).toContainText(QUESTION, LOADED);
   await expect(logged).toContainText("Dr. Demo Endo");
   await expect(logged).toContainText(/today at/i);
   await expect(logged.locator(".sour-answer-unanswered")).toContainText(/No answer recorded/i);
-  await expect(page.locator(".sour-ask-card .ss-error")).toContainText(/Sour chat is unavailable/i);
-  await shot(page, "provider-sour-followup");
 
-  // It is a row and not a piece of page state: a fresh load of the one-pager reads the same question back.
-  await page.reload();
-  const reloaded = page.locator(".sour-followup").first();
-  await expect(reloaded).toContainText(QUESTION, LOADED);
-  await expect(reloaded).toContainText("Dr. Demo Endo");
+  // T195 (§7.5, §6.3, §2.6): the frame this ticket was filed about. It used to hold the "Assistant not
+  // configured" caveat, a question Sour never answered, the route's refusal — and below all four the same
+  // composer, placeholder and enabled Send, inviting the clinician to do it again. The offer is withdrawn
+  // where it can never work, and one sentence in the register of the caveat stands in its place.
+  const card = page.locator(".sour-ask-card");
+  await expect(page.locator(".sour-degraded-note")).toContainText(/Assistant not configured/i);
+  await expect(card.locator(".sour-ask-closed")).toContainText(/Assistant not configured/i, LOADED);
+  await expect(card.locator("form")).toHaveCount(0);
+  await expect(card.locator("input[aria-label='Message Sour']")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: /send/i })).toHaveCount(0);
+  // The heading over it stops inviting what the sentence under it refuses. The rule rather than the
+  // literal, so a reword in lib/sourState.ts that puts an invitation back fails here (T195).
+  expect(await card.locator(".sour-ask-heading small").textContent(), "the card's sub-line").not.toMatch(/^Ask about/);
+  // Withdrawing the offer withdraws no history: §7.5 makes the log a record of what was asked and by whom,
+  // and that row is still the subject of this card.
+  await expect(card.locator(".sour-followup")).toHaveCount(1);
+  await shot(page, "provider-sour-followup");
 
   // The log behind it (§7.5): the clinician id, the time, the question, and no answer.
   const log = (await (await page.request.get(`/api/sour?visitId=${booked.visitId}`)).json()) as {
@@ -153,6 +176,11 @@ test("the log belongs to the visit: a second clinician reads what the first aske
   // and nights make the sentence, the panel is showing that sentence and not a stale one in the database.
   await expect(seeded.locator(".sour-answer-reply")).toContainText(seededFollowUpAnswer());
   await expect(seeded.locator(".sour-answer-unanswered")).toHaveCount(0);
+  // T195, §7.5: an answered question outlives the offer. This server has no model configured, so the
+  // composer below the log is withdrawn — and the record above it, which is what the practice reads, is
+  // untouched by that.
+  await expect(page.locator(".sour-ask-card .sour-ask-closed")).toContainText(/Assistant not configured/i);
+  await expect(page.locator(".sour-ask-card form")).toHaveCount(0);
   // Anchored on the log, because the phone project shoots one screenful and this panel is at the foot of the
   // brief: unanchored, the 375px frame of a shot named "followup-answered" held the page header and no
   // answer at all. The desktop shoots the document either way, so the anchor changes only the phone's frame
@@ -170,4 +198,72 @@ test("the log belongs to the visit: a second clinician reads what the first aske
   // same answer another practice's visit gets (lib/guard.ts).
   expect((await page.request.get("/api/sour")).status()).toBe(400);
   expect((await page.request.get("/api/sour?visitId=not-a-visit")).status()).toBe(404);
+});
+
+// T195 (design §7.5, §6.3): the other half of `narrativeMissing`, and the half that keeps its composer.
+//
+// `lib/sourState.ts` is explicit that the two values are not alike: `"unavailable"` is a gateway that
+// clears on its own, so a retry is worth offering (T63), while `"unconfigured"` does not clear from inside
+// the product at all. The test above is the second; this is the first, and with it the live composer, the
+// row arriving without a reload and the error beside it — the path the test above used to drive before the
+// control was withdrawn from it.
+//
+// The state is reached by patching the bundle on its way to the page rather than by pointing the test at
+// the gateway-down server on port+1. Every server here drains one shared queue (lib/jobs.ts: `drainJobs`
+// claims any due row, whoever queued it), so which of them runs a `sour.run` — and therefore whether the
+// saved summary reads "unavailable" or "unconfigured" — is a race this assertion must not depend on. What
+// is being asserted is the page's branch on that one field, and the patch is the one way to put the field
+// in exactly one state. A regex and not a glob, for the reason e2e/flows.spec.ts gives: `**` around a path
+// segment is the pattern that silently matches nothing and leaves a test passing for the wrong reason —
+// and the caveat asserted first is the proof that this one did match.
+test("a gateway that is merely down keeps the composer: the retry is worth offering, and the question still lands", async ({ page, request }) => {
+  const demo = await signInAsDemo(page);
+  const email = patientEmail("E2E Followup Down");
+  const booked = (await (
+    await postJson(page.request, "/api/book", { name: "E2E Followup Down", email, providerId: demo.id, visitType: "follow_up", reason: "overnight highs", channel: "none" })
+  ).json()) as { visitId: string; token: string };
+  expect(booked.visitId).toBeTruthy();
+
+  await verifyByApi(request, booked.token, email);
+  const uploaded = await request.post("/api/upload", {
+    multipart: { token: booked.token, kind: "dexcom", file: { name: "Clarity_export.csv", mimeType: "text/csv", buffer: Buffer.from(clarity()) } },
+    headers: { "x-csrf-token": await csrfToken(request) },
+  });
+  expect(uploaded.ok(), `POST /api/upload: ${uploaded.status()}`).toBeTruthy();
+
+  await page.route(/\/api\/patient\//, async (route) => {
+    const res = await route.fetch();
+    const body = (await res.json()) as { providerSummary?: { narrativeMissing?: string } | null };
+    if (body?.providerSummary) body.providerSummary.narrativeMissing = "unavailable";
+    await route.fulfill({ response: res, json: body });
+  });
+
+  await page.goto(`/provider/${demo.id}?visit=${booked.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Followup Down", LOADED);
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", LOADED);
+  // The patch reached the page: this is the gateway sentence, not the unconfigured one. Without it every
+  // assertion below would be about the state the test above already covers.
+  await expect(page.locator(".sour-degraded-note")).toContainText(/gateway unavailable/i, LOADED);
+
+  // The offer stands, whole: somewhere to type, something to press, and no sentence saying there is not.
+  const card = page.locator(".sour-ask-card");
+  await expect(card.locator(".sour-ask-closed")).toHaveCount(0);
+  const input = card.locator("input[aria-label='Message Sour']");
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveAttribute("placeholder", /^Ask about /);
+  expect(await card.locator(".sour-ask-heading small").textContent(), "the card's sub-line").toMatch(/^Ask about/);
+
+  // And it is a control and not a picture of one. The gateway this page is describing is the patch's; the
+  // server behind it is the suite's unconfigured one, so the refusal that comes back is that server's
+  // wording — what this asserts is the page's half of §7.5, which is the same on either refusal: the row
+  // appears without a reload, carrying the question and the clinician who asked it, and the error is in
+  // front of whoever pressed Send.
+  await input.fill(QUESTION);
+  await card.locator("form button").click();
+  const logged = card.locator(".sour-followup").first();
+  await expect(logged).toContainText(QUESTION, LOADED);
+  await expect(logged).toContainText("Dr. Demo Endo");
+  await expect(logged.locator(".sour-answer-unanswered")).toContainText(/No answer recorded/i);
+  await expect(card.locator(".ss-error")).toContainText(/Sour chat is unavailable/i);
+  await shot(page, "provider-sour-followup-gateway-down", { scrollTo: ".sour-ask-card" });
 });
