@@ -127,7 +127,10 @@ test("a follow-up question is logged with the clinician and the time, survives a
   // Withdrawing the offer withdraws no history: §7.5 makes the log a record of what was asked and by whom,
   // and that row is still the subject of this card.
   await expect(card.locator(".sour-followup")).toHaveCount(1);
-  await shot(page, "provider-sour-followup");
+  // Anchored on the card, because the subject of this frame is now at the foot of the brief: the desktop
+  // project shoots the whole document either way, so this only moves the 375px one, which without it held
+  // the page header and none of what the assertions above are about (e2e/shot.ts, T195).
+  await shot(page, "provider-sour-followup", { scrollTo: ".sour-ask-card" });
 
   // The log behind it (§7.5): the clinician id, the time, the question, and no answer.
   const log = (await (await page.request.get(`/api/sour?visitId=${booked.visitId}`)).json()) as {
@@ -256,12 +259,17 @@ test("a gateway that is merely down keeps the composer: the retry is worth offer
   await expect(input).toHaveAttribute("placeholder", /glucose spikes/i);
   await expect(input).not.toHaveAttribute("placeholder", /sleep/i);
   expect(await card.locator(".sour-ask-heading small").textContent(), "the card's sub-line").toMatch(/^Ask about/);
+  // Taken here and not at the end of the test: what this frame is evidence of is the offer standing beside
+  // a caveat that says the gateway is down, and pressing Send first would put the other state's refusal in
+  // it. The server behind the patched bundle is the suite's unconfigured one, so the words that come back
+  // are that server's, and a frame holding both sentences at once would be a picture of the fixture rather
+  // than of either state (T195).
+  await shot(page, "provider-sour-followup-gateway-down", { scrollTo: ".sour-ask-card" });
 
-  // And it is a control and not a picture of one. The gateway this page is describing is the patch's; the
-  // server behind it is the suite's unconfigured one, so the refusal that comes back is that server's
-  // wording — what this asserts is the page's half of §7.5, which is the same on either refusal: the row
-  // appears without a reload, carrying the question and the clinician who asked it, and the error is in
-  // front of whoever pressed Send.
+  // And it is a control and not a picture of one. What this half asserts is the page's share of §7.5, which
+  // is the same whichever refusal comes back: the row appears without a reload, carrying the question and
+  // the clinician who asked it, and the error is in front of whoever pressed Send. The refusal's own
+  // wording is read where the route is the subject, which is the first test in this file.
   await input.fill(QUESTION);
   await card.locator("form button").click();
   const logged = card.locator(".sour-followup").first();
@@ -269,5 +277,4 @@ test("a gateway that is merely down keeps the composer: the retry is worth offer
   await expect(logged).toContainText("Dr. Demo Endo");
   await expect(logged.locator(".sour-answer-unanswered")).toContainText(/No answer recorded/i);
   await expect(card.locator(".ss-error")).toContainText(/Sour chat is unavailable/i);
-  await shot(page, "provider-sour-followup-gateway-down", { scrollTo: ".sour-ask-card" });
 });

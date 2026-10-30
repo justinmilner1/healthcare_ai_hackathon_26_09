@@ -230,12 +230,17 @@ export function askSourClosedNote(missing: NarrativeMissing | undefined): string
  * the sidebar heading: a claim about the page written as a constant while what it describes branches. The
  * constant read "Ask about this patient's data · questions are kept with the visit and shown to this
  * practice", so on an unconfigured deployment the card's own heading invited what the sentence in its body
- * says cannot be done. The second clause is true either way and stays — the log is kept with the visit and
- * this practice reads it, which is exactly what the rows above remain there to show.
+ * says cannot be done. What the closed state drops is that invitation and nothing else: the second clause
+ * is true either way and is the one §7.5 makes about the log, which is what the card holds now.
+ *
+ * It is the clause unchanged rather than a rewording of it, because the card is just as often empty as not
+ * — a brief nobody has asked anything about — and "questions already asked are kept" over no rows at all
+ * describes a set that is not there. "Questions are kept" reads as the standing rule it is, with rows or
+ * without.
  */
 export function askSourSubheading(missing: NarrativeMissing | undefined): string {
   return askSourClosedNote(missing)
-    ? "Questions already asked are kept with the visit and shown to this practice"
+    ? "Questions are kept with the visit and shown to this practice"
     : "Ask about this patient’s data · questions are kept with the visit and shown to this practice";
 }
 
