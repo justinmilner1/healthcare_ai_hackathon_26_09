@@ -160,6 +160,83 @@ test("a follow-up question is logged with the clinician and the time, survives a
   expect(mailbox()).not.toContain("late dinner");
 });
 
+// T196 (design §2.6, §6.3, §7.5, §10.2): the window T195's signal could not see.
+//
+// `narrativeMissing` only exists once a summary has been saved, so before that it reads `undefined` — the
+// same value a model-written narrative carries — and the withdrawal above branched on it. Meanwhile
+// `visitNotStarted` stops being true on the patient's *first* answer, so `.sour-ask-card` is rendered from
+// that moment. Between the two, an unconfigured deployment went back to offering a placeholder and an
+// enabled Send, and pressing it put a question on the visit's follow-up log and an audit row beside it
+// before the model was asked and refused.
+//
+// **Why the generate call is intercepted.** That window closes by itself: first open with no summary
+// auto-generates (app/provider/[id]/sour.tsx), and on this server the run saves a degraded pair whose
+// `narrativeMissing` is `"unconfigured"` — which is exactly the state T195 already covers, so a test that
+// let it run would be asserting T195 again and would pass with this ticket reverted. Aborting the page's own
+// `POST /api/sour` holds the brief in the state the ticket was filed about, with no summary row for the card
+// to read. The question path is a POST to the same route and is deliberately *not* what this stages: there
+// is no composer here to press, which is the whole assertion.
+test("the brief offers no composer mid-intake on a deployment with no model, before any summary exists", async ({ page, request }) => {
+  const demo = await signInAsDemo(page);
+  const email = patientEmail("E2E Followup Midintake");
+  const booked = (await (
+    await postJson(page.request, "/api/book", { name: "E2E Followup Midintake", email, providerId: demo.id, visitType: "follow_up", reason: "overnight highs", channel: "none" })
+  ).json()) as { visitId: string; token: string };
+  expect(booked.visitId).toBeTruthy();
+
+  // The patient's half, in its own context (§5.3): verified, then *one* of the follow-up template's two
+  // required fields answered. One, not both — the second is the turn that wraps, and a wrap queues the
+  // `sour.run` whose summary would take the brief out of this state (lib/sourQueue.ts `wrapQueuesSour`).
+  // The GET first, because that is what writes the greeting and settles the field list (lib/sweetie.ts).
+  await verifyByApi(request, booked.token, email);
+  expect((await request.get(`/api/sweetie?token=${booked.token}`)).ok()).toBeTruthy();
+  const turn = await postJson(request, "/api/sweetie", { token: booked.token, message: "My sugars run high after dinner, maybe four nights a week since I started the new job in August." });
+  expect(turn.status(), await turn.text()).toBe(200);
+  const after = (await turn.json()) as { intake: { wrapped?: boolean }; status: { answered: number } };
+  expect(after.intake.wrapped, "one answer of two does not wrap").toBe(false);
+  expect(after.status.answered, "the visit has started, so the card below is rendered").toBeGreaterThan(0);
+
+  // Hold the window open: the page's own first-open generate is the thing that closes it (see above). Only
+  // that call — it is the one with no `question` in its body — so nothing else on the route is staged.
+  await page.route("**/api/sour", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (route.request().method() === "POST" && !body.includes("question")) return route.abort();
+    return route.continue();
+  });
+
+  await page.goto(`/provider/${demo.id}?visit=${booked.visitId}`);
+  await expect(page.locator(".sour-brief-header")).toContainText("E2E Followup Midintake", LOADED);
+  // The state the ticket names, asserted rather than assumed: nothing has been summarized for this visit,
+  // so `narrativeMissing` is `undefined` and the caveat at the top of the brief is not there either. A
+  // composer withdrawn here is withdrawn on the deployment's own state and on nothing the summary said.
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "none", LOADED);
+  await expect(page.locator(".sour-degraded-note"), "no saved summary, so nothing for narrativeNote to explain").toHaveCount(0);
+  // And the card is rendered: this is not the `visitNotStarted` empty state, which has no composer to begin
+  // with — the assertions below would pass vacuously on it.
+  const card = page.locator(".sour-ask-card");
+  await expect(card).toHaveCount(1);
+  await expect(page.locator(".sour-waiting"), "EmptyIntake's card (app/provider/[id]/sour.tsx)").toHaveCount(0);
+
+  // The fix (§7.5, §6.3): one sentence in place of the control, in the register of the saved-summary half.
+  await expect(card.locator(".sour-ask-closed")).toContainText(/Assistant not configured/i, LOADED);
+  await expect(card.locator("form")).toHaveCount(0);
+  await expect(card.locator("input[aria-label='Message Sour']")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: /send/i })).toHaveCount(0);
+  // The heading follows the body, as it does on the saved-summary half: the rule and not the literal.
+  expect(await card.locator(".sour-ask-heading small").textContent(), "the card's sub-line").not.toMatch(/^Ask about/);
+  // §7.5's promise about the log survives the withdrawal in this window too, over no rows at all.
+  expect(await card.locator(".sour-ask-heading small").textContent()).toMatch(/kept with the visit and shown to this practice/);
+  await expect(card.locator(".sour-followup")).toHaveCount(0);
+
+  // Nothing was asked, so nothing is on the record — the harm this ticket is about is the row a press left
+  // behind (§7.5, §10.2), and the assertion that the control is gone is worth little without it.
+  const log = (await (await page.request.get(`/api/sour?visitId=${booked.visitId}`)).json()) as { followUps: unknown[] };
+  expect(log.followUps).toEqual([]);
+
+  await shot(page, "provider-sour-midintake-no-model", { scrollTo: ".sour-ask-card" });
+  await page.unroute("**/api/sour");
+});
+
 test("the log belongs to the visit: a second clinician reads what the first asked, and a visit with none shows none", async ({ page }) => {
   const demo = await signInAsDemo(page);
 
@@ -234,10 +311,18 @@ test("a gateway that is merely down keeps the composer: the retry is worth offer
   });
   expect(uploaded.ok(), `POST /api/upload: ${uploaded.status()}`).toBeTruthy();
 
+  // Two fields, not one (T196). The state being staged is a deployment that *has* a model whose gateway is
+  // failing, and since T196 the bundle says that in two places: `narrativeMissing` is what the last run
+  // recorded, and `assistantConfigured` is whether a model exists at all. Patching only the first on this
+  // suite's unconfigured server fabricated a bundle the product cannot produce — "the gateway failed", which
+  // only a configured deployment can record, beside "there is no model" — and the composer closed on the
+  // second field, correctly, in a test whose whole subject is that it stays open. So the patch sets both,
+  // and the fixture is now one coherent deployment rather than half of two.
   await page.route(/\/api\/patient\//, async (route) => {
     const res = await route.fetch();
-    const body = (await res.json()) as { providerSummary?: { narrativeMissing?: string } | null };
+    const body = (await res.json()) as { providerSummary?: { narrativeMissing?: string } | null; assistantConfigured?: boolean };
     if (body?.providerSummary) body.providerSummary.narrativeMissing = "unavailable";
+    body.assistantConfigured = true;
     await route.fulfill({ response: res, json: body });
   });
 
