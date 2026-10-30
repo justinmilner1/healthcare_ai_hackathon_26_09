@@ -419,7 +419,8 @@ export function matchedPlaceClause(spikes: Spike[]): string {
  * Dexcom-only visit every label was a number the caption called a place, beside a Spikes card already
  * reading "0 linked to a place".
  *
- * Five things it therefore does not say. Not that a label is a place, unless one is: where a Timeline was
+ * What it therefore does not say — a list rather than a count, because every ticket on this caption has
+ * added a reading to it. Not that a label is a place, unless one is: where a Timeline was
  * shared and nothing matched, the caption names the peak reading and says outright that nothing matched,
  * which is what the card beside it says. Not that a match was tried where no Timeline was shared, which is
  * T184 and the `no-timeline` branch: the sentence stops at what a label is, and the stat tile beside it is
@@ -430,7 +431,13 @@ export function matchedPlaceClause(spikes: Spike[]): string {
  * tile cannot be counted against each other (T165). And not that there is more than one marker when the
  * week holds one rise, nor that there are markers and labels at all when it holds none: the plural was
  * fixed in that sentence and the labels clause followed it unconditionally, so both of them described an
- * empty set on the cleanest week the product reports (T199, `NO_RISES_TO_MARK` above). And not that the patient had left the place a label
+ * empty set on the cleanest week the product reports (T199, `NO_RISES_TO_MARK` above). And not, in the
+ * `unmatched` clause after the colon, that there is more than one rise on the chart when there is one: T199
+ * made the marker half of that sentence agree with the count and left the half after it a fixed plural, so
+ * a week with a single unplaced rise read "Red marker is a spike" and "any of these rises" eleven words
+ * apart in one caption (T200). The `unmatched` branch is as reachable at one rise as at five — a Timeline
+ * shared and no stop inside lib/match.ts's window — so the clause counts the markers it is about, through
+ * the same `plural` the sentence in front of it uses. And not that the patient had left the place a label
  * names, nor that they were standing in it when the rise began, unless the labels on the chart are all one
  * or all the other: the matcher links a rise to a stop it overlaps as readily as to one that ended just
  * before it, and an overlap is itself either the stop they were already in or one they walked into partway
@@ -447,7 +454,7 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
     case "matched":
       return `${TARGET_BAND} ${markers} ${labels} give ${matchedPlaceClause(spikes)}, or the peak mg/dL where no place matched.`;
     case "unmatched":
-      return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL: no place matched any of these rises.`;
+      return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL: no place matched ${plural(spikes.length, "this rise", "any of these rises")}.`;
     case "no-timeline":
       return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL.`;
   }
