@@ -4,6 +4,7 @@ import { waitingOnPatientNote } from "../lib/sourState";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
+import { expectMarkerLabelsClearOfMarkers } from "./charts";
 import { patientEmail, verifyByApi } from "./patient";
 import { shot } from "./shot";
 
@@ -169,6 +170,11 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".sour-print-toolbar")).toBeHidden();
   await expect(page.locator(".sour-print-sheet")).toBeVisible();
+  // T197 (§7.4, §6.5): the sheet as paper is the fourth frame the ticket was filed from
+  // (`mobile-provider-print-media.png`), and the one with no tooltip and no table suffix behind it — a
+  // marker painted over a peak here is a number a clinician reads off paper with nothing to check it
+  // against. Asserted under the print media query, because that is the layout the frame is taken in.
+  await expectMarkerLabelsClearOfMarkers(page, "the printed sheet, as paper", { someDropped: true });
   await shot(page, "provider-print-media", { scrollTo: chartCard });
   await page.emulateMedia({ media: null });
 

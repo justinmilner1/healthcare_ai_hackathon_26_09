@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
-import { expectTimeAxisLabelled } from "./charts";
+import { expectMarkerLabelsClearOfMarkers, expectTimeAxisLabelled } from "./charts";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { COUNTDOWN, EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
@@ -282,6 +282,10 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // patient's caption has had its own shot since T165, but that is the no-Timeline branch, so the matched
   // week's caption was in no frame anchored on it at either width. It is the longer of the two sentences
   // and three lines at 375px, which is the other thing this shot is for.
+  // T197 (§2.6, §6.5): the same frame's other half. The caption above promises labels "where they fit", so
+  // the markers may not be painted over the ones that did — the place labels on this week are sixteen
+  // characters wide, which is where a neighbour's dot has the most label to land on.
+  await expectMarkerLabelsClearOfMarkers(page, "the clinician's brief, a placed week", { someDropped: true });
   await shot(page, "provider-sour-chart-caption-placed", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T174 (§6.3, §7): the footer at the bottom of this same frame. The note at the top of it says patterns
   // and questions were not generated and both lists read "Not generated." — so the line that goes into the
@@ -1258,6 +1262,10 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   // Anchored on the card's heading and not on `.patient-chart-wrap`, which is the element *under* the
   // subtitle: scrolling that to the top of the viewport puts the sentence just above the frame, which is
   // the whole subject missing from a shot named for it. `.patient-card-heading` is this card's alone.
+  // T197 (§2.7, §6.5): and on §2.7's own chart, which is `mobile-patient-summary-places-caption.png` — the
+  // third of the four frames the ticket was filed from. The labels here are the patient's words for a stop
+  // rather than the clinician's coordinates (lib/spikePlaces.ts), and they are just as wide.
+  await expectMarkerLabelsClearOfMarkers(page, "the patient summary, mixed places", { someDropped: true });
   await shot(page, "patient-summary-places-caption", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
 });
 

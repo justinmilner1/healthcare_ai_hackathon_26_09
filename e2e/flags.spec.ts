@@ -4,7 +4,7 @@ import { GMI_A1C_HINT, GMI_A1C_MIN_DAYS, GMI_SHORT_SPAN_HINT } from "../lib/gmi"
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { DRAINED, LOADED } from "./budget";
-import { expectTimeAxisLabelled } from "./charts";
+import { expectMarkerLabelsClearOfMarkers, expectTimeAxisLabelled } from "./charts";
 import { patientEmail, verifyByApi } from "./patient";
 import { SCREENFUL, shot } from "./shot";
 
@@ -322,6 +322,11 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   // charts in e2e/review.spec.ts and e2e/flows.spec.ts, so "the labels are in the unit of the span" is
   // driven in both units rather than only in the one that was broken.
   await expectTimeAxisLabelled(page, "the clinician's brief, a week of readings", "day");
+  // T197 (§2.6, §6.5): and the labels over the same line. This is the chart the ticket was measured on —
+  // `mobile-provider-sour-week-chart.png` — where the `202` rise kept its label and the `214` rise 8h35m
+  // later kept only its marker, which landed on the `202`'s last digit. At 375px two of these five rises
+  // go unlabelled, so the state the ticket is about is in this frame.
+  await expectMarkerLabelsClearOfMarkers(page, "the clinician's brief, a week of readings", { someDropped: true });
   await shot(page, "provider-sour-week-chart", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
 
   const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);

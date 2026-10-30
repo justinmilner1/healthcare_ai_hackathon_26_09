@@ -157,3 +157,92 @@ export async function expectTimeAxisLabelled(page: Page, where: string, unit: "h
     `${where}: a chart of one day labelled in weekdays places nothing in it: ${labels.join(" | ")}`,
   ).toBeTruthy();
 }
+
+// T197 (design §2.6, §2.7, §7.4, §6.5): and the labels *over* the line, against the markers they sit on.
+//
+// A rise whose label was dropped for being too close to another still gets a `ReferenceDot`, and nothing
+// kept that dot off the label it was too close to: at 375px the clinician's `202` read with its last digit
+// struck out by the red dot of the `214` rise 8h35m later, on the brief, on the patient's summary and on
+// the printed sheet. lib/markerLabels.ts is the rule and lib/markerLabels.test.ts holds it at plots no
+// fixture renders; what only the running app can show is that the boxes Recharts actually painted are
+// disjoint — the model's character-width estimate, the label offset Recharts chooses for `position: "top"`
+// and the stroke on the dot are all things this product does not get to measure for itself.
+
+/** The circle Recharts paints for one rise, and the text it paints above the rises whose labels survived. */
+const markerDots = (page: Page): Locator => lineChart(page).locator(".recharts-reference-dot-dot");
+const markerLabels = (page: Page): Locator => lineChart(page).locator(".recharts-label");
+
+/**
+ * Sub-pixel tolerance, in CSS pixels, before two boxes are called overlapping.
+ *
+ * Boxes that merely touch are not a defect, and an SVG coordinate is a fraction. Half a pixel is well under
+ * the 4.6 CSS pixels T197 measured — one character of a glucose peak — so nothing this is here to catch can
+ * hide inside it.
+ */
+const TOUCHING = 0.5;
+
+type Box = { x: number; y: number; width: number; height: number };
+
+const overlap = (a: Box, b: Box): number =>
+  Math.min(
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x),
+    Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y),
+  );
+
+async function boxesOf(locator: Locator): Promise<Box[]> {
+  const all = await locator.all();
+  const boxes = await Promise.all(all.map((one) => one.boundingBox()));
+  return boxes.filter((b): b is Box => b !== null);
+}
+
+/**
+ * No marker on this chart is painted over a label this chart drew.
+ *
+ * Every dot is compared with every label, including the label's own: `position: "top"` leaves a label about
+ * four pixels clear of the dot it belongs to, so an offset that shrank would be this same defect and there
+ * is no reason to exempt it. The comparison is in viewport pixels, which is what both elements' boxes are
+ * in — the scale factor the ticket had to apply by hand to read a PNG does not enter it.
+ *
+ * `someDropped` is the state the ticket is about, and it is only asserted on the phone: a chart wide enough
+ * to label every rise has no dropped label to put under a dot, which is the desk on the seeded week. At
+ * 375px the five rises this suite's briefs draw never all fit, so a run where they did would mean the plot
+ * or the sample had changed under the assertion rather than that it had nothing to say.
+ */
+export async function expectMarkerLabelsClearOfMarkers(
+  page: Page,
+  where: string,
+  { someDropped = false }: { someDropped?: boolean } = {},
+): Promise<void> {
+  const dots = markerDots(page);
+  await expect(dots.first(), `${where}: the chart painted no markers at all`).toBeVisible(DRAWN);
+  // The labels are chosen against the measured plot, and the plot is 0 until the chart's ResizeObserver has
+  // run — before that the label set is the share-of-the-span fallback, which is a different rule and is
+  // allowed to be generous. Waiting past it is a wait on asynchronous work, under this file's own budget.
+  const decisions = lineChartDecisions(page);
+  await expect(decisions, `${where}: the glucose chart never measured its own plot`).not.toHaveAttribute("data-axis-plot", "0", DRAWN);
+
+  const labelBoxes = await boxesOf(markerLabels(page));
+  const dotBoxes = await boxesOf(dots);
+  const plot = await decisions.getAttribute("data-axis-plot");
+
+  expect(
+    labelBoxes.length,
+    `${where}: a chart that labelled none of its ${dotBoxes.length} markers would keep this assertion by saying nothing`,
+  ).toBeGreaterThan(0);
+  expect(labelBoxes.length, `${where}: ${labelBoxes.length} labels over ${dotBoxes.length} markers`).toBeLessThanOrEqual(dotBoxes.length);
+  if (someDropped && test.info().project.name === "mobile") {
+    expect(
+      labelBoxes.length,
+      `${where}: every one of ${dotBoxes.length} markers is labelled in a ${plot}px plot, so this run holds none of the dropped labels T197 is about`,
+    ).toBeLessThan(dotBoxes.length);
+  }
+
+  for (const label of labelBoxes) {
+    for (const dot of dotBoxes) {
+      expect(
+        overlap(label, dot),
+        `${where}: a marker at (${dot.x.toFixed(1)}, ${dot.y.toFixed(1)}) is painted over a label at (${label.x.toFixed(1)}, ${label.y.toFixed(1)}) in a ${plot}px plot`,
+      ).toBeLessThan(TOUCHING);
+    }
+  }
+}

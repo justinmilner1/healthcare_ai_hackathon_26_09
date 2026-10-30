@@ -147,8 +147,8 @@ const LABEL_WIDTH: Record<Grain, number> = { minute: 49, hour: 31, day: 23, date
  * generosity that costs an axis anything: `day` at 23 + 8 is 31px, and the three surfaces that keep all
  * seven weekdays give them 30px (the patient's page at 375px) to 125px each.
  *
- * `components/GlucoseChart.tsx` has a `LABEL_GAP` of its own, for the 10px marker labels over the rises
- * (T23). That one is a gap in a collision test this product performs itself and then obeys, so nothing
+ * `lib/markerLabels.ts` has a `LABEL_GAP` of its own, for the 10px marker labels over the rises (T23,
+ * T197). That one is a gap in a collision test this product performs itself and then obeys, so nothing
  * downstream can overrule it; this one has to leave room for a test Recharts performs after we have
  * answered. They are not the same number and there is no reason they should be.
  */

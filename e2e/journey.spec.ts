@@ -7,7 +7,7 @@ import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
 import { expectTranscriptUncut } from "./mobile";
 import { AGREE, COUNTDOWN, enterCode, latestCode, patientEmail } from "./patient";
-import { expectChartTooltipsLabelled } from "./charts";
+import { expectChartTooltipsLabelled, expectMarkerLabelsClearOfMarkers } from "./charts";
 import { MODAL, SCREENFUL, shot as rawShot, type ShotOptions } from "./shot";
 
 // T26 (design §12.2): "both flows against a seeded database: staff creates a visit, patient verifies and
@@ -476,6 +476,10 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // markers it describes have to be in one frame to see that they agree, and the tile they are reconciled
   // with is the card the frame opens under. The desktop project shoots the document, so the brief's own
   // frame holds the card; at 375px it is below the fold, as the two cards above it are.
+  // T197 (§2.6, §6.5): `mobile-journey-12-sour-chart-caption.png` is the second of the four frames the
+  // ticket was filed from, and the caption asserted just above is the sentence it broke: labels "where
+  // they fit" over a chart that had placed one where it did not.
+  await expectMarkerLabelsClearOfMarkers(page, "the journey's brief", { someDropped: true });
   await shot(page, "12-sour-chart-caption", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>
