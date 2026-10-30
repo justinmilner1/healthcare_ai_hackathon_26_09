@@ -451,12 +451,18 @@ test("patient flow: Sweetie two questions in scripted mode, then the summary she
   await expect(page.locator(".sour-brief")).not.toContainText(/No summary yet/i);
   // What the clinician gets is the brief the product already had for this state, and it says what it has.
   await expect(page.locator(".sour-no-glucose-note")).toContainText("This summary is from the conversation only.");
-  // T153: and the composer below it does not then invite a question about the glucose this visit has none
-  // of. The notice and the placeholder read the same two booleans (lib/sourState.ts `askSourPlaceholder`),
-  // so the one screenful cannot contradict itself.
-  const composer = page.getByLabel("Message Sour");
-  await expect(composer).not.toHaveAttribute("placeholder", /glucose|sleep/i);
-  await expect(composer).toHaveAttribute("placeholder", /what the patient said/i);
+  // T195: and the card below it offers nothing to type into. This suite has no model key, so the brief has
+  // already said the assistant is not configured — and a question asked anyway is one §7.5 keeps on the
+  // visit for the practice to read as one Sour never answered, so the control is withdrawn rather than left
+  // to teach the clinician by failing (lib/sourState.ts `askSourClosedNote`). That is what this frame used
+  // to show the other way round: a notice, a caveat, and an inviting Send under both.
+  //
+  // It is also why T153's own assertion is no longer here. The placeholder it fixed cannot be read on a
+  // deployment with no assistant, because there is no placeholder; the rule itself is held to all four of
+  // its combinations in lib/sourState.test.ts, and read off a live composer in e2e/followup.spec.ts, on the
+  // one state that keeps one.
+  await expect(page.locator(".sour-ask-card .sour-ask-closed")).toContainText(/Assistant not configured/i);
+  await expect(page.getByLabel("Message Sour")).toHaveCount(0);
   // The handover §2.6 is about: the patient's own words, on the clinician's page, from a check-in with no
   // numbers in it at all.
   await expect(page.locator(".sour-brief")).toContainText("Exhausted for six weeks");

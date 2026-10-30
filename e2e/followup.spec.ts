@@ -250,7 +250,11 @@ test("a gateway that is merely down keeps the composer: the retry is worth offer
   await expect(card.locator(".sour-ask-closed")).toHaveCount(0);
   const input = card.locator("input[aria-label='Message Sour']");
   await expect(input).toBeEnabled();
-  await expect(input).toHaveAttribute("placeholder", /^Ask about /);
+  // T153's rule, on the one live composer left in the suite: this visit shared Dexcom and no WHOOP, so the
+  // box offers the readings and does not offer sleep data beside a Sleep tile that has none
+  // (lib/sourState.ts `askSourPlaceholder`, whose four combinations lib/sourState.test.ts pins).
+  await expect(input).toHaveAttribute("placeholder", /glucose spikes/i);
+  await expect(input).not.toHaveAttribute("placeholder", /sleep/i);
   expect(await card.locator(".sour-ask-heading small").textContent(), "the card's sub-line").toMatch(/^Ask about/);
 
   // And it is a control and not a picture of one. The gateway this page is describing is the patch's; the

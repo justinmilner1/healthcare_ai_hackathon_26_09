@@ -216,11 +216,13 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   // did — passes. The phone still is one screenful and still is judged against the window; the anchor lands
   // on or below its top edge at 375px, so nothing had to be loosened for it. So the shot now asserts on
   // everything it was taken to show rather than on the half below the anchor.
-  // T153, the third of the four combinations: readings and no WHOOP, so the composer must not offer sleep
-  // data on a page whose Sleep tile reads "no WHOOP data" (lib/sourState.ts `askSourPlaceholder`).
-  const flaggedComposer = page.getByLabel("Message Sour");
-  await expect(flaggedComposer).toHaveAttribute("placeholder", /glucose spikes/i);
-  await expect(flaggedComposer).not.toHaveAttribute("placeholder", /sleep/i);
+  // T195: and no composer under them. This suite has no model configured, so the brief says so and then
+  // offers no control that would put a question on the visit for nobody to answer (lib/sourState.ts
+  // `askSourClosedNote`). T153's placeholder — this was its third combination, readings and no WHOOP — has
+  // no placeholder to be read off here any more; that rule is pinned on all four combinations in
+  // lib/sourState.test.ts, and read off a live composer on this same combination in e2e/followup.spec.ts.
+  await expect(page.locator(".sour-ask-card .sour-ask-closed")).toContainText(/Assistant not configured/i);
+  await expect(page.getByLabel("Message Sour")).toHaveCount(0);
 
   // T160 (§2.6, §2.5): the same visit read one row up. Readings and neither optional source, so the metrics
   // row is the ticket's pair side by side — the Spikes tile names the Timeline it never got, in the register

@@ -443,10 +443,13 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // under a tile reading 7, so the caption names both numbers rather than calling the five "spikes" and
   // leaving a clinician to count them against the tile.
   await expect(caption, "five markers under a tile reading 7, unexplained").toContainText("the 5 largest rises of 7 spikes");
-  // T153: the visit that has both exports, so the composer still offers both — the half of that change
-  // that had to stay as it was (lib/sourState.ts `askSourPlaceholder`). The conversation-only and
-  // Dexcom-only briefs are asserted where they are shot (e2e/flows.spec.ts, e2e/flags.spec.ts).
-  await expect(page.getByLabel("Message Sour")).toHaveAttribute("placeholder", /glucose spikes or sleep data/i);
+  // T195: the §12.2 handover reaches a brief with no assistant behind it, so there is no composer on it —
+  // the journey's own frame of the change, beside the caveat four cards up that it agrees with
+  // (lib/sourState.ts `askSourClosedNote`). T153's placeholder on a visit with both exports is pinned in
+  // lib/sourState.test.ts; no brief this suite's servers *save* carries a live composer to read it off,
+  // which is the point — e2e/followup.spec.ts reaches one by putting the other state on the wire.
+  await expect(page.locator(".sour-ask-card .sour-ask-closed")).toContainText(/Assistant not configured/i);
+  await expect(page.getByLabel("Message Sour")).toHaveCount(0);
   // T174 (§6.3, §7, §12.2): the footer of the frame this ticket was filed from. This run has no model key,
   // so Sour saved the numbers with both narrative lists empty — and the line under them may not tell the
   // clinician the page was AI-generated. Every figure above it is code's (lib/sour.ts, lib/glucose.ts), and
