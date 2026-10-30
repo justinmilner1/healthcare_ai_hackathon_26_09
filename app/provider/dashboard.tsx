@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import { can } from "@/lib/access";
 import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
+import { needsAttentionDetail } from "@/lib/dashboardTiles";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH, NO_CODE_TO_SEND } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { IMPORT_INTRO, importInviteNote, type BatchHandover } from "@/lib/importNote";
@@ -478,7 +479,7 @@ export default function ProviderDashboard({
           <Metric
             label="Needs attention"
             value={flagged}
-            detail={flagged ? "safety flag to review" : "nothing flagged"}
+            detail={needsAttentionDetail(flagged)}
             danger={flagged > 0}
           />
         </section>
