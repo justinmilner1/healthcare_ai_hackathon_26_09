@@ -3228,6 +3228,28 @@ textarea.ss-input {
   font-size: 12px;
 }
 
+/* T195 (design §7.5, §6.3): what stands where the composer was, on a deployment with no assistant to ask.
+   The amber of .sour-degraded-note and not the red of a safety flag, because it is the same kind of fact as
+   the caveat at the top of the brief it agrees with — and quiet, because the rows above it are the subject
+   of this card now. The wording is lib/sourState.ts. */
+.sour-ask-closed {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 11px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #e5deb9;
+  border-radius: 12px;
+  background: #fffbea;
+  color: #675d29;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sour-ask-closed > span {
+  flex: none;
+}
+
 .sour-disclaimer {
   padding: 5px 3px 0;
 }

@@ -29,7 +29,7 @@ import { clinicianGmi } from "@/lib/gmi";
 import { sourInviteNote, type InviteAnswer } from "@/lib/inviteNote";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
-import { askSourPlaceholder, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
+import { askSourClosedNote, askSourPlaceholder, askSourSubheading, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
 import { signedInHeading } from "@/lib/team";
 import { visitLabel } from "@/lib/visits";
@@ -304,6 +304,10 @@ export default function SourView({ id }: { id: string }) {
   const visible = (provider?.visits ?? []).filter((v) => v.hasSummary || v.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
+  // Whether the follow-up composer can be offered at all, from the same summary state the degraded note and
+  // the two "Not generated." lists read (T195, §7.5, §6.3). Non-null withdraws the control and says why;
+  // null is every deployment that has a model, and the gateway outage that clears on its own (T63).
+  const askClosed = askSourClosedNote(s?.narrativeMissing);
   // What this visit's span lets the two clinician surfaces say about GMI (lib/gmi.ts, T185). The tile below
   // and the overview line read the one report, so a screen cannot carry the figure unqualified in one place
   // and scoped in the other.
@@ -600,7 +604,9 @@ export default function SourView({ id }: { id: string }) {
                     <span>✦</span>
                     <div>
                       <strong>Discuss with Sour</strong>
-                      <small>Ask about this patient&apos;s data · questions are kept with the visit and shown to this practice</small>
+                      {/* Not a constant: with no assistant to ask, the first clause invited exactly what
+                          the sentence in the card's body says cannot be done (T195). lib/sourState.ts. */}
+                      <small>{askSourSubheading(s?.narrativeMissing)}</small>
                     </div>
                   </div>
                   <ol aria-live="polite" className="sour-answers">
@@ -623,12 +629,28 @@ export default function SourView({ id }: { id: string }) {
                       </li>
                     ))}
                   </ol>
-                  {asking && <p role="status" className="sour-chat-status">Sour is reviewing your question…</p>}
-                  {chatError && <p role="alert" className="ss-error">{chatError}</p>}
-                  <form onSubmit={askSour}>
-                    <input aria-label="Message Sour" maxLength={4000} className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={askSourPlaceholder(bundle.status)} disabled={asking} />
-                    <button className="ss-button ss-button-accent" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Send →"}</button>
-                  </form>
+                  {/* §7.5, §6.3: where the deployment has no assistant, the offer is withdrawn rather than
+                      left to teach a clinician by failing — and the attempt was not free, because the
+                      question goes on the log and into the audit before the model is asked (lib/followUps.ts,
+                      §10.2). Only there: a gateway that is merely down clears on its own, so a retry is
+                      worth offering and this branch leaves that composer alone (T63, T195). What is
+                      withdrawn is the control and not the record — the rows above stay in both states. The
+                      wording is lib/sourState.ts, beside the caveat at the top it has to agree with. */}
+                  {askClosed ? (
+                    <p className="sour-ask-closed" role="status">
+                      <span aria-hidden="true">⚠</span>
+                      {askClosed}
+                    </p>
+                  ) : (
+                    <>
+                      {asking && <p role="status" className="sour-chat-status">Sour is reviewing your question…</p>}
+                      {chatError && <p role="alert" className="ss-error">{chatError}</p>}
+                      <form onSubmit={askSour}>
+                        <input aria-label="Message Sour" maxLength={4000} className="ss-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={askSourPlaceholder(bundle.status)} disabled={asking} />
+                        <button className="ss-button ss-button-accent" disabled={asking || !q.trim()}>{asking ? "Thinking…" : "Send →"}</button>
+                      </form>
+                    </>
+                  )}
                 </section>
               </>
             )}

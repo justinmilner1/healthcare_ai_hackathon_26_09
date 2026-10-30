@@ -192,6 +192,54 @@ export function askSourPlaceholder(status: Pick<IntakeStatus, "hasDexcom" | "has
 }
 
 /**
+ * What stands where the "Discuss with Sour" composer was, on a deployment with no assistant to ask
+ * (T195, design §7.5, §6.3, §2.6). Null is "offer the composer", which is most deployments.
+ *
+ * `askSourPlaceholder` above keeps the box from offering a subject this visit has no data for. This is the
+ * same question one step out: not what the box may be asked about, but whether it may be asked at all. With
+ * no model configured the brief says so at the top — `narrativeNote("unconfigured")` — and then offered an
+ * inviting placeholder and a live Send four cards below it. Pressing it cannot work: `POST /api/sour`
+ * answers `LLMUnavailable`. And the attempt is not free, which is why this is a bug and not a blemish: §7.5
+ * writes the question to the visit's follow-up log *before* the model is asked, and §10.2 writes an audit
+ * row for it, so every press left a question on the visit for the practice to read as one Sour never
+ * answered — and a clinician learnt that only by pressing it.
+ *
+ * Only the `"unconfigured"` half. The two values of `NarrativeMissing` are not alike, which `narrativeNote`
+ * above is explicit about: `"unavailable"` is a gateway that clears on its own, so a retry is worth
+ * offering and the composer stays exactly as it is (T63). `"unconfigured"` does not clear from inside the
+ * product at all, so there the control can never do anything.
+ *
+ * The sentence is shaped like its sibling above and holds to the same two rules: it names no environment
+ * variable, and it invents no practice setting for anybody to go looking for in Settings (T96). It does not
+ * repeat "ask whoever set Sweet Spot up for your office" — the caveat at the top of this same brief says
+ * that, and what this sentence is about is the one control being withdrawn. Nor does it tell anyone to
+ * retry, because this is the state a retry does not reach.
+ *
+ * It withdraws the offer and not the record: follow-ups already on the visit stay on the page in both
+ * states (§7.5), which is the page's job rather than this sentence's.
+ */
+export function askSourClosedNote(missing: NarrativeMissing | undefined): string | null {
+  if (missing !== "unconfigured") return null;
+  return "Assistant not configured: there is no model to answer a question, so none can be asked on this visit.";
+}
+
+/**
+ * The sub-line under the "Discuss with Sour" heading (design §7.5, T195).
+ *
+ * A function of the same state as the note above, for the reason T153 gave for the placeholder and T156 for
+ * the sidebar heading: a claim about the page written as a constant while what it describes branches. The
+ * constant read "Ask about this patient's data · questions are kept with the visit and shown to this
+ * practice", so on an unconfigured deployment the card's own heading invited what the sentence in its body
+ * says cannot be done. The second clause is true either way and stays — the log is kept with the visit and
+ * this practice reads it, which is exactly what the rows above remain there to show.
+ */
+export function askSourSubheading(missing: NarrativeMissing | undefined): string {
+  return askSourClosedNote(missing)
+    ? "Questions already asked are kept with the visit and shown to this practice"
+    : "Ask about this patient’s data · questions are kept with the visit and shown to this practice";
+}
+
+/**
  * The heading over the Sour sidebar's visit list (design §7.2, §2.6, T156).
  *
  * The list is "every visit with a summary, plus the one you are looking at" — the second half is there so a
