@@ -21,7 +21,7 @@ import {
   visitNotStarted,
   waitingOnPatientNote,
 } from "./sourState";
-import type { SourJobState } from "./types";
+import type { NarrativeMissing, SourJobState } from "./types";
 
 const JOB: SourJobState = {
   id: "job_1",
@@ -265,18 +265,23 @@ describe("askSourPlaceholder", () => {
 // composer is withdrawn on exactly one of them, because only one of them is a state a press can never get
 // out of, and a press is not free: §7.5 logs the question before the model is asked and §10.2 audits it.
 describe("askSourClosedNote", () => {
+  // The deployment has a model unless a case says otherwise: that is every deployment T195's three cases
+  // were about, and keeping it the default is what makes the T196 pair below read as the new axis.
+  const on = (missing?: NarrativeMissing) => askSourClosedNote({ missing, assistantConfigured: true });
+  const off = (missing?: NarrativeMissing) => askSourClosedNote({ missing, assistantConfigured: false });
+
   it("leaves the composer alone on a deployment whose model wrote the narrative", () => {
-    assert.equal(askSourClosedNote(undefined), null);
+    assert.equal(on(undefined), null);
   });
 
   it("leaves the composer alone for a gateway that is merely down", () => {
     // T63's half: "unavailable" clears on its own, so a retry is the right thing to offer and the control
     // has to still be there to retry with.
-    assert.equal(askSourClosedNote("unavailable"), null);
+    assert.equal(on("unavailable"), null);
   });
 
   it("withdraws it where no model is configured, and says which state that is", () => {
-    const note = askSourClosedNote("unconfigured")!;
+    const note = on("unconfigured")!;
     assert.ok(note, "an unconfigured deployment gets a sentence in place of the control");
     assert.match(note, /not configured/i, `the state is the point: ${note}`);
     // It cannot tell anyone to try again: this is the state that a retry does not reach, which is the whole
@@ -284,8 +289,33 @@ describe("askSourClosedNote", () => {
     assert.doesNotMatch(note, /retry|try again|again in a minute/i, `invites a retry that cannot work: ${note}`);
   });
 
+  // T196: the window T195's own signal cannot see. `narrativeMissing` only exists once a summary has been
+  // saved, and before that it is `undefined` — the same value a model-written narrative carries — so the
+  // saved summary cannot be asked whether a model exists. These are the two readings of "no summary yet",
+  // which is the state every visit is in between the patient's first answer and the wrap's `sour.run`.
+  it("withdraws it before any summary exists, where the deployment has no model", () => {
+    const note = off(undefined)!;
+    assert.ok(note, "the mid-intake brief of an unconfigured deployment offered a live composer (T196)");
+    assert.match(note, /not configured/i, note);
+    // One wording across both windows, so the two states cannot drift apart (T195 AC 5).
+    assert.equal(note, on("unconfigured"), "the same sentence as the saved-summary half");
+  });
+
+  it("keeps it before any summary exists, where the deployment has a model", () => {
+    // The direction the fix must not get wrong: "no summary yet" is not "no model", and reading it that way
+    // would take a working composer off every freshly-booked visit on a configured deployment.
+    assert.equal(on(undefined), null);
+  });
+
+  it("withdraws it on a configured deployment's gateway outage only where the model has gone", () => {
+    // The two axes are independent, and "unavailable" is still the state a retry reaches: a configured
+    // deployment keeps the control (T63), and a deployment with no model has nothing to retry against.
+    assert.equal(on("unavailable"), null);
+    assert.ok(off("unavailable"), "no model is no model, whatever the last run recorded");
+  });
+
   it("agrees with the caveat at the top of the same brief instead of restating it", () => {
-    const note = askSourClosedNote("unconfigured")!;
+    const note = on("unconfigured")!;
     // Same lede as narrativeNote's, so a clinician reads one state and not two (they are four cards apart
     // on the brief).
     assert.match(note, /^Assistant not configured:/, note);
@@ -295,14 +325,15 @@ describe("askSourClosedNote", () => {
   });
 
   it("names no variable and invents no practice setting (T96)", () => {
-    const note = askSourClosedNote("unconfigured")!;
-    assert.doesNotMatch(note, /OPENAI|API_KEY|api key|env|\.env|variable|deploy/i, note);
-    assert.doesNotMatch(note, /administrator|\badmin\b|turn it on|enable|enabled|switch it on/i, `invents a control: ${note}`);
-    assert.doesNotMatch(note, /for this practice|your practice|settings/i, `sends the reader to Settings: ${note}`);
+    for (const note of [on("unconfigured")!, off(undefined)!]) {
+      assert.doesNotMatch(note, /OPENAI|API_KEY|api key|env|\.env|variable|deploy/i, note);
+      assert.doesNotMatch(note, /administrator|\badmin\b|turn it on|enable|enabled|switch it on/i, `invents a control: ${note}`);
+      assert.doesNotMatch(note, /for this practice|your practice|settings/i, `sends the reader to Settings: ${note}`);
+    }
   });
 
   it("is one sentence, like the caveat it sits under", () => {
-    const note = askSourClosedNote("unconfigured")!;
+    const note = on("unconfigured")!;
     assert.equal(note.split(/(?<=\.)\s+/).length, 1, `more than one sentence: ${note}`);
   });
 });
@@ -310,20 +341,29 @@ describe("askSourClosedNote", () => {
 describe("askSourSubheading", () => {
   it("offers the subject on every deployment that can answer", () => {
     for (const missing of [undefined, "unavailable"] as const) {
-      const text = askSourSubheading(missing);
+      const text = askSourSubheading({ missing, assistantConfigured: true });
       assert.match(text, /^Ask about this patient’s data · /, `${missing}: ${text}`);
     }
   });
 
   it("stops inviting a question the card below it has just refused", () => {
-    const text = askSourSubheading("unconfigured");
-    assert.doesNotMatch(text, /^Ask about/, `the heading invites what the body refuses: ${text}`);
+    for (const input of [
+      { missing: "unconfigured" as const, assistantConfigured: true },
+      // T196: the heading has to follow the body into the no-summary window too, or the card goes back to
+      // inviting what the sentence under it refuses.
+      { missing: undefined, assistantConfigured: false },
+    ]) {
+      const text = askSourSubheading(input);
+      assert.doesNotMatch(text, /^Ask about/, `the heading invites what the body refuses: ${text}`);
+    }
   });
 
   it("keeps §7.5's promise about the log in all three states, because the rows stay in all three", () => {
     for (const missing of [undefined, "unavailable", "unconfigured"] as const) {
-      const text = askSourSubheading(missing);
-      assert.match(text, /kept with the visit and shown to this practice/, `${missing}: ${text}`);
+      for (const assistantConfigured of [true, false]) {
+        const text = askSourSubheading({ missing, assistantConfigured });
+        assert.match(text, /kept with the visit and shown to this practice/, `${missing}/${assistantConfigured}: ${text}`);
+      }
     }
   });
 });

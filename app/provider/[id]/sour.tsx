@@ -304,10 +304,16 @@ export default function SourView({ id }: { id: string }) {
   const visible = (provider?.visits ?? []).filter((v) => v.hasSummary || v.id === selected);
   const s = bundle?.providerSummary;
   const st = bundle?.stats;
-  // Whether the follow-up composer can be offered at all, from the same summary state the degraded note and
-  // the two "Not generated." lists read (T195, §7.5, §6.3). Non-null withdraws the control and says why;
-  // null is every deployment that has a model, and the gateway outage that clears on its own (T63).
-  const askClosed = askSourClosedNote(s?.narrativeMissing);
+  // Whether the follow-up composer can be offered at all (T195, T196, §7.5, §6.3). Non-null withdraws the
+  // control and says why; null is every deployment that has a model, and the gateway outage that clears on
+  // its own (T63). Two inputs, because the summary alone cannot answer it: `narrativeMissing` is `undefined`
+  // both on a narrative a model wrote and on every visit with no summary yet, and the card below is rendered
+  // from the patient's first answer onwards — so the deployment's own `assistantConfigured` is what speaks
+  // for the window before the wrap's run has saved a pair (lib/sourState.ts).
+  // The `??` is unreachable rather than a decision: both readers of this are inside the `!bundle` guard
+  // below, so the card is never rendered from a bundle that has not arrived.
+  const askInput = { missing: s?.narrativeMissing, assistantConfigured: bundle?.assistantConfigured ?? true };
+  const askClosed = askSourClosedNote(askInput);
   // What this visit's span lets the two clinician surfaces say about GMI (lib/gmi.ts, T185). The tile below
   // and the overview line read the one report, so a screen cannot carry the figure unqualified in one place
   // and scoped in the other.
@@ -606,7 +612,7 @@ export default function SourView({ id }: { id: string }) {
                       <strong>Discuss with Sour</strong>
                       {/* Not a constant: with no assistant to ask, the first clause invited exactly what
                           the sentence in the card's body says cannot be done (T195). lib/sourState.ts. */}
-                      <small>{askSourSubheading(s?.narrativeMissing)}</small>
+                      <small>{askSourSubheading(askInput)}</small>
                     </div>
                   </div>
                   <ol aria-live="polite" className="sour-answers">

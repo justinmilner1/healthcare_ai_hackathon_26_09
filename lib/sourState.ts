@@ -209,6 +209,35 @@ export function askSourPlaceholder(status: Pick<IntakeStatus, "hasDexcom" | "has
  * offering and the composer stays exactly as it is (T63). `"unconfigured"` does not clear from inside the
  * product at all, so there the control can never do anything.
  *
+ * **Why the summary is not the whole of the question (T196).** `narrativeMissing` is written by a run, so it
+ * only exists once a summary has been saved — and before that it is `undefined`, which is the same value it
+ * carries on a deployment whose model *did* write the narrative. So the one signal meant two opposite
+ * things, and T195's withdrawal had a window it could not see: from the patient's first answer (or their
+ * Dexcom export) until the wrap's `sour.run` saved a pair, `visitNotStarted` above is already false, the
+ * card is rendered, and an unconfigured deployment offered a placeholder and a live Send again. The press is
+ * not free there either — `loadSourContext` builds a brief with or without a saved `Summary` row
+ * (lib/sourRun.ts), so §7.5 writes the question to the follow-up log and §10.2 an audit row for it, and
+ * *then* the model is asked and answers `LLMUnavailable`. Same harm as T195's, one state earlier.
+ *
+ * So the deployment answers it: `assistantConfigured` off the bundle (lib/bundle.ts), which is a fact about
+ * the deployment rather than about any run of it, and the only thing on the wire that can speak for the
+ * window with no summary in it. Nothing already there could be read instead — "no summary yet" is not "no
+ * model", and reading it that way would take a working composer off every fresh visit on a configured
+ * deployment; `sourJob` says where a run got to, not whether a model exists.
+ *
+ * It is `||` and not a replacement, because the two inputs answer the same question about two different
+ * moments and either one saying "no model" is a reason not to offer the control: the boolean is the state
+ * the press will actually meet, and the saved `"unconfigured"` is what the last run met, which keeps T195's
+ * withdrawal to the letter. The one combination they disagree on — a narrative a model wrote on a
+ * deployment whose model has since gone — withdraws, which is the truthful answer about what pressing Send
+ * would now do.
+ *
+ * The sentence is the same one in both windows, deliberately. It reads as the standing state either way,
+ * and one wording is what keeps the two states from drifting apart (T195). What differs is its
+ * surroundings: `narrativeNote` above is about why a *saved* summary has no patterns and no questions, so
+ * with no summary yet there is nothing for it to explain and the brief carries this sentence alone, without
+ * the caveat at the top that normally names whoever set Sweet Spot up for the office.
+ *
  * §6.3 is not an argument the other way. The quiet note it asks for comes with "questions continue", and
  * they do — on Sweetie, where lib/sweetie.ts answers from a scripted path with no model at all. This
  * composer has no scripted fallback to continue with: there is nothing for it to say. So withdrawing it is
@@ -223,8 +252,16 @@ export function askSourPlaceholder(status: Pick<IntakeStatus, "hasDexcom" | "has
  * It withdraws the offer and not the record: follow-ups already on the visit stay on the page in both
  * states (§7.5), which is the page's job rather than this sentence's.
  */
-export function askSourClosedNote(missing: NarrativeMissing | undefined): string | null {
-  if (missing !== "unconfigured") return null;
+export type AskSourInput = {
+  /** The saved summary's `narrativeMissing`. `undefined` is two different things — a narrative a model
+   *  wrote, and no summary at all — which is why it is not the whole of the question (T196). */
+  missing: NarrativeMissing | undefined;
+  /** `PatientBundle.assistantConfigured`: whether this deployment has a model at all. */
+  assistantConfigured: boolean;
+};
+
+export function askSourClosedNote({ missing, assistantConfigured }: AskSourInput): string | null {
+  if (assistantConfigured && missing !== "unconfigured") return null;
   return "Assistant not configured: there is no model to answer a question, so none can be asked on this visit.";
 }
 
@@ -243,8 +280,8 @@ export function askSourClosedNote(missing: NarrativeMissing | undefined): string
  * describes a set that is not there. "Questions are kept" reads as the standing rule it is, with rows or
  * without.
  */
-export function askSourSubheading(missing: NarrativeMissing | undefined): string {
-  return askSourClosedNote(missing)
+export function askSourSubheading(input: AskSourInput): string {
+  return askSourClosedNote(input)
     ? "Questions are kept with the visit and shown to this practice"
     : "Ask about this patient’s data · questions are kept with the visit and shown to this practice";
 }
