@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
-import { markerLabel } from "@/lib/spikePlaces";
+import { MARKER_DOT, MARKER_LABEL_FONT_SIZE, markerLabels } from "@/lib/markerLabels";
 import { timeAxis } from "@/lib/timeAxis";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
@@ -47,15 +47,11 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   const first = data[0].t;
   const last = data[data.length - 1].t;
 
-  // Direct labels are selective: a spike whose label would collide with an already-labeled one keeps its
-  // marker but drops its label (tooltip and SpikeTable still carry it). Long place names are trimmed, and
-  // `markerLabel` never hands over anything longer than a real place name to trim (T128).
-  //
-  // "Collide" is measured in pixels once the width is known: two centred labels clear each other when the
-  // gap between their markers covers half of each. Until the first measurement — the server render, and a
-  // browser with no ResizeObserver — it falls back to the 5%-of-the-span rule this had before, which is
-  // right on a desk and merely generous on a phone.
-  const span = Math.max(1, last - first);
+  // Direct labels are selective: a spike whose label would collide with an already-labeled one, or with any
+  // other rise's marker, keeps its marker but drops its label (tooltip and SpikeTable still carry it). The
+  // rule is lib/markerLabels.ts, whole — the widths, the gaps, the trim and the marker's own reach — for the
+  // reason the time axis below is not written here either (T187, T197, §12.1): it is arithmetic over a span
+  // and a measured width, so it belongs where a unit test can reach it at plots no fixture renders.
   const plot = Math.max(0, width - PLOT_CHROME);
 
   // The time axis is lib/timeAxis.ts's, whole: which ticks and how they read, off the span and the plot
@@ -65,22 +61,7 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   // this component chooses a tick any more, for the reason `markerLabel` is not written here either: it
   // is arithmetic over a span, so it belongs where a unit test can reach it (§12.1).
   const axis = timeAxis(first, last, plot);
-  const ordered = [...spikes].sort((a, b) => Date.parse(a.peak) - Date.parse(b.peak));
-  const labelFor = new Map<Spike, string>();
-  let lastLabeledAt = -Infinity;
-  let lastLabelChars = 0;
-  for (const s of ordered) {
-    const at = Date.parse(s.peak);
-    const label = trim(markerLabel(s, { patient }));
-    const apart = plot > 0
-      ? ((at - lastLabeledAt) / span) * plot >= (lastLabelChars + label.length) * HALF_CHAR + LABEL_GAP
-      : (at - lastLabeledAt) / span >= 0.05;
-    if (apart) {
-      labelFor.set(s, label);
-      lastLabeledAt = at;
-      lastLabelChars = label.length;
-    }
-  }
+  const labelFor = markerLabels(spikes, { first, last, plot, patient });
 
   // `data-axis-ticks` is how the suite checks that every tick this chart chose was painted (T190): Recharts
   // measures each label itself and silently drops the ones it finds too close, so a count chosen in
@@ -126,11 +107,11 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
               key={i}
               x={Date.parse(s.peak)}
               y={s.to}
-              r={5}
+              r={MARKER_DOT.r}
               fill={CRITICAL}
               stroke={SURFACE}
-              strokeWidth={2}
-              label={labelFor.has(s) ? { value: labelFor.get(s), position: "top", fontSize: 10, fill: INK2 } : undefined}
+              strokeWidth={MARKER_DOT.strokeWidth}
+              label={labelFor.has(s) ? { value: labelFor.get(s), position: "top", fontSize: MARKER_LABEL_FONT_SIZE, fill: INK2 } : undefined}
             />
           ))}
         </LineChart>
@@ -139,17 +120,12 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   );
 }
 
-const trim = (name: string) => (name.length > 16 ? name.slice(0, 15).trimEnd() + "…" : name);
-
-/** The y-axis and the right margin the labels are kept clear of, from the LineChart margin above. */
-const PLOT_CHROME = 80;
 /**
- * Half the advance width of one character at the 10px label size, and the clear space between two labels.
+ * The y-axis and the right margin the labels are kept clear of, from the LineChart margin above.
  *
- * These two are about the marker labels over the rises, and the collision test they feed is this file's own:
- * a label that loses it is dropped here and the tooltip and SpikeTable still carry it. The axis labels under
- * the line are a different pair of numbers in lib/timeAxis.ts, measured rather than estimated and sized for
- * a test Recharts runs after we have answered (T190) — not figures to borrow in either direction.
+ * The one number about this chart's geometry that stays in the component, and the only one T197 left here:
+ * it is read off the `margin` prop a few lines up, so lib/ could not own it without being told the layout
+ * it is a subtraction from. Both of the modules the component hands `plot` to — lib/timeAxis.ts and
+ * lib/markerLabels.ts — take the drawing area as an argument for exactly that reason.
  */
-const HALF_CHAR = 2.7;
-const LABEL_GAP = 10;
+const PLOT_CHROME = 80;
