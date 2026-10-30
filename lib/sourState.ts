@@ -209,6 +209,11 @@ export function askSourPlaceholder(status: Pick<IntakeStatus, "hasDexcom" | "has
  * offering and the composer stays exactly as it is (T63). `"unconfigured"` does not clear from inside the
  * product at all, so there the control can never do anything.
  *
+ * §6.3 is not an argument the other way. The quiet note it asks for comes with "questions continue", and
+ * they do — on Sweetie, where lib/sweetie.ts answers from a scripted path with no model at all. This
+ * composer has no scripted fallback to continue with: there is nothing for it to say. So withdrawing it is
+ * what §6.3 asks for here rather than a departure from it.
+ *
  * The sentence is shaped like its sibling above and holds to the same two rules: it names no environment
  * variable, and it invents no practice setting for anybody to go looking for in Settings (T96). It does not
  * repeat "ask whoever set Sweet Spot up for your office" — the caveat at the top of this same brief says
