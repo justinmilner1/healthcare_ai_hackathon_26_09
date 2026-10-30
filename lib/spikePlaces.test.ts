@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture, pinUtcTimeZone } from "./fixtures";
 import { detectSpikes, parseClarityCsv } from "./glucose";
-import { placeLabel } from "./location";
+import { labelVisits, parseTimeline, parseVisitsCsv, placeLabel } from "./location";
+import { matchSpikesToVisits } from "./match";
 import { plural } from "./plural";
 import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
@@ -32,6 +33,18 @@ const UNSHARED = { hasLocation: false };
 
 /** Any clause that reports a lookup having been run — what no element may say on an UNSHARED visit (T184). */
 const SEARCHED = /no place matched|no matching visit|linked to a place|\bplaces?\b/i;
+
+/**
+ * The closing clause of the `unmatched` caption, at either count — the one thing only that report says
+ * about the rises as a set, which is why three tests below use it to tell the report from the caption.
+ *
+ * It takes both forms because since T200 the clause agrees with the number of markers: "this rise" at one,
+ * "any of these rises" at two and above. A detector written as one of the two would be asserting a count
+ * where it means to assert a branch, which is what made the T184 cross-product below pass over the defect
+ * T200 was filed for — the row at `[spike()]` and SHARED. The counts themselves are pinned word for word,
+ * at both, in the T200 test at the foot of this file.
+ */
+const NO_PLACE_MATCHED = /no place matched (?:this rise|any of these rises)\./;
 
 test("a patient who shared no Timeline has no place to report on any rise (T82)", () => {
   // The §12.2 journey patient: Dexcom and WHOOP shared, Timeline declined, five spikes and not one place.
@@ -241,7 +254,7 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
       assert.equal(clinicianChartCaption(spikes, SHARED, 0), "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
       continue;
     }
-    assert.equal(/linked to places/.test(heading), !/no place matched any of these rises/.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
+    assert.equal(/linked to places/.test(heading), !NO_PLACE_MATCHED.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
   }
 });
 
@@ -548,7 +561,7 @@ test("the four elements are one decision, over the whole cross product (T184)", 
         assert.equal(caption, "Shaded band is 70–180 mg/dL. No rises over 180 to mark.", where);
       } else {
         assert.equal(caption.includes(matchedPlaceClause(spikes)), report === "matched", where);
-        assert.equal(/no place matched any of these rises/.test(caption), report === "unmatched", where);
+        assert.equal(NO_PLACE_MATCHED.test(caption), report === "unmatched", where);
       }
       // The tile names the source only where it is missing, and counts only where it is not.
       assert.equal(hint.endsWith(NO_TIMELINE_HINT), report === "no-timeline", where);
@@ -868,9 +881,14 @@ test("the clinician's marker sentence agrees with the number of markers drawn (T
   // Acceptance criterion 1, at the three counts criterion 5 names. One rise is the singular throughout —
   // noun, verb and complement — and two is the string the sentence has always been, which is what keeps
   // every surface asserted on a multi-rise week unmoved.
+  //
+  // The one-rise string carries T200's clause after the colon. What this assertion was written to protect
+  // is the marker half of it, and that half is unchanged; the plural it used to end in was the defect T200
+  // was filed for, so the string is corrected here rather than the assertion loosened or dropped
+  // (T200 AC4, and the clause's own counts are pinned at one and two at the foot of this file).
   assert.equal(
     clinicianChartCaption(spikesOf(1), SHARED, 1),
-    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.",
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched this rise.",
   );
   assert.match(clinicianChartCaption(spikesOf(2), SHARED, 2), /Red markers are spikes\./);
   assert.match(clinicianChartCaption(spikesOf(5), SHARED, 5), /Red markers are spikes\./);
@@ -959,4 +977,94 @@ test("the flat fixture is the week the zero branch is about (T199)", () => {
   assert.deepEqual(spikes, []);
   assert.equal(clinicianChartCaption(spikes, SHARED, spikes.length), "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
   assert.equal(patientChartCaption(spikes), "You had no rises over 180, so the chart shows no markers.");
+});
+
+// ---------------------------------------------------------------------------------------------
+// T200 (design §2.6, §7.4, §7, §12.1): the `unmatched` clause agrees with the number of rises too.
+//
+// T199 made the marker half of that caption agree with the count and left the half after the colon a fixed
+// plural, so a week with one unplaced rise read "Red marker is a spike. Labels, where they fit, give the
+// peak mg/dL: no place matched any of these rises." -- the same one rise in the singular and in the plural,
+// eleven words apart, in one sentence pair. T199 handed that reading over rather than widening its own
+// scope, because none of its seven criteria named the clause and T184's and T191's tests pin the string at
+// five rises word for word.
+
+test("the unmatched clause agrees with the number of rises on the chart (T200)", () => {
+  // Acceptance criterion 1, as the two whole strings. One rise reads in the singular on both halves; two
+  // is the string T184 and T191 pinned, word for word, which is criterion 5's direction.
+  assert.equal(
+    clinicianChartCaption(spikesOf(1), SHARED, 1),
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched this rise.",
+  );
+  assert.equal(
+    clinicianChartCaption(spikesOf(2), SHARED, 2),
+    "Shaded band is 70–180 mg/dL. Red markers are spikes. Labels, where they fit, give the peak mg/dL: no place matched any of these rises.",
+  );
+});
+
+test("that agreement comes from lib/plural.ts as well (T200)", () => {
+  // Acceptance criterion 2, T199's criterion 4 read at the other half of the sentence: a ternary written
+  // beside the clause is how the fixed plural got there in the first place. Read as the property `plural`
+  // guarantees -- every count from one up, rather than the two a string assertion lists -- and over the
+  // whole caption, so the two halves cannot disagree about the count at any of them.
+  for (let n = 1; n <= 12; n++) {
+    const caption = clinicianChartCaption(spikesOf(n), SHARED, n);
+    assert.ok(caption.endsWith(`no place matched ${plural(n, "this rise", "any of these rises")}.`), caption);
+    assert.match(caption, NO_PLACE_MATCHED, caption);
+    // The failure mode in one assertion: neither half reads as the other count's number.
+    assert.doesNotMatch(caption, n === 1 ? /these rises|Red markers/ : /this rise\b|Red marker\b/, caption);
+  }
+});
+
+test("the other caption branches keep every word they had (T200)", () => {
+  // Acceptance criterion 3. The clause this ticket reworded is the `unmatched` branch's alone, so the
+  // other three readings are asserted whole, at the count where the ticket could have reached them: the
+  // two place clauses at one rise (T191, T192), the `no-timeline` string at one (T184), and T199's
+  // zero-rise sentence, which never reaches this clause at all.
+  assert.equal(
+    clinicianChartCaption([spike(somewhere("Noe Cafe"))], SHARED, 1),
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.",
+  );
+  assert.equal(
+    clinicianChartCaption([spike(during("Office"))], SHARED, 1),
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the place the patient was at when the rise began, or the peak mg/dL where no place matched.",
+  );
+  assert.equal(
+    clinicianChartCaption(spikesOf(1), UNSHARED, 1),
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL.",
+  );
+  for (const status of [SHARED, UNSHARED]) {
+    const empty = clinicianChartCaption([], status, 0);
+    assert.equal(empty, "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
+    assert.doesNotMatch(empty, NO_PLACE_MATCHED, empty);
+    assert.doesNotMatch(empty, /rise\b/, empty);
+  }
+  // And §2.7's three clauses, which name no count and are the ticket's "not in scope" (T193).
+  for (const spikes of [[spike(somewhere("Home"))], [spike(during("Office"))], [spike(somewhere("Home")), spike()]]) {
+    assert.doesNotMatch(patientChartCaption(spikes), /this rise|these rises|matched/i, patientChartCaption(spikes));
+  }
+});
+
+test("the no-match fixture is the week the unmatched clause is read on (T200)", () => {
+  // Acceptance criterion 6's fixture, read here as well as on screen, the way T199's flat week is above:
+  // `clarity_window.csv`'s single rise paired with `timeline_no_match.json`, a Timeline shared whose three
+  // stops all fall outside lib/match.ts's window. That pairing is the only way to `unmatched` at one rise,
+  // and until this ticket data/fixtures/ held no such pair -- which is why T199's screenshots could not
+  // show the defect. lib/match.test.ts asserts the three near misses; this asserts the sentence over them.
+  pinUtcTimeZone();
+  const spikes = matchSpikesToVisits(
+    detectSpikes(parseClarityCsv(fixture("clarity_window.csv"))),
+    labelVisits(parseTimeline(fixture("timeline_no_match.json")), parseVisitsCsv(fixture("visits.csv"))),
+  );
+  assert.equal(spikes.length, 1);
+  assert.equal(anyPlaceKnown(spikes), false);
+  assert.equal(clinicianPlaceReport(spikes, SHARED), "unmatched");
+  assert.equal(
+    clinicianChartCaption(spikes, SHARED, spikes.length),
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched this rise.",
+  );
+  // The two elements beside it on the same card, so the count the clause agrees with is on the record.
+  assert.equal(clinicianSpikeCardHeading(spikes, SHARED), "Spikes over 180");
+  assert.equal(clinicianSpikePlacesHint(spikes, SHARED, spikes.length), "0 linked to a place");
+  assert.equal(clinicianPlaceColumn(spikes, SHARED), true);
 });
