@@ -449,10 +449,19 @@ textarea.ss-input {
   background: var(--sour-green-soft);
 }
 
+/* An <ol> since T209, so the strip's name is on an element ARIA lets be named — it was `aria-label` on a
+   role-less <div>, which is prohibited, so neither "Setup progress" nor "Add patient progress" was ever
+   announced. The markup is components/Stepper.tsx now, once for both wizards. The marker is suppressed
+   because the circled number beside each label already draws the position, the same arrangement
+   `.sweetie-field-progress` and §2.7's narrative lists make; the list semantics stay, which is what carries
+   the count and the order to a screen reader. */
 .ss-stepper {
   display: flex;
   align-items: center;
   gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .ss-step {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
+import Stepper from "@/components/Stepper";
 import { apiFetch } from "@/lib/csrf";
 
 // Creating the workspace and signing in are two steps: POST /api/provider makes the practice and the admin
@@ -51,19 +52,7 @@ export default function ProviderSignup() {
       <div className="ss-container">
         <header className="ss-topbar">
           <PersonaBrand persona="sour" context="Provider workspace" />
-          <div className="ss-stepper" aria-label="Setup progress">
-            {["You", "Practice"].map((label, index) => (
-              <div
-                key={label}
-                className={`ss-step ${
-                  index === step ? "ss-step-active" : ""
-                } ${index < step ? "ss-step-done" : ""}`}
-              >
-                <span>{index < step ? "✓" : index + 1}</span>
-                <em>{label}</em>
-              </div>
-            ))}
-          </div>
+          <Stepper label="Setup progress" labels={["You", "Practice"]} step={step} />
           <Link href="/provider" className="ss-text-button">
             Back to practices
           </Link>

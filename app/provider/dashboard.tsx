@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
+import Stepper from "@/components/Stepper";
 import { can } from "@/lib/access";
 import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
 import { needsAttentionDetail } from "@/lib/dashboardTiles";
@@ -1133,19 +1134,11 @@ function PatientWizard({
 
         <form className="patient-wizard-content" onSubmit={onSubmit}>
           <div className="patient-wizard-top">
-            <div className="ss-stepper" aria-label="Add patient progress">
-              {["Contact", "Visit", "Invite"].map((label, index) => (
-                <div
-                  key={label}
-                  className={`ss-step ${
-                    index === step ? "ss-step-active" : ""
-                  } ${index < step ? "ss-step-done" : ""}`}
-                >
-                  <span>{index < step ? "✓" : index + 1}</span>
-                  <em>{label}</em>
-                </div>
-              ))}
-            </div>
+            <Stepper
+              label="Add patient progress"
+              labels={["Contact", "Visit", "Invite"]}
+              step={step}
+            />
           </div>
 
           {error && (

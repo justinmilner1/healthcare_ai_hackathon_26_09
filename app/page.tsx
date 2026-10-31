@@ -50,7 +50,14 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="home-visual" aria-label="Meet Sweetie and Sour">
+          {/* T209: `aria-label="Meet Sweetie and Sour"` came off this (§6.4). Prohibited on a role-less
+              <div> and therefore dropped, so the name was never announced — and of the three ways out of
+              that (a role that may be named, the words moved onto visible text, or the label removed) this
+              is the one where removing it is right. The box is two glows and two <figure>s; everything a
+              user needs is already inside it and already announced, twice over — each image's alt names
+              its character and its job, and each <figcaption> names it again in text. A role="group" here
+              would add a layer to walk through to be told what the layer already says. */}
+          <div className="home-visual">
             <div className="home-glow home-glow-pink" />
             <div className="home-glow home-glow-yellow" />
             <figure className="home-character home-character-sweetie ss-float">
