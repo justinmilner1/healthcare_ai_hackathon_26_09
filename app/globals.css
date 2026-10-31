@@ -3893,7 +3893,11 @@ textarea.ss-input {
   font-style: italic;
 }
 
+/* `position: relative` is for `.sweetie-typing-words` below: the hidden words are positioned against this
+   bubble rather than against whatever ancestor happens to be positioned, which is how a 1px box clipped at
+   `inset(50%)` ends up giving a page a scrollbar. */
 .sweetie-typing {
+  position: relative;
   display: flex;
   min-width: 54px;
   align-items: center;
@@ -3922,6 +3926,39 @@ textarea.ss-input {
     opacity: 0.35;
     transform: translateY(-3px);
   }
+}
+
+/* The row the typing indicator lives in, outside the scrolling `role="log"` above it (T209, §6.4).
+   `aria-label` on the indicator was prohibited and therefore dropped, and the fix is a `role="status"` with
+   the words in its content — which cannot sit inside the transcript's own live region without the number of
+   announcements becoming a property of the screen reader. So the indicator took a row of its own here, next
+   to `.sweetie-more`'s, on the same terms: it exists only while a reply is in flight, and the pixels go back
+   to the conversation the moment the reply lands. `:empty` is what makes that true, because the slot itself
+   is always rendered — React renders `{busy && ...}` as nothing, so the element is childless between turns
+   and the padding below would otherwise be a permanent gap over the composer. The horizontal padding is the
+   transcript's own, so the dots line up under the last message rather than against the edge of the card. */
+.sweetie-typing-slot {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  padding: 0 clamp(20px, 4.5vw, 55px) 16px;
+}
+
+.sweetie-typing-slot:empty {
+  display: none;
+}
+
+/* What the live region actually announces (T209, §6.4's "screen-reader text for state changes"). A live
+   region speaks its *content*, not its name, so the three dots had nothing to say however they were
+   labelled. Hidden from the eye and not from a screen reader, and out of the flex flow — absolutely
+   positioned, so it is not a flex item and `gap` never leaves room for it beside the dots. */
+.sweetie-typing-words {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .sweetie-done-card {

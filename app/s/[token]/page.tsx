@@ -754,24 +754,6 @@ export default function SweetiePage({
                     </div>
                   </div>
                 )}
-                {busy && (
-                  <div className="sweetie-message-row">
-                    <Image
-                      src="/assets/sweetie/sweetie.png"
-                      alt=""
-                      width={36}
-                      height={36}
-                    />
-                    <div
-                      className="sweetie-message sweetie-typing"
-                      aria-label="Sweetie is typing"
-                    >
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                  </div>
-                )}
                 {/* A flagged intake has just been told to call someone; §2.5 is that instruction, so it is
                     the headline, in the same words and with the same name as Sweetie's own message. The
                     summary link stays (§2.5 "ends with the patient's summary link", §2.7) as the second thing
@@ -852,6 +834,48 @@ export default function SweetiePage({
                   More below ↓
                 </p>
               )}
+
+              {/* Sweetie is composing, said out loud (T209, §2.5, §6.4's "screen-reader text for state
+                  changes"). Three dots are the only thing on the page that says a reply is coming, and for
+                  a patient driving §2.5 by voice they were nothing at all: the indicator was a role-less
+                  `<div>` wearing `aria-label="Sweetie is typing"`, and ARIA prohibits a name on `generic`,
+                  so the label was dropped. What a screen reader met was an empty box, between their own
+                  message and the reply landing — silence, with no way to tell whether the turn went
+                  through. `role="status"` is the role for exactly this: a polite live region whose subject
+                  is not the user's own doing (lib/ariaName.ts has the rule and the three ways out of it).
+
+                  The words are *text inside* the region rather than a name on it, which is the half an
+                  `aria-label` alone would still have got wrong. A live region announces what changed, not
+                  what it is called, so a `role="status"` whose content is three empty `<i>` has nothing to
+                  say however well it is labelled; the name has to be in the content for the content to be
+                  the announcement. The span is hidden from the eye and not from a screen reader, so the
+                  dots stay the dots.
+
+                  And it sits here, outside the `role="log"` transcript it used to be the last row of,
+                  because the patient hears it exactly once. A live region nested in a live region is
+                  explicitly discouraged by ARIA and the announcement is computed against the nearest
+                  live-region ancestor — so whether an insertion that is itself a region speaks once or
+                  twice becomes a property of the screen reader rather than of the product. Out here there
+                  is one region and one announcement. It costs the conversation a row for as long as a
+                  reply is in flight, the same trade `.sweetie-more` above makes and gives back. */}
+              <div className="sweetie-typing-slot">
+                {busy && (
+                  <div className="sweetie-message-row">
+                    <Image
+                      src="/assets/sweetie/sweetie.png"
+                      alt=""
+                      width={36}
+                      height={36}
+                    />
+                    <div className="sweetie-message sweetie-typing" role="status">
+                      <i />
+                      <i />
+                      <i />
+                      <span className="sweetie-typing-words">Sweetie is typing</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* §2.5 stops the interview, not just the turn the scan fired on, so the composer stops with
