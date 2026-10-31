@@ -1223,6 +1223,12 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
     "a week of readings is still a week in the stat row's name",
   ).toHaveAccessibleName("Your week at a glance");
 
+  // And the frame for it, anchored exactly as `patient-summary-single-day` is, so the two are a
+  // before-and-after of one part of one page at the two spans rather than two different parts (T207,
+  // §12.3). The phone is the width that needs it: at 375px the three tiles stack into three rows, and the
+  // name on the row is the only thing saying what the three numbers have to do with one another.
+  await shot(page, "patient-summary-seven-day", { scrollTo: ".patient-overview" });
+
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, no places");
   await shot(page, "patient-summary-no-places", { scrollTo: ".patient-spikes" });
 
