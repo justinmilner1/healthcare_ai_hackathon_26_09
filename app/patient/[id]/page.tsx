@@ -13,6 +13,7 @@ import RangeBar from "@/components/RangeBar";
 import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import { summaryDataInvite } from "@/lib/dexcomHint";
+import { patientPatternsSubtitle, patientQuestionsSubtitle } from "@/lib/patientNarrative";
 import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
 import { patientSleepCardSubtitle } from "@/lib/sleepRecovery";
 import { patientChartCaption, patientSpikeCardHeading } from "@/lib/spikePlaces";
@@ -270,8 +271,13 @@ export default function PatientPage({
                         a claim the page cannot repair — the prompt behind them is handed the same span
                         (lib/prompts.ts, lib/sourRun.ts). Seven days still read "What your week showed". */}
                     <h2>What your {spanNoun(stats.days)} showed</h2>
+                    {/* T206 (§2.7, §7): the sentence counts the bullets under it. Both arrays are 1 to 3 by
+                        the prompt's own bounds (lib/prompts.ts, lib/sourRun.ts) and the clinician prompt
+                        asks for a single pattern where the week is unremarkable, so "A few patterns worth
+                        noticing together" over one bullet was the best outcome §7 reports described least
+                        accurately. Decided in lib/patientNarrative.ts, off the same array the list maps. */}
                     <p className="patient-report-subtitle">
-                      A few patterns worth noticing together.
+                      {patientPatternsSubtitle(summary.patterns)}
                     </p>
                     <ul className="patient-pattern-list">
                       {summary.patterns.map((pattern, index) => (
@@ -288,8 +294,10 @@ export default function PatientPage({
               {summary?.questions.length ? (
                 <section className="patient-report-card">
                   <h2>Things you might ask your doctor</h2>
+                  {/* T206 (§2.7): both pronouns agree with the count, out of the same module as the
+                      patterns sentence above — one question is "this"/"it", not "these"/"them". */}
                   <p className="patient-report-subtitle">
-                    Bring these into your visit, or use them as a starting point.
+                    {patientQuestionsSubtitle(summary.questions)}
                   </p>
                   <ol className="patient-question-list">
                     {summary.questions.map((question, index) => (
