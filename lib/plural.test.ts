@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { countOf, daySpan, plural, spanNoun } from "./plural";
+import { countOf, daySpan, plural, spanAtAGlance, spanNoun } from "./plural";
 
 test("one is singular, zero and many are plural", () => {
   assert.equal(countOf(0, "spike"), "0 spikes");
@@ -68,4 +68,25 @@ test("daySpan is spanNoun's noun, so the sentence and the headings cannot drift 
     if (days === 7) assert.equal(span, "the week");
     else assert.equal(span, `the ${spanNoun(days)} you shared`);
   }
+});
+
+// T207 (design §2.7, §6.4): the fifth grammar, and the one that was an attribute rather than text — so the
+// e2e assertion that keeps "week" out of the patient's report could not see it and this is where it is held.
+test("spanAtAGlance names the span the stat tiles count, not a literal week", () => {
+  // One day: the common case lib/bundle.ts's floor of 1 produces, and the pair T100 was filed for.
+  assert.equal(spanAtAGlance(1), "Your day at a glance");
+  // Seven: the only span with a word of its own, and the wording the row was written with.
+  assert.equal(spanAtAGlance(7), "Your week at a glance");
+  // In between, where the span is counted rather than named.
+  assert.equal(spanAtAGlance(3), "Your 3 days at a glance");
+  assert.equal(spanAtAGlance(14), "Your 14 days at a glance");
+});
+
+test("spanAtAGlance is spanNoun's noun, so the row and the sentences above it cannot drift apart", () => {
+  for (const days of [0, 1, 2, 3, 7, 14, 30]) {
+    assert.equal(spanAtAGlance(days), `Your ${spanNoun(days)} at a glance`);
+    // And the claim that matters: only a real week is called one, by any route or any article.
+    if (days !== 7) assert.doesNotMatch(spanAtAGlance(days), /week/i);
+  }
+  assert.match(spanAtAGlance(7), /week/);
 });

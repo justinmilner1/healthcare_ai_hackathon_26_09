@@ -45,3 +45,21 @@ export function daySpan(days: number): string {
   if (days === 7) return "the week";
   return `the ${spanNoun(days)} you shared`;
 }
+
+/**
+ * The accessible name of §2.7's row of three stat tiles — History, Average, Sleep (T207).
+ *
+ * The fifth grammar the patient path says the span in, and the last one that still spelled it as a
+ * literal: the row was named `aria-label="Week at a glance"` in app/patient/[id]/page.tsx, so a patient
+ * who uploaded the day before their visit got a group announced as a week over a `History / 1 / day` tile.
+ * That is the pair T100 was filed for, surviving in the one place neither T100 nor T114 could reach —
+ * `e2e/flows.spec.ts`'s negative assertion reads text nodes, and an attribute is not one.
+ *
+ * `spanNoun`'s noun on every branch, so this and the four sentences above it cannot disagree about what
+ * arrived. "Your" rather than "The", because §2.7 is the patient's own summary and the hero one card up
+ * composes the same noun the same way ("Your 3 days with Sweetie"); the possessive is what makes the
+ * counted branch read as English rather than as a column header.
+ */
+export function spanAtAGlance(days: number): string {
+  return `Your ${spanNoun(days)} at a glance`;
+}
