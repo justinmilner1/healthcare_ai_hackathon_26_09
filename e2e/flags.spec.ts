@@ -201,7 +201,12 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   // and a literal would be asserting the server's zone instead of the product's promise.
   const flags = await flagsOf(page, visit.visitId);
   expect(flags, "the fixture's one glucose flag (lib/sour.ts safetyFlags)").toHaveLength(1);
-  expect(flags[0]).toMatch(/^Above 250 mg\/dL for an hour or more on 1 occasion \(longest 100 min from .+, peak 291\)\.$/);
+  // T202: this fixture holds exactly one run above 250, so the parenthetical reports that run instead of
+  // electing it the longest of a set of one — a superlative the sentence in front of it has just ruled out
+  // ("on 1 occasion"). This assertion read the "longest" string, so the suite was pinning the defect, the
+  // way T199's did on the chart caption one card down. Two and above keeps the word, read in
+  // lib/sour.test.ts where the count can be arranged.
+  expect(flags[0]).toMatch(/^Above 250 mg\/dL for an hour or more on 1 occasion \(100 min from .+, peak 291\)\.$/);
 
   const intakeFlag = page.locator(".sour-safety-flag");
   await expect(intakeFlag).toBeVisible();
@@ -215,6 +220,10 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expect(glucoseFlags, "AGENTS.md: numbers and flags stay code-generated").toContainText(/not by the model/);
   // Element for element, so a flag that is reworded or dropped on the way to the screen fails here.
   await expect(glucoseFlags.locator("li")).toHaveText(flags);
+  // T202 (§2.6): and the clause the ticket is about, read off the screen rather than only compared with the
+  // bundle — the block above would be satisfied by a brief and a sheet that agreed on the wrong sentence.
+  await expect(glucoseFlags, "the one run reported, not elected longest").toContainText(/on 1 occasion \(100 min from .+, peak 291\)\./);
+  await expect(glucoseFlags, "a superlative over the single occasion this fixture holds").not.toContainText("longest");
 
   // §2.6's "at the top in red", on the brief.
   await expectAbove(page, ".sour-safety-flag", ".sour-glucose-flags", "the brief");
@@ -299,6 +308,10 @@ test("the brief and the printed sheet both open with the safety flags, in red, a
   await expect(printIntake).toContainText("cardiac or breathing");
   await expect(printGlucose).toContainText("Glucose safety flags");
   await expect(printGlucose.locator("li"), "the sheet carries the brief's flags word for word").toHaveText(flags);
+  // T202 (§7.4): the same clause on the paper, read the same way. §2.6 and §7.4 are twins, so the defect
+  // was on both surfaces and so is the assertion against it.
+  await expect(printGlucose, "the one run reported, not elected longest").toContainText(/on 1 occasion \(100 min from .+, peak 291\)\./);
+  await expect(printGlucose, "a superlative over the single occasion this fixture holds").not.toContainText("longest");
   await expectAbove(page, ".sour-safety-flag", ".sour-glucose-flags", "the sheet");
   await expectAbove(page, ".sour-glucose-flags", ".sour-print-numbers", "the sheet");
   await expectRed(printIntake, "the sheet's intake flag");
