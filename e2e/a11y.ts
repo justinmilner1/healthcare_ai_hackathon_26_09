@@ -1,7 +1,16 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { prohibitedNames } from "../lib/ariaName";
-import { contrastRatio } from "../lib/contrast";
+import { contrastRatio, parseColor } from "../lib/contrast";
+import {
+  declaredColorTokens,
+  describeUnreadable,
+  SWEETIE_BRAND_TOKENS,
+  SWEETIE_TEXT_SURFACES,
+  unreadableText,
+} from "../lib/textContrast";
 
 // The axe pass the patient pages are held to (design §6.4, §12.5). One helper, so every patient screen is
 // judged by the same rules and a failure reads as a list of things to fix rather than a JSON dump.
@@ -221,4 +230,64 @@ export async function expectVisibleFocusRing(
 export async function expectNoFocusRing(card: Locator, name: string): Promise<void> {
   const ring = await outlineOf(card);
   expect(ring.style, `${name}: this card is not the focused one and should paint no ring`).toBe("none");
+}
+
+/**
+ * Nothing on this page writes text in a brand pink that a reader cannot make out (T210, design §6.4).
+ *
+ * The half of §12.5's contrast claim axe does not reach, and the companion to the token gate in
+ * `lib/textContrast.test.ts`: that one catches the declared colour drifting back under the bar, this one
+ * catches a *new* element painting text in it. Two live sites went two tickets at 3.49:1 and 3.54:1 with
+ * the axe pass green over both, for two different reasons — one was inside an `aria-hidden` subtree, which
+ * axe skips, and the other sits on a `radial-gradient`, where axe files `color-contrast` as *incomplete*
+ * rather than as a violation because it cannot resolve the background to one colour.
+ *
+ * So the elements are found by their colour rather than by a list of selectors: every element with text of
+ * its own whose computed `color` is one of the brand pinks `app/globals.css` declares. A call site added
+ * later is covered without anybody remembering to add it here, which is the property the two findings cost
+ * two tickets for the want of. The surfaces are declared rather than read, for the gradient reason above,
+ * and the colour is judged against the worst of them — for a pink on near-white paper that is a few
+ * hundredths of a ratio, and it is what lets a new site be covered without research into which card it
+ * landed on.
+ */
+export async function expectReadableBrandText(page: Page, name: string): Promise<void> {
+  const tokens = declaredColorTokens(readFileSync(join(process.cwd(), "app", "globals.css"), "utf8"));
+  const pinks = SWEETIE_BRAND_TOKENS.map((token) => {
+    const hex = tokens.get(token);
+    if (!hex) throw new Error(`${token} is not declared in app/globals.css any more`);
+    return parseColor(hex);
+  }).map(({ r, g, b }) => `rgb(${r}, ${g}, ${b})`);
+
+  // In the browser, because "its own text" and "the colour it is painting" are both questions about the
+  // rendered page. Own text rather than `textContent`: a card whose child is the pink chip would otherwise
+  // be reported as well, naming the wrong element and the wrong colour.
+  const samples = await page.evaluate((wanted: string[]) => {
+    const seen: { where: string; content: string; color: string; fontSizePx: number; fontWeight: number }[] = [];
+    for (const node of document.querySelectorAll<HTMLElement>("body *")) {
+      const own = [...node.childNodes]
+        .filter((child) => child.nodeType === Node.TEXT_NODE)
+        .map((child) => child.textContent ?? "")
+        .join("")
+        .trim();
+      if (!own) continue;
+      const computed = getComputedStyle(node);
+      if (!wanted.includes(computed.color)) continue;
+      // Not painted at all is not a contrast finding; it is either another rule's or nothing's.
+      if (computed.visibility === "hidden" || computed.display === "none" || Number(computed.opacity) === 0) continue;
+      seen.push({
+        where: `${node.tagName.toLowerCase()}${node.className && typeof node.className === "string" ? `.${node.className.trim().split(/\s+/).join(".")}` : ""}`,
+        content: own,
+        color: computed.color,
+        fontSizePx: Number.parseFloat(computed.fontSize),
+        fontWeight: Number.parseFloat(computed.fontWeight),
+      });
+    }
+    return seen;
+  }, pinks);
+
+  const findings = unreadableText(samples, SWEETIE_TEXT_SURFACES);
+  expect(
+    findings.map((finding) => finding.sample.where).sort(),
+    `${name}: text in a Sweetie pink that does not reach the contrast WCAG 2.1 AA asks of its size (design §6.4). axe cannot state this one — an aria-hidden numeral is a subtree it skips and a label on a gradient is an "incomplete" it does not fail on (T210):\n${describeUnreadable(findings)}`,
+  ).toEqual([]);
 }

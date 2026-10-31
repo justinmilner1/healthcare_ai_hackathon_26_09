@@ -5,6 +5,7 @@ import {
   expectNoFocusRing,
   expectNoProhibitedAriaNames,
   expectNoSeriousA11yViolations,
+  expectReadableBrandText,
   expectVisibleFocusRing,
 } from "./a11y";
 import { csrfToken, postJson } from "./api";
@@ -395,6 +396,9 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   await expect(page.locator(".patient-range-card")).toBeVisible(LOADED);
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await expectNoSeriousA11yViolations(page, "patient summary");
+  // "TIME IN RANGE" is on screen from the moment there is a percentage to put above it, which is before
+  // either narrative card exists (T210, §6.4, §2.7).
+  await expectReadableBrandText(page, "the patient summary");
   await shot(page, "a11y-summary");
 
   // A real `sour.run`, so the pair the narrative lands on is one the product saved (§7.1). Generating is a
@@ -431,6 +435,11 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   // way, since §7 orders both arrays "most important first" (lib/prompts.ts).
   await expectOrderedNarrative(patterns, NARRATIVE_PATTERNS, "the patterns card");
   await expectOrderedNarrative(questions, NARRATIVE_QUESTIONS, "the questions card");
+
+  // T210 (§6.4): and the colour those numerals are drawn in. This is the page that holds both of the
+  // sites that ticket measured — the 1 / 2 / 3 chip on either card, and "TIME IN RANGE" under the big
+  // percentage — and the axe pass three lines above it was green over both for two tickets.
+  await expectReadableBrandText(page, "the patient summary, both narrative cards");
 
   await shot(page, "a11y-summary-narrative", { ...SCREENFUL, scrollTo: patternsCard(page) });
 });
@@ -529,6 +538,10 @@ test("the landing page and both provider wizards name nothing that cannot be nam
   // `.home-visual` wore "Meet Sweetie and Sour" here. Removed rather than relocated: two <figure>s whose
   // alt text and <figcaption> each name both characters and both jobs already.
   await expectNoProhibitedAriaNames(page, "the landing page");
+  // T210 (§6.4): three of this page's eyebrows are the same `--sweetie-dark` §2.7's small print is, and
+  // were the same defect — 3.85:1, 3.67:1 and 3.83:1, measured off this test's own committed frames.
+  // §12.5 puts axe on the patient pages, so nothing in this suite had ever looked at them.
+  await expectReadableBrandText(page, "the landing page");
 
   await page.goto("/provider/signup");
   const stepper = page.locator(".ss-stepper");
