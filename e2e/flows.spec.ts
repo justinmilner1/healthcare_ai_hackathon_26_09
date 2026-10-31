@@ -844,8 +844,9 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   await page.goto(`/patient/${booked.token}`);
   await expect(page.getByRole("link", { name: /Talk to Sweetie/i })).toBeVisible(LOADED);
 
-  // The "Week at a glance" tile. MiniStat renders the number and its noun as two elements, so they are
-  // asserted as two: `detail` is the whole of the last line, and it read the literal "days" before T80.
+  // The History tile of the stat row — the row itself is named by spanAtAGlance now and no longer by the
+  // literal this comment used to quote (T207). MiniStat renders the number and its noun as two elements,
+  // so they are asserted as two: `detail` is the whole of the last line, and it read "days" before T80.
   const history = page.locator(".patient-mini-stat", { hasText: "History" });
   await expect(history.locator("strong"), "the history count").toHaveText("1", LOADED);
   await expect(history.locator("small"), "the history noun").toHaveText("day");
@@ -883,9 +884,10 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
   // One negative assertion over the whole card rather than one per site, which is the point of it: the
   // patterns card needs a non-empty `patterns` to render at all and this suite runs with no model key, so
   // naming the two headings here would assert on which of them happened to be on screen. Whichever is,
-  // nothing in the patient's own report calls one day of readings a week. The stat row's aria-label is
-  // still out of reach, an attribute rather than text; the hero eyebrow is asserted below, outside this
-  // locator because `.patient-summary-hero` is not inside `.patient-summary-content`.
+  // nothing in the patient's own report calls one day of readings a week. The stat row is asserted
+  // separately below, because its name is an attribute and `toContainText` reads text nodes; the hero
+  // eyebrow is asserted after that, outside this locator because `.patient-summary-hero` is not inside
+  // `.patient-summary-content`.
   //
   // The bare noun rather than "your week"/"the week" (Review T114): the point of a negative assertion here
   // is that the literal cannot come back by a route nobody listed, and an article is exactly the sort of
@@ -897,6 +899,28 @@ test("patient summary: one day of readings reads \"1 day\", not \"1 days\"", asy
     page.locator(".patient-summary-content"),
     "one day of data is never a week, by any route or any article",
   ).not.toContainText(/week/i);
+
+  // T207 (§2.7, §6.4): the fifth site of that same bug, and the one the assertion above is structurally
+  // unable to reach — the row of three stat tiles was named `aria-label="Week at a glance"` over a
+  // `HISTORY / 1 / day` tile, which is T100's pair exactly, and an attribute is not a text node. Both
+  // halves of the fix are asserted, because each was the reason the other survived: the name now comes
+  // off `stats.days` through spanAtAGlance() in lib/plural.ts, and it is on a `group`, a role ARIA allows
+  // to carry one — naming a role-less `<div>` is prohibited, so the old literal was announced by nothing
+  // and could be wrong for as long as it liked.
+  //
+  // `toHaveAccessibleName` rather than the attribute, because what a patient hears is the *computed*
+  // name: a label moved to a `aria-labelledby`, or dropped again onto an element that cannot be named,
+  // both change what this reads. The negative is the same bare noun as the card above, for the same
+  // reason — an article is what a reword changes.
+  const statRow = page.locator(".patient-mini-stats");
+  await expect(statRow, "the stat row's name is on an element allowed to carry one").toHaveRole("group");
+  await expect(statRow, "the stat row names the span its own History tile counts").toHaveAccessibleName(
+    "Your day at a glance",
+  );
+  await expect(
+    statRow,
+    "one day of data is never a week, in an attribute either",
+  ).not.toHaveAccessibleName(/week/i);
 
   // T123 (§2.7): and the hero above all of it, which was the one line on this page that rendered the same
   // string whatever arrived. "YOUR WEEK WITH SWEETIE" sat in the same 1280px frame as "the day you shared"
@@ -1191,6 +1215,13 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
   // defaulting to it, so the hero a patient with a full week sees is the string the page has always
   // shown — this is the assertion that keeps the fix for one day from changing the case it was right for.
   await expect(EYEBROW(page), "a week of readings is still a week").toHaveText("YOUR WEEK WITH SWEETIE");
+
+  // T207 (§2.7): and the seven-day half of the stat row's name, which is the case the old literal was
+  // right for. A fix that reads the data has to keep it rather than trade one wrong span for another.
+  await expect(
+    page.locator(".patient-mini-stats"),
+    "a week of readings is still a week in the stat row's name",
+  ).toHaveAccessibleName("Your week at a glance");
 
   if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, no places");
   await shot(page, "patient-summary-no-places", { scrollTo: ".patient-spikes" });

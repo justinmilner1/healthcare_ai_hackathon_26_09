@@ -15,6 +15,24 @@ export const WCAG21AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] as const;
 /** §12.5's bar: nothing serious, and nothing worse. Moderate findings are reported, not failed on. */
 const FAILING_IMPACTS = new Set(["serious", "critical"]);
 
+/**
+ * The rules whose **incomplete** results fail too (T207).
+ *
+ * axe's `incomplete` bucket is "needs a human to look", and most of it genuinely does — a colour over an
+ * image, a video with no transcript to read — so failing on all of it would turn this helper into noise.
+ * One rule is different: `aria-prohibited-attr` (`wcag2a`, `wcag412`) returns *incomplete* rather than a
+ * violation whenever the badly-named element happens to contain text, because axe cannot be sure the text
+ * is not itself serving as the name (`ariaProhibitedEvaluate`, node_modules/axe-core/axe.js). A row of
+ * three stat tiles has text in it, so §2.7's `aria-label="Week at a glance"` on a role-less `<div>` — a
+ * name no screen reader announces, ARIA's implicit `generic` role not being nameable — sat in that bucket
+ * through T100 and T114 and nobody read it. The incomplete is the finding here: the element either carries
+ * the attribute or it does not, and if it does the name is dropped.
+ *
+ * So this rule is held to nothing at all on the patient pages. Keep this set to rules where "needs review"
+ * is a defect rather than a question; a rule whose incompletes are genuinely ambiguous does not belong in it.
+ */
+const FAILING_INCOMPLETE_RULES = new Set(["aria-prohibited-attr"]);
+
 type Violation = {
   id: string;
   impact?: string | null;
@@ -36,7 +54,8 @@ function describe(violations: Violation[]): string {
 }
 
 /**
- * Run axe over the page as it stands and fail on anything serious or critical.
+ * Run axe over the page as it stands and fail on anything serious or critical — and on an
+ * `aria-prohibited-attr` *incomplete*, which is a defect axe cannot state as a violation (T207, above).
  *
  * `disableRules` is for a rule whose finding is not this page's to fix; every use needs a reason next to it.
  * `include` narrows the scan to a region, for a screen whose surroundings are checked by another test.
@@ -61,6 +80,16 @@ export async function expectNoSeriousA11yViolations(
   if (options.disableRules?.length) builder = builder.disableRules(options.disableRules);
 
   const results = await builder.analyze();
+  const prohibited = (results.incomplete as Violation[]).filter((finding) =>
+    FAILING_INCOMPLETE_RULES.has(finding.id),
+  );
+  // Before the violations, because this is the finding the violations list is structurally unable to carry:
+  // a reader who sees only an empty `toEqual([])` below would conclude the page is clean.
+  expect(
+    prohibited.map((finding) => finding.id).sort(),
+    `axe filed a prohibited ARIA attribute as "needs review" on ${name} — the name is on an element that cannot carry one, so it is dropped rather than announced:\n${describe(prohibited)}`,
+  ).toEqual([]);
+
   const serious = (results.violations as Violation[]).filter((violation) =>
     FAILING_IMPACTS.has(violation.impact ?? ""),
   );
