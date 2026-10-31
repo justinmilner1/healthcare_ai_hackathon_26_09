@@ -74,3 +74,11 @@ recovery suffix for the two samples it was written against (AC6); the unscored u
 | `mobile-patient-summary-sleep-no-recovery.png` | The same card at the 375px of §6.5, where the dropped column is the width it gives back. |
 | `desktop-patient-summary-sleep-recovery.png` | The direction that must not move (AC4). `data/whoop_sample.csv` scores every night, so the subtitle is the sentence §2.7 has always shown and the Recovery column is there with percentages in it. |
 | `mobile-patient-summary-sleep-recovery.png` | And that card at 375px, with its three columns. |
+
+Measured on this run's frames: `whoop_alt_headers.csv` parses to two nights (2026-09-19 at 6.8 h and
+2026-09-21 at 5.5 h — the unparseable date and the non-numeric duration between them are dropped by the
+parser, not guessed at), and the table under those two columns is **Night / Asleep** at both widths.
+`whoop_sample.csv` parses to seven scored nights (71%, 38%, 82%, 41%, 60%, 88%, 75%) and keeps all three
+columns and the sentence it has always had. The journey suite's own frame of the scored card —
+`e2e/screenshots/desktop-journey-10-patient-summary-tooltip-sleep.png`, with the tooltip open on
+`Asleep: 5.9 h · recovery 41%` — is unchanged by this ticket, which is the other half of AC4.
