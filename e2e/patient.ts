@@ -295,8 +295,8 @@ export async function expectOrderedNarrative(card: Locator, items: string[], whe
   await expect(card.locator("ul"), `${where}: nothing on the card says its order does not matter`).toHaveCount(0);
   await expect(list.locator("li"), `${where}: one item per entry`).toHaveCount(items.length);
 
-  // The chip is still drawn, and still drawn for the eye only: criterion 3 is that this ticket changed what
-  // is announced and not what is in the picture.
+  // The chip is still drawn, and still drawn: `aria-hidden` changes what is announced and nothing about
+  // what is in the picture, so an edit that reached for `display: none` instead fails here.
   const chips = list.locator("li > span:first-child");
   await expect(chips, `${where}: a numeral per item`).toHaveText(items.map((_, index) => String(index + 1)));
   await expect(chips.first(), `${where}: the numerals are visible`).toBeVisible();

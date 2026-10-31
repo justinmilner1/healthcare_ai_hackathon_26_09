@@ -362,11 +362,12 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
 
   // And the page the ticket is really about: charts, the spike table, the sleep panel, the week's numbers,
   // and — since T208 — §2.7's two narrative cards, "What your week showed" and "Things you might ask your
-  // doctor". Those two are the half this test could not reach for its first eleven tickets: both render on
-  // `length ?`, this suite has no model gateway, and `degradedPair` (lib/sourRun.ts) writes `patterns: []`
-  // and `questions: []` — so axe had never read either card at any count, which is how one of them stayed
-  // a `<ul>` drawing 1, 2, 3 and the other announced its numeral on top of the position its `<ol>` already
-  // gave it. They are put on the page below the way T206's test does it (patchNarrative, e2e/patient.ts).
+  // doctor". Those two are the half this test could not reach: both render on `length ?`, this suite has no
+  // model gateway, and `degradedPair` (lib/sourRun.ts) writes `patterns: []` and `questions: []` — so axe
+  // had never read either card, at any count, on any run. That is how one of them stayed a `<ul>` drawing
+  // 1, 2, 3 over content §7 orders, while the other said its numeral on top of the position its `<ol>`
+  // already gave it. They are put on the page below the way T206's test does it (patchNarrative,
+  // e2e/patient.ts).
   // Uploaded through the real route, as the intake screen does, so what axe reads is the rendered data.
   const headers = { "x-csrf-token": await csrfToken(page.request) };
   for (const [kind, name, type, file] of [
@@ -398,6 +399,7 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   const visitId = (await (await page.request.get(`/api/patient/${token}`)).json()).visitId as string;
   expect(visitId, "the visit behind the patient token").toBeTruthy();
   const staff = await browser.newPage();
+  await signInAsDemo(staff);
   expect((await postJson(staff.request, "/api/sour", { visitId })).ok(), "POST /api/sour").toBeTruthy();
   await staff.close();
   await expect
