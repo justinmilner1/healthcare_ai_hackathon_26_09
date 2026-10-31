@@ -60,3 +60,9 @@ already shoots.
 | `desktop-patient-summary-places-caption.png` | The caption and the five dots in one frame. The sentence now reads "… **The labels that fit** say where you were around then, when available." over a chart where the `Sun 10:30 PM` dot carries no label. |
 | `mobile-patient-summary-places-caption.png` | The same pair at the 375px of §6.5, where the narrower plot keeps fewer labels still — the frame the ticket was filed from. |
 | `desktop-patient-summary-places.png` | The rises table under it, anchored on `.patient-spikes`: the `Sun 10:30 PM` row's Where cell reads `a place you went`, which is what makes the unlabelled dot a dropped label and not a missing place. |
+| `desktop-patient-summary-no-places.png` | Criterion 3's direction, which must not move. A week whose rises matched nothing: every label is a peak reading (206, 202, 214, 210, 194), and the caption is still the bare `Markers show your biggest rises.` with no clause about a place or a label. |
+
+Measured on this run's frames: at 1280px the chart draws five dots and four labels — `206`, `202`, `a place
+you went`, `a place you went` — and the dot between the `202` and the Wednesday stop is the `Sun 10:30 PM`
+rise, placed in the table and bare on the chart. At 375px it keeps three over the same five, so the
+`Sun 1:55 PM` rise loses its `202` as well.
