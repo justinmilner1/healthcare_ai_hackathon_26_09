@@ -1157,7 +1157,9 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
   const token = await patientWithUploads(page, "E2E No Places", [["dexcom", "data/dexcom_clarity_sample.csv"]]);
 
   const { placed, total } = await placedRises(page, token);
-  expect(total, "this week has rises to show").toBeGreaterThan(0);
+  // More than one, not merely some: `total` is `bundle.spikes.length`, the array the card's heading counts
+  // since T203, so this is the week that earns the plural read below rather than a week that happens to.
+  expect(total, "this week has rises to show, and more than one of them").toBeGreaterThan(1);
   expect(placed, "and not one of them has a place").toBe(0);
 
   // The table is When and Rise. Not a third column of "no matching visit", which is the matcher's word for
@@ -1166,6 +1168,11 @@ test("patient summary: no Timeline shared, so nothing reports a place the patien
   const rises = page.locator(".patient-spikes");
   await expect(rises.getByRole("columnheader")).toHaveText(["When", "Rise"]);
   await expect(page.locator(".patient-summary-content")).not.toContainText(/no matching visit/i);
+
+  // T203 (§2.7): the direction of that ticket that must not move. dexcom_clarity_sample.csv is a week with
+  // several rises in it — asserted on the record above — so this card keeps the plural heading §2.7 has
+  // always shown. The one-rise reading the heading used to give wrongly is in e2e/flags.spec.ts.
+  await expect(rises.getByRole("heading", { level: 2 })).toHaveText("Your biggest rises");
 
   // And the caption over the chart does not promise the column that is not there. Both read one predicate
   // in lib/spikePlaces.ts, so they cannot drift apart. Matched on "where you" because T193 made the

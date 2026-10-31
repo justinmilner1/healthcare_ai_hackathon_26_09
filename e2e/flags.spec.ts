@@ -517,7 +517,15 @@ test("the one-rise week reads in the singular on the patient's page too (T199)",
   await expect(caption).toHaveText("Marker shows your biggest rise.");
   await expect(caption, "a plural over the one marker this chart draws").not.toContainText("Markers");
   // And the card under it, which is the element the sentence has to agree with: one row, one rise.
-  await expect(page.locator(".patient-spikes tbody tr")).toHaveCount(1);
+  const rises = page.locator(".patient-spikes");
+  await expect(rises.locator("tbody tr")).toHaveCount(1);
+  // T203 (§2.7): and its heading, which until that ticket was the literal "Your biggest rises" over that
+  // one row — the plural the caption two lines above has just been asserted not to carry, in the same
+  // frame, about the same rise. Both read `patientRiseNoun` in lib/spikePlaces.ts off `bundle.spikes` now,
+  // so this assertion and the caption's cannot drift apart.
+  await expect(rises.getByRole("heading", { level: 2 }), "a plural over the one rise this card lists").toHaveText(
+    "Your biggest rise",
+  );
   // No Timeline was shared, so there is no place clause to carry either (T82, T193) — the sentence stops.
   await expect(caption).not.toContainText(/where you/);
   // Anchored on the card's heading block and not on the chart under it: the subject is the sentence, and
