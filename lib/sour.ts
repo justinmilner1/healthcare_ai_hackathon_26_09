@@ -3,6 +3,7 @@
 // Owner: Justin (taken over from the scaffold).
 
 import { averageGlucose, timeInRange } from "./glucose";
+import { countOf, plural } from "./plural";
 import { spikeVisitRelation } from "./spikePlaces";
 import type { GlucoseReading, SleepNight, Spike } from "./types";
 
@@ -305,7 +306,10 @@ export function safetyFlags(glucose: GlucoseReading[]): string[] {
   if (lows.length) {
     const lowest = lows.reduce((m, r) => (r.mgdl < m.mgdl ? r : m), lows[0]);
     const days = new Set(lows.map((r) => localDate(r.t))).size;
-    flags.push(`Glucose below ${URGENT_LOW} mg/dL on ${days} day${days > 1 ? "s" : ""} (${lows.length * step} min total; lowest ${lowest.mgdl} at ${localDayTime(lowest.t)}).`);
+    // `lowest` ranges over `lows`, the readings, while the count in front of it is of distinct local dates:
+    // different sets, so one day does not imply one reading and the superlative reads distributively at any
+    // count (T202). Only the agreement is `plural`'s here.
+    flags.push(`Glucose below ${URGENT_LOW} mg/dL on ${countOf(days, "day")} (${lows.length * step} min total; lowest ${lowest.mgdl} at ${localDayTime(lowest.t)}).`);
   }
 
   const tbr = rs.filter((r) => r.mgdl < LO).length / rs.length;
@@ -325,8 +329,14 @@ export function safetyFlags(glucose: GlucoseReading[]): string[] {
     }
   }
   if (runs.length) {
+    // The parenthetical reports the worst run, so over a set of one there is nothing for it to be longest
+    // among: the sentence has just said "1 occasion" and "longest" over that read as a selection the
+    // clinician could not make (T202). Both the noun and the superlative agree through `plural`, not
+    // through a ternary written beside the sentence (T198 AC2, T199 AC4, T200 AC2) — a hand-rolled
+    // agreement covers the noun it is glued to and leaves the rest of the sentence nobody's decision.
     const longest = runs.reduce((m, r) => (r.minutes > m.minutes ? r : m), runs[0]);
-    flags.push(`Above ${HIGH_SUSTAINED} mg/dL for an hour or more on ${runs.length} occasion${runs.length > 1 ? "s" : ""} (longest ${longest.minutes} min from ${localDayTime(longest.start)}, peak ${longest.peak}).`);
+    const worst = `${longest.minutes} min from ${localDayTime(longest.start)}, peak ${longest.peak}`;
+    flags.push(`Above ${HIGH_SUSTAINED} mg/dL for an hour or more on ${countOf(runs.length, "occasion")} (${plural(runs.length, worst, `longest ${worst}`)}).`);
   }
   return flags;
 }

@@ -8,7 +8,7 @@
 // produced **nothing** — not a cramped axis, not the wrong unit, an empty tick array under a painted
 // axis line (T187). Both fixtures the suite uploads are that span: `clarity_window.csv` is 84 readings
 // between 06:00 and 12:55, and `clarity_sustained_high.csv` is 36 between 19:00 and 21:55. On the brief
-// that left a deterministic safety flag reading "longest 100 min from Sun, Sep 20, 7:35 PM" sitting
+// that left a deterministic safety flag reading "100 min from Sun, Sep 20, 7:35 PM" sitting
 // directly above a curve with no time anywhere on it, and on §2.7's page there is not even flag text to
 // read the hour out of.
 //

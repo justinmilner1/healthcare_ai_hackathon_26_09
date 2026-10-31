@@ -350,7 +350,7 @@ export default function SourView({ id }: { id: string }) {
                 <strong>{v.name}</strong>
                 <small>
                   {v.apptAt ? new Date(v.apptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "no visit date"}
-                  {v.uploads.length ? ` · ${v.uploads.length} source${v.uploads.length > 1 ? "s" : ""}` : " · nothing uploaded"}
+                  {v.uploads.length ? ` · ${countOf(v.uploads.length, "source")}` : " · nothing uploaded"}
                 </small>
                 </span>
                 {v.hasSummary && <i>✓</i>}
