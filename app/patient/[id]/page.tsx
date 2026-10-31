@@ -14,7 +14,7 @@ import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import { summaryDataInvite } from "@/lib/dexcomHint";
 import { patientPatternsSubtitle, patientQuestionsSubtitle } from "@/lib/patientNarrative";
-import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
+import { countOf, daySpan, plural, spanAtAGlance, spanNoun } from "@/lib/plural";
 import { patientSleepCardSubtitle } from "@/lib/sleepRecovery";
 import { patientChartCaption, patientSpikeCardHeading } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
@@ -176,7 +176,21 @@ export default function PatientPage({
                   </div>
                 </article>
 
-                <div className="patient-mini-stats" aria-label="Week at a glance">
+                {/* T207 (§2.7, §6.4): the row's name, on an element allowed to carry one and naming the
+                    span the tiles actually count. Both halves are one bug: `aria-label` on a role-less
+                    `<div>` is prohibited by ARIA — the implicit role is `generic` — so no screen reader
+                    said the old literal "Week at a glance", which is why nobody heard it contradict a
+                    History tile reading `1 day`. axe knows (`aria-prohibited-attr`) but files a named
+                    element with text in it as *incomplete*, so §12.5's pass never failed on it either;
+                    `e2e/a11y.ts` now fails the patient pages on that rule's incompletes too. `group` is
+                    the role for a set of related controls and values, and it is allowed a name. The
+                    wording is `spanAtAGlance` in lib/plural.ts, off the same `stats.days` as the four
+                    sentences around it. */}
+                <div
+                  className="patient-mini-stats"
+                  role="group"
+                  aria-label={spanAtAGlance(stats.days)}
+                >
                   {/* MiniStat prints the value and its noun on two lines, so the noun comes from
                       `plural` rather than `countOf` — the rule is lib/plural.ts's either way (T60, T80).
                       lib/bundle.ts floors `days` at 1, so a patient who uploaded the day before their
