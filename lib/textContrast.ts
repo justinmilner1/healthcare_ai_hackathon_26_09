@@ -197,6 +197,6 @@ export function sweetieTextTokensUsed(css: string): string[] {
 export const SWEETIE_TEXT_SURFACES: readonly Surface[] = [
   { color: "#fff0f4", where: "--sweetie-soft: the narrative-card chips, and the end of .home-lane-sweetie's gradient" },
   { color: "#fff2f5", where: ".patient-range-card's radial-gradient, sampled off desktop-a11y-summary.png" },
-  { color: "#fbfaf9", where: "--background: the landing page's own paper, under .home-section-heading" },
+  { color: "#fbf9f8", where: ".ss-page's own paper under its blush, which is what .home-section-heading's eyebrow sits on" },
   { color: "#ffffff", where: "the plain cards: .ss-card, .home-lane's gradient at its white end" },
 ];

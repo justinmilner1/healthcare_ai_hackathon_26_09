@@ -13,7 +13,7 @@
   /* The pink the Sweetie flow writes text in, and the only thing `--sweetie-dark` is ever used for: every
      one of its call sites in this file is a `color:` declaration, directly or through `--theme-dark` under
      `.sweetie-theme`. At #e74568 it was 3.49:1 on `--sweetie-soft` below, 3.54:1 on the
-     `.patient-range-card` gradient and 3.67:1 on `--background` — under the 4.5:1 WCAG 2.1 AA asks of
+     `.patient-range-card` gradient and 3.67:1 on `.ss-page`'s paper — under the 4.5:1 WCAG 2.1 AA asks of
      small text, which is what §2.7's 8px chips and "TIME IN RANGE" and the landing page's 10px eyebrows
      all are (design §6.4, T210). Darkened rather than given a second token beside it, because a token with
      no non-text use has nothing to keep: same hue and saturation (hsl(347, 77%)), lightness 59% to 46%, so

@@ -263,6 +263,14 @@ export async function expectReadableBrandText(page: Page, name: string): Promise
   // be reported as well, naming the wrong element and the wrong colour.
   const samples = await page.evaluate((wanted: string[]) => {
     const seen: { where: string; content: string; color: string; fontSizePx: number; fontWeight: number }[] = [];
+    // Tag and classes, with the parent in front of it: the chip is a bare `<span>` inside the list item
+    // that carries the class, so the element on its own would name nothing a reader could find.
+    const describe = (node: Element): string => {
+      const classes = typeof node.className === "string" && node.className.trim()
+        ? `.${node.className.trim().split(/\s+/).join(".")}`
+        : "";
+      return `${node.tagName.toLowerCase()}${classes}`;
+    };
     for (const node of document.querySelectorAll<HTMLElement>("body *")) {
       const own = [...node.childNodes]
         .filter((child) => child.nodeType === Node.TEXT_NODE)
@@ -275,7 +283,7 @@ export async function expectReadableBrandText(page: Page, name: string): Promise
       // Not painted at all is not a contrast finding; it is either another rule's or nothing's.
       if (computed.visibility === "hidden" || computed.display === "none" || Number(computed.opacity) === 0) continue;
       seen.push({
-        where: `${node.tagName.toLowerCase()}${node.className && typeof node.className === "string" ? `.${node.className.trim().split(/\s+/).join(".")}` : ""}`,
+        where: node.parentElement ? `${describe(node.parentElement)} > ${describe(node)}` : describe(node),
         content: own,
         color: computed.color,
         fontSizePx: Number.parseFloat(computed.fontSize),
@@ -284,6 +292,15 @@ export async function expectReadableBrandText(page: Page, name: string): Promise
     }
     return seen;
   }, pinks);
+
+  // A page with no pink text on it passes this assertion for free, which is the shape of silent pass the
+  // two findings above already demonstrated once. So the floor is stated: every call site of this helper is
+  // a page that paints the Sweetie pink somewhere, and a run that finds none has stopped measuring rather
+  // than found nothing to measure — a colour renamed, a card gated out, a selector that matches no more.
+  expect(
+    samples.length,
+    `${name}: no element on this page paints text in a Sweetie pink, so there was nothing for this gate to judge. Either the page changed or the colours this helper matches on did (T210).`,
+  ).toBeGreaterThan(0);
 
   const findings = unreadableText(samples, SWEETIE_TEXT_SURFACES);
   expect(
