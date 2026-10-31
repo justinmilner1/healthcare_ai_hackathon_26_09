@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fixture, pinUtcTimeZone } from "./fixtures";
+import { fixture, pinUtcTimeZone, sample } from "./fixtures";
 import { detectSpikes, parseClarityCsv } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv, placeLabel } from "./location";
+import { markerLabels } from "./markerLabels";
 import { matchSpikesToVisits } from "./match";
 import { plural } from "./plural";
 import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, patientSpikeCardHeading, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
@@ -580,7 +581,7 @@ test("the patient's §2.7 copy is untouched by any of it (T184)", () => {
   const unplaced = [spike(), spike()];
   assert.equal(anyPlaceKnown(unplaced), false);
   assert.equal(patientChartCaption(unplaced), "Markers show your biggest rises.");
-  assert.equal(patientChartCaption([spike(somewhere("Noe Cafe")), spike()]), "Markers show your biggest rises and where you had just been, when available.");
+  assert.equal(patientChartCaption([spike(somewhere("Noe Cafe")), spike()]), "Markers show your biggest rises. The labels that fit say where you had just been, when available.");
   // And the patient's own word for a rise with no place is still not the matcher's (T82).
   assert.doesNotMatch(UNKNOWN_PLACE, new RegExp(NO_MATCH_CELL));
   assert.match(NO_MATCH_CELL, MATCHER);
@@ -775,14 +776,14 @@ test("every matched rise an overlap: the patient is not told they had just been 
   const spikes = [spike(during("Office")), spike(during("Office")), spike(), spike(), spike(during("Home"))];
   const caption = patientChartCaption(spikes);
   assert.doesNotMatch(caption, /had just been/, caption);
-  assert.equal(caption, "Markers show your biggest rises and where you were at the time, when available.");
+  assert.equal(caption, "Markers show your biggest rises. The labels that fit say where you were at the time, when available.");
 });
 
 test("every matched rise an ended-just-before: the patient's caption keeps the words it had (T193)", () => {
   // Criterion 4's other half, and the direction that must not move: this is the branch the sentence was
   // written for, still the exact string §2.7 has shown since T82.
   const spikes = [spike(somewhere("Noe Cafe")), spike(somewhere("Home")), spike()];
-  assert.equal(patientChartCaption(spikes), "Markers show your biggest rises and where you had just been, when available.");
+  assert.equal(patientChartCaption(spikes), "Markers show your biggest rises. The labels that fit say where you had just been, when available.");
 });
 
 test("a mix tells the patient only where they were around then (T193)", () => {
@@ -800,7 +801,7 @@ test("a mix tells the patient only where they were around then (T193)", () => {
     // The clause is the subject here, so it is asserted as the tail rather than inside a whole string: the
     // half in front of it agrees with the number of markers since T199, and one of these mixes is a single
     // placed rise.
-    assert.match(caption, /^Markers? shows? your biggest rises? and where you were around then, when available\.$/, spikes.map(spikeRelationCell).join(" / "));
+    assert.match(caption, /^Markers? shows? your biggest rises?\. The labels? that fits? says? where you were around then, when available\.$/, spikes.map(spikeRelationCell).join(" / "));
     assert.doesNotMatch(caption, /had just been|at the time/, caption);
   }
 });
@@ -816,7 +817,7 @@ test("both fixtures this page is ever seen with are that mix (T193)", () => {
   // standing in. It is the mixed clause that is true of them, not "where you were at the time".
   const spikes = [spike(during("Office")), spike(during("Office")), spike(arriving("Home", 10)), spike(), spike()];
   assert.deepEqual(spikes.map((s) => spikeVisitRelation(s)?.kind ?? null), ["during", "during", "arrived", null, null]);
-  assert.equal(patientChartCaption(spikes), "Markers show your biggest rises and where you were around then, when available.");
+  assert.equal(patientChartCaption(spikes), "Markers show your biggest rises. The labels that fit say where you were around then, when available.");
 });
 
 test("the patient's caption and the clinician's cannot disagree about one match (T193)", () => {
@@ -855,7 +856,7 @@ test("all three clauses keep §2.7's register and borrow nothing from the matche
     [spike(during("Office")), spike(somewhere("Noe Cafe")), spike()],
   ]) {
     const caption = patientChartCaption(spikes);
-    assert.match(caption, /^Markers? shows? your biggest rises? and where you /, caption);
+    assert.match(caption, /^Markers? shows? your biggest rises?\. The labels? that fits? says? where you /, caption);
     assert.match(caption, /, when available\.$/, caption);
     assert.doesNotMatch(caption, MATCHER, caption);
     assert.doesNotMatch(caption, /visit|linked|while there|mg\/dL/i, caption);
@@ -925,11 +926,11 @@ test("the patient's caption counts its markers the same way, in §2.7's voice (T
   assert.equal(patientChartCaption(spikesOf(5)), "Markers show your biggest rises.");
   assert.equal(
     patientChartCaption([spike(somewhere("Noe Cafe"))]),
-    "Marker shows your biggest rise and where you had just been, when available.",
+    "Marker shows your biggest rise. The label that fits says where you had just been, when available.",
   );
   assert.equal(
     patientChartCaption([spike(somewhere("Noe Cafe")), spike(somewhere("Home"))]),
-    "Markers show your biggest rises and where you had just been, when available.",
+    "Markers show your biggest rises. The labels that fit say where you had just been, when available.",
   );
   // And the empty week, where "Markers show your biggest rises." was not a disagreement about number but a
   // claim about something that is not drawn. Second person, §2.7's threshold, none of the matcher's words.
@@ -1121,4 +1122,90 @@ test("the one-rise fixture is the week the heading was wrong about (T203)", () =
   assert.equal(spikes.length, 1);
   assert.equal(patientSpikeCardHeading(spikes), "Your biggest rise");
   assert.equal(patientChartCaption(spikes), "Marker shows your biggest rise.");
+});
+
+// ---------------------------------------------------------------------------------------------
+// T204 (design §2.7, §6.5, §12.1): the caption says the labels on the chart are the ones that fit.
+//
+// `anyPlaceKnown` answers whether a place is *known*, which is what `, when available` hedges and what the
+// Where column reads (T82). Whether the label for a known place was *drawn* is a second question:
+// lib/markerLabels.ts drops a label that would collide with a neighbouring label or marker and keeps the
+// bare dot (T23, T197), so a rise the caption has placed can reach §2.7's chart as a red dot with nothing
+// over it. The clinician's twin has hedged that since T99 ("Labels, where they fit,"); the patient's never
+// had, and the one state this is about was therefore the one state the sentence had no words for.
+
+test("the patient's caption says the labels are the ones that fit (T204)", () => {
+  // Acceptance criterion 1, as the two whole strings: the clause is in §2.7's second person and counts the
+  // labels it is about, the way the sentence in front of it counts the markers (T200's lesson, one caption
+  // down). "Labels, where they fit," is the clinician's wording and stays there.
+  assert.equal(
+    patientChartCaption([spike(somewhere("Noe Cafe"))]),
+    "Marker shows your biggest rise. The label that fits says where you had just been, when available.",
+  );
+  assert.equal(
+    patientChartCaption([spike(during("Office")), spike(somewhere("Noe Cafe")), spike()]),
+    "Markers show your biggest rises. The labels that fit say where you were around then, when available.",
+  );
+  for (const spikes of [[spike(somewhere("Home"))], [spike(during("Office")), spike()], [spike(arriving("Office", 10)), spike(somewhere("Home"))]]) {
+    const caption = patientChartCaption(spikes);
+    assert.match(caption, /that fits? says? where you/, caption);
+    // Still §2.7's register and still none of the clinician's words or the matcher's (T82, T99, T193).
+    assert.doesNotMatch(caption, /Labels, where they fit/, caption);
+    assert.doesNotMatch(caption, MATCHER, caption);
+    assert.doesNotMatch(caption, /visit|linked|while there|mg\/dL/i, caption);
+  }
+});
+
+test("neither branch without a place promises a label that names one (T204)", () => {
+  // Acceptance criterion 3, in both directions. With no place known every label on the chart is a peak
+  // reading, which this sentence says nothing about either way (T199), and over no rises at all there is
+  // no label to describe — so neither branch gains the clause, and both are the strings they were.
+  assert.equal(patientChartCaption([spike(), spike()]), "Markers show your biggest rises.");
+  assert.equal(patientChartCaption([spike()]), "Marker shows your biggest rise.");
+  assert.equal(patientChartCaption([]), "You had no rises over 180, so the chart shows no markers.");
+  for (const spikes of [[], [spike()], [spike(), spike()], spikesOf(5)]) {
+    assert.equal(anyPlaceKnown(spikes), false);
+    assert.doesNotMatch(patientChartCaption(spikes), /\bfits?\b|\blabels?\b/i, patientChartCaption(spikes));
+  }
+});
+
+test("the labels clause agrees with the number of markers, through lib/plural.ts (T204)", () => {
+  // Acceptance criterion 2 as the property: the clause is derived beside `patientChartCaption` from the
+  // array it is handed, so it cannot read as the other count's number at any count the chart can draw —
+  // which is the half T200 had to come back for after T199 fixed the sentence in front of it.
+  for (let n = 1; n <= 12; n++) {
+    const placed = [spike(somewhere("Noe Cafe")), ...spikesOf(n - 1)];
+    assert.equal(placed.length, n);
+    const caption = patientChartCaption(placed);
+    assert.ok(caption.includes(plural(n, "The label that fits says", "The labels that fit say")), caption);
+    assert.doesNotMatch(caption, n === 1 ? /labels that fit\b/ : /label that fits\b/, caption);
+  }
+});
+
+test("a placed rise really does reach §2.7's chart with no label on it (T204)", () => {
+  // The ticket's own reproduction, as the unit suite can hold it: the pair e2e/flows.spec.ts's mixed-places
+  // test uploads — data/timeline_sample.json over data/dexcom_clarity_sample.csv, and no hand labels, so
+  // every placed stop is the sixteen-character `a place you went` (T128) — at the 237px plot §6.5's 375px
+  // page hands this chart (lib/markerLabels.test.ts measured it). The caption promises places over that
+  // chart, and lib/markerLabels.ts draws fewer labels than there are markers, which is exactly the state
+  // the new clause is for. `someDropped: true` is the same assertion on screen (e2e/charts.ts).
+  pinUtcTimeZone();
+  const glucose = parseClarityCsv(sample("dexcom_clarity_sample.csv"));
+  const spikes = matchSpikesToVisits(detectSpikes(glucose), labelVisits(parseTimeline(sample("timeline_sample.json")), [])).slice(0, 5);
+  assert.ok(spikes.length > 1, "the sample stopped placing more than one rise");
+  assert.equal(anyPlaceKnown(spikes), true);
+  assert.ok(spikes.some((s) => !s.visit), "the mixed shape: some rises placed, some not");
+
+  const first = Date.parse(glucose[0]!.t);
+  const last = Date.parse(glucose[glucose.length - 1]!.t);
+  const kept = markerLabels(spikes, { first, last, plot: 237, patient: true });
+  assert.ok(kept.size < spikes.length, `every label fit at 375px: ${[...kept.values()].join(", ")}`);
+  const unlabelledPlace = spikes.find((s) => s.visit && !kept.has(s));
+  assert.ok(unlabelledPlace, "no placed rise lost its label, so the bug's own state is unreachable here");
+  assert.equal(markerLabel(unlabelledPlace, { patient: true }), UNNAMED_PLACE);
+
+  // So the sentence over it has to say so, and does. The place clause stays too: the place is known, which
+  // is the separate thing `, when available` is about and the Where column shows per row.
+  const caption = patientChartCaption(spikes);
+  assert.match(caption, /The labels that fit say where you were around then, when available\.$/, caption);
 });

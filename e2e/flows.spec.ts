@@ -1273,6 +1273,15 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   // third of the four frames the ticket was filed from. The labels here are the patient's words for a stop
   // rather than the clinician's coordinates (lib/spikePlaces.ts), and they are just as wide.
   await expectMarkerLabelsClearOfMarkers(page, "the patient summary, mixed places", { someDropped: true });
+
+  // T204 (§2.7, §6.5): and the caption in that frame says so. `someDropped: true` above *requires* that
+  // this page draws fewer labels than markers at 375px — the Sun 10:30 PM rise is placed and keeps only
+  // its dot, here and on the desktop plot — so a sentence promising "where you were around then" over
+  // every marker is a promise this chart has just been asserted to break. The clause is the patient's own
+  // (lib/spikePlaces.ts `patientChartCaption`), not the clinician's four words, which stay on §2.6 and
+  // §7.4; the place clause beside it is T193's and is read above.
+  await expect(glucoseCaption, "the labels are the ones that fit").toContainText(/the labels that fit say where you were around then/i);
+  await expect(content, "and not in the clinician's words").not.toContainText(/Labels, where they fit/i);
   await shot(page, "patient-summary-places-caption", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
 });
 
