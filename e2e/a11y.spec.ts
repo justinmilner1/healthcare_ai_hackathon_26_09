@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { expectNoFocusRing, expectNoSeriousA11yViolations, expectVisibleFocusRing } from "./a11y";
+import {
+  expectNoFocusRing,
+  expectNoProhibitedAriaNames,
+  expectNoSeriousA11yViolations,
+  expectVisibleFocusRing,
+} from "./a11y";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
@@ -18,7 +23,7 @@ import {
   patternsCard,
   questionsCard,
 } from "./patient";
-import { SCREENFUL, shot, WHOLE_PAGE, type ShotOptions } from "./shot";
+import { MODAL, SCREENFUL, shot, WHOLE_PAGE, type ShotOptions } from "./shot";
 
 // T22, design §6.4 and §12.5: every screen a patient can land on — the code screen, the two dead ends in
 // front of it (T98), consent, Sweetie, the intake sources and the summary — judged by axe against WCAG 2.1
@@ -428,4 +433,136 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   await expectOrderedNarrative(questions, NARRATIVE_QUESTIONS, "the questions card");
 
   await shot(page, "a11y-summary-narrative", { ...SCREENFUL, scrollTo: patternsCard(page) });
+});
+
+// T209 (design §2.5, §6.4, §12.5): the typing indicator, in the only state it exists in.
+//
+// This is the gap that let the bug through rather than a second opinion on it. §6.4 asks for
+// "screen-reader text for state changes" and the indicator is the only thing on the page that says a reply
+// is coming — but it is on screen for as long as one model call takes, so every axe pass in this file ran
+// against a page that did not contain it. What was there, unseen, was `aria-label="Sweetie is typing"` on a
+// role-less `<div>` holding three empty `<i>`: ARIA prohibits naming a `generic` element, and with no text
+// inside it for axe to wonder about it is a **serious violation** and not an incomplete. So a patient
+// driving §2.5 by voice got silence between their own turn and the reply landing, with no way to tell
+// whether the send went through, and §12.5's pass was green over it.
+//
+// Holding the turn open is what makes the state assertable: the POST is parked in a route handler until the
+// assertions are done, which is the same device e2e/durability.spec.ts uses to read a turn mid-flight.
+test("Sweetie mid-reply: the indicator is a live region that says a reply is coming", async ({ page }) => {
+  const { token, email } = await book(page, "E2E A11y Typing");
+  await page.goto(`/s/${token}`);
+  await enterCode(page, email);
+  await acceptConsent(page);
+  await expect(page.locator(".sweetie-messages")).toContainText(/Hi E2E/, LOADED);
+
+  // Park the turn. `release` is called once the indicator has been read, so the test leaves the page in the
+  // ordinary state rather than with a request outstanding.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/sweetie", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await held;
+    await route.fallback();
+  });
+
+  const reply = page.getByLabel("Reply to Sweetie");
+  await reply.fill("Evenings are the bad ones, mornings are fine.");
+  await reply.press("Enter");
+
+  const typing = page.locator(".sweetie-typing");
+  await expect(typing, "the indicator is on screen while the reply is being composed").toBeVisible(LOADED);
+
+  // Both halves of what makes it heard. The role is the one ARIA gives a polite live region whose subject is
+  // not the user's own doing — and, unlike the `generic` it was, one that may be named.
+  await expect(typing, "a name on a role-less div is dropped, so the role has to allow one").toHaveRole("status");
+  // The name itself. `toHaveAccessibleName` rather than the attribute, because `status` is "Name From:
+  // author" — contents are not consulted — so this is the assertion that fails if the label is ever moved
+  // onto the hidden words below and the region is left anonymous.
+  await expect(typing, "and the patient is told what the region is").toHaveAccessibleName("Sweetie is typing");
+  // The words are also *in* it, which is the half a label alone would have got wrong: a live region
+  // announces what changed, not what it is called, so a labelled region holding three empty <i> is a fix
+  // that passes axe and leaves the patient in exactly the silence this ticket is about.
+  await expect(typing, "a live region announces its content, so the content has to be the words").toHaveText(
+    "Sweetie is typing",
+  );
+
+  // One region, so one announcement (§6.4). The indicator used to be the last row inside the transcript,
+  // which is itself a `role="log"` live region — and ARIA computes an announcement against the nearest
+  // live-region ancestor, so whether a nested region speaks once or twice is a property of the screen
+  // reader rather than of the product. Out here the question does not arise. Asserted structurally because
+  // "exactly once" is not something a browser can be asked.
+  await expect(
+    page.locator(".sweetie-messages .sweetie-typing"),
+    "a live region nested in a live region is how one state change becomes two announcements",
+  ).toHaveCount(0);
+  const log = page.locator(".sweetie-messages");
+  await expect(log, "the transcript is still the log it was").toHaveRole("log");
+  await expect(typing.locator("xpath=ancestor::*[@aria-live or @role='log' or @role='status'][1]")).toHaveCount(0);
+
+  // And the gate, over the state that was never scanned. Both of them: the full §12.5 pass, which now reads
+  // `aria-prohibited-attr` incompletes as findings (T207), and the narrow rule below, which is what reaches
+  // the surfaces the pass does not.
+  await expectNoSeriousA11yViolations(page, "Sweetie mid-reply");
+  await expectNoProhibitedAriaNames(page, "Sweetie mid-reply");
+  await shot(page, "a11y-sweetie-typing", { scrollTo: ".sweetie-typing-slot", block: "end" });
+
+  // The row goes back to the conversation when the reply lands, which is the trade the slot makes.
+  release();
+  await expect(typing, "the indicator is gone once there is a reply to read").toHaveCount(0, LOADED);
+  await expect(page.locator(".sweetie-typing-slot")).toBeHidden();
+});
+
+// T209 (design §6.4): the three surfaces §12.5's axe pass does not reach, held to the one rule that found
+// five sites of the same bug.
+//
+// §12.5 puts axe on the *patient* pages, and every call site of `expectNoSeriousA11yViolations` is one —
+// correctly, since that is where the bar is set. The consequence is that the same prohibited attribute on
+// a provider wizard or on the landing page is invisible to the suite, and three of them sat there until
+// this ticket. A full WCAG pass on each would be a different ticket's worth of work and a different
+// ticket's worth of findings, so what is asserted here is the narrow claim: nothing on these pages carries
+// an accessible name ARIA will not let it have (`lib/ariaName.ts`, unit-tested in `lib/ariaName.test.ts`).
+test("the landing page and both provider wizards name nothing that cannot be named", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /Open the practice dashboard/i })).toBeVisible(LOADED);
+  // `.home-visual` wore "Meet Sweetie and Sour" here. Removed rather than relocated: two <figure>s whose
+  // alt text and <figcaption> each name both characters and both jobs already.
+  await expectNoProhibitedAriaNames(page, "the landing page");
+
+  await page.goto("/provider/signup");
+  const stepper = page.locator(".ss-stepper");
+  await expect(stepper, "the §2.1 sign-up strip").toBeVisible(LOADED);
+  await expectNoProhibitedAriaNames(page, "the practice sign-up wizard");
+  // The strip is an <ol> now, which is a `list` — a role ARIA allows a name on, so "Setup progress" is
+  // announced instead of dropped — and the step being asked about says so rather than only looking so.
+  await expect(stepper).toHaveRole("list");
+  await expect(stepper).toHaveAccessibleName("Setup progress");
+  await expect(stepper.locator("li")).toHaveCount(2);
+  await expect(stepper.locator("[aria-current='step']"), "one current step, the first").toHaveText(/1\s*You/);
+  // And the step's own name survives the width §6.5 names. The phone's top bar has no room for two labels
+  // beside the wordmark, so they come off it — but with `display: none` they came out of the accessibility
+  // tree too, and a strip announced as "Setup progress, 2 items, 1, 2" is a name over nothing. Clipped
+  // instead, which is what §2.5's strip does with its own labels at this width. One assertion for both
+  // wizards, because one stylesheet rule and one component serve both.
+  const stepName = stepper.locator("li em").first();
+  await expect(stepName, "the first step is still called something").toHaveText("You");
+  await expect(stepName, "hidden from the eye is not hidden from a screen reader").not.toHaveCSS(
+    "display",
+    "none",
+  );
+  await shot(page, "a11y-signup-stepper", { scrollTo: ".ss-topbar" });
+
+  // And §2.2's, which is the same component: the bug was that this markup existed twice and the label was
+  // wrong in both copies, so the fix being one component is itself part of the ticket.
+  await signInAsDemo(page);
+  await page.getByRole("button", { name: /Add patient/i }).first().click();
+  const wizard = page.locator(".patient-wizard-top .ss-stepper");
+  await expect(wizard, "the Add-patient strip").toBeVisible(LOADED);
+  await expectNoProhibitedAriaNames(page, "the Add-patient wizard");
+  await expect(wizard).toHaveRole("list");
+  await expect(wizard).toHaveAccessibleName("Add patient progress");
+  await expect(wizard.locator("li")).toHaveCount(3);
+  await expect(wizard.locator("[aria-current='step']")).toHaveText(/1\s*Contact/);
+  await shot(page, "a11y-wizard-stepper", MODAL);
 });

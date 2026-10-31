@@ -75,6 +75,12 @@ function hidesAnyText(last: HTMLElement, fold: number): boolean {
 }
 
 
+/** What the typing indicator says, in one place because the indicator says it twice over and for two
+ *  different reasons (T209, §6.4). See the comment at the indicator itself: a `role="status"` takes its
+ *  accessible name from the author, so the name has to be an `aria-label`, and a live region announces its
+ *  *content*, so the words have to be in there too. Two sites, one string, no way for them to drift. */
+const TYPING = "Sweetie is typing";
+
 /** Whose office this is, in Sweetie's words. The fallback is lib/visit.ts's CARE_TEAM, which the API has
  *  already applied; this one only shows if the opening fetch never answered. */
 const providerLabel = (provider: string | null) => provider ?? "your care team";
@@ -844,12 +850,15 @@ export default function SweetiePage({
                   through. `role="status"` is the role for exactly this: a polite live region whose subject
                   is not the user's own doing (lib/ariaName.ts has the rule and the three ways out of it).
 
-                  The words are *text inside* the region rather than a name on it, which is the half an
-                  `aria-label` alone would still have got wrong. A live region announces what changed, not
-                  what it is called, so a `role="status"` whose content is three empty `<i>` has nothing to
-                  say however well it is labelled; the name has to be in the content for the content to be
-                  the announcement. The span is hidden from the eye and not from a screen reader, so the
-                  dots stay the dots.
+                  The words are there twice, and each copy is doing a different job. `status` is "Name From:
+                  author", so the *name* can only be an `aria-label` — contents are not consulted, and a
+                  region with no name is one a screen-reader user arrives at and is told nothing about. But
+                  a live region announces what *changed*, not what it is called, so a labelled `status`
+                  holding three empty `<i>` would still be silence on the one path this ticket is about —
+                  which is the fix that would have passed axe and changed nothing a patient hears. Hence
+                  the hidden span: content for the announcement, label for the name, one `TYPING` constant
+                  above so the two cannot drift. The span is hidden from the eye and not from a screen
+                  reader, so the dots stay the dots.
 
                   And it sits here, outside the `role="log"` transcript it used to be the last row of,
                   because the patient hears it exactly once. A live region nested in a live region is
@@ -867,11 +876,15 @@ export default function SweetiePage({
                       width={36}
                       height={36}
                     />
-                    <div className="sweetie-message sweetie-typing" role="status">
+                    <div
+                      className="sweetie-message sweetie-typing"
+                      role="status"
+                      aria-label={TYPING}
+                    >
                       <i />
                       <i />
                       <i />
-                      <span className="sweetie-typing-words">Sweetie is typing</span>
+                      <span className="sweetie-typing-words">{TYPING}</span>
                     </div>
                   </div>
                 )}

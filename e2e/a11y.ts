@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page } from "@playwright/test";
+import { prohibitedNames } from "../lib/ariaName";
 import { contrastRatio } from "../lib/contrast";
 
 // The axe pass the patient pages are held to (design §6.4, §12.5). One helper, so every patient screen is
@@ -105,6 +106,39 @@ export async function expectNoSeriousA11yViolations(
   // message underneath it.
   const names = serious.map((violation) => violation.id).sort();
   expect(names, `axe found serious accessibility violations on ${name}:\n${describe(serious)}`).toEqual([]);
+}
+
+/**
+ * Nothing on this page carries an accessible name ARIA will not let it have (T209, design §6.4).
+ *
+ * The narrow half of `aria-prohibited-attr`, asserted where a whole axe pass is out of proportion to one
+ * attribute. `expectNoSeriousA11yViolations` above is the full WCAG 2.1 AA pass and every call site of it is
+ * a patient page, which is what §12.5 asks for — so the rule that found five sites of this bug could not
+ * reach the two provider wizards or the landing page, and three of them sat there until T209. This reaches
+ * them for the price of one `evaluate`: collect every element on the page that claims a name, ask
+ * `lib/ariaName.ts` which of them is announced by nothing, and expect an empty list.
+ *
+ * `aria-labelledby` counts as well as `aria-label`. The prohibition is on the role's being named at all, not
+ * on which attribute does the naming, so a label moved to an id reference on the same `<div>` is the same
+ * bug with a longer spelling — and "move the words onto visible text" is one of the three fixes, which is
+ * exactly the edit that produces it.
+ */
+export async function expectNoProhibitedAriaNames(page: Page, name: string): Promise<void> {
+  const claiming = await page.evaluate(() =>
+    [...document.querySelectorAll("[aria-label], [aria-labelledby]")].map((node) => ({
+      tag: node.tagName,
+      role: node.getAttribute("role"),
+      // What the failure has to say to be actionable: which element, and what it was trying to be called.
+      where: `${node.tagName.toLowerCase()}${node.className && typeof node.className === "string" ? `.${node.className.trim().split(/\s+/).join(".")}` : ""}`,
+      label: node.getAttribute("aria-label") ?? `aria-labelledby=${node.getAttribute("aria-labelledby")}`,
+    })),
+  );
+
+  const dropped = prohibitedNames(claiming);
+  expect(
+    dropped.map((element) => `${element.where} — "${element.label}"`).sort(),
+    `${name}: an accessible name on an element ARIA prohibits naming is not announced at all, so nobody hears it and nobody notices it is wrong (T207, T209). Give the element a role that may be named (group, status, a list, a <section>), move the words onto visible text, or drop them:`,
+  ).toEqual([]);
 }
 
 /**

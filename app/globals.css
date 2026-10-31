@@ -5464,8 +5464,26 @@ button.sweetie-agent-badge {
     display: none;
   }
 
+  /* The step names come off the phone's top bar, where two or three of them with their labels would not
+     fit beside the wordmark — but off the *eye* only (T209, §6.4, §6.5). `display: none` took them from a
+     screen reader as well, so at 375px the strip this ticket just gave a name to announced "Setup
+     progress, list, 2 items, 1, 2" and nothing about what either step is. §2.5's own strip met this and
+     answered it the same way (`.sweetie-field-progress > li ... > .sweetie-field-label` at the bottom of
+     this file): the circled number and the tick say where you are to the eye, and the name is still there
+     to be read. `position: relative` on the step so the clipped box is positioned against it rather than
+     against whatever ancestor happens to be positioned, which is how a 1px box escapes and gives a page a
+     scrollbar — the one thing §6.5 fails this width for. */
+  .ss-step {
+    position: relative;
+  }
+
   .ss-step em {
-    display: none;
+    position: absolute;
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .ss-step:not(:last-child)::after {
