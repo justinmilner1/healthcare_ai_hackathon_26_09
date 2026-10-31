@@ -10,6 +10,7 @@ import { labelVisits } from "./location";
 import { matchSpikesToVisits } from "./match";
 import { canHandOver } from "./notify";
 import { reviewRecord } from "./review";
+import { recoveryScores } from "./sleepRecovery";
 import { narrativeSource, sourInputHash, sourInputsFor } from "./sourInput";
 import { answeredCount, fieldsFor, parseIntake, requiredCount } from "./sweetie";
 import type { GlucoseReading, GlucoseStats, IntakeStatus, PatientBundle, SleepNight, Spike, Summary, Visit } from "./types";
@@ -204,7 +205,10 @@ export function computeStats(glucose: GlucoseReading[], sleep: SleepNight[]): Gl
   // Span-based, not distinct UTC dates: a 7-day local export straddles 8 UTC dates.
   const days = n ? Math.max(1, Math.round((Date.parse(glucose[n - 1].t) - Date.parse(glucose[0].t)) / 86400000)) : 0;
   const sleepAvg = sleep.length ? sleep.reduce((s, x) => s + x.hours, 0) / sleep.length : null;
-  const recs = sleep.map((x) => x.recovery).filter((x): x is number => typeof x === "number");
+  // Through lib/sleepRecovery.ts, so this average and the patient card's subtitle are one reading of one
+  // array (T205): `recoveryAvg === null` is what both clinician surfaces hedge their Sleep hint on, and
+  // `anyRecoveryKnown` is the same question §2.7 now asks. Filtering twice is how they would disagree.
+  const recs = recoveryScores(sleep);
   const recAvg = recs.length ? recs.reduce((s, x) => s + x, 0) / recs.length : null;
   return {
     readings: n,

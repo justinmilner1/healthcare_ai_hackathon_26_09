@@ -14,6 +14,7 @@ import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import { summaryDataInvite } from "@/lib/dexcomHint";
 import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
+import { patientSleepCardSubtitle } from "@/lib/sleepRecovery";
 import { patientChartCaption, patientSpikeCardHeading } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
 import { visitCountdownSentence } from "@/lib/visitCountdown";
@@ -249,9 +250,13 @@ export default function PatientPage({
                 {bundle.sleep.length > 0 && (
                   <section className="patient-report-card">
                     <h2>Your sleep</h2>
-                    <p className="patient-report-subtitle">
-                      Nightly sleep and recovery from your connected data.
-                    </p>
+                    {/* T205 (§2.7): recovery is optional in the data — a WHOOP export whose header names no
+                        recovery column leaves every night of the upload without one (lib/sleep.ts) — so the
+                        sentence is decided over the nights themselves in lib/sleepRecovery.ts, off the same
+                        reading `stats.recoveryAvg` is taken from. The Recovery column in the table under the
+                        chart drops out on that predicate too, so the card cannot promise a word no element
+                        on it carries. */}
+                    <p className="patient-report-subtitle">{patientSleepCardSubtitle(bundle.sleep)}</p>
                     <div className="patient-chart-wrap">
                       <SleepChart nights={bundle.sleep} height={180} />
                     </div>

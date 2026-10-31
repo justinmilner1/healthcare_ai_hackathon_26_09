@@ -375,6 +375,29 @@ describe("computeStats", () => {
     assert.equal(s.recoveryAvg, 55);
     assert.equal(computeStats([], [{ date: "2026-10-05", hours: 6 }]).recoveryAvg, null);
   });
+
+  it("answers the same question about recovery that §2.7's sleep card asks (T205)", async () => {
+    const { computeStats } = await import("./bundle");
+    const { anyRecoveryKnown } = await import("./sleepRecovery");
+    // `recoveryAvg` is what both clinician surfaces hedge their Sleep hint on and `anyRecoveryKnown` is what
+    // the patient card's subtitle and its Recovery column branch on, so a week the two disagreed about would
+    // be one frame saying recovery and the other saying nothing. `computeStats` reads `recoveryScores` for
+    // exactly that reason; this is what holds it to it.
+    const weeks: SleepNight[][] = [
+      [],
+      [{ date: "2026-10-05", hours: 6 }],
+      [{ date: "2026-10-05", hours: 6.2, recovery: 41 }],
+      [{ date: "2026-10-05", hours: 6 }, { date: "2026-10-06", hours: 7.9, recovery: 68 }],
+      [{ date: "2026-10-05", hours: 6, recovery: 0 }],
+    ];
+    for (const nights of weeks) {
+      assert.equal(
+        computeStats([], nights).recoveryAvg === null,
+        !anyRecoveryKnown(nights),
+        `recoveryAvg and anyRecoveryKnown disagree about ${JSON.stringify(nights)}`,
+      );
+    }
+  });
 });
 
 describe("baseSummary", () => {

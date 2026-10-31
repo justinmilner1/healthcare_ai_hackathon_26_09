@@ -5,6 +5,7 @@
 
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
+import { sleepRecoveryColumn } from "@/lib/sleepRecovery";
 import type { SleepNight } from "@/lib/types";
 
 const INK2 = "var(--viz-ink-2)";
@@ -16,6 +17,12 @@ const SURFACE = "var(--viz-surface)";
 
 export default function SleepChart({ nights, height = 200 }: { nights: SleepNight[]; height?: number }) {
   if (nights.length === 0) return <p className="text-sm text-[var(--viz-muted)]">No sleep data.</p>;
+  // T205 (§2.7, §6.5): whether this export carries a recovery score at all. A column header is a claim that
+  // the data has that field, so a week whose WHOOP export named no recovery column does not get a column of
+  // em dashes reporting its own absence — the subtitle over this chart drops the word on the same predicate
+  // (lib/sleepRecovery.ts). On a mixed week the column stays and the em dash means that night, not this
+  // export, which is also what the tooltip's conditional suffix below has always meant.
+  const recovery = sleepRecoveryColumn(nights);
   const hours = nights.map((n) => n.hours);
   const min = Math.min(...hours);
   const max = Math.max(...hours);
@@ -57,10 +64,10 @@ export default function SleepChart({ nights, height = 200 }: { nights: SleepNigh
             from the first breakpoint down (T23, design §6.5); a mouse pointer does not need the extra. */}
         <summary className="cursor-pointer max-sm:flex max-sm:min-h-11 max-sm:items-center">Table</summary>
         <table className="mt-1 w-full text-left tabular-nums">
-          <thead><tr className="text-[var(--viz-ink-2)]"><th className="font-medium">Night</th><th className="font-medium">Asleep</th><th className="font-medium">Recovery</th></tr></thead>
+          <thead><tr className="text-[var(--viz-ink-2)]"><th className="font-medium">Night</th><th className="font-medium">Asleep</th>{recovery && <th className="font-medium">Recovery</th>}</tr></thead>
           <tbody>
             {nights.map((n) => (
-              <tr key={n.date}><td>{n.date}</td><td>{n.hours} h</td><td>{typeof n.recovery === "number" ? `${n.recovery}%` : "—"}</td></tr>
+              <tr key={n.date}><td>{n.date}</td><td>{n.hours} h</td>{recovery && <td>{typeof n.recovery === "number" ? `${n.recovery}%` : "—"}</td>}</tr>
             ))}
           </tbody>
         </table>
