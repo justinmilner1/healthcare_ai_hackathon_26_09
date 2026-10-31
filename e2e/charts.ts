@@ -21,6 +21,17 @@ const GLUCOSE = /^Glucose: \d+ mg\/dL$/;
  * without one would mean the suffix had been lost rather than that the data never had it.
  */
 const ASLEEP = /^Asleep: \d+(\.\d+)? h · recovery \d+%$/;
+/**
+ * And the same row over the export that carries no recovery score at all (T205, §2.7).
+ *
+ * `data/fixtures/whoop_alt_headers.csv` names no recovery column, so `parseWhoopCsv` leaves every night of
+ * it undefined and the suffix above drops out — which is correct, and is why `ASLEEP` above could not simply
+ * be loosened to cover both: the required suffix is what says the formatter has not lost it on the two
+ * samples that do carry scores. So this is the other expectation rather than a weaker single one, anchored
+ * at both ends for the same reason: a row still reading "· recovery" here would be a suffix invented over
+ * data that has none.
+ */
+const ASLEEP_NO_RECOVERY = /^Asleep: \d+(\.\d+)? h$/;
 
 /** The chart drawing a line, and the one drawing columns, whichever cards this page puts them in. */
 const lineChart = (page: Page): Locator =>
@@ -78,6 +89,19 @@ export async function expectChartTooltipsLabelled(
   // The chart all three surfaces have, and the one the ticket was reported against.
   expect(await tooltipRow(page, lineChart(page)), `${where}: the glucose tooltip`).toMatch(GLUCOSE);
   await photograph?.("glucose");
+}
+
+/**
+ * The sleep tooltip on a surface whose WHOOP export carries no recovery score (T205, §2.7).
+ *
+ * Desktop only, for the reason `expectChartTooltipsLabelled` is: §6.5's 375px device has no pointer to hover
+ * with, so there is no tooltip there to read.
+ */
+export async function expectSleepTooltipWithoutRecovery(page: Page, where: string): Promise<void> {
+  if (test.info().project.name !== "desktop") return;
+  const bars = barChart(page);
+  await expect(bars.first(), `${where}: the sleep chart drew no columns`).toBeVisible(DRAWN);
+  expect(await tooltipRow(page, bars.first()), `${where}: the sleep tooltip`).toMatch(ASLEEP_NO_RECOVERY);
 }
 
 // T187 (design §2.6, §2.7, §7.4, §6.5): and what is written under the glucose line, on the same three

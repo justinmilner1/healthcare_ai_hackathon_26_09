@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
-import { expectMarkerLabelsClearOfMarkers, expectTimeAxisLabelled } from "./charts";
+import { expectMarkerLabelsClearOfMarkers, expectSleepTooltipWithoutRecovery, expectTimeAxisLabelled } from "./charts";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import { COUNTDOWN, EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
@@ -1283,6 +1283,93 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   await expect(glucoseCaption, "the labels are the ones that fit").toContainText(/the labels that fit say where you were around then/i);
   await expect(content, "and not in the clinician's words").not.toContainText(/Labels, where they fit/i);
   await shot(page, "patient-summary-places-caption", { ...SCREENFUL, scrollTo: ".patient-card-heading" });
+});
+
+// T205 (design §2.7, §9.3, §6.5): the sleep card, in both the shapes a WHOOP export can put it in.
+//
+// §9.3 leaves WHOOP to the optional data panel and `parseWhoopCsv` matches its columns loosely (lib/sleep.ts),
+// so an export whose header names no recovery column is an ordinary upload and not an edge case — and it
+// leaves *every* night of that upload without a score. The card over it said "Nightly sleep and recovery from
+// your connected data." above columns of hours, a tooltip whose recovery suffix had already dropped out, and a
+// Recovery column of em dashes: the subtitle was the only element on the screen carrying the word. Both tests
+// run in both projects, so §6.5's width gets the card it is about — the phone is where a third column costs
+// the most, as it was for the rises table's Where column in T82.
+
+/** §2.7's sleep card, by the heading the page gives it (app/patient/[id]/page.tsx). */
+const sleepCard = (page: Page) =>
+  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { name: "Your sleep" }) });
+
+/** Whether any night the page was handed carries a recovery score, read off the bundle the page renders. */
+async function scoredNights(page: Page, token: string) {
+  const bundle = await (await page.request.get(`/api/patient/${token}`)).json();
+  const nights = bundle.sleep as { recovery?: number }[];
+  return { nights: nights.length, scored: nights.filter((n) => typeof n.recovery === "number").length };
+}
+
+test("patient summary: a WHOOP export with recovery scores keeps the card's wording", async ({ page }) => {
+  // The sample the suite has always uploaded: every night of it is scored.
+  const token = await patientWithUploads(page, "E2E Sleep Scored", [
+    ["dexcom", "data/dexcom_clarity_sample.csv"],
+    ["whoop", "data/whoop_sample.csv"],
+  ]);
+
+  // Read first, so the test knows which shape it is asserting rather than hoping — the direction this
+  // ticket promised to leave alone is only a claim on a week that really does carry scores.
+  const { nights, scored } = await scoredNights(page, token);
+  expect(nights, "this week has nights to draw").toBeGreaterThan(0);
+  expect(scored, "and every one of them is scored").toBe(nights);
+
+  const card = sleepCard(page);
+  await expect(card, "the card renders for a visit that shared a WHOOP export").toBeVisible(LOADED);
+  await expect(card.locator(".patient-report-subtitle"), "§2.7's copy, unchanged (T205 AC4)").toHaveText(
+    "Nightly sleep and recovery from your connected data.",
+  );
+
+  // And the column the sentence promises is really there to read.
+  await card.locator("details summary").click();
+  await expect(card.getByRole("columnheader")).toHaveText(["Night", "Asleep", "Recovery"]);
+  await expect(card.locator("tbody"), "a scored week fills the column").toContainText(/%/);
+
+  if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, sleep with recovery");
+  await shot(page, "patient-summary-sleep-recovery", { ...SCREENFUL, scrollTo: sleepCard(page) });
+});
+
+test("patient summary: a WHOOP export with no recovery score does not claim one", async ({ page }) => {
+  // The fixture whose header is `Date,Sleep duration (min),Sleep performance %` — no recovery column at all,
+  // which lib/sleep.test.ts has pinned since T25 and lib/uploads.test.ts accepts as an ordinary `whoop`
+  // upload. This is the first time the running product is driven with it.
+  const token = await patientWithUploads(page, "E2E Sleep Unscored", [
+    ["dexcom", "data/dexcom_clarity_sample.csv"],
+    ["whoop", "data/fixtures/whoop_alt_headers.csv"],
+  ]);
+
+  const { nights, scored } = await scoredNights(page, token);
+  expect(nights, "the export parsed into nights, so the card is on screen").toBeGreaterThan(0);
+  expect(scored, "and not one of them carries a recovery score").toBe(0);
+
+  const card = sleepCard(page);
+  await expect(card, "the card still renders: the hours are real data").toBeVisible(LOADED);
+  const subtitle = card.locator(".patient-report-subtitle");
+  await expect(subtitle, "what the card shows, and nothing it does not").toHaveText(
+    "Nightly sleep from your connected data.",
+  );
+  // The rule and not just the literal: no element of this card may name the thing the week has none of, and
+  // the subtitle was the only one that did.
+  await expect(card, "the one word this week cannot support").not.toContainText(/recovery/i);
+
+  // T205 AC3: the column is not drawn at all, rather than drawn as a column of em dashes. A column header is
+  // itself a claim that the data has that field — T82's reading of the rises table's Where column.
+  await card.locator("details summary").click();
+  await expect(card.getByRole("columnheader")).toHaveText(["Night", "Asleep"]);
+  await expect(card.locator("tbody"), "no cell reports the column's own absence").not.toContainText("—");
+
+  // And the tooltip, which drops its suffix on its own and is the one element that was already right. Its
+  // expectation is this upload's own rather than a loosening of e2e/charts.ts's `ASLEEP`, which stays as
+  // written for the two samples that do carry scores (T205 AC6).
+  await expectSleepTooltipWithoutRecovery(page, "the patient summary, sleep without recovery");
+
+  if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, sleep without recovery");
+  await shot(page, "patient-summary-sleep-no-recovery", { ...SCREENFUL, scrollTo: sleepCard(page) });
 });
 
 /**
