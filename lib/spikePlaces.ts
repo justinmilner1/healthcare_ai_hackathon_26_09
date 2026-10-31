@@ -280,7 +280,7 @@ function patientPlaceClause(spikes: Spike[]): string {
  * The subtitle under the patient's glucose card, which names what the markers on it carry.
  *
  * GlucoseChart labels a marker with its spike's place when there is one and with the peak reading when there
- * is not, so the half-sentence about places is only true in the first case — and a caption promising a place
+ * is not, so the sentence about places is only true in the first case — and a caption promising a place
  * above a table with no Where column is the same bug read twice (T82). `anyPlaceKnown` is therefore still
  * the predicate, the one the table's column reads, so the two cannot disagree about whether this week has
  * places in it at all.
@@ -294,14 +294,33 @@ function patientPlaceClause(spikes: Spike[]): string {
  * no rise over 180 the sentence is `NO_RISES_TO_MARK_PATIENT` above and the place clause does not arise,
  * since a week with no rises has no matched one either. Everything from one rise up keeps the shape it had
  * and takes its agreement from `plural`.
+ *
+ * And one thing about the labels, which is the state `anyPlaceKnown` cannot see (T204). That predicate
+ * answers whether a place is *known* — the question the Where column reads too (T82) — and `, when
+ * available` is the hedge for it. Whether the label for a known place was *drawn* is a second question
+ * entirely: `lib/markerLabels.ts` drops a label that would collide with a neighbouring label or marker and
+ * keeps the bare dot (T23, T197), so a rise this sentence has placed can reach §2.7's chart as a red dot
+ * with nothing over it. The mixed-places sample does it at both widths — the `Sun 10:30 PM` rise loses its
+ * sixteen-character `a place you went` to the `202` label 44px to its left, and at 375px the `202` goes too
+ * — and the patient has nothing on that page to read a bare dot as anything but a rise with no place:
+ * `compact` drops the relation suffix from the table (components/SpikeTable.tsx), and the caption above was
+ * the only element saying what a label is.
+ *
+ * The clinician's twin has hedged exactly this since T99, in four words of its own (`Labels, where they
+ * fit,` in `clinicianChartCaption` below). This one says it in §2.7's second person rather than borrowing
+ * them, and counts the labels it is about rather than fixing their plural — the mistake T200 had to come
+ * back for one caption down, where a half-sentence after the comma stayed plural over a single rise. The
+ * clause is on the place branch alone, because it is a claim about a label that names a place: where no
+ * place is known every label is a peak reading, which this sentence deliberately says nothing about (T199,
+ * T204's "not in scope"), and over no rises at all there is no label to describe.
  */
 export function patientChartCaption(spikes: Spike[]): string {
   if (spikes.length === 0) return NO_RISES_TO_MARK_PATIENT;
   const n = spikes.length;
-  const markers = `${plural(n, "Marker")} ${plural(n, "shows", "show")} your ${patientRiseNoun(n)}`;
-  return anyPlaceKnown(spikes)
-    ? `${markers} and ${patientPlaceClause(spikes)}, when available.`
-    : `${markers}.`;
+  const markers = `${plural(n, "Marker")} ${plural(n, "shows", "show")} your ${patientRiseNoun(n)}.`;
+  if (!anyPlaceKnown(spikes)) return markers;
+  const labels = plural(n, "The label that fits says", "The labels that fit say");
+  return `${markers} ${labels} ${patientPlaceClause(spikes)}, when available.`;
 }
 
 /**

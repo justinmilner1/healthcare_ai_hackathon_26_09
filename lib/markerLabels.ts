@@ -2,9 +2,12 @@
 // §7.4, §6.5). Owner: sour. The clinician's brief, the printed one-pager and the patient's own summary all
 // draw one chart — components/GlucoseChart.tsx — and all three read this for its labels.
 //
-// The caption over every one of those charts promises "Labels, where they fit, give the peak mg/dL" (and
-// the place variant on a placed week, lib/spikePlaces.ts). "Where they fit" is a claim this module has to
-// keep, and keeping it has now failed twice in the same genre:
+// The caption over every one of those charts says that the labels on it are the ones that fit: the
+// clinician's two in those words, "Labels, where they fit, give the peak mg/dL" (and the place variant on a
+// placed week), the patient's in §2.7's own second person, "The labels that fit say where you were around
+// then" — all of them from lib/spikePlaces.ts. The patient's sentence was the one that did not say it, over
+// a chart that drops labels like the other two, which is T204. "Where they fit" is a claim this module has
+// to keep, and keeping it has now failed twice in the same genre:
 //
 // - **T23** measured labels against labels. Before it, a fixed "5% of the span apart" rule let four labels
 //   land inside 60px of each other on §6.5's 375px page; after it, a label is kept only where the gap to
