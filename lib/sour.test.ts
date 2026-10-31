@@ -296,7 +296,20 @@ test("safety flags fire on a level 2 low, on time below range, and on a sustaine
   assert.equal(flags[1], "Time below 70 mg/dL is 11% (target under 4%).");
   const sustained = safetyFlags(parseClarityCsv(fixture("clarity_sustained_high.csv")));
   assert.equal(sustained.length, 1);
-  assert.match(sustained[0], /^Above 250 mg\/dL for an hour or more on 1 occasion \(longest 100 min from Sun, Sep 20, \b0?7:35 PM, peak 291\)\.$/);
+  // T202: one occasion, so the parenthetical reports the run rather than electing it the longest of a set
+  // of one. The whole sentence, because the defect was in the half of it the old prefix match never read.
+  assert.match(sustained[0], /^Above 250 mg\/dL for an hour or more on 1 occasion \(100 min from Sun, Sep 20, \b0?7:35 PM, peak 291\)\.$/);
+  assert.equal(sustained[0].includes("longest"), false, "a superlative over a set of one");
+});
+
+test("the sustained-high flag elects a longest only where there is more than one occasion", () => {
+  // Two runs above 250, both over the hour, in one stretch of readings five minutes apart: 12 readings is
+  // 60 min and 14 is 70, so the second is the longest and the parenthetical is about it. Nothing here is
+  // below 70, so this is the one flag `safetyFlags` returns and the sentence can be read whole.
+  const twoRuns = [160, ...Array<number>(12).fill(270), 160, 160, ...Array<number>(14).fill(280), 160];
+  const flags = safetyFlags(series("2026-09-19T08:00:00Z", 5, twoRuns));
+  assert.equal(flags.length, 1);
+  assert.match(flags[0], /^Above 250 mg\/dL for an hour or more on 2 occasions \(longest 70 min from Sat, Sep 19, \b0?9:15 AM, peak 280\)\.$/);
 });
 
 test("safety flags stay quiet when there is nothing to flag", () => {
