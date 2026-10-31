@@ -14,7 +14,7 @@ import SleepChart from "@/components/SleepChart";
 import SpikeTable from "@/components/SpikeTable";
 import { summaryDataInvite } from "@/lib/dexcomHint";
 import { countOf, daySpan, plural, spanNoun } from "@/lib/plural";
-import { patientChartCaption } from "@/lib/spikePlaces";
+import { patientChartCaption, patientSpikeCardHeading } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
 import { visitCountdownSentence } from "@/lib/visitCountdown";
 import { visitLabel } from "@/lib/visits";
@@ -233,7 +233,11 @@ export default function PatientPage({
 
               {bundle.spikes.length > 0 && (
                 <section className="patient-report-card patient-spikes">
-                  <h2>Your biggest rises</h2>
+                  {/* T203 (§2.7): the heading counts the rows under it, like the caption one card above
+                      does its markers — both read `patientRiseNoun` in lib/spikePlaces.ts off this same
+                      array, so the page cannot call one rise "your biggest rise" and "Your biggest
+                      rises" in one frame again. */}
+                  <h2>{patientSpikeCardHeading(bundle.spikes)}</h2>
                   <p className="patient-report-subtitle">
                     A simple timeline to help you remember what was happening.
                   </p>
