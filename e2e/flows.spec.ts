@@ -1373,6 +1373,126 @@ test("patient summary: a WHOOP export with no recovery score does not claim one"
 });
 
 /**
+ * §2.7's two narrative cards, at the counts §7 can actually produce (T206, design §2.7, §7, §6.5).
+ *
+ * This is the first coverage either card has had at any count. Both render on `length ?`, so each is on
+ * screen from one item upwards — and with no model gateway `degradedPair` (lib/sourRun.ts) writes
+ * `patterns: []` and `questions: []` for both audiences, so neither card has ever been drawn by this suite
+ * or appeared in a committed screenshot. That is how "A few patterns worth noticing together." came to sit
+ * over a single bullet, and "Bring these into your visit, or use them as a starting point." over a single
+ * numbered line.
+ *
+ * One item is not an edge case: `lib/prompts.ts` bounds both arrays at 1 to 3, `lib/sourRun.ts` clamps with
+ * `clean(…, 3)`, and the clinician prompt *instructs* the model to answer an unremarkable week in one
+ * pattern rather than inventing a second. So the single-pattern card is the well-controlled week — the best
+ * outcome §7 has to report — which is T199's reading of the empty chart caption one card up this page.
+ *
+ * The run behind the page is a real one and the narrative is this test's: `POST /api/sour` saves the pair
+ * this suite can actually produce, which is asserted empty below, and `page.route` then puts a narrative on
+ * it on its way to the browser. Waiting for a model would be waiting for something this suite has decided
+ * not to have (§6.3, §11.3); fabricating the whole summary would put a page on the record that the product
+ * cannot produce, which is the mistake T196 corrected in e2e/followup.spec.ts. Patching the two arrays and
+ * nothing else leaves every number, flag and chart on the screen the saved summary's own.
+ */
+
+/** §2.7's narrative cards, by the headings the page gives them (app/patient/[id]/page.tsx). */
+const patternsCard = (page: Page) =>
+  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: /^What your .+ showed$/ }) });
+const questionsCard = (page: Page) =>
+  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: "Things you might ask your doctor" }) });
+
+/** Two patterns and two questions in the register §7 asks for, so the cards read as the product's own. */
+const PATTERNS = [
+  "Your readings stayed between 70 and 180 for most of the week.",
+  "Three of your four overnight highs came after dinners out past 8pm.",
+  "Mornings after nights under six hours ran about 20 mg/dL higher.",
+];
+const QUESTIONS = [
+  "Should I keep the same evening dose?",
+  "Is six hours of sleep enough for me?",
+  "Would a different breakfast help the mid-morning rise?",
+];
+
+test("patient summary: the narrative cards count what is under them", async ({ page }) => {
+  const token = await patientWithUploads(page, "E2E Narrative", [["dexcom", "data/dexcom_clarity_sample.csv"]]);
+  const visitId = (await (await page.request.get(`/api/patient/${token}`)).json()).visitId as string;
+
+  // A real `sour.run`, so what the page renders below is a saved summary pair and not an object this test
+  // invented whole (§7.1). `patientWithUploads` signed in as staff to book the visit, and `page.request`
+  // shares that jar, so the provider route this posts to is reachable (§5.2).
+  expect((await postJson(page.request, "/api/sour", { visitId })).ok(), "POST /api/sour").toBeTruthy();
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/patient/${token}`)).json()).patientSummary !== null, DRAINED)
+    .toBe(true);
+  const saved = await (await page.request.get(`/api/patient/${token}`)).json();
+  // The state this suite is in, stated rather than assumed: no model wrote this pair, so both arrays are
+  // empty and both cards are gated out. Everything below rests on the patch really being what put them on
+  // screen.
+  expect(saved.patientSummary.patterns, "no model gateway, so no narrative (§6.3, §11.3)").toEqual([]);
+  expect(saved.patientSummary.questions, "the same for the questions").toEqual([]);
+
+  await page.goto(`/patient/${token}`);
+  await expect(page.locator(".patient-summary-content")).toBeVisible(LOADED);
+  await expect(patternsCard(page), "no patterns, no patterns card").toHaveCount(0);
+  await expect(questionsCard(page), "no questions, no questions card").toHaveCount(0);
+
+  // The narrative the server would have carried if a model had written one. Mutable rather than two
+  // registrations: the second `page.route` would sit behind the first, and the test would read the same
+  // count twice while looking as though it had read two.
+  let narrative: { patterns: string[]; questions: string[] } = { patterns: [], questions: [] };
+  await page.route(/\/api\/patient\//, async (route) => {
+    const res = await route.fetch();
+    const body = (await res.json()) as { patientSummary: { patterns: string[]; questions: string[] } | null };
+    if (body.patientSummary) {
+      body.patientSummary.patterns = narrative.patterns;
+      body.patientSummary.questions = narrative.questions;
+    }
+    await route.fulfill({ response: res, json: body });
+  });
+
+  // One of each: the count the ticket was filed for, and the one §7's "say so in one pattern" produces.
+  narrative = { patterns: PATTERNS.slice(0, 1), questions: QUESTIONS.slice(0, 1) };
+  await page.goto(`/patient/${token}`);
+  const onePattern = patternsCard(page);
+  await expect(onePattern, "the patch reached the page").toBeVisible(LOADED);
+  await expect(onePattern.locator("li")).toHaveCount(1);
+  await expect(onePattern.locator(".patient-report-subtitle")).toHaveText("A pattern worth noticing.");
+  // The rule and not just the literal: the count claim and the relation word are the two things a reword
+  // could put back, and "together" needs two things to hold between (lib/patientNarrative.ts).
+  await expect(onePattern, "a count the one bullet under it contradicts").not.toContainText(/a few/i);
+  await expect(onePattern, "a relation one item cannot have").not.toContainText(/together/i);
+
+  const oneQuestion = questionsCard(page);
+  await expect(oneQuestion).toBeVisible();
+  await expect(oneQuestion.locator("li")).toHaveCount(1);
+  await expect(oneQuestion.locator(".patient-report-subtitle")).toHaveText(
+    "Bring this into your visit, or use it as a starting point.",
+  );
+  // Both pronouns, separately: T200's bug was a sentence fixed in its first clause and left plural in its
+  // second, and one `toHaveText` would have caught that only by accident.
+  await expect(oneQuestion, "a plural pronoun for one question").not.toContainText(/\bthese\b/i);
+  await expect(oneQuestion, "and the one after the comma").not.toContainText(/\bthem\b/i);
+
+  if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, one pattern and one question");
+  await shot(page, "patient-summary-narrative-one", { ...SCREENFUL, scrollTo: patternsCard(page) });
+
+  // And the direction criteria 1 and 2 promise not to move: at three, §2.7's own wording, unchanged.
+  narrative = { patterns: PATTERNS, questions: QUESTIONS };
+  await page.goto(`/patient/${token}`);
+  const manyPatterns = patternsCard(page);
+  await expect(manyPatterns.locator("li")).toHaveCount(3, LOADED);
+  await expect(manyPatterns.locator(".patient-report-subtitle")).toHaveText("A few patterns worth noticing together.");
+  const manyQuestions = questionsCard(page);
+  await expect(manyQuestions.locator("li")).toHaveCount(3);
+  await expect(manyQuestions.locator(".patient-report-subtitle")).toHaveText(
+    "Bring these into your visit, or use them as a starting point.",
+  );
+
+  if (test.info().project.name === "mobile") await expectNoHorizontalScroll(page, "the patient summary, three patterns and three questions");
+  await shot(page, "patient-summary-narrative-three", { ...SCREENFUL, scrollTo: patternsCard(page) });
+});
+
+/**
  * The summary's loading card, which is the one state of §2.7's page that had no assertion on it at all —
  * and is how "your week" outlived T100, T114, T116 and T123 (T132, design §2.5, §2.7).
  *
