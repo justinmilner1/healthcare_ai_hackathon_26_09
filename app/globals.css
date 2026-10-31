@@ -4539,6 +4539,12 @@ button.sweetie-agent-badge {
   grid-column: 1 / -1;
 }
 
+/* T208 (§2.7, §12.5): both of §2.7's narrative cards are <ol> — §7 orders them "most important first"
+   (lib/prompts.ts) — and both suppress the marker here, so the numeral a reader sees is the chip below and
+   never the list's own. That is why the chip carries `aria-hidden="true"` in app/patient/[id]/page.tsx: the
+   position is still in the accessibility tree, said once, while `list-style: none` keeps it out of the
+   picture. Un-suppress the marker and the chip's `aria-hidden` has to go with it, or the number is drawn
+   twice. */
 .patient-pattern-list,
 .patient-question-list {
   display: grid;

@@ -293,14 +293,20 @@ export default function PatientPage({
                     <p className="patient-report-subtitle">
                       {patientPatternsSubtitle(summary.patterns)}
                     </p>
-                    <ul className="patient-pattern-list">
+                    {/* T208 (§2.7, §12.5): an ordered list, like its twin one card below, because §7's
+                        order is the content — lib/prompts.ts asks for these "most important first" and
+                        lib/sourRun.ts keeps them that way, which is what the numerals down the left edge
+                        are drawing. The chip is `aria-hidden` because the list already carries the
+                        position: `list-style: none` in app/globals.css suppresses the marker for the eye
+                        only, so without it a screen reader read "item 1, 1, Your readings stayed…". */}
+                    <ol className="patient-pattern-list">
                       {summary.patterns.map((pattern, index) => (
                         <li key={pattern}>
-                          <span>{index + 1}</span>
+                          <span aria-hidden="true">{index + 1}</span>
                           <span>{pattern}</span>
                         </li>
                       ))}
-                    </ul>
+                    </ol>
                   </section>
                 ) : null}
               </div>
@@ -313,10 +319,13 @@ export default function PatientPage({
                   <p className="patient-report-subtitle">
                     {patientQuestionsSubtitle(summary.questions)}
                   </p>
+                  {/* T208 (§2.7, §12.5): the same `aria-hidden` chip as the patterns card above, for the
+                      same reason — this list was already ordered, and the numeral was being announced on
+                      top of the position the <ol> gives it. */}
                   <ol className="patient-question-list">
                     {summary.questions.map((question, index) => (
                       <li key={question}>
-                        <span>{index + 1}</span>
+                        <span aria-hidden="true">{index + 1}</span>
                         <span>{question}</span>
                       </li>
                     ))}
