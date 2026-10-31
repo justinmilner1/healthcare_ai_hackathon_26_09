@@ -5,7 +5,19 @@ import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
 import { expectMarkerLabelsClearOfMarkers, expectSleepTooltipWithoutRecovery, expectTimeAxisLabelled } from "./charts";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
-import { COUNTDOWN, EYEBROW, expectNoCoordinates, patientEmail, verifyByApi, verifyLink } from "./patient";
+import {
+  COUNTDOWN,
+  EYEBROW,
+  expectNoCoordinates,
+  NARRATIVE_PATTERNS,
+  NARRATIVE_QUESTIONS,
+  patchNarrative,
+  patientEmail,
+  patternsCard,
+  questionsCard,
+  verifyByApi,
+  verifyLink,
+} from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
 import { waitingOnPatientNote } from "../lib/sourState";
 import { UNNAMED_PLACE } from "../lib/spikePlaces";
@@ -1425,30 +1437,12 @@ test("patient summary: a WHOOP export with no recovery score does not claim one"
  * outcome §7 has to report — which is T199's reading of the empty chart caption one card up this page.
  *
  * The run behind the page is a real one and the narrative is this test's: `POST /api/sour` saves the pair
- * this suite can actually produce, which is asserted empty below, and `page.route` then puts a narrative on
- * it on its way to the browser. Waiting for a model would be waiting for something this suite has decided
+ * this suite can actually produce, which is asserted empty below, and `patchNarrative` (e2e/patient.ts)
+ * then puts a narrative on it on its way to the browser. Waiting for a model would be waiting for something this suite has decided
  * not to have (§6.3, §11.3); fabricating the whole summary would put a page on the record that the product
  * cannot produce, which is the mistake T196 corrected in e2e/followup.spec.ts. Patching the two arrays and
  * nothing else leaves every number, flag and chart on the screen the saved summary's own.
  */
-
-/** §2.7's narrative cards, by the headings the page gives them (app/patient/[id]/page.tsx). */
-const patternsCard = (page: Page) =>
-  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: /^What your .+ showed$/ }) });
-const questionsCard = (page: Page) =>
-  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: "Things you might ask your doctor" }) });
-
-/** Two patterns and two questions in the register §7 asks for, so the cards read as the product's own. */
-const PATTERNS = [
-  "Your readings stayed between 70 and 180 for most of the week.",
-  "Three of your four overnight highs came after dinners out past 8pm.",
-  "Mornings after nights under six hours ran about 20 mg/dL higher.",
-];
-const QUESTIONS = [
-  "Should I keep the same evening dose?",
-  "Is six hours of sleep enough for me?",
-  "Would a different breakfast help the mid-morning rise?",
-];
 
 test("patient summary: the narrative cards count what is under them", async ({ page }) => {
   const token = await patientWithUploads(page, "E2E Narrative", [["dexcom", "data/dexcom_clarity_sample.csv"]]);
@@ -1473,22 +1467,14 @@ test("patient summary: the narrative cards count what is under them", async ({ p
   await expect(patternsCard(page), "no patterns, no patterns card").toHaveCount(0);
   await expect(questionsCard(page), "no questions, no questions card").toHaveCount(0);
 
-  // The narrative the server would have carried if a model had written one. Mutable rather than two
-  // registrations: the second `page.route` would sit behind the first, and the test would read the same
-  // count twice while looking as though it had read two.
+  // The narrative the server would have carried if a model had written one (e2e/patient.ts, shared with
+  // e2e/a11y.spec.ts since T208). Mutable rather than a second registration, which would sit behind the
+  // first and leave this test reading the same count twice while looking as though it had read two.
   let narrative: { patterns: string[]; questions: string[] } = { patterns: [], questions: [] };
-  await page.route(/\/api\/patient\//, async (route) => {
-    const res = await route.fetch();
-    const body = (await res.json()) as { patientSummary: { patterns: string[]; questions: string[] } | null };
-    if (body.patientSummary) {
-      body.patientSummary.patterns = narrative.patterns;
-      body.patientSummary.questions = narrative.questions;
-    }
-    await route.fulfill({ response: res, json: body });
-  });
+  await patchNarrative(page, () => narrative);
 
   // One of each: the count the ticket was filed for, and the one §7's "say so in one pattern" produces.
-  narrative = { patterns: PATTERNS.slice(0, 1), questions: QUESTIONS.slice(0, 1) };
+  narrative = { patterns: NARRATIVE_PATTERNS.slice(0, 1), questions: NARRATIVE_QUESTIONS.slice(0, 1) };
   await page.goto(`/patient/${token}`);
   const onePattern = patternsCard(page);
   await expect(onePattern, "the patch reached the page").toBeVisible(LOADED);
@@ -1514,7 +1500,7 @@ test("patient summary: the narrative cards count what is under them", async ({ p
   await shot(page, "patient-summary-narrative-one", { ...SCREENFUL, scrollTo: patternsCard(page) });
 
   // And the direction criteria 1 and 2 promise not to move: at three, §2.7's own wording, unchanged.
-  narrative = { patterns: PATTERNS, questions: QUESTIONS };
+  narrative = { patterns: NARRATIVE_PATTERNS, questions: NARRATIVE_QUESTIONS };
   await page.goto(`/patient/${token}`);
   const manyPatterns = patternsCard(page);
   await expect(manyPatterns.locator("li")).toHaveCount(3, LOADED);

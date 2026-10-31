@@ -4,9 +4,21 @@ import { expect, test, type Page } from "@playwright/test";
 import { expectNoFocusRing, expectNoSeriousA11yViolations, expectVisibleFocusRing } from "./a11y";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
-import { LOADED } from "./budget";
-import { AGREE, EYEBROW, acceptConsent, enterCode, patientEmail } from "./patient";
-import { shot, WHOLE_PAGE, type ShotOptions } from "./shot";
+import { DRAINED, LOADED } from "./budget";
+import {
+  AGREE,
+  EYEBROW,
+  acceptConsent,
+  enterCode,
+  expectOrderedNarrative,
+  NARRATIVE_PATTERNS,
+  NARRATIVE_QUESTIONS,
+  patchNarrative,
+  patientEmail,
+  patternsCard,
+  questionsCard,
+} from "./patient";
+import { SCREENFUL, shot, WHOLE_PAGE, type ShotOptions } from "./shot";
 
 // T22, design §6.4 and §12.5: every screen a patient can land on — the code screen, the two dead ends in
 // front of it (T98), consent, Sweetie, the intake sources and the summary — judged by axe against WCAG 2.1
@@ -310,7 +322,7 @@ test("the intake page passes axe and labels every file picker", async ({ page })
   await shot(page, "a11y-intake");
 });
 
-test("the patient summary passes axe, empty and full", async ({ page }) => {
+test("the patient summary passes axe, empty and full", async ({ page, browser }) => {
   const { token, email } = await book(page, "E2E A11y Summary");
 
   await page.goto(`/s/${token}`);
@@ -348,7 +360,13 @@ test("the patient summary passes axe, empty and full", async ({ page }) => {
   await expectNoSeriousA11yViolations(page, "patient summary, nothing connected");
   await shot(page, "a11y-summary-empty");
 
-  // And the page the ticket is really about: charts, the spike table, the sleep panel, the week's numbers.
+  // And the page the ticket is really about: charts, the spike table, the sleep panel, the week's numbers,
+  // and — since T208 — §2.7's two narrative cards, "What your week showed" and "Things you might ask your
+  // doctor". Those two are the half this test could not reach for its first eleven tickets: both render on
+  // `length ?`, this suite has no model gateway, and `degradedPair` (lib/sourRun.ts) writes `patterns: []`
+  // and `questions: []` — so axe had never read either card at any count, which is how one of them stayed
+  // a `<ul>` drawing 1, 2, 3 and the other announced its numeral on top of the position its `<ol>` already
+  // gave it. They are put on the page below the way T206's test does it (patchNarrative, e2e/patient.ts).
   // Uploaded through the real route, as the intake screen does, so what axe reads is the rendered data.
   const headers = { "x-csrf-token": await csrfToken(page.request) };
   for (const [kind, name, type, file] of [
@@ -372,4 +390,40 @@ test("the patient summary passes axe, empty and full", async ({ page }) => {
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await expectNoSeriousA11yViolations(page, "patient summary");
   await shot(page, "a11y-summary");
+
+  // A real `sour.run`, so the pair the narrative lands on is one the product saved (§7.1). Generating is a
+  // clinician's job (§5.2) and `book` above signed this browser out on purpose, so the request comes from a
+  // staff browser of its own — the shape e2e/ratelimit.spec.ts's second patient uses, one page, used and
+  // closed — rather than by signing back in here and leaving the patient's session behind.
+  const visitId = (await (await page.request.get(`/api/patient/${token}`)).json()).visitId as string;
+  expect(visitId, "the visit behind the patient token").toBeTruthy();
+  const staff = await browser.newPage();
+  expect((await postJson(staff.request, "/api/sour", { visitId })).ok(), "POST /api/sour").toBeTruthy();
+  await staff.close();
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/patient/${token}`)).json()).patientSummary !== null, DRAINED)
+    .toBe(true);
+  // Stated rather than assumed, as in the T206 test: no model wrote this pair, so both cards are gated out
+  // and everything below rests on the patch really being what put them on screen.
+  const saved = await (await page.request.get(`/api/patient/${token}`)).json();
+  expect(saved.patientSummary.patterns, "no model gateway, so no narrative (§6.3, §11.3)").toEqual([]);
+  expect(saved.patientSummary.questions, "the same for the questions").toEqual([]);
+
+  await patchNarrative(page, () => ({ patterns: NARRATIVE_PATTERNS, questions: NARRATIVE_QUESTIONS }));
+  await page.goto(`/patient/${token}`);
+  const patterns = patternsCard(page);
+  const questions = questionsCard(page);
+  await expect(patterns, "the patch reached the page").toBeVisible(LOADED);
+  await expect(questions).toBeVisible();
+
+  // The §12.5 judgement, now over a page that has both cards on it.
+  await expectNoSeriousA11yViolations(page, "patient summary, both narrative cards");
+
+  // And the semantics by name, because axe has no rule for either half of T208: a `<ul>` whose order is
+  // meaningful is valid markup, and a numeral said twice is valid markup read badly. Both cards, the same
+  // way, since §7 orders both arrays "most important first" (lib/prompts.ts).
+  await expectOrderedNarrative(patterns, NARRATIVE_PATTERNS, "the patterns card");
+  await expectOrderedNarrative(questions, NARRATIVE_QUESTIONS, "the questions card");
+
+  await shot(page, "a11y-summary-narrative", { ...SCREENFUL, scrollTo: patternsCard(page) });
 });

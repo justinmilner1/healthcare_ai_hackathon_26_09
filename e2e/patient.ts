@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { findDevMail } from "../lib/devMailbox";
 import { postJson } from "./api";
@@ -220,4 +220,94 @@ const COORDINATES = /-?\d+\.\d{3}, -?\d+\.\d{3}/;
 export async function expectNoCoordinates(page: Page, where: string): Promise<void> {
   await expect(page.locator(".patient-chart-wrap circle"), `the chart's spike markers on ${where}`).not.toHaveCount(0, LOADED);
   await expect(page.locator(".patient-summary-content"), `a lat/long on ${where}`).not.toContainText(COORDINATES);
+}
+
+/**
+ * §2.7's two narrative cards, by the headings the page gives them (app/patient/[id]/page.tsx).
+ *
+ * Shared here rather than beside the test that first drew them (T206, e2e/flows.spec.ts) because T208 gave
+ * them a second reader in e2e/a11y.spec.ts, and a card located by a heading written twice is a card the two
+ * specs can stop agreeing about.
+ */
+export const patternsCard = (page: Page) =>
+  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: /^What your .+ showed$/ }) });
+export const questionsCard = (page: Page) =>
+  page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: "Things you might ask your doctor" }) });
+
+/** Three patterns and three questions in the register §7 asks for, so the cards read as the product's own. */
+export const NARRATIVE_PATTERNS = [
+  "Your readings stayed between 70 and 180 for most of the week.",
+  "Three of your four overnight highs came after dinners out past 8pm.",
+  "Mornings after nights under six hours ran about 20 mg/dL higher.",
+];
+export const NARRATIVE_QUESTIONS = [
+  "Should I keep the same evening dose?",
+  "Is six hours of sleep enough for me?",
+  "Would a different breakfast help the mid-morning rise?",
+];
+
+/**
+ * Put a narrative on the saved summary on its way to the browser (T206, T208).
+ *
+ * This suite has no model gateway, so `degradedPair` (lib/sourRun.ts) writes `patterns: []` and
+ * `questions: []` and both cards are gated out of the page — which is how neither had ever been drawn, by
+ * any spec, at any count. A caller therefore runs a real `sour.run` first, asserts the saved pair is empty,
+ * and patches only these two arrays: every number, flag and chart on the screen stays the saved summary's
+ * own, which is what keeps the frame a page the product can produce (§6.3, §11.3, and the mistake T196
+ * corrected in e2e/followup.spec.ts).
+ *
+ * `get` is read per request rather than bound once, so one registration serves a test that walks several
+ * counts. Two `page.route` registrations would not: the second sits behind the first, and the test would
+ * read the same count twice while looking as though it had read two.
+ */
+export async function patchNarrative(page: Page, get: () => { patterns: string[]; questions: string[] }): Promise<void> {
+  // A regex rather than a glob: `**` around a path segment is the kind of pattern that silently matches
+  // nothing, and a route that never intercepts would leave the caller asserting the unpatched page.
+  await page.route(/\/api\/patient\//, async (route) => {
+    const res = await route.fetch();
+    const body = (await res.json()) as { patientSummary: { patterns: string[]; questions: string[] } | null };
+    if (body.patientSummary) {
+      const narrative = get();
+      body.patientSummary.patterns = narrative.patterns;
+      body.patientSummary.questions = narrative.questions;
+    }
+    await route.fulfill({ response: res, json: body });
+  });
+}
+
+/**
+ * A §2.7 narrative card as a screen reader resolves it (T208, design §2.7, §12.5, §7).
+ *
+ * Both cards draw a numeral down their left edge and both suppress the list marker that would otherwise
+ * draw one (`list-style: none`, app/globals.css), so each has two numbers available to the accessibility
+ * tree and must expose exactly one. The element is asserted rather than the role, because `<ul>` and `<ol>`
+ * both resolve to `role=list`: which element it is *is* the thing this covers — §7 orders both arrays
+ * "most important first" (lib/prompts.ts) and lib/sourRun.ts keeps them that way, so an edit back to `<ul>`
+ * would say the order does not matter while the page draws 1, 2, 3.
+ *
+ * The chips are checked from the tree's side as well as by their attribute: the aria snapshot is what a
+ * reader is actually handed, so an item announced as "1 Should I keep the same evening dose?" fails here
+ * whichever way the numeral got back in.
+ */
+export async function expectOrderedNarrative(card: Locator, items: string[], where: string): Promise<void> {
+  const list = card.locator("ol");
+  await expect(list, `${where}: one ordered list`).toHaveCount(1, LOADED);
+  await expect(card.locator("ul"), `${where}: nothing on the card says its order does not matter`).toHaveCount(0);
+  await expect(list.locator("li"), `${where}: one item per entry`).toHaveCount(items.length);
+
+  // The chip is still drawn, and still drawn for the eye only: criterion 3 is that this ticket changed what
+  // is announced and not what is in the picture.
+  const chips = list.locator("li > span:first-child");
+  await expect(chips, `${where}: a numeral per item`).toHaveText(items.map((_, index) => String(index + 1)));
+  await expect(chips.first(), `${where}: the numerals are visible`).toBeVisible();
+  await expect(
+    list.locator('li > span:first-child:not([aria-hidden="true"])'),
+    `${where}: every numeral is out of the accessibility tree`,
+  ).toHaveCount(0);
+
+  // And the tree itself, which is what a reader is handed: one listitem per item, announced as its own
+  // sentence with no numeral in front of it. A numeral that got back in by any route fails here.
+  await expect(list, `${where}: each item is announced once`).toMatchAriaSnapshot(
+    ["- list:", ...items.map((item) => `  - listitem: ${JSON.stringify(item)}`)].join("\n"),
+  );
 }
