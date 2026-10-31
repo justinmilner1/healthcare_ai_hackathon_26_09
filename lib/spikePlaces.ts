@@ -298,10 +298,44 @@ function patientPlaceClause(spikes: Spike[]): string {
 export function patientChartCaption(spikes: Spike[]): string {
   if (spikes.length === 0) return NO_RISES_TO_MARK_PATIENT;
   const n = spikes.length;
-  const markers = `${plural(n, "Marker")} ${plural(n, "shows", "show")} your ${plural(n, "biggest rise", "biggest rises")}`;
+  const markers = `${plural(n, "Marker")} ${plural(n, "shows", "show")} your ${patientRiseNoun(n)}`;
   return anyPlaceKnown(spikes)
     ? `${markers} and ${patientPlaceClause(spikes)}, when available.`
     : `${markers}.`;
+}
+
+/**
+ * What §2.7 calls the rises it is showing the patient, agreeing with how many there are (T203).
+ *
+ * The two sentences on that page that name them are the caption over the chart and the heading over the
+ * table under it, and they name them with the same three words: "your biggest rise" and "Your biggest
+ * rises". So the noun phrase is decided once, here, rather than twice — the heading was a literal
+ * `"Your biggest rises"` in the JSX while T199 taught the caption to count, and the page then said both
+ * things about the same single rise in one frame: "Marker shows your biggest rise." over a chart with one
+ * dot, and "Your biggest rises" over a table with one row.
+ *
+ * Bare of its article so the caption can keep the lower-case "your" its sentence needs and the heading can
+ * capitalise its own; `plural` in lib/plural.ts is the agreement, for T198's reason.
+ */
+function patientRiseNoun(n: number): string {
+  return plural(n, "biggest rise", "biggest rises");
+}
+
+/**
+ * The heading over the patient's rises table, which counts the rows under it (T203).
+ *
+ * `patientChartCaption` above is the sentence it has to agree with — they are one card apart on §2.7's
+ * page, in one frame at either width — so both read `patientRiseNoun` and both count the array they are
+ * handed. The page hands each of them `bundle.spikes`, the same array SpikeTable draws its rows from
+ * (app/patient/[id]/page.tsx), so there is no count for the two of them to disagree about.
+ *
+ * No branch at nought, unlike `clinicianSpikeCardHeading`: the clinician's card is on screen for every
+ * visit that shared readings and says "No spikes over 180 detected." inside itself, while this one is
+ * rendered only where there is a rise to list, and `patientChartCaption` is what §2.7 says instead about a
+ * week with none. "Rises" is the right form for nought anyway, which is what `plural` returns for it.
+ */
+export function patientSpikeCardHeading(spikes: Spike[]): string {
+  return `Your ${patientRiseNoun(spikes.length)}`;
 }
 
 /** The one sentence about the target band, identical on the brief and on the printed sheet. */

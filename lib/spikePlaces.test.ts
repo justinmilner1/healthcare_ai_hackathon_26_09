@@ -5,7 +5,7 @@ import { detectSpikes, parseClarityCsv } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv, placeLabel } from "./location";
 import { matchSpikesToVisits } from "./match";
 import { plural } from "./plural";
-import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, patientSpikeCardHeading, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -259,9 +259,9 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
 });
 
 test("the heading never speaks the matcher's vocabulary at the patient (T157)", () => {
-  // §2.7 is untouched by this: its card is headed "Your biggest rises" and reads the patient's own
-  // functions. This is the assertion that the clinician's heading did not become a third thing the patient
-  // page might be tempted to borrow (T82).
+  // §2.7 is untouched by this: its card is headed by `patientSpikeCardHeading` ("Your biggest rise(s)",
+  // T203) and reads the patient's own functions. This is the assertion that the clinician's heading did
+  // not become a third thing the patient page might be tempted to borrow (T82).
   for (const spikes of [[], [spike()], [spike(somewhere("Home"))]]) {
     assert.doesNotMatch(clinicianSpikeCardHeading(spikes, SHARED), MATCHER);
   }
@@ -1067,4 +1067,58 @@ test("the no-match fixture is the week the unmatched clause is read on (T200)", 
   assert.equal(clinicianSpikeCardHeading(spikes, SHARED), "Spikes over 180");
   assert.equal(clinicianSpikePlacesHint(spikes, SHARED, spikes.length), "0 linked to a place");
   assert.equal(clinicianPlaceColumn(spikes, SHARED), true);
+});
+
+// ---------------------------------------------------------------------------------------------
+// T203 (design §2.7, §12.1): the heading over the patient's rises card counts the rows under it.
+//
+// T199 taught `patientChartCaption` to agree with the number of markers on the chart and left the heading
+// over the table that chart's markers are listed in a literal `"Your biggest rises"` in the JSX. The two
+// cards are adjacent on §2.7's page and in one frame at either width, so the one-rise week read "Marker
+// shows your biggest rise." over a chart carrying one dot and "Your biggest rises" over a table carrying
+// one row -- the pair T199 fixed half of.
+
+test("the patient's rises card is headed in the number of rises it lists (T203)", () => {
+  // Acceptance criterion 1, at the two counts it names. One is the reading the ticket was filed on; two is
+  // the heading the card has shown since §2.7 was written, word for word, which is the direction that must
+  // not move.
+  assert.equal(patientSpikeCardHeading(spikesOf(1)), "Your biggest rise");
+  assert.equal(patientSpikeCardHeading(spikesOf(2)), "Your biggest rises");
+  assert.equal(patientSpikeCardHeading(spikesOf(5)), "Your biggest rises");
+  // A place on a rise is nothing to do with how many there are: this heading says nothing about places,
+  // unlike the clinician's, so no pairing of relations may reach it (the ticket's "not in scope").
+  assert.equal(patientSpikeCardHeading([spike(somewhere("Noe Cafe"))]), "Your biggest rise");
+  assert.equal(patientSpikeCardHeading([spike(during("Office")), spike(arriving("Home", 10))]), "Your biggest rises");
+  assert.doesNotMatch(patientSpikeCardHeading(spikesOf(1)), MATCHER);
+  // And §2.7's second person, which is the register the whole page keeps (T82, T99).
+  assert.match(patientSpikeCardHeading(spikesOf(1)), /^Your\b/);
+});
+
+test("the heading and the caption over the chart cannot disagree about the count (T203)", () => {
+  // Acceptance criteria 2 and 3, as the property rather than as a list of counts: both sentences read
+  // `patientRiseNoun` off the array they are handed, so the noun phrase in the heading is the noun phrase
+  // in the caption at every count from one up -- which is what a ternary beside the JSX could not promise
+  // (T198 AC2, T199 AC4, T200 AC2, T202 AC2). The page hands both of them `bundle.spikes`, the array
+  // SpikeTable draws its rows from (app/patient/[id]/page.tsx).
+  for (let n = 1; n <= 12; n++) {
+    const heading = patientSpikeCardHeading(spikesOf(n));
+    const caption = patientChartCaption(spikesOf(n));
+    const noun = plural(n, "biggest rise", "biggest rises");
+    assert.equal(heading, `Your ${noun}`, heading);
+    assert.ok(caption.includes(`your ${noun}`), caption);
+    // The failure mode in one assertion: neither element reads as the other count's number.
+    assert.doesNotMatch(heading, n === 1 ? /rises/ : /rise\b/, heading);
+  }
+});
+
+test("the one-rise fixture is the week the heading was wrong about (T203)", () => {
+  // Acceptance criterion 1 on a parsed export rather than on hand-built spikes, the way T199's flat week
+  // and T200's no-match pairing are read above. `clarity_window.csv` is the committed week with exactly
+  // one rise over 180 (96 -> 214) -- data/fixtures/README.md -- and it is the fixture e2e/flags.spec.ts
+  // loads for the on-screen half of this (criterion 5), so the count both read is the file's.
+  pinUtcTimeZone();
+  const spikes = detectSpikes(parseClarityCsv(fixture("clarity_window.csv")));
+  assert.equal(spikes.length, 1);
+  assert.equal(patientSpikeCardHeading(spikes), "Your biggest rise");
+  assert.equal(patientChartCaption(spikes), "Marker shows your biggest rise.");
 });
