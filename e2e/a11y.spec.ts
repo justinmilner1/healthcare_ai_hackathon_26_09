@@ -11,6 +11,7 @@ import {
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
+import { expectTranscriptUncut } from "./mobile";
 import {
   AGREE,
   EYEBROW,
@@ -515,6 +516,58 @@ test("Sweetie mid-reply: the indicator is a live region that says a reply is com
   // the surfaces the pass does not.
   await expectNoSeriousA11yViolations(page, "Sweetie mid-reply");
   await expectNoProhibitedAriaNames(page, "Sweetie mid-reply");
+
+  // And where the dots are, which is the other half of the row T209 gave them (T211, design §2.5). The slot
+  // is outside the transcript, asserted above; what this asks is that being outside it does not mean being
+  // at the bottom of the card. `.sweetie-messages` used to grow to fill the column, so every row under it
+  // was pinned over the composer however little was in the thread — and the thread this test stages, two
+  // messages, is the common case for the indicator, since it is most often up on the patient's first reply.
+  // The desktop frame of it measured about 180px of blank card between the message and the dots.
+  //
+  // Measured against the region's own bottom padding rather than against a number of this test's choosing:
+  // that padding is the breathing room the transcript already keeps under its newest message, so "the dots
+  // follow the last message" is exactly "the only thing between them is that padding", at either width and
+  // whatever the stylesheet sets it to (22px here, 15px at 375px). The ~180px gap fails it by either
+  // reading, and so would a slot that drifted back down to the composer.
+  //
+  // After the suite's own wait for the transcript to stop moving, because this is a rect measurement and
+  // `busy` flipping is what sends the region gliding to the newest message (app/s/[token]/page.tsx). The
+  // scans above take long enough that the glide is over by now on any box, which is exactly the reasoning
+  // T89 and T95 say not to leave implicit in a measurement that would otherwise name the product.
+  await expectTranscriptUncut(page, "Sweetie mid-reply");
+  const placement = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>(".sweetie-messages")!;
+    const rows = region.querySelectorAll(".sweetie-message-row");
+    const last = rows[rows.length - 1]!.getBoundingClientRect();
+    // The slot's own edge, not the bubble's inside it: the bubble sits 3px down the row because the row is
+    // `align-items: end` against a 36px avatar, and the animated row itself is a rect worth not reading.
+    const slot = document.querySelector(".sweetie-typing-slot")!.getBoundingClientRect();
+    // The gutter is read off one of Sweetie's own rows rather than off the patient's: a patient row is
+    // `align-self: flex-end`, so its left edge is wherever its words ran out. The typing row is one of
+    // hers — avatar, gap, bubble — so the two line up exactly when both are drawn in the same gutter.
+    const hers = region.querySelector(".sweetie-message-row:not(.sweetie-message-patient)")!.getBoundingClientRect();
+    const row = document.querySelector(".sweetie-typing-slot .sweetie-message-row")!.getBoundingClientRect();
+    return {
+      rows: rows.length,
+      gap: Math.round(slot.top - last.bottom),
+      padding: Math.round(Number.parseFloat(getComputedStyle(region).paddingBottom)),
+      indent: Math.round(row.left - hers.left),
+    };
+  });
+  // The short thread the gap only arises on, named so that a staging change cannot quietly make this test
+  // about something else.
+  expect(placement.rows, "the thread this is measured on is Sweetie's opener and the patient's reply").toBe(2);
+  expect(
+    placement.gap,
+    `the typing slot sits ${placement.gap}px under the patient's own message, past the ${placement.padding}px the transcript keeps below it — a short thread is pushing the indicator to the bottom of the card (T211, design §2.5)`,
+  ).toBeLessThanOrEqual(placement.padding + 2);
+  // Horizontally too: the slot and the region share one gutter (`--sweetie-gutter`), which they did not at
+  // 375px, where the region's 13px met the slot's 20px.
+  expect(
+    placement.indent,
+    `the typing row is indented ${placement.indent}px from Sweetie's own rows, so the slot is not drawn in the transcript's gutter (T211)`,
+  ).toBe(0);
+
   await shot(page, "a11y-sweetie-typing", { scrollTo: ".sweetie-typing-slot", block: "end" });
 
   // The row goes back to the conversation when the reply lands, which is the trade the slot makes.
