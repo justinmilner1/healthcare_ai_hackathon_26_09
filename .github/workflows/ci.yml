@@ -70,7 +70,29 @@ jobs:
     # quietly not happening either. The cost of being wrong that way is one suite; the other way it is silence.
     if: ${{ always() && (github.event_name != 'schedule' || needs.sweep.outputs.unchecked != 'false') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Sized against what a runner measured, not a round number (T215).
+    #
+    # This was 20 minutes, and once Actions started running again on 2026-11-01 every push run was
+    # cancelled at 20m24s part-way through `e2e`, before any verdict existed — so §12.4's second opinion
+    # never finished. Run 41328771421 (`9d25f75`) is the measurement: a real runner, real checkout, killed
+    # with 227 of 342 tests passed and nothing failing. Its stages, from the check's own timings table —
+    # install 25s, database 1s, typecheck 18s, lint 10s, unit 1m41s, infra 27s, build 1m23s — reach the
+    # suite in 5m30s; the 227 tests then took 14m23s, 3.80s each. The remaining 115 at that rate are
+    # 7m20s, which puts a green run at about 28 minutes end to end, plus the restore drill it never
+    # reached. A GitHub runner is not faster than the sandbox that measured the same check at 17m22s, so
+    # 20 was never going to hold it.
+    #
+    # 45 leaves about 17 minutes over that projection, which is what the failure path wants: a failed
+    # suite re-runs just the tests that failed, serially, once (scripts/agent-check.sh), and a recorded
+    # `failure` is as much of a second opinion as a `success` — it is also what lets `main-state` below
+    # run at all, since it reads `needs.check.result` and a cancelled job is neither. The asymmetry says
+    # which way to err: too small records no verdict on anything, which is this bug, while too large only
+    # delays killing a job that has genuinely hung — and GitHub's own default there is 360 minutes.
+    #
+    # Do not shrink this to make the suite fit. No test gets skipped, quarantined or given a smaller
+    # budget to beat a clock (docs/ROUTINES.md, "When the box is the problem"); a check that genuinely
+    # needs to be faster is its own ticket, and this budget is only what buys it the time it needs.
+    timeout-minutes: 45
     # Postgres, matching docker-compose.yml and production RDS (design §3.2, §12.4). scripts/agent-check.sh takes
     # the server from DATABASE_URL and creates its own sweetspot_e2e database on it.
     services:
