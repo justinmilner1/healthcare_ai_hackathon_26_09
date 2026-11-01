@@ -526,13 +526,14 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
  * opposite. On paper too, which is the copy a clinician carries into the room.
  *
  * So the heading reads the same `clinicianPlaceReport` the caption does and the rows do, and cannot drift
- * from them. Three readings, because the card has three shapes:
+ * from them. Three readings, because the card has three shapes — and each of them counts the rows under
+ * it, which is T213 (the right-hand column was two fixed plurals until then):
  *
- * | the card | heading |
- * |---|---|
- * | some rise matched a place | `Spikes linked to places` |
- * | rises, no place to report against them | `Spikes over 180` |
- * | no rises at all | `Spikes` |
+ * | the card | heading at one row | at two or more |
+ * |---|---|---|
+ * | some rise matched a place | `Spike linked to a place` | `Spikes linked to places` |
+ * | rises, no place to report against them | `Spike over 180` | `Spikes over 180` |
+ * | no rises at all | — | `Spikes` |
  *
  * The middle one is the card's own subject with the half it cannot deliver dropped, and it covers both of
  * the reports that are not `matched` — it is already silent about places, which is all T184 asks of it.
@@ -540,11 +541,29 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
  * stays and reads "no matching visit", a true and useful thing to tell a reader who knows what lib/match.ts
  * does (T82); with no Timeline there is no column, because an absence of optional data is not a search that
  * failed. The last reading is a heading over SpikeTable's "No spikes over 180 detected.", which says the
- * state already: naming the threshold above it would read as though some had cleared it.
+ * state already: naming the threshold above it would read as though some had cleared it. It has no
+ * one-row column because it is the row count it is about; "Spikes" is what `plural` returns at nought,
+ * so the bare heading T157 chose for it is the plural branch and not a literal of its own.
+ *
+ * Counting at one is the agreement `clinicianChartCaption` above has had since T199 and T200, arriving on
+ * the heading directly under it (T213). The two are one card apart on both surfaces and in one frame at
+ * either width, and the page hands each of them `bundle.spikes` — the array SpikeTable draws its rows
+ * from (app/provider/[id]/sour.tsx, app/provider/visit/[id]/print/page.tsx) — so there is no count for
+ * them to disagree about. Until this ticket they disagreed about its grammar instead: the single-rise
+ * brief read "Red marker is a spike … no place matched this rise." over a card headed "Spikes over 180",
+ * and over a matched single rise the heading said both nouns in the plural at once. That is T203 on the
+ * patient's page (`patientSpikeCardHeading` above, whose note named this function as the one that branches
+ * at nought without noticing it did not branch at one), read in the clinician's register.
+ *
+ * Both nouns go through `plural` in lib/plural.ts, never through a literal at the call site, for T198's
+ * reason: the place noun is counted as well as the spike noun, because one rise is linked to one place and
+ * "Spike linked to places" would be the bug half-fixed.
  */
 export function clinicianSpikeCardHeading(spikes: Spike[], status: { hasLocation: boolean }): string {
-  if (clinicianPlaceReport(spikes, status) === "matched") return "Spikes linked to places";
-  return spikes.length === 0 ? "Spikes" : "Spikes over 180";
+  const n = spikes.length;
+  const spikeNoun = plural(n, "Spike");
+  if (clinicianPlaceReport(spikes, status) === "matched") return `${spikeNoun} linked to ${plural(n, "a place", "places")}`;
+  return n === 0 ? spikeNoun : `${spikeNoun} over 180`;
 }
 
 /**
