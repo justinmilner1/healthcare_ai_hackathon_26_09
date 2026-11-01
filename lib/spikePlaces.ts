@@ -41,6 +41,30 @@ export function anyPlaceKnown(spikes: Spike[]): boolean {
 }
 
 /**
+ * Whether any of these spikes was *not* matched to a place — `anyPlaceKnown`'s counterpart, and a different
+ * question from its negation (T214).
+ *
+ * `anyPlaceKnown` is false only when *no* rise has a place; this is true as soon as *one* lacks one. Between
+ * them they tell the three shapes of a chart apart, and the middle one is what needed a predicate: a chart
+ * whose labels are all places, one whose labels are a mix of places and peak numbers, and one whose labels
+ * are all peak numbers.
+ *
+ * | the listed rises | `anyPlaceKnown` | `anyPlaceMissing` | the labels on the chart |
+ * |---|---|---|---|
+ * | all matched | `true` | `false` | every one a place |
+ * | some matched | `true` | `true` | places and peak numbers |
+ * | none matched | `false` | `true` | every one a peak number |
+ *
+ * `clinicianPlaceReport` answers `matched` for the first two alike — one matched rise is all it asks for —
+ * so a caption reading only the report cannot say which labels are in front of the clinician. This is the
+ * second bit of that answer, and it is derived here beside the first rather than at the call site, for the
+ * reason every other reading of these captions is.
+ */
+export function anyPlaceMissing(spikes: Spike[]): boolean {
+  return spikes.some((s) => !s.visit);
+}
+
+/**
  * What the clinician's elements about places are allowed to be about on this visit (T184).
  *
  * `anyPlaceKnown` above answers "did any rise match", which is the right question for which heading a card
@@ -313,6 +337,16 @@ function patientPlaceClause(spikes: Spike[]): string {
  * clause is on the place branch alone, because it is a claim about a label that names a place: where no
  * place is known every label is a peak reading, which this sentence deliberately says nothing about (T199,
  * T204's "not in scope"), and over no rises at all there is no label to describe.
+ *
+ * The hedge stays unconditional, which is the one thing this caption does *not* share with its clinician
+ * twin (T214). There the trailing clause offers a second reading — "or the peak mg/dL where no place
+ * matched" — and an offer is empty over a chart whose every label is a place, so it is now on
+ * `anyPlaceMissing`. `, when available` offers nothing: it is T204's hedge on whether the label for a
+ * placed rise was *drawn*, and `lib/markerLabels.ts` drops a colliding label whatever matched, so a week
+ * with every rise placed still reaches §2.7's chart as a red dot with nothing over it. The question it
+ * hedges is availability and not matching, it is true at every mix including all-matched, and the
+ * patient's register has no second reading to withdraw — so there is nothing here for this ticket to
+ * condition.
  */
 export function patientChartCaption(spikes: Spike[]): string {
   if (spikes.length === 0) return NO_RISES_TO_MARK_PATIENT;
@@ -496,6 +530,14 @@ export function matchedPlaceClause(spikes: Spike[]): string {
  * before it, and an overlap is itself either the stop they were already in or one they walked into partway
  * up the climb (T192). So the clause comes from `matchedPlaceClause` above and the relations the labelled
  * rises actually have, which is the same derivation the Place column under the chart shows per row (T191).
+ * And — the symmetric claim to the first on this list, and the last of them to be reached — not that some
+ * label is a peak number when every label is a place (T214). `clinicianPlaceReport` answers `matched` as
+ * soon as one listed rise carries a stop, so that one branch captions two different charts: labels that are
+ * a mix of places and peak numbers, and labels that are all places. The offer of a second reading is true
+ * of the mix and describes an empty set on the other, where it sat directly above a card headed "Spike
+ * linked to a place" and a tile reading "1 · 1 linked to a place". So it is on `anyPlaceMissing` above,
+ * which is the question the labels answer rather than the one the report answers, and the sentence ends at
+ * the place clause where every listed rise matched.
  *
  * `status` is `PatientBundle.status`, the argument order `clinicianSpikePlacesHint` already takes it in.
  */
@@ -504,8 +546,14 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
   const markers = markerSentence(spikes.length, total);
   const labels = "Labels, where they fit,";
   switch (clinicianPlaceReport(spikes, status)) {
-    case "matched":
-      return `${TARGET_BAND} ${markers} ${labels} give ${matchedPlaceClause(spikes)}, or the peak mg/dL where no place matched.`;
+    case "matched": {
+      // The peak-mg/dL reading is offered only where the chart carries a label of that kind, which is the
+      // one thing the report cannot tell (T214).
+      const places = `${labels} give ${matchedPlaceClause(spikes)}`;
+      return anyPlaceMissing(spikes)
+        ? `${TARGET_BAND} ${markers} ${places}, or the peak mg/dL where no place matched.`
+        : `${TARGET_BAND} ${markers} ${places}.`;
+    }
     case "unmatched":
       return `${TARGET_BAND} ${markers} ${labels} give the peak mg/dL: no place matched ${plural(spikes.length, "this rise", "any of these rises")}.`;
     case "no-timeline":
