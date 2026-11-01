@@ -32,6 +32,25 @@ test("hours are minutes rounded to one decimal", () => {
   ]);
 });
 
+test("a night is dated by the evening the cycle started, in the zone the export wrote it in", () => {
+  // The contract `parseWhoopCsv` states and everything downstream cites (T212): `date` is the evening the
+  // patient went to bed, read off the export's own text, so it is the same night whatever zone the parse
+  // happens in. A date derived from the parsed instant was not: a cell with a time and no offset parses as
+  // process-local and a date-only cell as UTC midnight, so the two shapes drifted in opposite directions.
+  const withTime = "Cycle start time,Asleep duration (min)\n2026-09-19 22:30:00,438\n";
+  const dateOnly = "Date,Sleep duration (min)\n2026-09-19,438\n";
+  const was = process.env.TZ;
+  try {
+    for (const zone of ["UTC", "America/Los_Angeles", "Asia/Tokyo"]) {
+      process.env.TZ = zone;
+      assert.equal(parseWhoopCsv(withTime)[0].date, "2026-09-19", `the evening of onset in ${zone}`);
+      assert.equal(parseWhoopCsv(dateOnly)[0].date, "2026-09-19", `the dated row in ${zone}`);
+    }
+  } finally {
+    process.env.TZ = was;
+  }
+});
+
 test("a file with no usable columns yields nothing", () => {
   assert.deepEqual(parseWhoopCsv(""), []);
   assert.deepEqual(parseWhoopCsv("Cycle start time,Asleep duration (min)\n"), []); // header only

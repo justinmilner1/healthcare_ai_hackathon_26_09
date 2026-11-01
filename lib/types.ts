@@ -25,6 +25,8 @@ export type Spike = {
   visit?: Visit;
 };
 
+/** `date` is the night the patient went to bed, not the morning the cycle ended; `parseWhoopCsv` in
+ *  lib/sleep.ts states the contract and is the one place that decides it (T212). Nothing shifts it. */
 export type SleepNight = { date: string; hours: number; recovery?: number };
 
 export type Summary = {
