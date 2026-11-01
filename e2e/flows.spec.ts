@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
-import { signInAsDemo, signOutOfBrowser } from "./auth";
+import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
 import { expectMarkerLabelsClearOfMarkers, expectSleepTooltipWithoutRecovery, expectTimeAxisLabelled } from "./charts";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
@@ -19,7 +19,7 @@ import {
   verifyLink,
 } from "./patient";
 import { SCREENFUL, shot, WHOLE_PAGE } from "./shot";
-import { waitingOnPatientNote } from "../lib/sourState";
+import { sourPanelEmpty, waitingOnPatientNote } from "../lib/sourState";
 import { UNNAMED_PLACE } from "../lib/spikePlaces";
 
 // Both customer flows in scripted mode, with a screenshot of every screen. Screens are named so the builder and
@@ -1568,6 +1568,83 @@ test("patient summary: the loading card names no span, because nothing is known 
   release();
   await expect(EYEBROW(page)).toBeVisible(LOADED);
   await expect(card).toHaveCount(0);
+});
+
+/**
+ * The clinician's twin of the card above (T216, design §2.6, and §2.7 as the precedent).
+ *
+ * Deliberately next to it. The §2.6 Sour panel's `!bundle` branch held the identical defect — it read
+ * "Sour is reading the week…" where there is no `bundle.stats.days` to read a span off — and the remedy is
+ * the one T132 chose one file away: drop the span rather than derive one. So the two tests sit together, and
+ * a reader of either sees that the rule is the same rule on both surfaces.
+ *
+ * Both readings of the one branch, because the panel takes it for two different reasons and only one of them
+ * is the ticket's. Nothing is selected: the sidebar has no summary to open, and "Select a patient summary."
+ * is correct and must not move (criterion 2). Something is selected and its bundle is in flight: that is the
+ * line the ticket is about, and the one that used to promise a week before anything was known.
+ *
+ * The loading half is held open rather than raced, the way the patient twin above is: `release` is this
+ * test's own, so nothing here waits on a timer a slow box could outrun (T95). Letting the response through
+ * then resolves the same navigation into the brief, which is what shows the line was a stage of this page
+ * and not a branch nothing reaches.
+ */
+test("the Sour panel's empty states: one names no span, the other names no patient", async ({ page }) => {
+  // A practice of its own, because the state is "no visit here has a summary": the demo account has several,
+  // so its panel opens one and the branch is never taken (app/provider/[id]/sour.tsx `visible`).
+  const me = await signInAs(page, freshEmail("sour-panel-empty"));
+  const who = `Sour Panel ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const booked = await (
+    await postJson(page.request, "/api/book", {
+      name: who,
+      email: patientEmail(who),
+      providerId: me.id,
+      visitType: "follow_up",
+      reason: "what the panel says before it has anything",
+      channel: "email",
+      consentMethod: "phone",
+    })
+  ).json();
+  expect(booked.visitId, `POST /api/book: ${JSON.stringify(booked)}`).toBeTruthy();
+
+  const empty = page.locator(".sour-select-empty");
+  // The sentence, not the card: `.sour-select-empty` wraps a 🍋 as well (app/globals.css), and that glyph
+  // would be part of a `toHaveText` on the card and make every exact assertion below read oddly.
+  const emptyText = empty.locator("p");
+
+  // 1. Nothing selected. No row in the list has a summary, so none is opened and the panel asks for one.
+  await page.goto(`/provider/${me.id}`);
+  await expect(empty).toBeVisible(LOADED);
+  await expect(emptyText).toHaveText(sourPanelEmpty(false), LOADED);
+  await expect(emptyText, "criterion 2: the idle half is unchanged").toHaveText("Select a patient summary.", LOADED);
+  await shot(page, "provider-sour-panel-unselected", SCREENFUL);
+
+  // 2. A visit selected and its bundle still in flight — the state the ticket was filed about. Held open so
+  //    the line is read rather than raced; a regex, because a `**` glob around a path segment is the kind of
+  //    pattern that silently matches nothing and would leave this asserting the loaded brief instead.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/api\/patient\//, async (route) => {
+    await held;
+    await route.continue();
+  });
+
+  await page.goto(`/provider/${me.id}?visit=${booked.visitId}`);
+  await expect(emptyText).toHaveText(sourPanelEmpty(true), LOADED);
+  const loadingText = (await emptyText.textContent()) ?? "";
+  // Criterion 1, as the rule and not only as the literal: any unit of time put back here fails, the way the
+  // patient twin's own assertion above is written. The old string is checked by name too, since it is what
+  // a reword would most likely restore.
+  expect(loadingText, "the Sour panel's loading line").not.toMatch(/\b(hours?|days?|weeks?|months?|years?)\b/i);
+  expect(loadingText).not.toContain("Sour is reading the week");
+  await shot(page, "provider-sour-panel-loading", SCREENFUL);
+
+  // And it is this panel's loading stage: the same navigation resolves into the brief once the bundle is let
+  // through, so the line above is not a branch nothing reaches.
+  release();
+  await expect(page.locator(".sour-brief-header")).toContainText(who, LOADED);
+  await expect(empty).toHaveCount(0);
 });
 
 /**
