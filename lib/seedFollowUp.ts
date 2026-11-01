@@ -148,6 +148,8 @@ const verb = (n: number) => (n === 1 ? "peaks" : "peak");
  */
 function sleepLine(named: Spike[], sleep: SleepNight[], shown: Spike[]): string {
   if (sleep.length === 0 || named.length === 0) return "";
+  // Keyed on `n.date` unshifted: that field is the evening the patient went to bed (lib/sleep.ts), so the
+  // night of a spike's peak is the row whose date is the peak's local date (T212).
   const nightOf = new Map(sleep.map((n) => [n.date, n] as const));
   const namedDates = new Set(named.map((s) => localDate(s.peak)));
   const on = sleep.filter((n) => namedDates.has(n.date));

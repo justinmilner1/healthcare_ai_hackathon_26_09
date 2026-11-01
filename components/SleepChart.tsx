@@ -28,6 +28,10 @@ export default function SleepChart({ nights, height = 200 }: { nights: SleepNigh
   const max = Math.max(...hours);
   const data = nights.map((n) => ({
     ...n,
+    // One bar is the night of `n.date` — the evening the patient went to bed, which is what that field
+    // means (lib/sleep.ts, `parseWhoopCsv`). Unshifted, and the brief's SLEEP table reads the same field
+    // the same way, so a weekday on this axis and a weekday in the model's table are one night (T212).
+    // Midday rather than midnight, and local rather than `Z`, so the viewer's zone cannot roll the day.
     day: new Date(n.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }),
     label: n.hours === min || n.hours === max ? `${n.hours}h` : "",
   }));
