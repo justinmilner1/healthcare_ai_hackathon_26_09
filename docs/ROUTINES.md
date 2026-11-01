@@ -141,10 +141,10 @@ gh api "repos/$R/actions/workflows/ci.yml/runs?branch=main&per_page=10" \
 # 41251575388 82ad63b push     completed/failure   2026-10-31T23:12:57Z   <- the blocked account, before
 ```
 
-**A run-level conclusion is never the answer.** Every reading below shares a `conclusion` with some other
-reading, and three of the four conclusions above are about something other than the tree. So the question is
-always the same one, and it takes one more call on a run id the snippet prints: **what did this run actually
-execute?**
+**A run-level conclusion is never the answer.** Readings below share a `conclusion` with each other, and not
+one of the four runs above is a verdict on a tree: two were killed at a budget, one is the blocked account,
+and the green one is the hourly backstop finding nothing to do. So the question is always the same one, and it
+takes one more call on a run id the snippet prints: **what did this run actually execute?**
 
 ```bash
 # what ran, and for how long: the conclusion field cannot answer this
