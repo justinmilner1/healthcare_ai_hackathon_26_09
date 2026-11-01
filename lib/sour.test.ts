@@ -319,6 +319,26 @@ test("the nights read the summary zone, so the weekday and the dinner join hold 
   }
 });
 
+test("a night keeps its weekday in the zones past twelve hours from UTC", () => {
+  // `localNoon` anchors a bare date at midday UTC and corrects when that lands on the neighbouring day.
+  // Only the offsets beyond ±12 take that correction — Pacific/Kiritimati is UTC+14 and Etc/GMT+12 is
+  // UTC-12 — and the test above, either side of UTC, never reaches it. Without the correction the weekday
+  // is a day out, which is T212's own shape in a new place (reviewer fix for T212).
+  const before = process.env.SUMMARY_TZ;
+  try {
+    for (const zone of ["Pacific/Kiritimati", "Etc/GMT+12"]) {
+      process.env.SUMMARY_TZ = zone;
+      assert.deepEqual(
+        build().nights.map((n) => `${n.nightOf} ${n.weekday}`),
+        ["2026-09-19 Sat", "2026-09-20 Sun", "2026-09-21 Mon"],
+        `the weekday of a night is its own in ${zone}`,
+      );
+    }
+  } finally {
+    process.env.SUMMARY_TZ = before;
+  }
+});
+
 test("the rendered brief is a table the model can cite, with no raw readings in it", () => {
   const text = renderSourInput(build());
   for (const heading of ["OVERALL", "BY TIME OF DAY", "BY DAY", "SPIKES", "SLEEP", "SAFETY FLAGS", "PATIENT'S OWN WORDS"]) {
