@@ -866,7 +866,16 @@ export default function SweetiePage({
                   live-region ancestor — so whether an insertion that is itself a region speaks once or
                   twice becomes a property of the screen reader rather than of the product. Out here there
                   is one region and one announcement. It costs the conversation a row for as long as a
-                  reply is in flight, the same trade `.sweetie-more` above makes and gives back. */}
+                  reply is in flight, the same trade `.sweetie-more` above makes and gives back.
+
+                  A row under the transcript is not a row at the bottom of the card, and for one ticket it
+                  was (T211, §2.5). The region above grew to fill the column, so the dots were pinned over
+                  the composer however short the thread — about 180px below the message they answered, on
+                  the desktop two-message thread the indicator is most often up on. The region sizes to its
+                  content now (`.sweetie-messages` in globals.css), so the slot follows the last message at
+                  every width and the slack sits under it instead. Nothing here moved: the fix has to leave
+                  the indicator outside every live region, which is what e2e/a11y.spec.ts walks the ancestor
+                  axis for. */}
               <div className="sweetie-typing-slot">
                 {busy && (
                   <div className="sweetie-message-row">

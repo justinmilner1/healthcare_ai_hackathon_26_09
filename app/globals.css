@@ -3799,12 +3799,23 @@ textarea.ss-input {
   background: #fff4ed;
 }
 
-/* The transcript and the cue that says what it is not showing (T105). It is the transcript's own
-   `flex: 1` box moved out one level, so this is the height the conversation holds on the screen and
-   `.sweetie-messages` inside it is what scrolls. Design §6.5's floor (TRANSCRIPT_ROOM, e2e/mobile.ts) is
-   read off this element for that reason: the cue below takes its row out of the scrolling region, and the
-   floor is about how much of a phone the conversation gets, not about which of the two boxes has it. */
+/* The transcript, the cue that says what it is not showing (T105) and the typing slot (T209). This is the
+   `flex: 1` box: it takes the height the conversation holds on the screen and hands its rows out of it,
+   `.sweetie-messages` inside it being the one that scrolls. Design §6.5's floor (TRANSCRIPT_ROOM,
+   e2e/mobile.ts) is read off this element for that reason: the two rows below the region take theirs out
+   of it, and the floor is about how much of a phone the conversation gets, not about which of the boxes
+   inside it has it.
+   The growth is this element's and only this element's (T211). The region inside it sizes to its content,
+   so a short thread leaves the slack here, at the bottom of the column under the last row — not inside the
+   region, where it pushed the rows below the region down to the composer. */
 .sweetie-transcript {
+  /* The horizontal gutter the conversation is drawn in, declared once here because two of the three rows
+     below are drawn in it: the scrolling region and the typing slot under it. They used to carry the same
+     `clamp()` apiece, which held at desktop widths and drifted at 375px — the region's override took its
+     padding down to 13px and the slot kept the clamp's 20px floor, so the dots stood 7px further in than
+     the message they answered (T211). One property, inherited by both, cannot drift again. */
+  --sweetie-gutter: clamp(20px, 4.5vw, 55px);
+
   display: flex;
   min-height: 0;
   flex: 1;
@@ -3837,14 +3848,27 @@ textarea.ss-input {
   pointer-events: none;
 }
 
+/* `flex: 0 1 auto` — shrink to the room there is, never grow past the conversation (T211, design §2.5).
+   `flex: 1` here was what put the typing indicator at the bottom of the card. T209 moved the indicator out
+   of this `role="log"` and into a row under it, which is right — a live region nested in a live region
+   leaves "announced once or twice" to the screen reader — but a region that grows to fill the column pins
+   every row under it to the composer however little is being said. On a desktop with two messages in the
+   thread, which is the common case for the indicator since it is most often up on the patient's *first*
+   reply, the dots landed about 180px below the message they answered with blank card between, and read as a
+   different piece of furniture rather than as Sweetie answering.
+   With the growth taken away the region is its content's height until its content outgrows the column, and
+   then `flex-shrink` with `min-height: 0` takes it down to the room there is and `overflow-y` scrolls what
+   is left — so a long thread is the box it always was, and a short one ends where the conversation ends.
+   The slack goes to the bottom of `.sweetie-transcript`, which keeps its own `flex: 1`: the composer does
+   not move, and §6.5's floor (TRANSCRIPT_ROOM, e2e/mobile.ts) is read off that wrapper and not off this. */
 .sweetie-messages {
   position: relative;
   display: flex;
   min-height: 0;
-  flex: 1;
+  flex: 0 1 auto;
   flex-direction: column;
   gap: 12px;
-  padding: 22px clamp(20px, 4.5vw, 55px);
+  padding: 22px var(--sweetie-gutter);
   overflow-y: auto;
   scroll-behavior: smooth;
 }
@@ -3954,13 +3978,20 @@ textarea.ss-input {
    to `.sweetie-more`'s, on the same terms: it exists only while a reply is in flight, and the pixels go back
    to the conversation the moment the reply lands. `:empty` is what makes that true, because the slot itself
    is always rendered — React renders `{busy && ...}` as nothing, so the element is childless between turns
-   and the padding below would otherwise be a permanent gap over the composer. The horizontal padding is the
-   transcript's own, so the dots line up under the last message rather than against the edge of the card. */
+   and the padding below would otherwise be a permanent gap over the composer.
+
+   Where the row lands is the region above it, not this rule: `.sweetie-messages` is `flex: 0 1 auto` so it
+   ends where the conversation ends, and the dots follow the last message at every width instead of being
+   pinned over the composer (T211, §2.5). What separates the two is the region's own bottom padding — 22px,
+   15px at 375px — which is the breathing room it already keeps under the newest message when it scrolls, so
+   there is nothing here to keep in step with it. The horizontal gutter is `--sweetie-gutter` from
+   `.sweetie-transcript`, the same one the region is drawn in, so the dots line up under the last message
+   rather than against the edge of the card. */
 .sweetie-typing-slot {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  padding: 0 clamp(20px, 4.5vw, 55px) 16px;
+  padding: 0 var(--sweetie-gutter) 16px;
 }
 
 .sweetie-typing-slot:empty {
@@ -6018,9 +6049,15 @@ button.sweetie-agent-badge {
     overflow-x: visible;
   }
 
+  /* The gutter the region and the typing slot under it are both drawn in (T211): one property on the
+     wrapper, so the dots cannot end up indented differently from the messages they answer. */
+  .sweetie-transcript {
+    --sweetie-gutter: 13px;
+  }
+
   .sweetie-messages {
     gap: 10px;
-    padding: 15px 13px;
+    padding: 15px var(--sweetie-gutter);
   }
 
   .sweetie-message-row {
