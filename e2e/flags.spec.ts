@@ -628,9 +628,20 @@ test("one matched rise is one place on both clinician surfaces (T213)", async ({
   await expect(spikeCard.locator("tbody tr"), "the row the heading counts").toHaveCount(1);
   // And the caption one card above it, which is the other element in the frame (criterion 2): singular
   // since T199, and naming the place the rise was linked to since T191.
+  //
+  // T214 (§2.6): this frame is where the caption's trailing clause was read against its own chart for the
+  // first time, and it was offering "or the peak mg/dL where no place matched" over a chart whose one
+  // label is a place — above the heading asserted just now and the tile reading "1 linked to a place".
+  // `clinicianPlaceReport` is `matched` for the mixed chart and this one alike, so the sentence is pinned
+  // whole here rather than by a fragment: every word of it is a claim about the labels in this frame.
   const caption = page.locator(".sour-chart-caption");
-  await expect(caption).toContainText("Red marker is a spike.");
+  await expect(caption).toHaveText(
+    "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the place the patient had just left.",
+  );
+  await expect(caption, "a reading offered for labels that are not on this chart (T214)").not.toContainText("no place matched");
   await expect(caption, "a plural over the one rise this chart draws").not.toContainText(/Red markers|these rises/);
+  const briefCaption = (await caption.textContent())?.trim();
+  expect(briefCaption, "the brief's caption").toBeTruthy();
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await shot(page, "provider-sour-one-rise-placed", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
 
@@ -640,5 +651,10 @@ test("one matched rise is one place on both clinician surfaces (T213)", async ({
   await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await expect(page.getByRole("heading", { name: "Spike linked to a place", exact: true })).toBeVisible();
+  // T214 (§7.4): the sheet reads the same string out of the one `clinicianChartCaption` (T99), so it is
+  // compared with the brief's rather than re-derived — the way the unplaced sheet above is. This is the
+  // second frame the ticket was filed on (`desktop-provider-print-one-rise-placed.png`).
+  await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
+  await expect(page.locator(".sour-chart-caption")).not.toContainText("no place matched");
   await shot(page, "provider-print-one-rise-placed", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
 });
