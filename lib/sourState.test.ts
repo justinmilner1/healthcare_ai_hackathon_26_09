@@ -16,11 +16,13 @@ import {
   askSourSubheading,
   emptyNarrativeText,
   narrativeNote,
+  sourPanelEmpty,
   summaryListHeading,
   summaryState,
   visitNotStarted,
   waitingOnPatientNote,
 } from "./sourState";
+import { spanNoun } from "./plural";
 import type { NarrativeMissing, SourJobState } from "./types";
 
 const JOB: SourJobState = {
@@ -462,5 +464,56 @@ describe("waitingOnPatientNote", () => {
     for (const note of [CAN, CANNOT]) {
       assert.match(note, /^[A-Z][^.]*\.$/, note);
     }
+  });
+});
+
+// T216 (design §2.6, §2.7's twin branch): the Sour panel's one state that knows nothing at all. The span
+// tests in lib/plural.test.ts hold every *derived* span to naming a week only when the data is one; this
+// holds the one branch with no `stats.days` to derive from to naming no span at all.
+describe("sourPanelEmpty: the panel with no bundle", () => {
+  const LOADING = sourPanelEmpty(true);
+  const IDLE = sourPanelEmpty(false);
+
+  it("makes no claim about the span of the patient's data while it loads", () => {
+    // Criterion 1. The defect verbatim, so an exact return of it fails here.
+    assert.notEqual(LOADING, "Sour is reading the week…");
+    // And the rule rather than the literal, in the manner of the patient twin's own assertion
+    // (e2e/flows.spec.ts, T132): any unit of time put back fails, not only "week".
+    assert.doesNotMatch(LOADING, /\b(hours?|days?|weeks?|months?|years?)\b/i);
+    // Nor a numeral standing in for one — "reading 7 days", "the last 7".
+    assert.doesNotMatch(LOADING, /\d/);
+  });
+
+  it("names the panel's own unit, and is still Sour saying it", () => {
+    assert.equal(LOADING, "Sour is reading the visit…");
+    // The voice the panel's other transient lines are in, and the ellipsis that marks it as a wait.
+    assert.match(LOADING, /^Sour /);
+    assert.match(LOADING, /…$/);
+  });
+
+  it("leaves the other half of the branch exactly as it was", () => {
+    // Criterion 2: this ticket is not about the idle half. Pinned to the word, because the pair moving into
+    // lib/ is the change that could otherwise reword it without anything noticing.
+    assert.equal(IDLE, "Select a patient summary.");
+  });
+
+  it("cannot be satisfied by spanNoun, which is the point of the branch", () => {
+    // Every other span on either surface goes through spanNoun (lib/plural.ts). It cannot serve here: its
+    // argument is `stats.days`, and this branch is taken precisely when there is no `stats` to read. So the
+    // assertion is that no span this helper could produce is in either string, on any reading of the data.
+    for (const days of [0, 1, 2, 3, 7, 14, 30]) {
+      for (const text of [LOADING, IDLE]) {
+        assert.ok(!text.includes(spanNoun(days)), `${text} must not spell ${spanNoun(days)}`);
+      }
+    }
+  });
+
+  it("is one short sentence on either branch, for the one slot the panel has", () => {
+    for (const text of [LOADING, IDLE]) {
+      assert.match(text, /^[A-Z]/, text);
+      assert.match(text, /[.…]$/, text);
+      assert.ok(text.length <= 60, `${text} is ${text.length} characters`);
+    }
+    assert.notEqual(LOADING, IDLE);
   });
 });

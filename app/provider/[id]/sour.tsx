@@ -29,7 +29,7 @@ import { clinicianGmi } from "@/lib/gmi";
 import { sourInviteNote, type InviteAnswer } from "@/lib/inviteNote";
 import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
-import { askSourClosedNote, askSourPlaceholder, askSourSubheading, emptyNarrativeText, narrativeNote, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
+import { askSourClosedNote, askSourPlaceholder, askSourSubheading, emptyNarrativeText, narrativeNote, sourPanelEmpty, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
 import { signedInHeading } from "@/lib/team";
 import { visitLabel } from "@/lib/visits";
@@ -374,7 +374,7 @@ export default function SourView({ id }: { id: string }) {
         {!bundle ? (
           <div className="sour-select-empty">
             <span>🍋</span>
-            <p>{loading ? "Sour is reading the week…" : "Select a patient summary."}</p>
+            <p>{sourPanelEmpty(loading)}</p>
           </div>
         ) : (
           <article className="sour-brief ss-enter">

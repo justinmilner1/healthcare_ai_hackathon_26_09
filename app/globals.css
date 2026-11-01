@@ -4759,9 +4759,12 @@ button.sweetie-agent-badge {
   border-top: 1px solid #eadfe4;
 }
 
-/* The summary page's loading card and nothing else now (app/patient/[id]/page.tsx): the caption-sized
-   sentence below is right for "Sweetie is getting your week ready…" and was wrong for the two dead ends the
-   gate used to borrow it for (T98, `.patient-notice-card` above). */
+/* The summary page's own two cards and nothing else now (app/patient/[id]/page.tsx): the loading card and
+   the unknown-link card. The caption-sized sentence below is right for "Sweetie is getting your check-in
+   ready…" and was wrong for the two dead ends in front of the link that the gate used to borrow it for
+   (T98, `.patient-notice-card` above). The quotation is the string the page renders: it named the patient's
+   week until T132 took the span out of a branch that cannot know one, and T216 did the same on the
+   clinician's twin, so this is not an example to put a span back from. */
 .patient-page-state {
   display: grid;
   min-height: 100svh;

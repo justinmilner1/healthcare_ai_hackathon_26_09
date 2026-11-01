@@ -358,3 +358,38 @@ export function waitingOnPatientNote(codeCanReach: boolean): string {
   if (codeCanReach) return "Send the link again if they have not opened it.";
   return "Sending the link again will not open it for this patient.";
 }
+
+/**
+ * What §2.6's Sour panel says where it holds no bundle at all (T216, design §2.6, §7.2).
+ *
+ * Two readings of one branch, and the panel takes it whenever `bundle` is null: a visit is selected and its
+ * `GET /api/patient/[id]` is still in flight, or no visit is selected at all. Here rather than as a ternary
+ * in the JSX for the reason T153 gave for the composer's placeholder and T156 for the sidebar heading — a
+ * claim about the page, written as a literal, where what it describes is not known — except that this is the
+ * sharper case: the loading half was a claim about data that is not merely unbranched but *unreadable*.
+ *
+ * It said `"Sour is reading the week…"`. There is no `bundle.stats.days` on this branch to read a span off,
+ * and when the bundle arrives it may hold one day, at which point every other line on the panel says so
+ * (`countOf(st.days, "day")` in the header and over the chart) and this one has already said otherwise. The
+ * clinician read a week promised and then a day delivered, across no navigation at all.
+ *
+ * **§2.7's twin branch is the precedent and the remedy.** `app/patient/[id]/page.tsx`'s `!bundle` branch
+ * held the identical defect through T100, T114, T116 and T123 and was fixed on a stated rule (T132): there
+ * is nothing to derive a span from here and **none should be derived** — the span is dropped rather than
+ * guessed, and the branch takes a word that is true before any data has arrived. A fallback of the
+ * `st?.days ?? 7` kind would be the same presumption with extra steps, and `spanNoun` cannot help, because
+ * its argument is the number this branch does not have.
+ *
+ * So: "the visit". It is the clinician surface's own noun for the unit — `visitLabel`, `visitNotStarted`
+ * above, and `summaryListHeading`'s own "This visit" one element away in the sidebar — and it is true the
+ * moment the branch is reachable, because `loading` is only ever set by a `load(visitId)` for a visit the
+ * page has already selected (app/provider/[id]/sour.tsx). It makes no claim about what is in that visit,
+ * which is the whole of what this branch cannot know.
+ *
+ * The other half is `"Select a patient summary."`, unchanged to the word: it is correct, it is about the
+ * sidebar rather than about any patient's data, and it is pinned in lib/sourState.test.ts so that moving
+ * the pair in here cannot quietly reword it.
+ */
+export function sourPanelEmpty(loading: boolean): string {
+  return loading ? "Sour is reading the visit…" : "Select a patient summary.";
+}
