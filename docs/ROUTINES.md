@@ -160,12 +160,13 @@ Five readings, and **only the last is a red tree**:
 - **`cancelled`, steps recorded, the `check` step ending on the job's `timeout-minutes`** — the job ran out of
   its budget part-way through. It executed a real checkout and a real suite and may have passed hundreds of
   tests, but it was killed before the check could exit, so **there is no verdict in it at all**. Like a
-  blocked run and like the slow box of "When the box is the problem" below, it is **never** grounds for a
-  revert, under neither the reviewer's step 5 nor the "fix it on `main` first" rule above: a clock that ran
-  out has not seen the product answer wrongly. This is what every push run between `2026-11-01T00:52Z` and
-  T215 was, cancelled at 20m24s against a `timeout-minutes: 20` that a roughly 28-minute check never fitted.
-  If it recurs, the budget is the bug and `.github/workflows/ci.yml` says what the current one was sized
-  against — not a test to skip or a budget to lower (T215, acceptance criterion 6).
+  blocked run, and like the slow box of "When the box is the problem" below, it is
+  **never** grounds for a revert — not under the reviewer's step 5 and not under the "fix it on `main` first"
+  rule at the top of this section: a clock that ran out has not seen the product answer wrongly. This is what
+  every push run between `2026-11-01T00:52Z` and T215 was, cancelled at 20m24s against a
+  `timeout-minutes: 20` that a roughly 28-minute check never fitted. If it recurs, the budget is the bug and
+  `.github/workflows/ci.yml` says what the current one was sized against — not a test to skip or a budget to
+  lower (T215, acceptance criterion 6).
 - **`failure`, `steps=0`, started and completed within about five seconds** — the blocked account of T75 and
   T92. The run was created and allocated no runner, so it checked out nothing, installed nothing, built
   nothing and asserted nothing, and it says nothing about any commit it names. History since 2026-11-01, and
@@ -182,7 +183,8 @@ Five readings, and **only the last is a red tree**:
 
 The `main-red` issue is no safeguard against any of this, because `ci.yml` produces it. `main-state` needs
 `check` and runs only on a `success` or `failure` from it, so a blocked run fails it in three seconds along
-with everything else and a cancelled run skips it — either way **no `main-red` issue can be opened**:
+with everything else and a cancelled run skips it — either way **no
+`main-red` issue can ever be opened**:
 
 ```bash
 # is anything tracking a red main right now?
