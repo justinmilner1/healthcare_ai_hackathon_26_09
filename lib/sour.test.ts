@@ -39,6 +39,9 @@ function series(startIso: string, stepMin: number, values: number[]): GlucoseRea
 
 const place = (name: string, start: string, end: string): Visit => ({ start, end, place: name, lat: 37.77, lng: -122.41 });
 
+/** components/SleepChart.tsx's own weekday derivation for a bar, so the SLEEP row can be held to it. */
+const chartWeekday = (date: string) => new Date(date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" });
+
 test("the overall block is computed, not estimated", () => {
   const x = build();
   assert.deepEqual(x.overall, {
@@ -252,22 +255,68 @@ test("every relation the brief can print is one the prompt explains, and none is
   assert.doesNotMatch(sourSystem(), /the place the patient had just left/);
 });
 
-test("nights are labelled by the evening before, and a late dinner out is named", () => {
-  // WHOOP dates a cycle by the morning it ended; the clinician thinks in evenings.
+test("a night is the night the patient went to bed, by the same weekday the bars carry", () => {
+  // T212: `SleepNight.date` is the evening the cycle started (lib/sleep.ts), so the brief's SLEEP table
+  // shifts it by nothing. It used to subtract a day on the opposite premise, which put every row one
+  // weekday before the night components/SleepChart.tsx draws for the same upload.
+  const x = build();
+  assert.deepEqual(
+    x.nights.map((n) => `${n.nightOf} ${n.weekday}`),
+    ["2026-09-19 Sat", "2026-09-20 Sun", "2026-09-21 Mon"],
+  );
+  // The fixture's own nights, against the bars: the short one is Sunday's on both.
+  assert.deepEqual(
+    x.nights.map((n) => [n.hours, n.recovery]),
+    [
+      [7.3, 68],
+      [5.3, 41],
+      [7.7, 74],
+    ],
+  );
+  assert.equal(x.nights[1].weekday, chartWeekday(nights()[1].date), "the SLEEP row and the bar name one night");
+  // And the rendered block says so, with the weekday against the hours the clinician sees.
+  assert.match(renderSourInput(x), /^ {2}Sun 09-20 \| 5\.3 h \| 41 \|/m);
+});
+
+test("a late dinner out is paired with the night slept after it, not the night before", () => {
+  // The Pizzeria stop ends Saturday 19 September at 8:40pm, so it is the dinner before Saturday night —
+  // the 7.3h night whose cycle began that evening, not Friday's (T212, criterion 4).
   const pizzeria = visits().find((v) => v.place === "Fixture Pizzeria")!;
   const dinnerSpike: Spike = { start: "2026-09-19T20:50:00Z", peak: "2026-09-19T21:40:00Z", from: 110, to: 225, visit: pizzeria };
   const x = build({ spikes: [dinnerSpike] });
-  assert.deepEqual(
-    x.nights.map((n) => n.nightOf),
-    ["2026-09-18", "2026-09-19", "2026-09-20"],
-  );
-  assert.equal(x.nights[1].weekday, "Sat");
-  assert.equal(x.nights[1].hours, 5.3); // the short night, 318 min
-  assert.equal(x.nights[1].recovery, 41);
-  assert.match(x.nights[1].lateDinnerBefore!, /^Fixture Pizzeria until \b0?8:40/);
-  assert.equal(x.nights[0].lateDinnerBefore, null);
+  assert.equal(x.nights[0].weekday, "Sat");
+  assert.match(x.nights[0].lateDinnerBefore!, /^Fixture Pizzeria until \b0?8:40/);
+  assert.equal(x.nights[1].lateDinnerBefore, null, "Sunday night did not follow that dinner");
+  assert.equal(x.nights[2].lateDinnerBefore, null);
   // The cafe visit ends in the morning, so it is never a dinner.
   assert.equal(build().nights.every((n) => n.lateDinnerBefore === null), true);
+});
+
+test("the nights read the summary zone, so the weekday and the dinner join hold either side of UTC", () => {
+  // Criterion 5: the date, the weekday and the key the dinner is looked up by are all in tz(). The old
+  // block computed the weekday and the key in the *process* zone while the key it matched against came
+  // from `localDate`, so a non-UTC SUMMARY_TZ could drop every dinner.
+  const pizzeria = visits().find((v) => v.place === "Fixture Pizzeria")!;
+  const dinnerSpike: Spike = { start: "2026-09-19T20:50:00Z", peak: "2026-09-19T21:40:00Z", from: 110, to: 225, visit: pizzeria };
+  const before = process.env.SUMMARY_TZ;
+  try {
+    // Europe/Berlin is UTC+2 and Atlantic/Cape_Verde UTC-1; the stop ends at 10:40pm and 7:40pm there, so
+    // it is a late dinner out on Saturday evening in both.
+    for (const zone of ["Europe/Berlin", "Atlantic/Cape_Verde"]) {
+      process.env.SUMMARY_TZ = zone;
+      const x = build({ spikes: [dinnerSpike] });
+      assert.equal(summaryTimeZone(), zone);
+      assert.deepEqual(
+        x.nights.map((n) => `${n.nightOf} ${n.weekday}`),
+        ["2026-09-19 Sat", "2026-09-20 Sun", "2026-09-21 Mon"],
+        `the weekday of a night is its own in ${zone}`,
+      );
+      assert.match(x.nights[0].lateDinnerBefore!, /^Fixture Pizzeria until /, `the dinner join holds in ${zone}`);
+      assert.equal(x.nights[1].lateDinnerBefore, null);
+    }
+  } finally {
+    process.env.SUMMARY_TZ = before;
+  }
 });
 
 test("the rendered brief is a table the model can cite, with no raw readings in it", () => {

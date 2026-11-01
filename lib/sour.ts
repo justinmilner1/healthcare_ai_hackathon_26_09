@@ -34,6 +34,28 @@ function localHour(iso: string): number {
   return Number(new Date(iso).toLocaleTimeString("en-GB", { timeZone: tz(), hour: "2-digit", hour12: false }).slice(0, 2));
 }
 
+/**
+ * Midday of a `YYYY-MM-DD` *calendar* date, as an instant, in the summary zone: the anchor the weekday of
+ * a bare date has to be read off, since a date is not an instant and every other derivation in this module
+ * starts from one.
+ *
+ * Midnight UTC will not do. In a zone behind UTC it is the evening before, so the weekday comes out a day
+ * early — which is the shape of the bug T212 is about, and it would have been reintroduced here in every
+ * zone west of Greenwich. Midday UTC is inside the right day for any offset up to twelve hours; the one
+ * correction below covers the rest (`Pacific/Kiritimati` is UTC+14), so `localDate(localNoon(d)) === d`
+ * holds for every zone.
+ */
+function localNoon(date: string): Date {
+  const utcNoon = Date.parse(`${date}T12:00:00Z`);
+  const landedOn = localDate(new Date(utcNoon).toISOString());
+  return new Date(utcNoon - (Date.parse(`${landedOn}T12:00:00Z`) - utcNoon));
+}
+
+/** The weekday the summary zone calls a calendar date — `DayRow.weekday`'s derivation, for a bare date. */
+function localWeekday(date: string): string {
+  return localNoon(date).toLocaleDateString(undefined, { timeZone: tz(), weekday: "short" });
+}
+
 export type DayRow = {
   date: string; // YYYY-MM-DD local
   weekday: string;
@@ -79,6 +101,9 @@ export type SourInput = {
   /** Every spike in the readings, not just the rows above: `spikes` is cut to the top few by rise for the
    *  clinician's card, and a pattern citing the cut figure would understate the week (T164, §7.1). */
   spikeTotal: number;
+  /** One row per night the WHOOP export holds. `nightOf` is the night the patient went to bed, which is
+   *  `SleepNight.date` unshifted (lib/sleep.ts states that contract); `weekday` is that date's weekday in
+   *  the summary zone, so the model reads the weekday the bars beside it are labelled with (T212). */
   nights: { nightOf: string; weekday: string; hours: number; recovery: number | null; lateDinnerBefore: string | null }[];
   patientNotes: string;
   glucoseForFlags?: GlucoseReading[]; // kept so renderSourInput can print the safety flags; not sent raw
@@ -159,23 +184,28 @@ export function buildSourInput(args: {
     };
   });
 
-  // Nights: WHOOP rows are dated by the morning the cycle ended. Label by the evening before.
+  // Nights. `SleepNight.date` is already the evening the patient went to bed — the contract is stated once,
+  // beside `parseWhoopCsv` in lib/sleep.ts, and this cites it rather than restating a premise about WHOOP's
+  // export. So `nightOf` is that date, unshifted: it is the night components/SleepChart.tsx draws on all
+  // three surfaces that show the bars, the night lib/seedFollowUp.ts joins spikes to, and the night the
+  // clinician reads off the page. This block used to subtract a day on the premise that WHOOP dates a cycle
+  // by the morning it ended, which is not what the parser does, so the SLEEP table handed to the model
+  // named every night one weekday early while the bars beside it named them correctly (T212, §7).
+  //
+  // The dinner join is the same calendar, both sides in tz(): a stop the patient left on the evening of D
+  // is the dinner before the night of D — the night they slept after it, which is the pairing §7's worked
+  // example ("3 of 4 overnight highs followed dinners out after 8pm") rests on.
   const dinnerSpikesByDate = new Map<string, string>();
   for (const s of spikes) {
     if (s.visit && localHour(s.visit.end) >= 19) dinnerSpikesByDate.set(localDate(s.visit.end), `${s.visit.place} until ${localTime(s.visit.end)}`);
   }
-  const nights = sleep.map((n) => {
-    const morning = new Date(n.date + "T12:00:00");
-    const evening = new Date(morning.getTime() - 86400000);
-    const nightOf = evening.toLocaleDateString("en-CA");
-    return {
-      nightOf,
-      weekday: evening.toLocaleDateString(undefined, { weekday: "short" }),
-      hours: n.hours,
-      recovery: n.recovery ?? null,
-      lateDinnerBefore: dinnerSpikesByDate.get(nightOf) ?? null,
-    };
-  });
+  const nights = sleep.map((n) => ({
+    nightOf: n.date,
+    weekday: localWeekday(n.date),
+    hours: n.hours,
+    recovery: n.recovery ?? null,
+    lateDinnerBefore: dinnerSpikesByDate.get(n.date) ?? null,
+  }));
 
   const n = sorted.length;
   const avg = averageGlucose(sorted);
