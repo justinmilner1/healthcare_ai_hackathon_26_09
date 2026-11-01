@@ -560,8 +560,12 @@ test("the one unplaced rise is singular in the clause after the colon too (T200)
   const spikeTile = metrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
   await expect(spikeTile.locator(".text-2xl")).toHaveText("1");
   await expect(spikeTile, "a measured zero over a Timeline that was shared (T160, T184)").toContainText("0 linked to a place");
-  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180" }) });
-  await expect(spikeCard.getByRole("heading")).toHaveText("Spikes over 180");
+  // T213 (§2.6): the heading over that one row, which counted to nought and to some but not to one until
+  // then — "Spikes over 180", in the same frame as the caption asserted below and about the same rise.
+  // `exact` because "Spike over 180" is a substring match for the plural: without it this locator would
+  // pass again the day the heading regressed.
+  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spike over 180", exact: true }) });
+  await expect(spikeCard.getByRole("heading")).toHaveText("Spike over 180");
   const rows = spikeCard.locator("tbody tr");
   await expect(rows, "the row the clause counts").toHaveCount(1);
   await expect(rows, "the Place column's cell, where a lookup was run and found nothing (T82)").toContainText("no matching visit");
@@ -586,5 +590,55 @@ test("the one unplaced rise is singular in the clause after the colon too (T200)
   await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
   await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
+  // T213 (§7.4): the heading on paper too, which is the copy a clinician carries into the room. One
+  // `clinicianSpikeCardHeading` behind both surfaces (T99, T157), so this is the same string as the
+  // brief's — asserted here rather than inferred, because the sheet is the half the ticket was also
+  // filed on (`desktop-provider-print-one-rise-unplaced.png`).
+  await expect(page.getByRole("heading", { name: "Spike over 180", exact: true })).toBeVisible();
   await shot(page, "provider-print-one-rise-unplaced", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
+});
+
+test("one matched rise is one place on both clinician surfaces (T213)", async ({ page }) => {
+  // The other half of the heading's bug, and the reading no screen in the suite held: over a card with one
+  // matched row, `clinicianSpikeCardHeading` returned "Spikes linked to places" — two plural nouns over
+  // one rise at one place. The seeded demo and e2e/flows.spec.ts both read that heading on a week with
+  // three matched rises, where the plural is right, so the suite had the reading pinned and not covered.
+  //
+  // `clarity_window.csv`'s single rise (96 → 214, climb from 07:00) with `timeline_android.json`, whose
+  // cafe ends at 06:50 — ten minutes inside lib/match.ts's 30-minute window, so the one rise carries one
+  // place and `clinicianPlaceReport` reads `matched` at a count of one. Both files go in through
+  // `POST /api/upload` as a patient's own exports do (data/fixtures/README.md); the parsed pair is read in
+  // lib/spikePlaces.test.ts.
+  const visit = await visitWithReadings(page, "E2E One Rise Placed", "data/fixtures/clarity_window.csv", "data/fixtures/timeline_android.json");
+
+  await page.goto(`/provider/${visit.demo.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", DRAINED);
+
+  // What the heading is being read against, on the record first: one rise, and the match that puts the
+  // card in its `matched` shape (T184's tile, which counts where a Timeline was shared).
+  const metrics = page.locator(".sour-metrics-card");
+  const spikeTile = metrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(spikeTile.locator(".text-2xl")).toHaveText("1");
+  await expect(spikeTile, "the one rise linked to the one place").toContainText("1 linked to a place");
+
+  // The subject. `exact`, for the reason the unplaced brief above gives: the singular is a substring of
+  // the plural this ticket replaced, so a loose match would pass over the bug.
+  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spike linked to a place", exact: true }) });
+  await expect(spikeCard.getByRole("heading")).toHaveText("Spike linked to a place");
+  await expect(spikeCard.locator("tbody tr"), "the row the heading counts").toHaveCount(1);
+  // And the caption one card above it, which is the other element in the frame (criterion 2): singular
+  // since T199, and naming the place the rise was linked to since T191.
+  const caption = page.locator(".sour-chart-caption");
+  await expect(caption).toContainText("Red marker is a spike.");
+  await expect(caption, "a plural over the one rise this chart draws").not.toContainText(/Red markers|these rises/);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await shot(page, "provider-sour-one-rise-placed", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
+
+  // §7.4's sheet, where one function serves both headings (T99, T157).
+  const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
+  expect(opened?.status(), "the sheet a clinician may open (§7.4)").toBe(200);
+  await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await expect(page.getByRole("heading", { name: "Spike linked to a place", exact: true })).toBeVisible();
+  await shot(page, "provider-print-one-rise-placed", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
 });
