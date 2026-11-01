@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { FixtureName } from "./fixtures";
 import { fixture, pinUtcTimeZone, sample } from "./fixtures";
 import { detectSpikes, parseClarityCsv } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv, placeLabel } from "./location";
@@ -34,6 +35,16 @@ const UNSHARED = { hasLocation: false };
 
 /** Any clause that reports a lookup having been run — what no element may say on an UNSHARED visit (T184). */
 const SEARCHED = /no place matched|no matching visit|linked to a place|\bplaces?\b/i;
+
+/**
+ * The heading's matched reading at either count: `Spike linked to a place` or `Spikes linked to places`
+ * (T157, T213). The three equivalence tests below compare the heading against `clinicianPlaceReport` and
+ * had the plural spelled out, so each of them pinned the plural over one matched rise as a side effect of
+ * asserting something else — which is how T213's bug survived three cross-product properties. Counting is
+ * what `clinicianSpikeCardHeading` is asserted on by name in T213's own tests; here the claim is only
+ * which report may say "linked" at all, so the regex spans both numbers.
+ */
+const LINKED = /^Spikes? linked to (a place|places)$/;
 
 /**
  * The closing clause of the `unmatched` caption, at either count — the one thing only that report says
@@ -217,7 +228,11 @@ test("the card is not headed with a link no rise in it has (T157)", () => {
 test("and keeps the heading it has always had where a place did match (T157)", () => {
   // The acceptance criterion that is about nothing changing: desktop-provider-sour.png is this visit.
   assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes linked to places");
-  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Home"))], SHARED), "Spikes linked to places");
+  // One matched rise reads in the singular since T213, both nouns of it: this line pinned
+  // "Spikes linked to places" over a card with one row until then, which is the plural T157 had no reason
+  // to count and this file therefore held in place. The counted readings are asserted in T213's own tests
+  // below; what survives here is T157's claim, that a matched card may say "linked" at all.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Home"))], SHARED), "Spike linked to a place");
 });
 
 test("claims nothing over an empty card (T157)", () => {
@@ -244,7 +259,7 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
     [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))],
   ]) {
     const heading = clinicianSpikeCardHeading(spikes, SHARED);
-    assert.equal(/linked to places/.test(heading), anyPlaceKnown(spikes), heading);
+    assert.equal(LINKED.test(heading), anyPlaceKnown(spikes), heading);
     // And it says the same thing as the caption beside it, which is why both live in this module. The
     // matched caption also carries the words "no place matched" -- of the individual label that has none --
     // so the clause to compare against is the one that speaks about the rises as a set.
@@ -255,7 +270,7 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
       assert.equal(clinicianChartCaption(spikes, SHARED, 0), "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
       continue;
     }
-    assert.equal(/linked to places/.test(heading), !NO_PLACE_MATCHED.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
+    assert.equal(LINKED.test(heading), !NO_PLACE_MATCHED.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
   }
 });
 
@@ -549,8 +564,9 @@ test("the four elements are one decision, over the whole cross product (T184)", 
       const hint = clinicianSpikePlacesHint(spikes, status, spikes.length);
       const column = clinicianPlaceColumn(spikes, status);
       const where = `${spikes.length} rises, hasLocation ${status.hasLocation}: ${report}`;
-      // "linked to places" is a claim about the card, so only the matched report may make it.
-      assert.equal(/linked to places/.test(heading), report === "matched", where);
+      // "linked to a place" is a claim about the card, so only the matched report may make it. Either
+      // number of it, since T213 counts the heading as the caption beside it has been counted since T199.
+      assert.equal(LINKED.test(heading), report === "matched", where);
       // The caption promises a place only there too, and reports an empty lookup only where one was run.
       // Compared against `matchedPlaceClause` rather than against one of the three strings it returns: the
       // literal that used to stand here was the `after` wording, and it was this assertion passing on a
@@ -738,7 +754,7 @@ test("a stop that began after the rise did: no element says the patient was ther
   // Criterion 1 is about what is not asserted, and the place itself is still named: the label on the
   // marker and the cell under it are the office, as they were before.
   assert.equal(markerLabel(matched, { patient: false }), "Office");
-  assert.equal(clinicianSpikeCardHeading([matched], SHARED), "Spikes linked to places");
+  assert.equal(clinicianSpikeCardHeading([matched], SHARED), "Spike linked to a place");
 });
 
 test("the other two branches and the clinician's register are untouched (T191)", () => {
@@ -1065,7 +1081,9 @@ test("the no-match fixture is the week the unmatched clause is read on (T200)", 
     "Shaded band is 70–180 mg/dL. Red marker is a spike. Labels, where they fit, give the peak mg/dL: no place matched this rise.",
   );
   // The two elements beside it on the same card, so the count the clause agrees with is on the record.
-  assert.equal(clinicianSpikeCardHeading(spikes, SHARED), "Spikes over 180");
+  // The heading agrees with it since T213; until then this line was the plural the caption above has just
+  // been asserted not to carry, over the same one rise.
+  assert.equal(clinicianSpikeCardHeading(spikes, SHARED), "Spike over 180");
   assert.equal(clinicianSpikePlacesHint(spikes, SHARED, spikes.length), "0 linked to a place");
   assert.equal(clinicianPlaceColumn(spikes, SHARED), true);
 });
@@ -1208,4 +1226,141 @@ test("a placed rise really does reach §2.7's chart with no label on it (T204)",
   // is the separate thing `, when available` is about and the Where column shows per row.
   const caption = patientChartCaption(spikes);
   assert.match(caption, /The labels that fit say where you were around then, when available\.$/, caption);
+});
+
+// ---------------------------------------------------------------------------------------------
+// T213 (design §2.6, §7.4, §12.1): the heading over the clinician's spike card counts the rows under it.
+//
+// T203 taught the patient's half of this pair to count and left the clinician's two surfaces behind, where
+// `clinicianSpikeCardHeading` branched at nought and at some but not at one. So the single-rise brief, and
+// the sheet carried into the room, read "Red marker is a spike … no place matched this rise." over a card
+// headed "Spikes over 180" — and over a matched single rise the heading said both of its nouns in the
+// plural at once, "Spikes linked to places" above one row naming one place.
+
+test("the clinician's spike card is headed in the number of rows it lists (T213)", () => {
+  // Acceptance criterion 1, at the counts the card has: one row, two, five, and nought. The unmatched
+  // reading and the matched one, because they are two headings and the bug was in both.
+  assert.equal(clinicianSpikeCardHeading(spikesOf(1), SHARED), "Spike over 180");
+  assert.equal(clinicianSpikeCardHeading(spikesOf(2), SHARED), "Spikes over 180");
+  assert.equal(clinicianSpikeCardHeading(spikesOf(5), SHARED), "Spikes over 180");
+  // The place noun counts too: one rise is linked to one place, so "Spike linked to places" would be the
+  // bug half-fixed (criterion 1).
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe"))], SHARED), "Spike linked to a place");
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes linked to places");
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike(somewhere("Home"))], SHARED), "Spikes linked to places");
+  // And the same count on the visit that shared no Timeline, where there is no place branch to reach.
+  assert.equal(clinicianSpikeCardHeading(spikesOf(1), UNSHARED), "Spike over 180");
+  assert.equal(clinicianSpikeCardHeading(spikesOf(5), UNSHARED), "Spikes over 180");
+  // The nought reading stays the bare "Spikes" T157 chose, which is what `plural` returns there anyway
+  // (criterion 3): a heading over SpikeTable's "No spikes over 180 detected.".
+  for (const status of [SHARED, UNSHARED]) {
+    assert.equal(clinicianSpikeCardHeading([], status), "Spikes");
+  }
+});
+
+test("neither heading can be read as the other count's number (T213)", () => {
+  // Criterion 1 as the failure mode rather than as a list of strings: at one, nothing in the heading is a
+  // plural; at two and above, nothing in it is a singular. `plural` in lib/plural.ts is the agreement on
+  // both nouns, so this holds at every count the card can list rather than at the three asserted above.
+  for (let n = 1; n <= 12; n++) {
+    const unplaced = clinicianSpikeCardHeading(spikesOf(n), SHARED);
+    const placed = clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), ...spikesOf(n - 1)], SHARED);
+    for (const heading of [unplaced, placed]) {
+      assert.doesNotMatch(heading, n === 1 ? /Spikes|places/ : /^Spike\b|a place/, `${n}: ${heading}`);
+      assert.match(heading, n === 1 ? /^Spike\b/ : /^Spikes\b/, `${n}: ${heading}`);
+    }
+    // And the readings themselves, composed the way the function composes them, so a literal cannot creep
+    // back into either branch (criterion 1).
+    assert.equal(unplaced, `${plural(n, "Spike")} over 180`);
+    assert.equal(placed, `${plural(n, "Spike")} linked to ${plural(n, "a place", "places")}`);
+  }
+});
+
+test("the heading and the caption over it cannot disagree about the count in one frame (T213)", () => {
+  // Criterion 2 as the property. The two elements are one card apart on §2.6's brief and on §7.4's sheet
+  // and both are handed `bundle.spikes` (app/provider/[id]/sour.tsx, app/provider/visit/[id]/print/page.tsx),
+  // so the count is one array's length; what is asserted here is that the grammar they put it in agrees.
+  // The caption's singular is T199's "Red marker is a spike." and T200's "this rise"; the heading's is this
+  // ticket's.
+  for (let n = 1; n <= 12; n++) {
+    const cases: [Spike[], { hasLocation: boolean }][] = [
+      [spikesOf(n), SHARED],
+      [spikesOf(n), UNSHARED],
+      [[spike(somewhere("Noe Cafe")), ...spikesOf(n - 1)], SHARED],
+    ];
+    for (const [spikes, status] of cases) {
+      const heading = clinicianSpikeCardHeading(spikes, status);
+      const caption = clinicianChartCaption(spikes, status, spikes.length);
+      const where = `${n} rises, hasLocation ${status.hasLocation}: ${heading} / ${caption}`;
+      // One number, read off both: the caption calls the markers a spike or spikes, the heading calls the
+      // rows the same noun.
+      assert.equal(/\bRed marker is a spike\./.test(caption), n === 1, where);
+      assert.equal(/^Spike\b/.test(heading), n === 1, where);
+      // And at one, no plural of the shared noun survives anywhere in the pair — the two sentences the
+      // reviewer read in one frame.
+      if (n === 1) assert.doesNotMatch(`${caption} ${heading}`, /spikes|rises|places/i, where);
+    }
+  }
+});
+
+test("the three readings all survive the count, against `clinicianPlaceReport` (T213)", () => {
+  // Criterion 3: counting the nouns did not move which reading a card gets. The same equivalence T157 and
+  // T184 assert, run across the counts this ticket touches — the heading says "linked" exactly where the
+  // report is `matched`, names the threshold exactly where there are rises and no place to report, and is
+  // the bare "Spikes" exactly where there are none.
+  for (const spikes of [
+    [],
+    [spike()],
+    [spike(), spike()],
+    [spike(somewhere("Home"))],
+    [spike(during("Office"))],
+    [spike(arriving("Home", 10))],
+    [spike(), spike(somewhere("Noe Cafe"))],
+    [spike(somewhere("Home")), spike(unnamed())],
+  ]) {
+    for (const status of [SHARED, UNSHARED]) {
+      const report = clinicianPlaceReport(spikes, status);
+      const heading = clinicianSpikeCardHeading(spikes, status);
+      const where = `${spikes.length} rises, hasLocation ${status.hasLocation}: ${report} → ${heading}`;
+      assert.equal(LINKED.test(heading), report === "matched", where);
+      assert.equal(/ over 180$/.test(heading), report !== "matched" && spikes.length > 0, where);
+      assert.equal(heading === "Spikes", spikes.length === 0, where);
+      // The matcher's vocabulary stays off the clinician's heading as well as the patient's (T82, T157).
+      assert.doesNotMatch(heading, MATCHER, where);
+    }
+  }
+});
+
+test("the one-rise fixtures are the briefs the heading was plural over (T213)", () => {
+  // Criterion 1 on parsed exports rather than on hand-built spikes, the way T200's and T203's fixture tests
+  // read theirs. `clarity_window.csv` is the committed week with exactly one rise over 180 (96 → 214) and
+  // it is the file e2e/flags.spec.ts loads for the on-screen half of this (criterion 5), so both counts are
+  // the fixture's.
+  pinUtcTimeZone();
+  const glucose = detectSpikes(parseClarityCsv(fixture("clarity_window.csv")));
+  const places = parseVisitsCsv(fixture("visits.csv"));
+  const withTimeline = (name: FixtureName) => matchSpikesToVisits(glucose, labelVisits(parseTimeline(fixture(name)), places));
+
+  // `unmatched`: the pairing T200 added, a Timeline shared whose three stops all fall outside
+  // lib/match.ts's window. This is `desktop-provider-sour-one-rise-unplaced.png`, the frame the ticket was
+  // filed on — a caption ending "no place matched this rise." over a heading reading "Spikes over 180".
+  const unplaced = withTimeline("timeline_no_match.json");
+  assert.equal(unplaced.length, 1);
+  assert.equal(clinicianPlaceReport(unplaced, SHARED), "unmatched");
+  assert.equal(clinicianSpikeCardHeading(unplaced, SHARED), "Spike over 180");
+  assert.match(clinicianChartCaption(unplaced, SHARED, 1), /no place matched this rise\.$/);
+  // The same week with no Timeline at all, which is §2.5's ordinary visit: the same heading, since this
+  // branch covers both of the reports that are not `matched` (T184).
+  assert.equal(clinicianSpikeCardHeading(unplaced, UNSHARED), "Spike over 180");
+
+  // `matched` at one rise: the cafe in `timeline_android.json` ends at 06:50 and the climb begins at 07:00,
+  // ten minutes inside lib/match.ts's 30-minute window, so the file's one rise carries one place. That is
+  // the second half of the bug, where the plural heading named two nouns over one row and one place.
+  const matched = withTimeline("timeline_android.json");
+  assert.equal(matched.length, 1);
+  assert.equal(matched[0]!.visit?.place, "Fixture Cafe");
+  assert.equal(clinicianPlaceReport(matched, SHARED), "matched");
+  assert.equal(clinicianSpikeCardHeading(matched, SHARED), "Spike linked to a place");
+  // And the card's own caption agrees with it, which is the frame criterion 2 is about.
+  assert.match(clinicianChartCaption(matched, SHARED, 1), /^Shaded band is 70\u2013180 mg\/dL\. Red marker is a spike\./);
 });
