@@ -12,6 +12,7 @@ import {
   auditLede,
   auditRowSentence,
   auditRowSpan,
+  auditSpanSeconds,
   auditSpanWords,
   AUDIT_ACTIONS,
   AUDIT_ACTION_NAMES,
@@ -477,17 +478,113 @@ test("the whole lede is §10.2's scope, the row, and the rule", () => {
 // called it a minute. The store's end of that is held in lib/auditStore.test.ts, against real rows and a
 // real clock; these are the words the cell and the export print about it.
 
+/** A stamp as the `When` cell prints it (app/provider/audit/audit.tsx, `when`). `toLocaleString()` has no
+ *  sub-second field, so this is a function of `Math.floor(ms / 1000)` and of nothing else — which is what
+ *  lets the assertions below subtract two printed stamps without parsing either of them. */
+const printed = (ms: number) => new Date(ms).toLocaleString();
+
+/** The reader's own arithmetic, done the only way it can be done locale-independently: if adding the stated
+ *  number of seconds to the first printed stamp lands on the second printed stamp, then the two stamps the
+ *  cell prints are exactly that many seconds apart. Both directions hold, because each stamp is a function
+ *  of its instant's floor to the second and the local offset is the same on both. */
+function printedStampsAgree(fromMs: number, toMs: number, seconds: number): boolean {
+  return printed(fromMs + seconds * 1_000) === printed(toMs);
+}
+
+const iso = (s: string) => Date.parse(s);
+
 test("a span is reported in units a person reads, and never as a zero", () => {
-  assert.equal(auditSpanWords(0), "under a second");
-  assert.equal(auditSpanWords(400), "under a second");
-  assert.equal(auditSpanWords(-5), "under a second", "a clock that went backwards is not a negative span");
-  assert.equal(auditSpanWords(1_000), "1 second");
-  assert.equal(auditSpanWords(1_400), "1 second");
-  assert.equal(auditSpanWords(42_000), "42 seconds");
-  assert.equal(auditSpanWords(59_600), "a minute", "rounding up to the window is still the window");
-  assert.equal(auditSpanWords(60_000), "a minute");
-  assert.equal(auditSpanWords(90_000), "90 seconds");
-  assert.equal(auditSpanWords(120_000), "2 minutes");
+  // Taking both ends rather than a duration is the fix of T222 and not a signature tidy-up: a bare gap has no
+  // correct wording, because the words are read between two stamps that are truncated to the second.
+  const t = iso("2026-10-14T09:30:00.000Z");
+  assert.equal(auditSpanWords(t, t), "under a second");
+  assert.equal(auditSpanWords(t, t + 400), "under a second", "same second on both stamps, so no visible gap");
+  assert.equal(auditSpanWords(t, t - 5), "under a second", "a clock that went backwards is not a negative span");
+  assert.equal(auditSpanWords(t, t + 1_000), "1 second");
+  assert.equal(auditSpanWords(t, t + 1_400), "1 second");
+  assert.equal(auditSpanWords(t, t + 42_000), "42 seconds");
+  assert.equal(auditSpanWords(t, t + 60_000), "a minute");
+  assert.equal(auditSpanWords(t, t + 90_000), "90 seconds");
+  assert.equal(auditSpanWords(t, t + 120_000), "2 minutes");
+  // What the old rounding did, now counted off the stamps instead: 59.6s is 59 whole seconds on the clock,
+  // not the whole window. A claim of "a minute" needs the stamps to be a minute apart.
+  assert.equal(auditSpanWords(t, t + 59_600), "59 seconds");
+  assert.equal(auditSpanSeconds(t, t + 59_600), 59);
+  assert.equal(auditSpanSeconds(t, t - 5), 0, "a backwards clock floors at zero here as it does in the row");
+  assert.equal(auditSpanSeconds(Number.NaN, t), 0);
+  assert.equal(auditSpanSeconds(t, Number.NaN), 0);
+});
+
+test("the span a cell states is the difference of the two stamps that cell prints (T222 AC1, AC2)", () => {
+  // The four pairs the ticket measured, by their millisecond offsets inside the second. The first three
+  // straddle a second boundary with a sub-second gap or a 1.3s one; the last is the 0.4s straddle that used
+  // to print "under a second" over two stamps a second apart.
+  const base = iso("2026-11-02T21:39:20.000Z");
+  const pairs: [number, number, string][] = [
+    [base + 800, base + 2_100, "2 seconds"], // real 1.3s, stamps :20 and :22 — once "1 second"
+    [base + 900, base + 2_000, "2 seconds"], // real 1.1s, stamps :20 and :22 — once "1 second"
+    [base + 0, base + 2_000, "2 seconds"], // real 2.0s, stamps :20 and :22 — always agreed
+    [base + 600, base + 1_000, "1 second"], // real 0.4s, stamps :20 and :21 — once "under a second"
+    [base + 100, base + 500, "under a second"], // real 0.4s, both stamps :20 — nothing visible to deny
+  ];
+  for (const [from, to, words] of pairs) {
+    const seconds = auditSpanSeconds(from, to);
+    assert.equal(auditSpanWords(from, to), words, `${printed(from)} to ${printed(to)}`);
+    assert.ok(
+      printedStampsAgree(from, to, seconds),
+      `the cell would claim ${seconds}s over ${printed(from)} and ${printed(to)}, which are not that far apart`,
+    );
+    // AC2, the two readings a reader can catch in one glance, stated as their own assertions.
+    if (seconds === 0) assert.equal(printed(from), printed(to), '"under a second" over two stamps that differ');
+    else assert.notEqual(printed(from), printed(to), `${words} over one stamp printed twice`);
+  }
+});
+
+test("no pair of instants makes the words and the printed stamps disagree (T222 AC1)", () => {
+  // Every offset-within-the-second against every other, across gaps from nothing to past the window: the
+  // isolation the old test had was that it never put the words next to the stamps, so this is the pairing
+  // done exhaustively rather than on the cases that happened to be noticed.
+  const base = iso("2026-11-02T21:39:20.000Z");
+  const fractions = [0, 1, 100, 400, 499, 500, 501, 600, 800, 900, 999];
+  for (const wholeSeconds of [0, 1, 2, 3, 41, 59, 60]) {
+    for (const from of fractions) {
+      for (const to of fractions) {
+        const a = base + from;
+        const b = base + wholeSeconds * 1_000 + to;
+        const seconds = auditSpanSeconds(a, b);
+        const words = auditSpanWords(a, b);
+        assert.ok(
+          printedStampsAgree(a, b, seconds),
+          `${words} is not the gap between ${printed(a)} and ${printed(b)}`,
+        );
+        if (printed(a) === printed(b)) assert.equal(words, "under a second", `${words} over one stamp printed twice`);
+        else assert.notEqual(words, "under a second", `"under a second" over ${printed(a)} and ${printed(b)}`);
+        assert.equal(words, auditSpanWords(a, b), "the words are a function of the pair and nothing else");
+      }
+    }
+  }
+});
+
+test("a coalesced row's own words agree with the stamps the cell prints beside them (T222 AC1, AC5)", () => {
+  // The same check one level up, through the function the page actually calls — the ticket's reproduction
+  // case, which returned "1 second" over two stamps two seconds apart.
+  const row = entry({ at: "2026-11-02T21:39:22.100Z", firstAt: "2026-11-02T21:39:20.800Z", detail: { count: 3 } });
+  const span = auditRowSpan(row);
+  assert.ok(span);
+  assert.equal(span.ms, 1_300, "the record's own gap is kept at full precision");
+  assert.equal(span.seconds, 2, "and the gap the cell can show is two seconds, because that is what it prints");
+  assert.equal(span.words, "2 seconds");
+  assert.ok(
+    printedStampsAgree(iso(row.firstAt), iso(row.at), span.seconds),
+    `${span.words} over ${printed(iso(row.firstAt))} and ${printed(iso(row.at))}`,
+  );
+  // The 0.4s straddle, which is the worse reading: the words denied a gap printed beside the denial.
+  const straddle = auditRowSpan(entry({ at: "2026-11-02T21:39:21.000Z", firstAt: "2026-11-02T21:39:20.600Z", detail: { count: 2 } }));
+  assert.ok(straddle);
+  assert.equal(straddle.ms, 400);
+  assert.equal(straddle.seconds, 1);
+  assert.equal(straddle.words, "1 second");
+  assert.notEqual(printed(iso("2026-11-02T21:39:20.600Z")), printed(iso("2026-11-02T21:39:21.000Z")));
 });
 
 test("a row that stands for one event at one moment reports no span", () => {
@@ -506,6 +603,7 @@ test("a coalesced row reports the span between its first read and its last (T220
   const span = auditRowSpan(entry({ at: "2026-10-14T09:30:00.000Z", firstAt: "2026-10-14T09:29:18.000Z", detail: { part: "summary", count: 7 } }));
   assert.ok(span, "a row with two times and a count of 7 has a span");
   assert.equal(span.ms, 42_000);
+  assert.equal(span.seconds, 42, "whole seconds, and on this pair the two agree because both stamps are on the second");
   assert.equal(span.words, "42 seconds");
   assert.equal(span.reads, 7, "how many reads the row stands for comes from its own count");
 });
@@ -517,6 +615,7 @@ test("two reads inside one millisecond are a pair of reads, not a single one", (
   const span = auditRowSpan(entry({ at, firstAt: at, detail: { count: 2 } }));
   assert.ok(span);
   assert.equal(span.ms, 0);
+  assert.equal(span.seconds, 0);
   assert.equal(span.words, "under a second");
   assert.equal(span.reads, 2);
 });
@@ -534,6 +633,8 @@ test("a count that is not a usable number falls back to one read, and a backward
   const backwards = auditRowSpan(entry({ at: earlier, firstAt: at, detail: { count: 3 } }));
   assert.ok(backwards);
   assert.equal(backwards.ms, 0);
+  assert.equal(backwards.seconds, 0, "and no negative count of seconds either");
+  assert.equal(backwards.words, "under a second");
   assert.equal(backwards.reads, 3);
 });
 

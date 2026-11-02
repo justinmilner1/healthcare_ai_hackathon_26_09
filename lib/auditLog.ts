@@ -258,9 +258,14 @@ export function auditCoalescingSentence(coalesceMs: number = READ_COALESCE_MS): 
   );
 }
 
-/** How long a row stands for and how many events it counts: `ms` the gap in milliseconds, `words` that gap
- *  as a cell prints it, `reads` the row's own `detail.count`. */
-export type AuditRowSpan = { ms: number; words: string; reads: number };
+/** How long a row stands for and how many events it counts: `ms` the true gap in milliseconds, `seconds` the
+ *  gap a reader of the row's two printed stamps counts (`auditSpanSeconds`), `words` that second count as a
+ *  cell prints it, `reads` the row's own `detail.count`.
+ *
+ *  `ms` and `seconds` are two different facts about one pair of instants and are meant to differ: `ms` is the
+ *  gap the record holds and the bound of T220 is about, `seconds` is the gap the cell is able to show. Only
+ *  `seconds` may be put into words, because the words sit between the two stamps they are counting. */
+export type AuditRowSpan = { ms: number; seconds: number; words: string; reads: number };
 
 /**
  * The span a row stands for: the gap between the first event counted on it and the last. Null when the row
@@ -282,13 +287,39 @@ export function auditRowSpan(entry: Pick<AuditEntry, "at" | "firstAt" | "detail"
   // count and no span rather than a negative one: the row is still evidence of N reads.
   const ms = Math.max(0, ended - began);
   if (ms === 0 && reads === 1) return null;
-  return { ms, words: auditSpanWords(ms), reads };
+  return { ms, seconds: auditSpanSeconds(began, ended), words: auditSpanWords(began, ended), reads };
 }
 
-/** A span in words. Shorter than a second is "under a second" rather than "0 seconds": two reads in one
- *  millisecond are a real pair of reads and the row should not read as rounding them away. */
-export function auditSpanWords(ms: number): string {
-  const seconds = Math.round(Math.max(0, ms) / 1000);
+/**
+ * The gap between two instants in whole seconds, counted the way a reader of the cell counts it: by
+ * subtracting the two stamps the cell prints (T222).
+ *
+ * `toLocaleString()` *truncates* to the second, so the only gap a reader can see is the gap between the two
+ * truncations — and the difference of two truncated-to-the-second times is the difference of their floors,
+ * whatever the local offset, because the offset is the same on both and cancels. Rounding the true gap
+ * instead is what made the cell contradict itself: `.800` to `.100` across two seconds is a real 1.3s, which
+ * rounds to one second while the two stamps print two apart, and `.600` to `.000` across one second is a real
+ * 0.4s, which rounds to nothing at all while the stamps print a second apart. The round and the truncate
+ * disagree whenever the fractional parts straddle a boundary, and the cell showed both answers at once.
+ *
+ * So the span is a fact about the pair of stamps rather than about the duration, and a caller has to name
+ * both ends to get it. That is also why `auditSpanWords` takes two instants and not a duration: there is no
+ * correct wording of a bare gap, since the words are read next to the stamps and not next to the milliseconds
+ * (the exported CSV keeps those at full precision — `AUDIT_CSV_HEADER` — and is where the real figure lives).
+ *
+ * A clock that moved backwards between two writes is floored at zero here, as it is in `auditRowSpan`.
+ */
+export function auditSpanSeconds(fromMs: number, toMs: number): number {
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return 0;
+  return Math.max(0, Math.floor(toMs / 1000) - Math.floor(fromMs / 1000));
+}
+
+/** The span between two instants in words, as a cell prints it between the two stamps it is counting. Zero
+ *  is "under a second" rather than "0 seconds": two reads inside one second are a real pair of reads and the
+ *  row should not read as rounding them away — and the two stamps print identically, so there is no visible
+ *  gap for those words to deny. Takes the two ends, never a duration: `auditSpanSeconds` says why. */
+export function auditSpanWords(fromMs: number, toMs: number): string {
+  const seconds = auditSpanSeconds(fromMs, toMs);
   if (seconds < 1) return "under a second";
   if (seconds === 1) return "1 second";
   if (seconds % 60 !== 0 || seconds < 60) return `${seconds} seconds`;
