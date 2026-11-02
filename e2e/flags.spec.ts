@@ -678,6 +678,70 @@ test("one matched rise is one place on both clinician surfaces (T213)", async ({
   await shot(page, "provider-print-one-rise-placed", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
 });
 
+test("a card where only some rises matched claims a link of none of them (T221)", async ({ page }) => {
+  // The reading no screen in the suite held, and the one the ticket was filed on: a card where *some*
+  // rises matched and the rest read `no matching visit`. `clinicianPlaceReport` answers `matched` as soon
+  // as one rise carries a stop, so `clinicianSpikeCardHeading` returned "Spikes linked to places" over
+  // rows denying the link, and over however many places were actually shown — one, here. That is T157's
+  // bug at `some` rather than at `none`, which the seeded week (three of five placed) showed in its mild
+  // form and no fixture showed sharply.
+  //
+  // `clarity_three_rises.csv` is the fixture for it (data/fixtures/README.md): three rises over 180 spaced
+  // so that `timeline_android.json`'s cafe — ending 06:50, fifteen minutes before the first onset — is the
+  // only stop inside lib/match.ts's 30-minute window, the office and pizzeria being more than thirty
+  // minutes from the other two onsets and overlapping neither. One placed rise among three, which is the
+  // sharp case. Both files go in through `POST /api/upload` as a patient's own exports do; the parsed pair
+  // is read in lib/spikePlaces.test.ts.
+  const visit = await visitWithReadings(page, "E2E One Placed Of Three", "data/fixtures/clarity_three_rises.csv", "data/fixtures/timeline_android.json");
+
+  await page.goto(`/provider/${visit.demo.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", DRAINED);
+
+  // What the heading is read against, on the record first: three rises, one of them placed. The tile keeps
+  // its count, because a Timeline was shared and there the number is a reading taken (T160, T184) — and it
+  // is the element that owns that count, which is why the heading need not restate it.
+  const metrics = page.locator(".sour-metrics-card");
+  const spikeTile = metrics.locator(".summary-stat-tile", { hasText: "Spikes > 180" });
+  await expect(spikeTile.locator(".text-2xl")).toHaveText("3");
+  await expect(spikeTile, "one of the three rises carries a place").toContainText("1 linked to a place");
+
+  // The subject. The card is headed with its own neutral subject, and nothing on the page claims a link:
+  // "places" over one place and "linked" over two rows that deny it were the two halves of the bug.
+  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180", exact: true }) });
+  await expect(spikeCard.getByRole("heading")).toHaveText("Spikes over 180");
+  await expect(spikeCard.locator("tbody tr"), "the rows the heading counts").toHaveCount(3);
+  await expect(page.getByRole("heading", { name: /linked to places?/ }), "a link claimed of rows that deny one").toHaveCount(0);
+
+  // And the rows it is written over, in the same frame: the one named place, and the two cells reporting
+  // no match. T82 keeps those cells here — the matcher reported, and a Timeline was shared — so this is a
+  // card that truthfully says both things at once, which is what the heading had to stop contradicting.
+  const placeCells = spikeCard.locator("tbody tr td:nth-child(3)");
+  await expect(placeCells.filter({ hasText: "no matching visit" }), "the rows the old heading claimed a link of").toHaveCount(2);
+  await expect(placeCells.filter({ hasText: /left \d+ min before/ }), "the one rise the cafe is linked to").toHaveCount(1);
+
+  // The caption one card above it, which is the other element in the frame (criterion 3). It is exact
+  // about the mix already and stays so: the place clause *and* the peak reading after it (T214), which is
+  // the pairing that makes the heading's silence the right answer rather than a loss.
+  const caption = page.locator(".sour-chart-caption");
+  await expect(caption).toHaveText(
+    "Shaded band is 70–180 mg/dL. Red markers are spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.",
+  );
+  const briefCaption = (await caption.textContent())?.trim();
+  expect(briefCaption, "the brief's caption").toBeTruthy();
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await shot(page, "provider-sour-one-placed-of-three", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
+
+  // §7.4's sheet, where one function serves both headings (T99, T157) — the copy carried into the room.
+  const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
+  expect(opened?.status(), "the sheet a clinician may open (§7.4)").toBe(200);
+  await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await expect(page.getByRole("heading", { name: "Spikes over 180", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /linked to places?/ }), "a link on the sheet the brief does not claim").toHaveCount(0);
+  await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
+  await shot(page, "provider-print-one-placed-of-three", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
+});
+
 test("one day of glucose beside three WHOOP nights names the sleep span on both clinician surfaces (T218)", async ({ page }) => {
   // The pairing no committed shot of these two surfaces held, and the reason T218 was filed against §2.7
   // rather than §2.6: every single-day provider fixture in the suite has no WHOOP data at all
