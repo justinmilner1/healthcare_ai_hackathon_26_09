@@ -14,6 +14,7 @@
 // recovery suffix had already dropped out, and a Recovery column of em dashes — the subtitle was the only
 // element on the screen that mentioned the word.
 
+import { patientSleepSpanClause } from "./sleepSpan";
 import type { SleepNight } from "./types";
 
 /**
@@ -65,12 +66,19 @@ export function sleepRecoveryColumn(sleep: SleepNight[]): boolean {
  * words it cannot support and keeps the rest of the sentence, so the two readings are one claim with and
  * without a clause rather than two sentences a reword could pull apart.
  *
- * Both clinician surfaces already hedge this correctly — their Sleep tile's `hint` is `undefined` when
- * `recoveryAvg` is null — which is why they are out of scope here and why this reads the same predicate they
- * do, through `recoveryScores` above.
+ * `days` is the glucose span the page around the card is framed as, and the clause it may add is the second
+ * thing this sentence could not say (T218): the nights come from a WHOOP export with its own range, so a
+ * card drawn over more nights than the frame claims names its own span rather than inheriting the page's.
+ * That decision is lib/sleepSpan.ts's and the clinician surfaces read the same predicate, which is what
+ * stops this sentence and the heading on their sleep card concluding differently about one upload.
+ *
+ * Both clinician surfaces already hedge *recovery* correctly — their Sleep tile's `hint` is `undefined` when
+ * `recoveryAvg` is null — which is why that half is still only asked here.
  */
-export function patientSleepCardSubtitle(sleep: SleepNight[]): string {
-  return anyRecoveryKnown(sleep)
+export function patientSleepCardSubtitle(sleep: SleepNight[], days: number): string {
+  const base = anyRecoveryKnown(sleep)
     ? "Nightly sleep and recovery from your connected data."
     : "Nightly sleep from your connected data.";
+  const span = patientSleepSpanClause(sleep, days);
+  return span ? `${base} ${span}` : base;
 }

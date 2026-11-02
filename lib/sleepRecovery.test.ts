@@ -7,6 +7,11 @@ import type { SleepNight } from "./types";
 
 pinUtcTimeZone(); // the WHOOP fixtures carry device-local timestamps with no offset
 
+/** A glucose span wide enough that neither fixture's nights outrun it, so the sentences below are the
+ *  recovery branches alone and nothing about T218's span clause is mixed into them. Both fixtures are
+ *  shorter than this: `whoop_alt_headers.csv` is two nights and `whoop_cycles.csv` three. */
+const WEEK = 7;
+
 /** The export this ticket is about: a header of `Date,Sleep duration (min),Sleep performance %` and no
  *  recovery column anywhere in it, so every night of the upload comes back without a score (lib/sleep.ts). */
 const noRecovery: SleepNight[] = parseWhoopCsv(fixture("whoop_alt_headers.csv"));
@@ -42,14 +47,14 @@ test("anyRecoveryKnown is some, not every", () => {
 });
 
 test("§2.7's sleep card does not promise recovery over a week that carries none", () => {
-  assert.equal(patientSleepCardSubtitle(noRecovery), "Nightly sleep from your connected data.");
-  assert.doesNotMatch(patientSleepCardSubtitle(noRecovery), /recovery/i);
+  assert.equal(patientSleepCardSubtitle(noRecovery, WEEK), "Nightly sleep from your connected data.");
+  assert.doesNotMatch(patientSleepCardSubtitle(noRecovery, WEEK), /recovery/i);
 });
 
 test("and says what it has always said over a week that does (AC4)", () => {
-  assert.equal(patientSleepCardSubtitle(withRecovery), "Nightly sleep and recovery from your connected data.");
+  assert.equal(patientSleepCardSubtitle(withRecovery, WEEK), "Nightly sleep and recovery from your connected data.");
   // The mixed week keeps it too: there is a score on the card to read.
-  assert.match(patientSleepCardSubtitle([...noRecovery, { date: "2026-09-22", hours: 7.1, recovery: 55 }]), /recovery/i);
+  assert.match(patientSleepCardSubtitle([...noRecovery, { date: "2026-09-22", hours: 7.1, recovery: 55 }], WEEK), /recovery/i);
 });
 
 test("the table's Recovery column is drawn exactly where a night has a score", () => {
@@ -58,7 +63,7 @@ test("the table's Recovery column is drawn exactly where a night has a score", (
   // One predicate behind the column and the sentence, so the card cannot say the word over a table with no
   // column for it — T82's bug read twice in one frame.
   for (const nights of [noRecovery, withRecovery, [], [...noRecovery, { date: "2026-09-22", hours: 7.1, recovery: 55 }]]) {
-    assert.equal(sleepRecoveryColumn(nights), /recovery/i.test(patientSleepCardSubtitle(nights)));
+    assert.equal(sleepRecoveryColumn(nights), /recovery/i.test(patientSleepCardSubtitle(nights, WEEK)));
   }
 });
 
@@ -71,4 +76,18 @@ test("and the predicate the clinician's Sleep tile reads is this one", () => {
   for (const nights of [noRecovery, withRecovery, [], [...noRecovery, { date: "2026-09-22", hours: 7.1, recovery: 55 }]]) {
     assert.equal(recoveryScores(nights).length > 0, anyRecoveryKnown(nights));
   }
+});
+
+test("the span clause rides on whichever recovery branch the sentence took (T218)", () => {
+  // Both halves of the sentence are decided independently, so the four combinations are four sentences and
+  // not two. The span clause is lib/sleepSpan.ts's and is held to its own wording there; what is pinned here
+  // is that it is appended to either branch rather than replacing one of them.
+  for (const nights of [noRecovery, withRecovery]) {
+    const framed = patientSleepCardSubtitle(nights, 1);
+    assert.ok(framed.startsWith(patientSleepCardSubtitle(nights, WEEK)), "the recovery branch is kept whole");
+    assert.match(framed, /cover more than the day of glucose above\.$/);
+  }
+  // And the recovery word is still the recovery predicate's alone: the clause adds none of its own.
+  assert.doesNotMatch(patientSleepCardSubtitle(noRecovery, 1), /recovery/i);
+  assert.match(patientSleepCardSubtitle(withRecovery, 1), /recovery/i);
 });
