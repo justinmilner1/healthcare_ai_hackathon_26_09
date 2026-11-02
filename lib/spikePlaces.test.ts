@@ -1549,3 +1549,151 @@ test("the all-matched caption off the committed exports (T214)", () => {
   // tile the ticket quoted as "1 · 1 linked to a place" is the spike count beside this half of it.
   assert.equal(clinicianSpikePlacesHint(matched, SHARED, 1), "1 linked to a place");
 });
+
+// ---------------------------------------------------------------------------------------------
+// T221 (design §2.6, §7.4, §12.1): the clinician's spike card was headed "Spikes linked to places" over a
+// card showing one place, and over rows whose own `Place` cell reads `no matching visit`.
+//
+// `clinicianSpikeCardHeading` counted both nouns off `spikes.length`, so the place noun counted rows. On a
+// card where only some rises matched, the two are different numbers and the heading said "places" over
+// one; and `clinicianPlaceReport` answers `matched` as soon as one rise carries a stop, so the link was
+// asserted of every row including the ones denying it. That is T157's bug at `some` rather than at `none`,
+// which T157, T198, T203 and T213 each had no reason to count.
+//
+// The place half is now offered only where every listed rise carries a place, counted off the places
+// themselves (`distinctPlaceCount`); the mixed card gets the card's own neutral subject.
+
+test("the place noun counts the places the card shows, not the rows (T221)", () => {
+  // Acceptance criterion 1. Two rows both placed at one `Office` are one place, so the heading is the
+  // singular -- this is the all-placed card, where the heading still names places at all.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Office")), spike(somewhere("Office"))], SHARED), "Spikes linked to a place");
+  assert.equal(distinctPlaceCount([spike(somewhere("Office")), spike(somewhere("Office"))]), 1);
+  // Two places, two rows: the plural, which is the reading that must not move.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Office")), spike(somewhere("Home"))], SHARED), "Spikes linked to places");
+  assert.equal(distinctPlaceCount([spike(somewhere("Office")), spike(somewhere("Home"))]), 2);
+  // Three rows at two places: the spike noun counts the rows and the place noun the places, so the two
+  // nouns of one heading are now read off different numbers.
+  const threeAtTwo = [spike(somewhere("Office")), spike(somewhere("Office")), spike(somewhere("Home"))];
+  assert.equal(clinicianSpikeCardHeading(threeAtTwo, SHARED), "Spikes linked to places");
+  assert.equal(distinctPlaceCount(threeAtTwo), 2);
+  // And the count is of the strings the clinician reads down the `Place` column, which is `visit.place`
+  // verbatim (components/SpikeTable.tsx) -- two stops the export never named are two places here, where
+  // the patient's column would collapse both into one `UNNAMED_PLACE` phrase (T128).
+  assert.equal(distinctPlaceCount([spike(unnamed(37.78, -122.41)), spike(unnamed(37.79, -122.42))]), 2);
+  assert.equal(distinctPlaceCount([]), 0);
+  assert.equal(distinctPlaceCount([spike(), spike()]), 0);
+});
+
+test("the heading claims no link of rows that read `no matching visit` (T221)", () => {
+  // Acceptance criterion 2, at the two shapes the ticket measured. One placed rise among two and among
+  // three: the heading was "Spikes linked to places" over `Noe Cafe | no matching visit`, a plural over
+  // one place and a link over a row denying it. It is now the card's neutral subject.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes over 180");
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike(), spike()], SHARED), "Spikes over 180");
+  // The mild case, which is the seeded demo's shape: three placed at two places among five rows. "places"
+  // was at least true of what was shown there, and the link was still asserted of all five rows.
+  const demoShape = [spike(somewhere("Office")), spike(somewhere("Office")), spike(), spike(), spike(somewhere("Home"))];
+  assert.equal(clinicianSpikeCardHeading(demoShape, SHARED), "Spikes over 180");
+  // The failure mode rather than the string: wherever any row is unmatched, nothing in the heading is a
+  // claim about places at all. Asserted across the mixes rather than at the three above.
+  for (let placed = 1; placed <= 6; placed++) {
+    for (let unplaced = 1; unplaced <= 6; unplaced++) {
+      const spikes = [
+        ...Array.from({ length: placed }, (_, i) => spike(somewhere(`Place ${i}`))),
+        ...spikesOf(unplaced),
+      ];
+      const heading = clinicianSpikeCardHeading(spikes, SHARED);
+      const where = `${placed} placed, ${unplaced} not: ${heading}`;
+      assert.equal(clinicianPlaceReport(spikes, SHARED), "matched", where);
+      assert.doesNotMatch(heading, /linked|places?\b/i, where);
+      assert.equal(heading, `${plural(spikes.length, "Spike")} over 180`, where);
+      // And the matcher's vocabulary stays off it, as on every other branch (T82, T157).
+      assert.doesNotMatch(heading, MATCHER, where);
+    }
+  }
+});
+
+test("the heading and the caption beside it still move as one decision (T221)", () => {
+  // Acceptance criterion 3. The pair is one card apart in one frame at either width, and the caption has
+  // been exact about a mix since T214 ("or the peak mg/dL where no place matched"). So the property is an
+  // equivalence in both directions: the heading names places exactly where the caption ends at its place
+  // clause, and is the neutral subject exactly where the caption offers the peak reading as well.
+  for (const spikes of [
+    [spike(somewhere("Home"))],
+    [spike(during("Office"))],
+    [spike(arriving("Home", 10))],
+    [spike(somewhere("Office")), spike(somewhere("Office"))],
+    [spike(somewhere("Office")), spike(somewhere("Home"))],
+    [spike(somewhere("Noe Cafe")), spike()],
+    [spike(), spike(somewhere("Noe Cafe")), spike()],
+    [spike(somewhere("Office")), spike(somewhere("Home")), spike(), spike()],
+    [spike()],
+    [spike(), spike()],
+  ]) {
+    for (const status of [SHARED, UNSHARED]) {
+      const heading = clinicianSpikeCardHeading(spikes, status);
+      const caption = clinicianChartCaption(spikes, status, spikes.length);
+      const where = `${spikes.length} rises, ${spikes.filter((s) => s.visit).length} placed, hasLocation ${status.hasLocation}: ${heading} / ${caption}`;
+      const whollyPlaced = namesPlaces(spikes, status);
+      assert.equal(LINKED.test(heading), whollyPlaced, where);
+      // The caption's place clause with no second reading after it is the wholly-placed chart (T214).
+      assert.equal(caption.includes(matchedPlaceClause(spikes)) && !OR_THE_PEAK.test(caption), whollyPlaced, where);
+      // Neither element claims a place where the other does not, which is the drift T157 set up to prevent
+      // and this ticket closes at `some`. Only where a Timeline was shared: the `no-timeline` caption
+      // reports no lookup either way, since nothing was looked up and the stat tile owns the absent source
+      // (T184), so it is outside this equivalence exactly as it is outside the heading's place branch.
+      if (status.hasLocation) {
+        assert.equal(OR_THE_PEAK.test(caption) || NO_PLACE_MATCHED.test(caption), !whollyPlaced, where);
+      } else {
+        assert.doesNotMatch(caption, /no place matched|linked/, where);
+      }
+      // The spike noun still counts the rows on both branches, which is T213 surviving this ticket.
+      assert.equal(/^Spike\b/.test(heading), spikes.length === 1, where);
+    }
+  }
+});
+
+test("the mixed card off the committed exports, at one placed rise among three (T221)", () => {
+  // Acceptance criterion 6's fixture half: the sharp case the ticket measured and the shape no committed
+  // pairing made, so `clarity_three_rises.csv` is this ticket's fixture (§12.1). Its three rises are
+  // spaced so that `timeline_android.json`'s cafe -- which ends 06:50, fifteen minutes before the first
+  // onset -- is the only stop inside lib/match.ts's window, the office and the pizzeria being more than
+  // thirty minutes from the other two onsets and overlapping neither.
+  pinUtcTimeZone();
+  const spikes = matchSpikesToVisits(
+    detectSpikes(parseClarityCsv(fixture("clarity_three_rises.csv"))),
+    labelVisits(parseTimeline(fixture("timeline_android.json")), parseVisitsCsv(fixture("visits.csv"))),
+  );
+  assert.equal(spikes.length, 3);
+  assert.equal(spikes.filter((s) => s.visit).length, 1, "exactly one placed rise, which is what this fixture is for");
+  assert.equal(spikes[0]!.visit?.place, "Fixture Cafe");
+  assert.equal(distinctPlaceCount(spikes), 1);
+  // `matched`, because one rise carries a stop -- so this is the report that used to put "places" over it.
+  assert.equal(clinicianPlaceReport(spikes, SHARED), "matched");
+  assert.equal(anyPlaceMissing(spikes), true);
+  assert.equal(clinicianSpikeCardHeading(spikes, SHARED), "Spikes over 180");
+  // The two elements beside it on the card are unchanged: the caption carries the mix and the tile counts
+  // it, which is why the heading is the one that falls silent (the T170 split).
+  assert.equal(
+    clinicianChartCaption(spikes, SHARED, 3),
+    "Shaded band is 70–180 mg/dL. Red markers are spikes. Labels, where they fit, give the place the patient had just left, or the peak mg/dL where no place matched.",
+  );
+  assert.equal(clinicianSpikePlacesHint(spikes, SHARED, 3), "1 linked to a place");
+  assert.equal(clinicianPlaceColumn(spikes, SHARED), true);
+  // The rows the heading may not claim a link of: one named place and two `no matching visit` cells.
+  assert.equal(spikeRelationCell(spikes[0]!), "left 15 min before");
+  assert.equal(spikes.filter((s) => !s.visit).length, 2);
+});
+
+test("the patient's card is untouched by any of this (T221)", () => {
+  // Acceptance criterion 5, asserted rather than asserted in prose: §2.7's heading has no place noun to
+  // get wrong ("Your biggest rises", T203) and its caption hedges a mix with "when available", so there is
+  // nothing on that side of the product for this ticket to change.
+  const mixed = [spike(somewhere("Noe Cafe")), spike(), spike()];
+  assert.equal(patientSpikeCardHeading(mixed), "Your biggest rises");
+  assert.doesNotMatch(patientSpikeCardHeading(mixed), /place|linked/i);
+  assert.doesNotMatch(patientSpikeCardHeading(mixed), MATCHER);
+  // The patient caption's own mixed reading, which was already right: it promises a place only "when
+  // available" rather than of every marker.
+  assert.match(patientChartCaption(mixed), /when available/);
+});

@@ -19,6 +19,7 @@ export type FixtureName =
   | "clarity_window.csv"
   | "clarity_sustained_high.csv"
   | "clarity_flat.csv"
+  | "clarity_three_rises.csv"
   | "clarity_edge_cases.csv"
   | "timeline_android.json"
   | "timeline_ios.json"
