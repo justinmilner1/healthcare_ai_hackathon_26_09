@@ -317,7 +317,12 @@ model AuditLog {
   action     String
   entityType String
   entityId   String?
+  // When the row's last event happened, and when its first did. The two differ only on a row that read
+  // coalescing has absorbed into (§10.2, `absorbed` in lib/auditStore.ts): `at` moves forward with every
+  // read counted on the row, `firstAt` never moves, so `at - firstAt` is the span the row stands for and
+  // the window is measured from the first read rather than from the last (T220).
   at         DateTime @default(now())
+  firstAt    DateTime @default(now())
   detail     String? // JSON
 
   @@index([practiceId, at])
