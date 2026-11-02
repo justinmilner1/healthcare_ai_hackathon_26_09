@@ -65,6 +65,27 @@ export function anyPlaceMissing(spikes: Spike[]): boolean {
 }
 
 /**
+ * How many distinct places the clinician's card actually shows for these rises (T221).
+ *
+ * `anyPlaceKnown` and `anyPlaceMissing` above answer whether there is a place to name; this answers how
+ * many, which is what a counted place noun needs and what no element asked for until the heading had to
+ * agree with a card rather than with a row count. Two rises at one stop are one place: `SpikeTable` draws
+ * `visit.place` verbatim in the clinician's `Place` cell, so the strings this counts are the strings a
+ * clinician reads down that column, and "Spikes linked to a place" over two rows both reading `Office` is
+ * the card describing itself.
+ *
+ * `visit.place` and not `patientPlaceName` because this is the clinician's count: the patient's column
+ * collapses every stop the export never named into one `UNNAMED_PLACE` phrase (T128), so a distinct count
+ * over that column would be a different number. §2.7 has no place noun to count for — `patientSpikeCardHeading`
+ * is "Your biggest rises" — so there is nothing on that side asking for this (T221, acceptance criterion 5).
+ */
+export function distinctPlaceCount(spikes: Spike[]): number {
+  const places = new Set<string>();
+  for (const s of spikes) if (s.visit) places.add(s.visit.place);
+  return places.size;
+}
+
+/**
  * What the clinician's elements about places are allowed to be about on this visit (T184).
  *
  * `anyPlaceKnown` above answers "did any rise match", which is the right question for which heading a card
@@ -574,17 +595,37 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
  * opposite. On paper too, which is the copy a clinician carries into the room.
  *
  * So the heading reads the same `clinicianPlaceReport` the caption does and the rows do, and cannot drift
- * from them. Three readings, because the card has three shapes — and each of them counts the rows under
- * it, which is T213 (the right-hand column was two fixed plurals until then):
+ * from them. Four readings, because the card has four shapes — and each of them counts what it is about,
+ * which is T213 (the right-hand column was two fixed plurals until then) and T221 (the place noun was
+ * counting rows):
  *
  * | the card | heading at one row | at two or more |
  * |---|---|---|
- * | some rise matched a place | `Spike linked to a place` | `Spikes linked to places` |
+ * | every listed rise matched a place | `Spike linked to a place` | `Spikes linked to a place`, or `… to places` by how many places |
+ * | some matched, the rest reading `no matching visit` | — | `Spikes over 180` |
  * | rises, no place to report against them | `Spike over 180` | `Spikes over 180` |
  * | no rises at all | — | `Spikes` |
  *
- * The middle one is the card's own subject with the half it cannot deliver dropped, and it covers both of
- * the reports that are not `matched` — it is already silent about places, which is all T184 asks of it.
+ * The second and third are the card's own subject with the half it cannot deliver dropped, and between them
+ * they cover every card that is not wholly placed — silent about places, which is all T184 asks of the one
+ * that reports no match at all, and all T221 asks of the mixed card.
+ *
+ * **Why the mixed card gets that neutral subject** (T221). The heading is one phrase over the whole card,
+ * so every word in it is asserted of every row under it; `Spikes linked to places` over `Noe Cafe | no
+ * matching visit` is contradicted by half of its own `Place` column, which is T157's bug at `some` instead
+ * of at `none`. The alternatives were a heading counting only the matched rises — which would print a
+ * singular over a card of two rows and reintroduce the drift T213 closed — and a heading naming the mix,
+ * which would restate in a vague "some" what the two elements beside it already say exactly: the stat tile
+ * hint counts it (`clinicianSpikePlacesHint`, "3 linked to a place") and the caption carries the mix
+ * itself ("or the peak mg/dL where no place matched", T214). The row says a thing once, which is the T170
+ * split, so the heading falls silent rather than becoming the third element about it. It keeps the place
+ * noun for the card that earns it — every row placed — and that is also exactly when the caption ends at
+ * its place clause, so the pair still moves as one decision (T157) on one pair of predicates rather than
+ * on the report alone.
+ *
+ * The mixed card is the realistic shape and not an edge: lib/match.ts links a rise only to a stop that
+ * ended within 30 minutes before it or overlaps it, so a patient who shared a Timeline will normally have
+ * both kinds of row, and the seeded demo week is three placed rises among five.
  * What is under it differs by report, and that is SpikeTable's: with a Timeline shared the `Place` column
  * stays and reads "no matching visit", a true and useful thing to tell a reader who knows what lib/match.ts
  * does (T82); with no Timeline there is no column, because an absence of optional data is not a search that
@@ -605,12 +646,20 @@ export function clinicianChartCaption(spikes: Spike[], status: { hasLocation: bo
  *
  * Both nouns go through `plural` in lib/plural.ts, never through a literal at the call site, for T198's
  * reason: the place noun is counted as well as the spike noun, because one rise is linked to one place and
- * "Spike linked to places" would be the bug half-fixed.
+ * "Spike linked to places" would be the bug half-fixed. They are counted off **different numbers**, which
+ * is T221: the spike noun counts the rows, and the place noun counts the places those rows show
+ * (`distinctPlaceCount` above). Both were `spikes.length` until then, and the two agree only where every
+ * row is placed at a place of its own — so the heading read "Spikes linked to places" over two rows
+ * sharing one `Office`, as well as over a card where only one row was placed at all.
  */
 export function clinicianSpikeCardHeading(spikes: Spike[], status: { hasLocation: boolean }): string {
   const n = spikes.length;
   const spikeNoun = plural(n, "Spike");
-  if (clinicianPlaceReport(spikes, status) === "matched") return `${spikeNoun} linked to ${plural(n, "a place", "places")}`;
+  // The place half is asserted of every row under it, so it is offered only where every row carries a
+  // place — and counted off the places rather than the rows, which are different numbers (T221).
+  if (clinicianPlaceReport(spikes, status) === "matched" && !anyPlaceMissing(spikes)) {
+    return `${spikeNoun} linked to ${plural(distinctPlaceCount(spikes), "a place", "places")}`;
+  }
   return n === 0 ? spikeNoun : `${spikeNoun} over 180`;
 }
 

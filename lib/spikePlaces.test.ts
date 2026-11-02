@@ -7,7 +7,7 @@ import { labelVisits, parseTimeline, parseVisitsCsv, placeLabel } from "./locati
 import { markerLabels } from "./markerLabels";
 import { matchSpikesToVisits } from "./match";
 import { plural } from "./plural";
-import { anyPlaceKnown, anyPlaceMissing, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, patientSpikeCardHeading, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
+import { anyPlaceKnown, anyPlaceMissing, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, distinctPlaceCount, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, patientSpikeCardHeading, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
 import type { Spike, Visit } from "./types";
 
 const somewhere = (name: string): Visit => ({
@@ -38,13 +38,28 @@ const SEARCHED = /no place matched|no matching visit|linked to a place|\bplaces?
 
 /**
  * The heading's matched reading at either count: `Spike linked to a place` or `Spikes linked to places`
- * (T157, T213). The three equivalence tests below compare the heading against `clinicianPlaceReport` and
- * had the plural spelled out, so each of them pinned the plural over one matched rise as a side effect of
+ * (T157, T213). The three equivalence tests below compare the heading against `namesPlaces` and had the
+ * plural spelled out, so each of them pinned the plural over one matched rise as a side effect of
  * asserting something else — which is how T213's bug survived three cross-product properties. Counting is
  * what `clinicianSpikeCardHeading` is asserted on by name in T213's own tests; here the claim is only
- * which report may say "linked" at all, so the regex spans both numbers.
+ * which card may say "linked" at all, so the regex spans both numbers.
  */
 const LINKED = /^Spikes? linked to (a place|places)$/;
+
+/**
+ * When the clinician's heading may name places at all (T221) — and so the right-hand side of all three
+ * equivalences below, which read `clinicianPlaceReport` alone until this ticket.
+ *
+ * The report answers `matched` as soon as **one** listed rise carries a stop, and the heading is one
+ * phrase over every row of the card, so the report alone let "Spikes linked to places" stand over
+ * `Noe Cafe | no matching visit` — T157's bug at `some` rather than at `none`. The place half is therefore
+ * offered only where every row is placed, which is the same pair of predicates `clinicianChartCaption`
+ * has branched on since T214 and so the condition under which that caption ends at its place clause
+ * instead of offering the peak reading too. Written once, here, so the three cross-products below cannot
+ * disagree about it.
+ */
+const namesPlaces = (spikes: Spike[], status: { hasLocation: boolean }) =>
+  clinicianPlaceReport(spikes, status) === "matched" && !anyPlaceMissing(spikes);
 
 /**
  * The closing clause of the `unmatched` caption, at either count — the one thing only that report says
@@ -57,6 +72,16 @@ const LINKED = /^Spikes? linked to (a place|places)$/;
  * at both, in the T200 test at the foot of this file.
  */
 const NO_PLACE_MATCHED = /no place matched (?:this rise|any of these rises)\./;
+
+/**
+ * The second half the `matched` caption offers over a chart whose labels are a mix of places and peak
+ * numbers (T214) — the caption's own way of saying what T221 stopped the heading over it from denying.
+ *
+ * It is what tells the two `matched` charts apart, so it is the other half of the pairing the T157
+ * cross-product asserts: a heading may name places exactly where the caption beside it carries neither
+ * this clause nor `NO_PLACE_MATCHED` above, which is the wholly placed card.
+ */
+const OR_THE_PEAK = /, or the peak mg\/dL where no place matched\./;
 
 test("a patient who shared no Timeline has no place to report on any rise (T82)", () => {
   // The §12.2 journey patient: Dexcom and WHOOP shared, Timeline declined, five spikes and not one place.
@@ -226,12 +251,14 @@ test("the card is not headed with a link no rise in it has (T157)", () => {
 });
 
 test("and keeps the heading it has always had where a place did match (T157)", () => {
-  // The acceptance criterion that is about nothing changing: desktop-provider-sour.png is this visit.
-  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes linked to places");
+  // The acceptance criterion that is about nothing changing: desktop-provider-sour.png is this visit. A
+  // card every row of which is placed is the one that still says "linked", and T221 is why this line now
+  // places both rises — it read `[spike(somewhere("Noe Cafe")), spike()]`, a *mixed* card, and pinned
+  // "Spikes linked to places" over a row reading `no matching visit`. The mixed reading is asserted in
+  // T221's own tests below; what survives here is T157's claim, that a matched card may say "linked" at all.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike(somewhere("Home"))], SHARED), "Spikes linked to places");
   // One matched rise reads in the singular since T213, both nouns of it: this line pinned
-  // "Spikes linked to places" over a card with one row until then, which is the plural T157 had no reason
-  // to count and this file therefore held in place. The counted readings are asserted in T213's own tests
-  // below; what survives here is T157's claim, that a matched card may say "linked" at all.
+  // "Spikes linked to places" over a card with one row until then.
   assert.equal(clinicianSpikeCardHeading([spike(somewhere("Home"))], SHARED), "Spike linked to a place");
 });
 
@@ -259,7 +286,9 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
     [spike(somewhere("Home")), spike(somewhere("Noe Cafe"))],
   ]) {
     const heading = clinicianSpikeCardHeading(spikes, SHARED);
-    assert.equal(LINKED.test(heading), anyPlaceKnown(spikes), heading);
+    // `namesPlaces` and not `anyPlaceKnown`, which is T221: one matched rise among several is enough for
+    // the predicate and not enough for the claim, and this line pinned the plural over the mixed card.
+    assert.equal(LINKED.test(heading), namesPlaces(spikes, SHARED), heading);
     // And it says the same thing as the caption beside it, which is why both live in this module. The
     // matched caption also carries the words "no place matched" -- of the individual label that has none --
     // so the clause to compare against is the one that speaks about the rises as a set.
@@ -270,7 +299,11 @@ test("the heading, the caption and the rows are one decision (T157)", () => {
       assert.equal(clinicianChartCaption(spikes, SHARED, 0), "Shaded band is 70–180 mg/dL. No rises over 180 to mark.");
       continue;
     }
-    assert.equal(LINKED.test(heading), !NO_PLACE_MATCHED.test(clinicianChartCaption(spikes, SHARED, spikes.length)), heading);
+    // The caption's own mixed reading is the "or the peak mg/dL where no place matched" half (T214), so
+    // the clause to compare a place-naming heading against is a caption carrying neither that half nor
+    // the `unmatched` sentence — which is exactly the wholly-placed card (T221).
+    const caption = clinicianChartCaption(spikes, SHARED, spikes.length);
+    assert.equal(LINKED.test(heading), !NO_PLACE_MATCHED.test(caption) && !OR_THE_PEAK.test(caption), heading);
   }
 });
 
@@ -539,7 +572,12 @@ test("a visit that did share a Timeline keeps every word it had, zero matches in
     clinicianChartCaption(placed, SHARED, 7),
     "Shaded band is 70\u2013180 mg/dL. Red markers are the 5 largest rises of 7 spikes. Labels, where they fit, give the place the rise was linked to, or the peak mg/dL where no place matched.",
   );
-  assert.equal(clinicianSpikeCardHeading(placed, SHARED), "Spikes linked to places");
+  // The heading is the one of the four that moved, and T221 is the ticket: this card is the mixed one --
+  // three placed rises and two reading `no matching visit` -- so the heading is the card's neutral subject
+  // rather than a link asserted of all five rows. The caption above still names places, because it is the
+  // element that carries the mix in a clause of its own ("or the peak mg/dL where no place matched", T214),
+  // and the tile below still counts them. The claim T184 makes here is unchanged for the other three.
+  assert.equal(clinicianSpikeCardHeading(placed, SHARED), "Spikes over 180");
   assert.equal(clinicianSpikePlacesHint(placed, SHARED, 7), "top 5 shown · 3 linked to a place");
   assert.equal(clinicianPlaceColumn(placed, SHARED), true);
 });
@@ -564,9 +602,11 @@ test("the four elements are one decision, over the whole cross product (T184)", 
       const hint = clinicianSpikePlacesHint(spikes, status, spikes.length);
       const column = clinicianPlaceColumn(spikes, status);
       const where = `${spikes.length} rises, hasLocation ${status.hasLocation}: ${report}`;
-      // "linked to a place" is a claim about the card, so only the matched report may make it. Either
-      // number of it, since T213 counts the heading as the caption beside it has been counted since T199.
-      assert.equal(LINKED.test(heading), report === "matched", where);
+      // "linked to a place" is a claim about the card, so only a wholly placed card may make it. Either
+      // number of it, since T213 counts the heading as the caption beside it has been counted since T199;
+      // and `namesPlaces` rather than the report since T221, the report being `matched` over a mixed card
+      // whose own rows deny half the claim.
+      assert.equal(LINKED.test(heading), namesPlaces(spikes, status), where);
       // The caption promises a place only there too, and reports an empty lookup only where one was run.
       // Compared against `matchedPlaceClause` rather than against one of the three strings it returns: the
       // literal that used to stand here was the `after` wording, and it was this assertion passing on a
@@ -1255,8 +1295,10 @@ test("the clinician's spike card is headed in the number of rows it lists (T213)
   // The place noun counts too: one rise is linked to one place, so "Spike linked to places" would be the
   // bug half-fixed (criterion 1).
   assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe"))], SHARED), "Spike linked to a place");
-  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes linked to places");
   assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike(somewhere("Home"))], SHARED), "Spikes linked to places");
+  // The mixed card took that same plural until T221, which counted the place noun off the places rather
+  // than the rows and stopped offering it over rows that read `no matching visit`.
+  assert.equal(clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), spike()], SHARED), "Spikes over 180");
   // And the same count on the visit that shared no Timeline, where there is no place branch to reach.
   assert.equal(clinicianSpikeCardHeading(spikesOf(1), UNSHARED), "Spike over 180");
   assert.equal(clinicianSpikeCardHeading(spikesOf(5), UNSHARED), "Spikes over 180");
@@ -1273,7 +1315,11 @@ test("neither heading can be read as the other count's number (T213)", () => {
   // both nouns, so this holds at every count the card can list rather than at the three asserted above.
   for (let n = 1; n <= 12; n++) {
     const unplaced = clinicianSpikeCardHeading(spikesOf(n), SHARED);
-    const placed = clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), ...spikesOf(n - 1)], SHARED);
+    // Every row placed, and at a place of its own, so this is the card that still names places at all
+    // (T221): the row was `[spike(somewhere("Noe Cafe")), ...spikesOf(n - 1)]`, which is one placed rise
+    // among `n` and now reads the neutral subject instead.
+    const placedSpikes = Array.from({ length: n }, (_, i) => spike(somewhere(`Place ${i}`)));
+    const placed = clinicianSpikeCardHeading(placedSpikes, SHARED);
     for (const heading of [unplaced, placed]) {
       assert.doesNotMatch(heading, n === 1 ? /Spikes|places/ : /^Spike\b|a place/, `${n}: ${heading}`);
       assert.match(heading, n === 1 ? /^Spike\b/ : /^Spikes\b/, `${n}: ${heading}`);
@@ -1282,6 +1328,10 @@ test("neither heading can be read as the other count's number (T213)", () => {
     // back into either branch (criterion 1).
     assert.equal(unplaced, `${plural(n, "Spike")} over 180`);
     assert.equal(placed, `${plural(n, "Spike")} linked to ${plural(n, "a place", "places")}`);
+    // And the mixed card at this count, which is T221's: the spike noun still counts the rows, and the
+    // place half is gone rather than counted.
+    const mixed = clinicianSpikeCardHeading([spike(somewhere("Noe Cafe")), ...spikesOf(n)], SHARED);
+    assert.equal(mixed, `${plural(n + 1, "Spike")} over 180`, `${n}: ${mixed}`);
   }
 });
 
@@ -1331,8 +1381,8 @@ test("the three readings all survive the count, against `clinicianPlaceReport` (
       const report = clinicianPlaceReport(spikes, status);
       const heading = clinicianSpikeCardHeading(spikes, status);
       const where = `${spikes.length} rises, hasLocation ${status.hasLocation}: ${report} → ${heading}`;
-      assert.equal(LINKED.test(heading), report === "matched", where);
-      assert.equal(/ over 180$/.test(heading), report !== "matched" && spikes.length > 0, where);
+      assert.equal(LINKED.test(heading), namesPlaces(spikes, status), where);
+      assert.equal(/ over 180$/.test(heading), !namesPlaces(spikes, status) && spikes.length > 0, where);
       assert.equal(heading === "Spikes", spikes.length === 0, where);
       // The matcher's vocabulary stays off the clinician's heading as well as the patient's (T82, T157).
       assert.doesNotMatch(heading, MATCHER, where);
