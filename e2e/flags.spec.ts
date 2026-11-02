@@ -711,7 +711,9 @@ test("one day of glucose beside three WHOOP nights names the sleep span on both 
   // The tile. `h/night` was honest about the rate and silent about the count, so the hint now carries both
   // facts out of lib/sleepSpan.ts — the nights first, then the recovery score it has printed since T205.
   const sleepTile = page.locator(".sour-metrics-card .summary-stat-tile", { hasText: "Sleep" });
-  await expect(sleepTile.locator(".text-2xl")).toHaveText("6.8h/night");
+  // A pattern rather than a literal: the value and its unit are two nodes with no whitespace between them
+  // (components/StatTile.tsx), and what is being pinned is the figure, which averages all three nights.
+  await expect(sleepTile.locator(".text-2xl")).toHaveText(/^6\.8\s*h\/night$/);
   await expect(sleepTile, "the nights the average is over, beside the score (AC3)").toContainText("3 nights · recovery 61%");
 
   // And the card over the bars, parallel to the glucose heading above it. `exact`, because the bare "Sleep"
