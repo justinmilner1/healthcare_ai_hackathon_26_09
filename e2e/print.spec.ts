@@ -99,10 +99,20 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   await expect(narrativeNote).toContainText(/ask whoever set Sweet Spot up for your office/i);
   await expect(narrativeNote).not.toContainText(/administrator|turn it on/i);
   await expect(page.getByRole("heading", { name: /Glucose, last \d+ days?/ })).toBeVisible();
-  // T157 (§7.4): the other branch of the heading, and the one that had to stay as it was. This visit has a
-  // Timeline export, so rises *are* linked to places and the card says so — the same string it has always
-  // carried, now out of lib/spikePlaces.ts. The unplaced case is asserted in e2e/journey.spec.ts.
-  await expect(page.getByRole("heading", { name: "Spikes linked to places" })).toBeVisible();
+  // T157, T221 (§7.4): the other branch of the heading. This visit has a Timeline export, so some rises
+  // *are* linked to places — but not all of them, and T221 is that this card read "Spikes linked to
+  // places" over the two rows that say `no matching visit`. The sheet a clinician carries into the room
+  // now heads the mixed card with its own subject; the place noun is kept for a card every row of which is
+  // placed, which e2e/flags.spec.ts asserts on the single-rise fixture. The unplaced case is asserted in
+  // e2e/journey.spec.ts.
+  const printSpikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180", exact: true }) });
+  await expect(printSpikeCard.getByRole("heading")).toHaveText("Spikes over 180");
+  await expect(page.getByRole("heading", { name: /linked to places?/ }), "a link claimed of rows that deny one (T221)").toHaveCount(0);
+  // The mix the heading is written over, in the same frame: at least one named place down the Where column
+  // and at least one row reporting no match. That pairing is the whole of the ticket.
+  const printPlaceCells = printSpikeCard.locator("tbody tr td:nth-child(3)");
+  await expect(printPlaceCells.filter({ hasText: "no matching visit" }).first(), "the rows the old heading claimed a link of").toBeVisible();
+  await expect(printPlaceCells.filter({ hasText: /^(?!no matching visit).+/ }).first(), "and the rows that really are placed").toBeVisible();
   // T160 (§7.4): the stat tile over that card, and the half of *that* change which had to stay as it was.
   // A Timeline was shared here, so the count is a reading taken and the tile keeps it — the ticket is only
   // about a visit with no Timeline at all, where the zero was a measurement over nothing

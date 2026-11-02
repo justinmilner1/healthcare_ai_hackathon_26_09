@@ -279,8 +279,16 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   await expect(caption, "where the patient stood, over a row they arrived at mid-climb").not.toContainText("was at when the rise began");
   await expect(caption).toContainText("the place the rise was linked to");
   await expect(caption).toContainText("peak mg/dL");
-  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes linked to places" }) });
+  // T221 (§2.6): the card under that caption is the *mixed* one — three of the five listed rises are
+  // placed and two read `no matching visit` — and it was headed "Spikes linked to places", a link
+  // asserted of the two rows denying it and a plural over the two places actually shown. The heading is
+  // now the card's own subject, and the caption above still carries the mix in a clause of its own, which
+  // is why these two are asserted in one frame.
+  const spikeCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Spikes over 180", exact: true }) });
+  await expect(spikeCard.getByRole("heading")).toHaveText("Spikes over 180");
+  await expect(page.getByRole("heading", { name: /linked to places?/ }), "a link claimed of rows that deny one (T221)").toHaveCount(0);
   const placeCells = spikeCard.locator("tbody tr td:nth-child(3)");
+  await expect(placeCells.filter({ hasText: "no matching visit" }).first(), "the rows the old heading claimed a link of").toBeVisible();
   await expect(placeCells.filter({ hasText: "while there" }).first(), "the rows the caption is written over").toBeVisible();
   await expect(placeCells.filter({ hasText: /arrived \d+ min after/ }).first(), "the row the mixed clause is written for (T192)").toBeVisible();
   await expect(placeCells.filter({ hasText: /left \d+ min before/ }), "no row on this week is the ended-just-before branch").toHaveCount(0);
