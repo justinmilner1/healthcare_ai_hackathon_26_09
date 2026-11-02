@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { findDevMail } from "../lib/devMailbox";
+import { spanNoun } from "../lib/plural";
 import { postJson } from "./api";
 import { MAIL_DIR } from "./auth";
 import { LOADED, LOADED_TIMEOUT_MS } from "./budget";
@@ -234,17 +235,78 @@ export const patternsCard = (page: Page) =>
 export const questionsCard = (page: Page) =>
   page.locator(".patient-report-card").filter({ has: page.getByRole("heading", { level: 2, name: "Things you might ask your doctor" }) });
 
-/** Three patterns and three questions in the register §7 asks for, so the cards read as the product's own. */
+/**
+ * Three patterns and three questions in the register §7 asks for, so the cards read as the product's own.
+ *
+ * **These patterns presume a seven-day visit**, and only `e2e/flows.spec.ts`'s has one: they name "the
+ * week", four overnight highs and a run of short nights, which is `data/dexcom_clarity_sample.csv`'s span
+ * and not any narrower one. `lib/prompts.ts` tells the model "the data covers the ${spanNoun(days)} and
+ * nothing more", so a week's narrative over one day is not a page the product can produce — and a
+ * screenshot of one reads as a §2.7 span bug that is not there, which is the whole of T217. A spec whose
+ * visit is narrower therefore needs its own set rather than this one: `ONE_DAY_NARRATIVE_PATTERNS` below
+ * is the set for `clarity_window.csv`'s single day, and `expectNoWiderSpan` is what holds either of them
+ * to the visit it is rendered over.
+ *
+ * The questions name no span at all, which is why there is one set of those and two of these.
+ */
 export const NARRATIVE_PATTERNS = [
   "Your readings stayed between 70 and 180 for most of the week.",
   "Three of your four overnight highs came after dinners out past 8pm.",
   "Mornings after nights under six hours ran about 20 mg/dL higher.",
 ];
+
+/**
+ * The same three patterns over the narrower visit `e2e/a11y.spec.ts` builds (T217).
+ *
+ * That visit is `clarity_window.csv` — 84 readings inside one calendar day, 06:00 to 12:55, with one rise
+ * (98 → 214, peaking at 08:00) and one dip below range (to 48, just before 11:00) — beside
+ * `whoop_cycles.csv`'s three nights: 7.3h at 68% recovery, 5.3h at 41%, 7.7h at 74%.
+ *
+ * Every claim here is one that page shows, and none of them names a span. The heading drawn over them is
+ * `What your day showed` (`spanNoun(1)`), so "the week", a second high, and mornings in the plural would
+ * each be contradicted by the frame they appear in. The three nights are the ones the Sleep card draws,
+ * and they fall *after* the glucose window rather than before it — so nothing here reads a morning
+ * against the night before it, which is the one pairing this pair of fixtures cannot make.
+ */
+export const ONE_DAY_NARRATIVE_PATTERNS = [
+  "Your readings climbed from 98 to 214 mg/dL between 7 and 8 in the morning.",
+  "They dipped to 48 mg/dL just before 11, then settled back near 100.",
+  "The night you slept 5.3 hours scored your lowest recovery, 41%.",
+];
+
 export const NARRATIVE_QUESTIONS = [
   "Should I keep the same evening dose?",
   "Is six hours of sleep enough for me?",
   "Would a different breakfast help the mid-morning rise?",
 ];
+
+/**
+ * Nothing on a §2.7 narrative card names a span wider than the visit drawn under it (T217, §2.7, §7).
+ *
+ * T217 was a fixture and not the product: a week's patterns patched onto a one-day visit, with the right
+ * heading above them and the wrong three sentences below. Nothing in the suite could see it, because the
+ * assertions over these cards are about markup and order and the words are whatever the caller passed —
+ * so it survived until a reviewer read the PNG. §12.3 makes these frames the evidence a ticket is judged
+ * on, so the frame is now asserted rather than only looked at: a set of patterns edited later, or a third
+ * spec inheriting one written for a wider visit, fails here instead of becoming the next picture of the
+ * product appearing to contradict itself.
+ *
+ * Which words are too wide is decided off the same day count the heading is drawn from, so this and the
+ * page cannot disagree about it: "week" is honest at seven days and not at one, plural "days" at two and
+ * not at one, and a month is wider than anything `data/fixtures/` holds. Singular "day" is left alone —
+ * it is what the heading itself says.
+ */
+export async function expectNoWiderSpan(card: Locator, days: number, where: string): Promise<void> {
+  const tooWide = [/\bmonths?\b/i, /\byears?\b/i];
+  if (days < 7) tooWide.push(/\bweeks?\b/i);
+  if (days < 2) tooWide.push(/\bdays\b/i);
+  for (const word of tooWide) {
+    await expect(
+      card,
+      `${where}: ${spanNoun(days)} of data, so nothing on the card says /${word.source}/`,
+    ).not.toContainText(word);
+  }
+}
 
 /**
  * Put a narrative on the saved summary on its way to the browser (T206, T208).
