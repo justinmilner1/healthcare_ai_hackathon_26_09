@@ -59,6 +59,14 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   // no intake yet is the uploads and nothing else (lib/auditLog.ts, visitPartsRead).
   expect((await page.request.get(`/api/patient/${booked.visitId}`)).ok()).toBeTruthy();
 
+  // And opens it twice more, a second apart, which is what §7.2's poll and a page left open do. All three
+  // are counted on the one row (lib/auditStore.ts), so this is the coalesced row T220 is about: the
+  // assertions further down are that the row says what span it covers, and the wait is what gives it one
+  // longer than the clock's own resolution. A slow box only makes the span longer, and the bound the store
+  // now holds is READ_COALESCE_MS either way.
+  await page.waitForTimeout(1_100);
+  for (let i = 0; i < 2; i++) expect((await page.request.get(`/api/patient/${booked.visitId}`)).ok()).toBeTruthy();
+
   // And the patient changes their mind, which is §10.2's deletion.
   const deleted = await request.delete("/api/upload", { data: { token: booked.token, kind: "dexcom" }, headers: { "x-csrf-token": token } });
   expect(deleted.ok(), `delete: ${deleted.status()}`).toBeTruthy();
@@ -108,6 +116,33 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   // list the filter never narrowed.
   const matching = await rows.count();
   await expect(page.locator(".provider-patients [aria-live]")).toHaveText(`${matching} of ${matching} shown`);
+
+  // T220 (§10.2, §10.7): the three reads above are one row, and the row says what span it stands for rather
+  // than only when it ended. Before T220 the window the store looked back over was re-dated by every read
+  // it absorbed, so a row could cover a span of any length while this page called it a one-minute window —
+  // which is what makes the two times on the row the thing to assert, on the screen an admin reads.
+  const coalesced = rows.filter({ hasText: "Uploaded data read" });
+  await expect(coalesced).toHaveCount(1, { ...LOADED });
+  await expect(coalesced).toContainText("count: 3", LOADED);
+  const spanCell = coalesced.locator(".audit-span");
+  await expect(spanCell).toBeVisible();
+  await expect(spanCell).toContainText("3 reads over");
+  // The span is the row's own, not the page's arithmetic: `firstAt` is on the entry the page was given, it
+  // is earlier than `at`, and the gap between them is inside the window the lede promises.
+  const entries = (await (await page.request.get(`/api/audit?limit=500&entityId=${booked.visitId}`)).json()).entries as {
+    action: string;
+    at: string;
+    firstAt: string;
+  }[];
+  const read = entries.find((e) => e.action === "uploads.read");
+  expect(read, JSON.stringify(entries.map((e) => e.action))).toBeTruthy();
+  const span = Date.parse(read!.at) - Date.parse(read!.firstAt);
+  expect(span, "the coalesced row kept no record of when its first read was").toBeGreaterThan(0);
+  expect(span, `the row covers ${span}ms, past the ${READ_COALESCE_MS}ms window the page calls it`).toBeLessThanOrEqual(READ_COALESCE_MS);
+  // Every row, not only this one: nothing the store writes may claim a span the lede does not allow.
+  for (const entry of entries) {
+    expect(Date.parse(entry.at) - Date.parse(entry.firstAt), `${entry.action} covers more than the window`).toBeLessThanOrEqual(READ_COALESCE_MS);
+  }
   await shot(page, "provider-audit-visit", { scrollTo: ".provider-patients" });
 
   // A filter that matches nothing says so, rather than looking like an empty log.
@@ -121,7 +156,9 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   expect(csv.headers()["content-type"]).toContain("text/csv");
   expect(csv.headers()["content-disposition"]).toContain("attachment");
   const exported = await csv.text();
-  expect(exported.split("\r\n")[0]).toBe("at,actor,actorType,actorId,action,entityType,entityId,detail");
+  // `firstAt` beside `at`, so the export is not a weaker record than the screen (T220 AC6).
+  expect(exported.split("\r\n")[0]).toBe("at,firstAt,actor,actorType,actorId,action,entityType,entityId,detail");
+  expect(exported).toContain(read!.firstAt);
   expect(exported).toContain("patient.verified");
   expect(exported).toContain("upload.deleted");
   // §10.2's "every send": the six-digit code went somewhere, so the trail says so (lib/jobHandlers.ts).
