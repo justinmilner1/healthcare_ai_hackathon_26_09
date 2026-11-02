@@ -437,6 +437,12 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   // month or a year on it would be the same overclaim read from the other side.
   await expectNoWiderSpan(sleep, framed.sleep.length, "the sleep card");
 
+  // The card on its own, which is the §6.5 half: `desktop-a11y-summary.png` below carries the whole frame
+  // — hero, `HISTORY / 1 / day`, `SLEEP / 6.8 / hours · 3 nights` and these bars together — but a phone
+  // shoots one screenful, so on `mobile` that shot is the hero and this card has never been in a frame at
+  // 375px. The subtitle is a sentence longer than it was, and where it wraps is the thing to look at.
+  await shot(page, "a11y-summary-sleep", { ...SCREENFUL, scrollTo: sleep });
+
   await shot(page, "a11y-summary");
 
   // A real `sour.run`, so the pair the narrative lands on is one the product saved (§7.1). Generating is a

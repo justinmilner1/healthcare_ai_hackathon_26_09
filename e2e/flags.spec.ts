@@ -722,7 +722,15 @@ test("one day of glucose beside three WHOOP nights names the sleep span on both 
   await expect(sleepCard.getByRole("heading")).toHaveText("Sleep, 3 nights");
   await expect(page.getByRole("heading", { name: "Sleep", exact: true }), "the heading that inherited the glucose span").toHaveCount(0);
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
-  await shot(page, "provider-sour-sleep-span", { ...SCREENFUL, scrollTo: sleepCard });
+  // Anchored on the chart card rather than on the sleep card, so the frame holds the **pair** this ticket
+  // is about: `Glucose, last 1 day` at the top and `Sleep, 3 nights` under it. Anchored on the sleep card
+  // the heading that gives the other span scrolls off, and a frame of the fix without the thing it was
+  // disagreeing with is not evidence of much (§12.3). The sheet's frame below is laid out the same way.
+  await shot(page, "provider-sour-sleep-span", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
+  // And the tile, which is the ticket's other half on this surface and is three cards further up: `6.8`
+  // over `h/night` with `3 nights · recovery 61%` under it, beside the GMI tile that hedges its own span
+  // for the same reason (T185).
+  await shot(page, "provider-sour-sleep-span-tiles", { ...SCREENFUL, scrollTo: ".sour-metrics-card" });
 
   // §7.4's sheet, where one function serves both headings and both hints (T218 AC3): the copy carried into
   // the room cannot frame these nights more loosely than the brief does.
