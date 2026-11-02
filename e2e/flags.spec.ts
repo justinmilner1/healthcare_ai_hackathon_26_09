@@ -40,8 +40,13 @@ import { SCREENFUL, shot } from "./shot";
  * take (T184, T200). It goes up first, so the Dexcom upload that follows is the one §7.1 trigger in this
  * path and the run it queues sees both exports (lib/sourQueue.ts `queueSourAfterImport`; a Timeline upload
  * queues nothing).
+ *
+ * `whoop` shares a WHOOP export, which §9.3 leaves to the same optional panel and which is what gives the
+ * two surfaces a sleep card at all. It goes up before the readings for the same reason the Timeline does,
+ * and the pairing it exists for is T218's: a WHOOP file whose range is wider than the Clarity window beside
+ * it, which is the common case because the two exporters have unrelated defaults.
  */
-async function visitWithReadings(page: Page, who: string, fixture: string, timeline?: string) {
+async function visitWithReadings(page: Page, who: string, fixture: string, timeline?: string, whoop?: string) {
   // Booking is staff's job and needs their session (§5.2); the brief below is read as the clinician.
   const demo = await signInAsDemo(page);
   const email = patientEmail(who);
@@ -55,6 +60,7 @@ async function visitWithReadings(page: Page, who: string, fixture: string, timel
   await verifyByApi(page.request, booked.token, email);
 
   if (timeline) await shareTimeline(page, booked.token, readFileSync(timeline));
+  if (whoop) await shareWhoop(page, booked.token, readFileSync(whoop));
   await shareReadings(page, booked.token, readFileSync(fixture));
   return { demo, ...booked };
 }
@@ -111,6 +117,19 @@ function clarityOfDays(days: number): string {
 
 /** The flags `lib/sour.ts` computed for this visit, read off the bundle the two surfaces both render. */
 /** The other optional export of §2.5, through the same route: what makes `hasLocation` true (T184, T200). */
+/** Hand this visit a WHOOP export, the upload §2.7's sleep card and both clinician Sleep tiles read. */
+async function shareWhoop(page: Page, token: string, csv: string | Buffer) {
+  const uploaded = await page.request.post("/api/upload", {
+    headers: { "x-csrf-token": await csrfToken(page.request) },
+    multipart: {
+      token,
+      kind: "whoop",
+      file: { name: "whoop_cycles.csv", mimeType: "text/csv", buffer: Buffer.from(csv) },
+    },
+  });
+  expect(uploaded.ok(), `POST /api/upload (whoop): ${await uploaded.text()}`).toBeTruthy();
+}
+
 async function shareTimeline(page: Page, token: string, json: string | Buffer) {
   const uploaded = await page.request.post("/api/upload", {
     headers: { "x-csrf-token": await csrfToken(page.request) },
@@ -657,4 +676,62 @@ test("one matched rise is one place on both clinician surfaces (T213)", async ({
   await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
   await expect(page.locator(".sour-chart-caption")).not.toContainText("no place matched");
   await shot(page, "provider-print-one-rise-placed", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
+});
+
+test("one day of glucose beside three WHOOP nights names the sleep span on both clinician surfaces (T218)", async ({ page }) => {
+  // The pairing no committed shot of these two surfaces held, and the reason T218 was filed against §2.7
+  // rather than §2.6: every single-day provider fixture in the suite has no WHOOP data at all
+  // (`desktop-provider-print-single-day.png`, `desktop-provider-sour-flags.png` both read `— / no WHOOP
+  // data`), so the brief's latent half of the bug was never drawn. `st.days` comes off the glucose series
+  // alone (lib/bundle.ts), so a chart card headed `Glucose, last 1 day` sat beside a card headed `Sleep`
+  // over three nights of bars, and a Sleep tile whose `h/night` averaged all three.
+  //
+  // `clarity_window.csv`'s one morning with `whoop_cycles.csv`'s three nights of 19→20, 20→21 and 21→22 —
+  // the same pair e2e/a11y.spec.ts reads on the patient's page, so the two sides of the ticket are driven
+  // on one upload and cannot be fixed for one surface only (AC3, AC5).
+  const visit = await visitWithReadings(page, "E2E Sleep Span", "data/fixtures/clarity_window.csv", undefined, "data/fixtures/whoop_cycles.csv");
+
+  await page.goto(`/provider/${visit.demo.id}?visit=${visit.visitId}`);
+  await expect(page.locator(".sour-job-state")).toHaveAttribute("data-phase", "ready", DRAINED);
+
+  // What the frame is being read against, on the record first rather than assumed: one day of glucose and
+  // three nights of sleep. If either fixture is widened this names the reason here.
+  const bundle = (await (await page.request.get(`/api/patient/${visit.visitId}`)).json()) as {
+    stats: { days: number; sleepAvgHours: number | null; recoveryAvg: number | null };
+    sleep: unknown[];
+  };
+  expect(bundle.stats.days, "clarity_window.csv is one calendar day").toBe(1);
+  expect(bundle.sleep.length, "whoop_cycles.csv is three nights").toBe(3);
+  expect(bundle.stats.sleepAvgHours, "averaged over all three, which is the figure the tile prints").toBe(6.8);
+
+  // The chart card's heading is the frame, and it is correct and unchanged — it names the glucose span,
+  // which is the span it is about (T185, §2.6).
+  await expect(page.locator(".sour-chart-card").getByRole("heading")).toHaveText("Glucose, last 1 day");
+
+  // The tile. `h/night` was honest about the rate and silent about the count, so the hint now carries both
+  // facts out of lib/sleepSpan.ts — the nights first, then the recovery score it has printed since T205.
+  const sleepTile = page.locator(".sour-metrics-card .summary-stat-tile", { hasText: "Sleep" });
+  await expect(sleepTile.locator(".text-2xl")).toHaveText("6.8h/night");
+  await expect(sleepTile, "the nights the average is over, beside the score (AC3)").toContainText("3 nights · recovery 61%");
+
+  // And the card over the bars, parallel to the glucose heading above it. `exact`, because the bare "Sleep"
+  // this replaced is a substring of it and a loose match would pass over the bug.
+  const sleepCard = page.locator(".sour-card").filter({ has: page.getByRole("heading", { name: "Sleep, 3 nights", exact: true }) });
+  await expect(sleepCard.getByRole("heading")).toHaveText("Sleep, 3 nights");
+  await expect(page.getByRole("heading", { name: "Sleep", exact: true }), "the heading that inherited the glucose span").toHaveCount(0);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await shot(page, "provider-sour-sleep-span", { ...SCREENFUL, scrollTo: sleepCard });
+
+  // §7.4's sheet, where one function serves both headings and both hints (T218 AC3): the copy carried into
+  // the room cannot frame these nights more loosely than the brief does.
+  const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
+  expect(opened?.status(), "the sheet a clinician may open (§7.4)").toBe(200);
+  await expect(page.locator(".sour-print-numbers")).toBeVisible(LOADED);
+  await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  await expect(page.locator(".sour-print-sheet")).toContainText("1 day · 84 readings");
+  await expect(page.getByRole("heading", { name: "Sleep, 3 nights", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sleep", exact: true }), "the sheet's own bare heading").toHaveCount(0);
+  const sheetSleepTile = page.locator(".summary-stat-tile", { hasText: "Sleep" });
+  await expect(sheetSleepTile, "the screen's hint, on paper").toContainText("3 nights · recovery 61%");
+  await shot(page, "provider-print-sleep-span", { ...SCREENFUL, scrollTo: ".sour-print-grid" });
 });

@@ -401,6 +401,42 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   // "TIME IN RANGE" is on screen from the moment there is a percentage to put above it, which is before
   // either narrative card exists (T210, §6.4, §2.7).
   await expectReadableBrandText(page, "the patient summary");
+
+  // T218 (§2.7, §7): and the one thing about this frame that no axe rule and no contrast check can see —
+  // that the sleep card and the page around it are about the same span. This is the pair the ticket was
+  // filed on and the pair this test has uploaded since T206: `clarity_window.csv` is one morning and
+  // `whoop_cycles.csv` is three nights, two of which fall entirely after the only day of glucose here. So
+  // the page said "day" in four places and plotted Sat, Sun and Mon beside a `HISTORY / 1 / day` tile,
+  // with `SLEEP / 6.8 / hours / night` averaging all three — and the frame was in this suite's own output,
+  // at both widths, on every run.
+  //
+  // Read off the bundle rather than written out here, so a fixture that is ever widened fails this and
+  // names the reason instead of leaving the assertions passing over a pair that no longer mismatches.
+  const framed = (await (await page.request.get(`/api/patient/${token}`)).json()) as {
+    stats: { days: number };
+    sleep: unknown[];
+  };
+  expect(framed.stats.days, "clarity_window.csv is one calendar day of readings").toBe(1);
+  expect(framed.sleep.length, "beside whoop_cycles.csv's three nights").toBe(3);
+
+  const sleepStat = page.locator(".patient-mini-stat", { hasText: "Sleep" });
+  await expect(sleepStat, "the SLEEP tile says how many nights it averaged").toContainText("3 nights");
+  await expect(
+    sleepStat,
+    "and no longer offers the bare rate, which read as one night's sleep beside a HISTORY tile of 1 day",
+  ).not.toContainText("hours / night");
+
+  const sleep = page
+    .locator(".patient-report-card")
+    .filter({ has: page.getByRole("heading", { name: "Your sleep" }) });
+  await expect(sleep.locator(".patient-report-subtitle"), "the card names its own span (AC1)").toHaveText(
+    "Nightly sleep and recovery from your connected data. These 3 nights cover more than the day of glucose above.",
+  );
+  // The negative the narrative cards are already held to over this same visit (expectNoWiderSpan, T217),
+  // against the card's *own* span rather than the page's: three nights is what it may name, so a week, a
+  // month or a year on it would be the same overclaim read from the other side.
+  await expectNoWiderSpan(sleep, framed.sleep.length, "the sleep card");
+
   await shot(page, "a11y-summary");
 
   // A real `sour.run`, so the pair the narrative lands on is one the product saved (§7.1). Generating is a
