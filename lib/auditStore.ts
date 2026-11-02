@@ -70,6 +70,12 @@ export async function recordAudit(entry: AuditWrite): Promise<void> {
     // `count: 2` rather than nothing and then `count: 2` — the same fact, said the same way each time.
     const detail = auditDetailJson(entry.coalesceMs ? { count: 1, ...entry.detail } : entry.detail);
     if (entry.coalesceMs && (await absorbed(entry, detail))) return;
+    // Both ends of the span from one reading of one clock, rather than from the column defaults. Two
+    // reasons, both about the window: a fresh row has to have `at === firstAt` exactly, or the page would
+    // print a span for a row that stands for a single event; and `absorbed` compares `firstAt` against a
+    // bound it computes from this process's own `Date.now()`, so a row dated by the database's clock would
+    // make the window as wide or as narrow as the skew between the two.
+    const now = new Date();
     await db.auditLog.create({
       data: {
         practiceId: entry.practiceId,
@@ -78,6 +84,8 @@ export async function recordAudit(entry: AuditWrite): Promise<void> {
         action: entry.action,
         entityType: entry.entityType,
         entityId: entry.entityId ?? null,
+        at: now,
+        firstAt: now,
         detail,
       },
     });
