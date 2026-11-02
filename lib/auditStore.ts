@@ -16,11 +16,16 @@
 //      its `at` forward and counts itself in `detail.count` instead. Nothing is lost — the row says how many
 //      and when the last one was — and §10.2's question, "who read this visit and when", still has its
 //      answer. Verifications, sends and deletions are never coalesced: each one is its own event.
+//
+//      This is also what the admin page says over its table, and it says it by reading the same constant:
+//      `auditCoalescingSentence` in lib/auditLog.ts branches on READ_COALESCE_MS, so changing the rule here
+//      changes the sentence there (T219). It used to claim the opposite.
 
 import {
   auditDetailJson,
   parseAuditDetail,
   readAction,
+  READ_COALESCE_MS,
   type ActorType,
   type AuditAction,
   type AuditEntry,
@@ -32,9 +37,10 @@ import {
 import { db } from "./db";
 import { log } from "./log";
 
-/** How close two identical reads have to be to become one row. One minute: long enough to swallow a page's
- *  polling, short enough that opening a visit again after a consultation is its own row. */
-export const READ_COALESCE_MS = 60_000;
+/** Re-exported for the callers that reach for the rule where it is applied. The number itself is declared in
+ *  lib/auditLog.ts, next to the sentence on the audit page that describes it (T219): the page is a client
+ *  component and cannot import this file, and one constant in two places is how the two came to disagree. */
+export { READ_COALESCE_MS };
 
 export type AuditWrite = {
   practiceId: string;

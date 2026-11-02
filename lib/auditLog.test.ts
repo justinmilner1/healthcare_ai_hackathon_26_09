@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
   actionLabel,
+  auditCoalescingSentence,
   auditCsv,
   auditCsvFilename,
   auditDetail,
   auditDetailJson,
+  auditLede,
+  auditRowSentence,
   AUDIT_ACTIONS,
   AUDIT_ACTION_NAMES,
+  AUDIT_COLUMNS,
+  AUDIT_LEDE_SCOPE,
+  coalesceWindowWords,
   detailWarns,
   ORPHANS_WARNING,
   AUDIT_CSV_HEADER,
@@ -17,6 +25,7 @@ import {
   parseAuditDetail,
   parseAuditFilter,
   readAction,
+  READ_COALESCE_MS,
   visitPartsRead,
   VISIT_PARTS,
   type AuditEntry,
@@ -342,4 +351,120 @@ test("a visit a clinician reads during the appointment records all four", () => 
     providerSummary: { timeInRange: 0.62 },
   });
   assert.deepEqual(visitPartsRead(full), [...VISIT_PARTS]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The lede over the audit table (§10.2, §10.7, T219).
+//
+// The sentence claimed entries are never edited, over a store that moves a row's `at` forward and rewrites
+// its `detail` for every repeated read, and claimed a row carries "only who, what, and when" over five
+// columns. Both halves are now built from the two things that decide them — READ_COALESCE_MS and
+// AUDIT_COLUMNS — and these are the tests that stop either drifting from the sentence again.
+
+test("the window is put into words from the number itself", () => {
+  assert.equal(coalesceWindowWords(60_000), "a minute");
+  assert.equal(coalesceWindowWords(120_000), "2 minutes");
+  assert.equal(coalesceWindowWords(600_000), "10 minutes");
+  assert.equal(coalesceWindowWords(30_000), "30 seconds");
+  assert.equal(coalesceWindowWords(90_000), "90 seconds");
+  // Whatever the store is set to, that is the window the sentence names — never a minute written out by
+  // hand beside a constant that has moved.
+  if (READ_COALESCE_MS > 0) {
+    assert.ok(
+      auditCoalescingSentence(READ_COALESCE_MS).includes(coalesceWindowWords(READ_COALESCE_MS)),
+      `the sentence names some window other than the ${READ_COALESCE_MS}ms the store coalesces by`,
+    );
+  }
+});
+
+test("the sentence follows the coalescing rule rather than describing one setting of it (T219 AC1)", () => {
+  const on = auditCoalescingSentence(60_000);
+  const off = auditCoalescingSentence(0);
+  assert.notEqual(on, off);
+
+  // Coalescing on, which is what lib/auditStore.ts does: a row already on the record is written to again,
+  // and the time that survives is the last of the group. Neither of those may be denied.
+  assert.match(on, /counted on the row already there/);
+  assert.match(on, /latest of them/);
+  assert.doesNotMatch(on, /never (edited|changed|removed)/, "the claim this ticket was filed about");
+
+  // Coalescing off is the only setting under which the old sentence was true, and then the sentence says so
+  // instead of describing a count nothing keeps.
+  assert.match(off, /never changed once it is written/);
+  assert.doesNotMatch(off, /counted|latest of them/, "counting described with coalescing off");
+  // Negative and non-numeric windows are off, not on: `absorbed` is reached only for a positive one.
+  for (const nothing of [0, -1, Number.NaN]) assert.equal(auditCoalescingSentence(nothing), off, String(nothing));
+
+  // And this is the pairing the ticket is about: the sentence the page actually prints describes counting
+  // exactly when the store actually counts. Setting READ_COALESCE_MS to 0 and leaving a sentence that still
+  // described a running count would fail here, and so would today's store under the old claim.
+  assert.equal(
+    /counted on the row already there/.test(auditCoalescingSentence(READ_COALESCE_MS)),
+    READ_COALESCE_MS > 0,
+    "the page's sentence and the store's window disagree about whether a row is ever written twice",
+  );
+
+  // The distinction §10.2 rests on is kept rather than flattened into one claim about every row: a second
+  // verification is a second session, and a second send is a second message.
+  assert.match(on, /verifications, sends and deletions are each their own row/);
+  assert.match(off, /Every event is its own row/);
+});
+
+test("the lede enumerates the table's columns, in order, and stops there (T219 AC2)", () => {
+  const sentence = auditRowSentence();
+  // Walked in column order with a moving cursor rather than with `includes`, because "what" is a substring
+  // of the `On` column's phrase: an enumeration that had lost a column could still contain every word of it.
+  let cursor = 0;
+  for (const column of AUDIT_COLUMNS) {
+    assert.ok(column.carries.trim(), `the ${column.header} column says nothing about what it carries`);
+    const at = sentence.indexOf(column.carries, cursor);
+    assert.notEqual(at, -1, `the lede does not say what the ${column.header} column carries, in its turn`);
+    cursor = at + column.carries.length;
+  }
+  // Nothing after the last column but the full stop, so a sentence that enumerated three of five would fail
+  // here even if the three it named were the first three.
+  assert.equal(sentence.slice(cursor), ".", "the enumeration runs past the last column");
+
+  // A column the table gains is a column the sentence gains, which is the whole point of one list.
+  const sixth = auditRowSentence([...AUDIT_COLUMNS, { carries: "the reason" }]);
+  assert.ok(sixth.endsWith("and the reason."), sixth);
+  assert.ok(!sentence.includes("the reason"));
+
+  // §10.2's two columns the old sentence left out.
+  for (const header of ["On", "Detail"] as const) {
+    const column = AUDIT_COLUMNS.find((c) => c.header === header);
+    assert.ok(column && sentence.includes(column.carries), `${header} is still unaccounted for`);
+  }
+  // And the half of the old sentence that was true, kept (§4.8).
+  assert.match(sentence, /carries no patient details/);
+  assert.doesNotMatch(sentence, /only who, what, and when/);
+});
+
+test("the whole lede is §10.2's scope, the row, and the rule", () => {
+  const lede = auditLede(READ_COALESCE_MS);
+  assert.ok(lede.startsWith(AUDIT_LEDE_SCOPE), lede);
+  assert.ok(lede.includes(auditRowSentence()), lede);
+  assert.ok(lede.includes(auditCoalescingSentence(READ_COALESCE_MS)), lede);
+  // §10.2's four read categories, the verification, the send and the deletion: what produces a row at all.
+  for (const event of ["read", "patient link accepted", "message sent", "deletion"]) {
+    assert.ok(lede.includes(event), `${event} is not in the lede's scope`);
+  }
+  assert.match(lede, /Admins only/);
+  // The default is the store's own window, so the page cannot be passed one and the store another.
+  assert.equal(auditLede(), auditLede(READ_COALESCE_MS));
+});
+
+test("the audit page takes both the sentence and its columns from this module (T219 AC3)", () => {
+  const page = readFileSync(path.join(import.meta.dirname, "..", "app", "provider", "audit", "audit.tsx"), "utf8");
+  // No header written into the JSX: every `<th>` and every `data-label` is the column list, so a sixth
+  // column cannot reach the table without the sentence above it enumerating it. This is the test that would
+  // have caught the ticket — five columns under three nouns, with nothing in lib/ to ask.
+  assert.doesNotMatch(page, /<th[^>]*>\s*[A-Za-z]/, "a <th> whose text is written into the JSX");
+  assert.doesNotMatch(page, /data-label="/, 'a data-label whose text is written into the JSX');
+  assert.match(page, /AUDIT_COLUMNS\.map/);
+  assert.match(page, /auditLede\(READ_COALESCE_MS\)/);
+  // And neither claim is a literal any more.
+  for (const gone of ["never edited", "never be edited", "only who, what, and when"]) {
+    assert.ok(!page.includes(gone), `the page still says "${gone}"`);
+  }
 });

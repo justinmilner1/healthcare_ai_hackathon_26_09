@@ -150,6 +150,113 @@ export const detailWarns = (key: string, value: unknown): boolean =>
 export const ORPHANS_WARNING = "The storage backend refused this many objects. The deletion is unfinished until a later pass clears them.";
 
 // ---------------------------------------------------------------------------------------------
+// What the page says about itself (§10.2, §10.7, T219).
+//
+// The lede over the audit table was a literal in the JSX, and it claimed two things the table directly
+// beneath it contradicted. That entries "are never edited or removed": a repeated read moves an existing
+// row's `at` forward and rewrites its `detail` with a higher count (`absorbed` in lib/auditStore.ts), which
+// is both of the columns the sentence went on to name. And that a row carries "only who, what, and when",
+// over five columns — the other two being `On`, which the page's own filter bar offers to search by, and
+// `Detail`. §10.7 makes integrity a HIPAA control, so the one page whose subject is the record itself is
+// where overstating it costs something.
+//
+// Here rather than in the page for the reason the labels and `detailWarns` are: a sentence that makes a
+// claim about the store is a decision, and a decision the unit suite cannot call is one nothing holds
+// (§12.1). That is T205's pattern, and it is also why this went uncaught — there was nothing in lib/ to
+// write a test against. The coalescing window and the column list are now the sentence's only inputs, so
+// turning coalescing off or adding a sixth column changes what the admin reads.
+//
+// What is *not* claimed here is tamper resistance. A row is an ordinary Postgres row and anyone with the
+// database password can change one (docs/COMPLIANCE.md, risk `R4`); this sentence is about what the app
+// itself does, which is the only thing the page can honestly speak for.
+
+/**
+ * How close two identical reads have to be to become one row. One minute: long enough to swallow a page's
+ * polling, short enough that opening a visit again after a consultation is its own row.
+ *
+ * In the pure module rather than in lib/auditStore.ts, which is what applies it, because the sentence above
+ * the table describes this number and the page may not import the store (see the top of this file). The
+ * store takes it from here, so there is one of it.
+ */
+export const READ_COALESCE_MS = 60_000;
+
+/**
+ * The columns of the audit table, in order, each with the words the lede uses for what it carries.
+ *
+ * One list, read twice: `app/provider/audit/audit.tsx` draws its `<th>` and its per-row mobile labels from
+ * it, and `auditRowSentence` enumerates it. That is what stops the two disagreeing — the bug this ticket was
+ * filed about was a sentence naming three of them over a table showing five.
+ */
+export const AUDIT_COLUMNS = [
+  { header: "When", carries: "when" },
+  { header: "Who", carries: "who" },
+  { header: "What", carries: "what" },
+  // Opaque either way: a cuid for the row's `entityId`, with its `entityType` beside it. Saying "the id"
+  // rather than naming the thing is the honest reading — §10.2's subject is a visit, but a deletion row is
+  // against a patient and a sweep row against a practice.
+  { header: "On", carries: "the id of what was touched" },
+  { header: "Detail", carries: "a few counts and constants" },
+] as const;
+
+export type AuditColumn = (typeof AUDIT_COLUMNS)[number];
+/** The five header strings as a union, so a column added here is a column the page will not compile without. */
+export type AuditColumnHeader = AuditColumn["header"];
+
+/** §10.2's scope: which events reach this table at all, and who may read it. */
+export const AUDIT_LEDE_SCOPE =
+  "Every read of a visit's answers, chat, uploads or summary; every patient link accepted; every message sent; every deletion. Admins only.";
+
+/** An English list: `a`, `a and b`, `a, b and c`. */
+const sentenceList = (items: readonly string[]): string =>
+  items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+/**
+ * What a row carries, enumerated from the columns themselves.
+ *
+ * The `carries no patient details` half is the true half of the old sentence and is kept as it was: `On` is
+ * an opaque cuid and `Detail` is counts and constants, both of them behind the gate below. It is the
+ * enumeration after the dash that was false, and it is no longer written by hand.
+ */
+export const auditRowSentence = (columns: readonly { carries: string }[] = AUDIT_COLUMNS): string =>
+  `A row carries no patient details — only ${sentenceList(columns.map((c) => c.carries))}.`;
+
+/** The coalescing window in words a sentence can use: 60_000 is "a minute", 30_000 "30 seconds". */
+export function coalesceWindowWords(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds % 60 === 0) {
+    const minutes = seconds / 60;
+    return minutes === 1 ? "a minute" : `${minutes} minutes`;
+  }
+  return `${seconds} seconds`;
+}
+
+/**
+ * Whether a row is ever written twice, and when — the claim this ticket was filed about.
+ *
+ * Both branches are here so the sentence follows the rule rather than describing one setting of it. With
+ * coalescing off, every event is its own row and nothing is ever rewritten, which is what the old lede said
+ * and what would make it true again. With it on, an identical read inside the window is counted on the row
+ * already there and that row's time becomes the latest of the group — so the time of the *first* read in a
+ * window is not on the record, which is the consequence the old wording hid.
+ *
+ * What does not change either way: verifications, sends and deletions are never coalesced (lib/auditStore.ts
+ * says why — each is its own event). The wording keeps that distinction rather than flattening it into one
+ * claim about every row.
+ */
+export function auditCoalescingSentence(coalesceMs: number = READ_COALESCE_MS): string {
+  if (!(coalesceMs > 0)) return "Every event is its own row, and a row is never changed once it is written.";
+  return (
+    `A repeated identical read within ${coalesceWindowWords(coalesceMs)} is counted on the row already there, ` +
+    "whose time becomes the latest of them; verifications, sends and deletions are each their own row."
+  );
+}
+
+/** The lede over the audit table, as the page prints it: §10.2's scope, then what a row holds, then what the
+ *  store does to a row that is already there. */
+export const auditLede = (coalesceMs: number = READ_COALESCE_MS): string =>
+  `${AUDIT_LEDE_SCOPE} ${auditRowSentence()} ${auditCoalescingSentence(coalesceMs)}`;
+
+// ---------------------------------------------------------------------------------------------
 // §4.8 "detail JSON without PHI".
 //
 // Two gates, because an allow-list of *names* is not enough on its own: `kind` is safe, but a caller that

@@ -13,15 +13,19 @@
 // touched this", not "what did it say".
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import PersonaBrand from "@/components/PersonaBrand";
 import {
   actionLabel,
+  auditLede,
   AUDIT_ACTION_NAMES,
+  AUDIT_COLUMNS,
   AUDIT_LIMITS,
   DEFAULT_AUDIT_LIMIT,
   detailWarns,
   ORPHANS_WARNING,
+  READ_COALESCE_MS,
+  type AuditColumnHeader,
   type AuditEntry,
 } from "@/lib/auditLog";
 
@@ -44,6 +48,58 @@ const shortId = (id: string) => `${id.slice(0, 8)}…`;
 const when = (iso: string) => {
   const at = new Date(iso);
   return Number.isNaN(at.getTime()) ? iso : at.toLocaleString();
+};
+
+/**
+ * What each column of AUDIT_COLUMNS puts in a cell. Keyed by the header, and typed `Record` over the union of
+ * them, so a column added to lib/auditLog.ts is a column this file will not compile without — which is the
+ * other half of T219's guard: the sentence over the table enumerates the list, and the table cannot get a
+ * column the list does not have.
+ *
+ * `meId` is the signed-in admin, which only the `On` cell needs: a visit row links to the visit, read through
+ * this user's own dashboard.
+ */
+const CELLS: Record<AuditColumnHeader, (entry: AuditEntry, meId: string) => ReactNode> = {
+  When: (entry) => <span className="audit-when">{when(entry.at)}</span>,
+  Who: (entry) => (
+    <>
+      <strong>{entry.actor}</strong>
+      {entry.actorType !== "user" && <small className="audit-actor-type">{entry.actorType}</small>}
+    </>
+  ),
+  What: (entry) => actionLabel(entry.action),
+  On: (entry, meId) =>
+    entry.entityId ? (
+      <span className="audit-entity">
+        <span className="audit-entity-type">{entry.entityType}</span>
+        {entry.entityType === "visit" ? (
+          // Opening the visit is itself a read, and will be the next row in this table.
+          <Link href={`/provider/${meId}?visit=${entry.entityId}`} title={entry.entityId}>
+            {shortId(entry.entityId)}
+          </Link>
+        ) : (
+          <code title={entry.entityId}>{shortId(entry.entityId)}</code>
+        )}
+      </span>
+    ) : (
+      <span className="audit-entity-type">{entry.entityType}</span>
+    ),
+  Detail: (entry) =>
+    entry.detail ? (
+      <span className="audit-detail">
+        {Object.entries(entry.detail).map(([key, value]) => (
+          <span
+            key={key}
+            className={`ss-pill ${detailWarns(key, value) ? "ss-pill-warning" : "ss-pill-info"}`}
+            title={key === "orphans" && detailWarns(key, value) ? ORPHANS_WARNING : undefined}
+          >
+            {key}: {Array.isArray(value) ? value.join(", ") : String(value)}
+          </span>
+        ))}
+      </span>
+    ) : (
+      <span className="audit-entity-type">—</span>
+    ),
 };
 
 export default function AuditTrail({ meId }: { meId: string }) {
@@ -127,11 +183,11 @@ export default function AuditTrail({ meId }: { meId: string }) {
           <div>
             <p className="ss-eyebrow">AUDIT TRAIL</p>
             <h1 className="ss-title">Who touched what.</h1>
-            <p className="ss-lede">
-              Every read of a visit&apos;s answers, chat, uploads or summary; every patient link accepted; every
-              message sent; every deletion. Admins only. Entries are never edited or removed, and carry no
-              patient details — only who, what, and when.
-            </p>
+            {/* §10.2's scope, what a row carries, and what the store does to a row already on the record —
+                all three from lib/auditLog.ts, off the same column list the table's headers come from and
+                the same constant lib/auditStore.ts coalesces by (T219). It said the opposite of both for as
+                long as it was a literal here, because a literal is the one thing §12.1 cannot ask about. */}
+            <p className="ss-lede">{auditLede(READ_COALESCE_MS)}</p>
           </div>
         </section>
 
@@ -228,58 +284,23 @@ export default function AuditTrail({ meId }: { meId: string }) {
               <table className="provider-table audit-table">
                 <thead>
                   <tr>
-                    <th>When</th>
-                    <th>Who</th>
-                    <th>What</th>
-                    <th>On</th>
-                    <th>Detail</th>
+                    {AUDIT_COLUMNS.map((column) => (
+                      <th key={column.header}>{column.header}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {entries.map((entry) => (
                     <tr key={entry.id}>
-                      <td data-label="When">
-                        <span className="audit-when">{when(entry.at)}</span>
-                      </td>
-                      <td data-label="Who">
-                        <strong>{entry.actor}</strong>
-                        {entry.actorType !== "user" && <small className="audit-actor-type">{entry.actorType}</small>}
-                      </td>
-                      <td data-label="What">{actionLabel(entry.action)}</td>
-                      <td data-label="On">
-                        {entry.entityId ? (
-                          <span className="audit-entity">
-                            <span className="audit-entity-type">{entry.entityType}</span>
-                            {entry.entityType === "visit" ? (
-                              // Opening the visit is itself a read, and will be the next row in this table.
-                              <Link href={`/provider/${meId}?visit=${entry.entityId}`} title={entry.entityId}>
-                                {shortId(entry.entityId)}
-                              </Link>
-                            ) : (
-                              <code title={entry.entityId}>{shortId(entry.entityId)}</code>
-                            )}
-                          </span>
-                        ) : (
-                          <span className="audit-entity-type">{entry.entityType}</span>
-                        )}
-                      </td>
-                      <td data-label="Detail">
-                        {entry.detail ? (
-                          <span className="audit-detail">
-                            {Object.entries(entry.detail).map(([key, value]) => (
-                              <span
-                                key={key}
-                                className={`ss-pill ${detailWarns(key, value) ? "ss-pill-warning" : "ss-pill-info"}`}
-                                title={key === "orphans" && detailWarns(key, value) ? ORPHANS_WARNING : undefined}
-                              >
-                                {key}: {Array.isArray(value) ? value.join(", ") : String(value)}
-                              </span>
-                            ))}
-                          </span>
-                        ) : (
-                          <span className="audit-entity-type">—</span>
-                        )}
-                      </td>
+                      {AUDIT_COLUMNS.map((column) => (
+                        // `data-label` is the header again, because on a phone this table is a stack of
+                        // labelled lines and that attribute is what names each one (app/globals.css). One
+                        // list for the headers, the labels and the sentence above them, so none of the three
+                        // can be left behind by a sixth column (T219).
+                        <td key={column.header} data-label={column.header}>
+                          {CELLS[column.header](entry, meId)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
