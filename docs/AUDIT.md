@@ -70,16 +70,36 @@ not to a patient's data.
 
 The Sour page polls `GET /api/patient/[id]` up to twenty times while a summary is generated, and a clinician
 opens the same visit before and during an appointment. Identical rows inside `READ_COALESCE_MS` (one minute)
-become one: the row's `at` moves forward and `detail.count` says how many. Nothing is lost — the row still
-says who, what, how many and when it last happened — and the page stays a record a person can read. What it
-does not say is when the *first* read of a window was, since the time that survives is the latest of the
-group; that is the trade-off, and the lede on the page states it rather than denying it (T219).
-Verifications, sends and deletions are never coalesced: each is its own event, and a second verification is a
-second browser, which is exactly what an admin would want to see twice.
+become one: the row's `at` moves forward and `detail.count` says how many. Verifications, sends and deletions
+are never coalesced: each is its own event, and a second verification is a second browser, which is exactly
+what an admin would want to see twice.
+
+**The window is measured from the row's first read, and the row carries both ends of the span** (T220). A row
+has two times on it: `firstAt`, written once when the row is created and never again, and `at`, the latest
+event counted on it. `absorbed` looks for a candidate by `firstAt >= now - READ_COALESCE_MS`, so
+`at - firstAt` can never exceed the window, and the `When` cell prints the span beneath the time — *"3 reads
+over 42 seconds, from 14:08:31"* — while the CSV carries `firstAt` as a column of its own.
+
+That is a change from how this worked until T220, and the old behaviour is worth stating because the bound is
+the whole point. The lookup used to be `at >= now - READ_COALESCE_MS` and the absorb moved `at` to now, so the
+window was measured from the *last* read it had absorbed: the cursor followed the polling and the window slid
+with it. A read arriving every 59 seconds absorbed into the same row for ever. Measured on a 2-second window
+with real 1.5-second waits, eight reads became one row standing for 10.6 seconds — 5.3 times the window the
+page described. There was no cap, on elapsed time or on `count`, and nothing on the row said how long it
+covered, so §10.2's "who read this visit and when" had an answer of unbounded vagueness and §10.7's integrity
+item could not be met by it. `lib/auditStore.test.ts` is that case, scaled to run in seconds.
+
+What is still a trade-off, narrowed rather than removed: the times of the reads *between* the first and the
+last are not on the record. The row says there were N of them and that they all fell inside one window of a
+known length, which is what the page and this document now claim and no more.
 
 `READ_COALESCE_MS` is declared in `lib/auditLog.ts`, not in the store that applies it, because the sentence
 over the audit table is built from it: `auditCoalescingSentence` describes counting exactly when the window
-is positive. A client component may not import `lib/auditStore.ts`, and one constant in two places is how
+is positive, and names that window twice — as the gate a repeated read has to fall inside *of the first* read,
+and as the ceiling no row may exceed. Set the constant to 30 seconds and the page says 30 seconds in both
+places. `auditRowSpan` and `auditSpanWords`, in the same module, decide what the `When` cell prints about a
+row's span and whether there is one to print, so the cell cannot claim something the sentence above it does
+not. A client component may not import `lib/auditStore.ts`, and one constant in two places is how
 the page came to claim the opposite of what the store does.
 
 A write never fails the request it belongs to. The thing being recorded has already happened by then, so
@@ -112,7 +132,7 @@ colleague's name as a formula.
 
 Rows are never edited or deleted from the outside: no route offers it, and the page has no button for it.
 The one write the app makes to a row already on the record is the read coalescing above, which the lede
-states rather than denying. That lede — §10.2's scope, what a row carries, and what coalescing does to a row — is
+states rather than denying, and which touches two of the row's columns and never `firstAt`. That lede — §10.2's scope, what a row carries, and what coalescing does to a row — is
 `auditLede` in `lib/auditLog.ts`, and the table's headers and its per-row mobile labels are the
 `AUDIT_COLUMNS` the same sentence enumerates. None of it is a literal in the JSX: a claim the unit suite
 cannot ask about is a claim nothing holds (§12.1), which is how the old one survived five columns being
