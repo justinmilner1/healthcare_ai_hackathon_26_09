@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { auditLede, AUDIT_COLUMNS, READ_COALESCE_MS } from "../lib/auditLog";
+import { auditLede, auditSpanSeconds, auditSpanWords, AUDIT_COLUMNS, READ_COALESCE_MS } from "../lib/auditLog";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
@@ -139,6 +139,35 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   const span = Date.parse(read!.at) - Date.parse(read!.firstAt);
   expect(span, "the coalesced row kept no record of when its first read was").toBeGreaterThan(0);
   expect(span, `the row covers ${span}ms, past the ${READ_COALESCE_MS}ms window the page calls it`).toBeLessThanOrEqual(READ_COALESCE_MS);
+
+  // T222 (§10.2, §10.7): and the span the cell *states* agrees with the two stamps that same cell *prints*.
+  // This assertion used to stop at "3 reads over", so the suite could not see the cell contradicting itself:
+  // both stamps go through `toLocaleString()`, which truncates to the second, while the words used to round
+  // the true gap — on this very row, a real 1.3s printed as "1 second" between stamps two seconds apart.
+  // Which of the branches below the run lands in depends on how fast the three reads were, so all are held.
+  const stamps = await page.evaluate(
+    ([at, firstAt]) => [new Date(at).toLocaleString(), new Date(firstAt).toLocaleString()],
+    [read!.at, read!.firstAt],
+  );
+  // The cell prints what it was given: `at` on the first line, `firstAt` after "from" on the second.
+  await expect(spanCell).toContainText(`, from ${stamps[1]}`);
+  await expect(coalesced.locator(".audit-when")).toContainText(stamps[0]);
+  // The whole span line, not its first three words, so what sits between them is readable here at all.
+  const line = (await spanCell.textContent())!.trim();
+  const words = line.replace(/^3 reads over /, "").replace(/, from .*$/, "");
+  expect(line, `the span line is not the shape this assertion reads: ${line}`).toBe(`3 reads over ${words}, from ${stamps[1]}`);
+  const began = Date.parse(read!.firstAt);
+  const ended = Date.parse(read!.at);
+  const seconds = auditSpanSeconds(began, ended);
+  expect(words, "the cell is wording the span itself rather than taking it from lib/auditLog.ts").toBe(auditSpanWords(began, ended));
+  // The reader's own subtraction, done the one way that needs no locale string parsed: both stamps are a
+  // function of their instant's floor to the second, so if adding the stated seconds to the first printed
+  // stamp lands on the second printed stamp, the two are exactly that many seconds apart on screen.
+  const shifted = await page.evaluate((at) => new Date(at).toLocaleString(), new Date(began + seconds * 1000).toISOString());
+  expect(shifted, `the cell says "${words}" over ${stamps[1]} and ${stamps[0]}, which are not that far apart`).toBe(stamps[0]);
+  // The two readings an admin can catch in one glance (T222 AC2).
+  if (stamps[0] === stamps[1]) expect(words).toBe("under a second");
+  else expect(words, `"under a second" over ${stamps[1]} and ${stamps[0]}`).not.toBe("under a second");
   // Every row, not only this one: nothing the store writes may claim a span the lede does not allow.
   for (const entry of entries) {
     expect(Date.parse(entry.at) - Date.parse(entry.firstAt), `${entry.action} covers more than the window`).toBeLessThanOrEqual(READ_COALESCE_MS);
