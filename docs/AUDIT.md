@@ -71,9 +71,16 @@ not to a patient's data.
 The Sour page polls `GET /api/patient/[id]` up to twenty times while a summary is generated, and a clinician
 opens the same visit before and during an appointment. Identical rows inside `READ_COALESCE_MS` (one minute)
 become one: the row's `at` moves forward and `detail.count` says how many. Nothing is lost — the row still
-says who, what, how many and when it last happened — and the page stays a record a person can read.
+says who, what, how many and when it last happened — and the page stays a record a person can read. What it
+does not say is when the *first* read of a window was, since the time that survives is the latest of the
+group; that is the trade-off, and the lede on the page states it rather than denying it (T219).
 Verifications, sends and deletions are never coalesced: each is its own event, and a second verification is a
 second browser, which is exactly what an admin would want to see twice.
+
+`READ_COALESCE_MS` is declared in `lib/auditLog.ts`, not in the store that applies it, because the sentence
+over the audit table is built from it: `auditCoalescingSentence` describes counting exactly when the window
+is positive. A client component may not import `lib/auditStore.ts`, and one constant in two places is how
+the page came to claim the opposite of what the store does.
 
 A write never fails the request it belongs to. The thing being recorded has already happened by then, so
 `recordAudit` catches, writes `audit_write_failed` to the application log, and returns.
@@ -104,3 +111,9 @@ prefixes a cell that starts with `=`, `+`, `-` or `@` with an apostrophe, so a s
 colleague's name as a formula.
 
 Rows are never edited or deleted from the outside: no route offers it, and the page has no button for it.
+The one write the app makes to a row already on the record is the read coalescing above, which the lede
+states rather than denying. That lede — §10.2's scope, what a row carries, and what coalescing does to a row — is
+`auditLede` in `lib/auditLog.ts`, and the table's headers and its per-row mobile labels are the
+`AUDIT_COLUMNS` the same sentence enumerates. None of it is a literal in the JSX: a claim the unit suite
+cannot ask about is a claim nothing holds (§12.1), which is how the old one survived five columns being
+described as three.

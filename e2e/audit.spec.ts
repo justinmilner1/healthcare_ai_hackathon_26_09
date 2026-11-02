@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { auditLede, AUDIT_COLUMNS, READ_COALESCE_MS } from "../lib/auditLog";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
@@ -65,6 +66,15 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await page.goto("/provider/audit");
   await expect(page.getByRole("heading", { name: "Who touched what." })).toBeVisible(LOADED);
   const table = page.locator(".audit-table");
+
+  // T219 (§10.2, §10.7): the sentence over the table and the table's own headers are one list in
+  // lib/auditLog.ts, checked here on the screen an admin reads rather than only in the unit suite. The lede
+  // used to be a literal claiming entries are never edited, above five columns it said were three — so what
+  // this asserts is the pair: these headers, and the sentence built from them and from the window the store
+  // coalesces by. A column added to the table on its own fails the second assertion; a sentence that stopped
+  // following either input fails the first.
+  await expect(page.locator(".ss-lede")).toHaveText(auditLede(READ_COALESCE_MS), LOADED);
+  await expect(table.locator("thead th")).toHaveText(AUDIT_COLUMNS.map((column) => column.header));
   await expect(table).toContainText("Uploaded data read", LOADED);
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Upload deleted");
