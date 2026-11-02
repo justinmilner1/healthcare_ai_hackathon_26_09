@@ -17,9 +17,10 @@ import {
   EYEBROW,
   acceptConsent,
   enterCode,
+  expectNoWiderSpan,
   expectOrderedNarrative,
-  NARRATIVE_PATTERNS,
   NARRATIVE_QUESTIONS,
+  ONE_DAY_NARRATIVE_PATTERNS,
   patchNarrative,
   patientEmail,
   patternsCard,
@@ -421,7 +422,15 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   expect(saved.patientSummary.patterns, "no model gateway, so no narrative (§6.3, §11.3)").toEqual([]);
   expect(saved.patientSummary.questions, "the same for the questions").toEqual([]);
 
-  await patchNarrative(page, () => ({ patterns: NARRATIVE_PATTERNS, questions: NARRATIVE_QUESTIONS }));
+  // The span the patterns below are written for, read off the bundle rather than presumed (T217).
+  // `clarity_window.csv` is one calendar day, so the heading is `What your day showed` and the week's
+  // narrative e2e/flows.spec.ts renders would contradict every frame it appeared in — which is what it
+  // did, for two tickets, until a reviewer read the PNG. If this fixture is ever widened, this line fails
+  // first and names the reason.
+  const days = saved.stats.days as number;
+  expect(days, "clarity_window.csv is one calendar day of readings").toBe(1);
+
+  await patchNarrative(page, () => ({ patterns: ONE_DAY_NARRATIVE_PATTERNS, questions: NARRATIVE_QUESTIONS }));
   await page.goto(`/patient/${token}`);
   const patterns = patternsCard(page);
   const questions = questionsCard(page);
@@ -434,8 +443,14 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   // And the semantics by name, because axe has no rule for either half of T208: a `<ul>` whose order is
   // meaningful is valid markup, and a numeral said twice is valid markup read badly. Both cards, the same
   // way, since §7 orders both arrays "most important first" (lib/prompts.ts).
-  await expectOrderedNarrative(patterns, NARRATIVE_PATTERNS, "the patterns card");
+  await expectOrderedNarrative(patterns, ONE_DAY_NARRATIVE_PATTERNS, "the patterns card");
   await expectOrderedNarrative(questions, NARRATIVE_QUESTIONS, "the questions card");
+
+  // T217 (§2.7, §7): and the one thing about these cards that is not markup — that what they say fits
+  // the visit they are drawn over. This is the assertion the frame was missing: the heading is computed
+  // from `days` and the sentences under it were not, so the card could and did say "the week" over a day.
+  await expectNoWiderSpan(patterns, days, "the patterns card");
+  await expectNoWiderSpan(questions, days, "the questions card");
 
   // T210 (§6.4): and the colour those numerals are drawn in. This is the page that holds both of the
   // sites that ticket measured — the 1 / 2 / 3 chip on either card, and "TIME IN RANGE" under the big
