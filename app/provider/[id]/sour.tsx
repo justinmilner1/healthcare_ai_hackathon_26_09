@@ -31,6 +31,7 @@ import { patientWords } from "@/lib/patientWords";
 import { countOf } from "@/lib/plural";
 import { askSourClosedNote, askSourPlaceholder, askSourSubheading, emptyNarrativeText, narrativeNote, sourPanelEmpty, summaryListHeading, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
+import { clinicianSleepCardHeading, clinicianSleepTileHint } from "@/lib/sleepSpan";
 import { signedInHeading } from "@/lib/team";
 import { visitLabel } from "@/lib/visits";
 import type { FollowUp, PatientBundle, ReviewRecord } from "@/lib/types";
@@ -556,8 +557,14 @@ export default function SourView({ id }: { id: string }) {
                             excursions (T164, §7.1). Where the two differ the hint says "top 5 shown", so
                             the number and the rows under it do not have to be reconciled by guesswork. */}
                         <StatTile label="Spikes > 180" value={String(bundle.spikeTotal)} hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status, bundle.spikeTotal)} />
+                        {/* The hint carries two facts now and composes neither of them here (T218, §2.6):
+                            `h/night` is honest about the rate and said nothing about how many nights, so a
+                            WHOOP export wider than `st.days` — which is the glucose span alone
+                            (lib/bundle.ts) — averaged three nights under a card headed `last 1 day`. The
+                            nights and the recovery score are joined in lib/sleepSpan.ts, off the same
+                            predicate as the heading on the sleep card below and the patient's own. */}
                         {st.sleepAvgHours !== null ? (
-                          <StatTile label="Sleep" value={st.sleepAvgHours.toFixed(1)} unit="h/night" hint={st.recoveryAvg !== null ? `recovery ${st.recoveryAvg}%` : undefined} />
+                          <StatTile label="Sleep" value={st.sleepAvgHours.toFixed(1)} unit="h/night" hint={clinicianSleepTileHint(bundle.sleep, st.days, st.recoveryAvg)} />
                         ) : (
                           <StatTile label="Sleep" value="—" hint="no WHOOP data" />
                         )}
@@ -595,7 +602,11 @@ export default function SourView({ id }: { id: string }) {
                     </div>
                   </section>
                   <section className="sour-card">
-                    <h3 className="text-sm font-semibold">Sleep</h3>
+                    {/* Not a literal, for the reason the chart card above it is headed `Glucose, last
+                        {countOf(st.days, "day")}` (T218, §2.6, §7): this card's bars are a WHOOP upload with
+                        its own range, so where they outrun the glucose span the heading counts them instead
+                        of inheriting it. lib/sleepSpan.ts, so the sheet (§7.4) cannot head it differently. */}
+                    <h3 className="text-sm font-semibold">{clinicianSleepCardHeading(bundle.sleep, st?.days ?? 0)}</h3>
                     <div className="mt-2">
                       <SleepChart nights={bundle.sleep} />
                     </div>

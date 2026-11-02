@@ -16,6 +16,7 @@ import { summaryDataInvite } from "@/lib/dexcomHint";
 import { patientPatternsSubtitle, patientQuestionsSubtitle } from "@/lib/patientNarrative";
 import { countOf, daySpan, plural, spanAtAGlance, spanNoun } from "@/lib/plural";
 import { patientSleepCardSubtitle } from "@/lib/sleepRecovery";
+import { patientSleepTileDetail } from "@/lib/sleepSpan";
 import { patientChartCaption, patientSpikeCardHeading } from "@/lib/spikePlaces";
 import type { PatientBundle } from "@/lib/types";
 import { visitCountdownSentence } from "@/lib/visitCountdown";
@@ -205,6 +206,13 @@ export default function PatientPage({
                     value={`${stats.avg}`}
                     detail="mg/dL"
                   />
+                  {/* T218 (§2.7, §7): the detail is a claim about the span like the tile beside it, so it
+                      is lib/sleepSpan.ts's rather than the literal "hours / night" it was. `stats.days` is
+                      derived from the glucose alone (lib/bundle.ts) and these nights come from a WHOOP
+                      export with its own range, so an average over three nights read `6.8 hours / night`
+                      under a HISTORY tile saying `1 day` — one night's sleep, as far as the row said. The
+                      figure is unchanged: §7 makes it code-generated and it is right for the nights it
+                      averaged; what the counted branch adds is how many of them there were. */}
                   <MiniStat
                     label="Sleep"
                     value={
@@ -215,7 +223,7 @@ export default function PatientPage({
                     detail={
                       stats.sleepAvgHours === null
                         ? "not connected"
-                        : "hours / night"
+                        : patientSleepTileDetail(bundle.sleep, stats.days)
                     }
                   />
                 </div>
@@ -271,7 +279,11 @@ export default function PatientPage({
                         reading `stats.recoveryAvg` is taken from. The Recovery column in the table under the
                         chart drops out on that predicate too, so the card cannot promise a word no element
                         on it carries. */}
-                    <p className="patient-report-subtitle">{patientSleepCardSubtitle(bundle.sleep)}</p>
+                    {/* T218 (§2.7): and the span those nights cover, which the sentence could not say
+                        either — `stats.days` is the glucose span and this card's bars are a separate
+                        upload's, so the card names its own rather than inheriting the page's frame. One
+                        predicate with the SLEEP tile above and the clinician's sleep card (lib/sleepSpan.ts). */}
+                    <p className="patient-report-subtitle">{patientSleepCardSubtitle(bundle.sleep, stats.days)}</p>
                     <div className="patient-chart-wrap">
                       <SleepChart nights={bundle.sleep} height={180} />
                     </div>

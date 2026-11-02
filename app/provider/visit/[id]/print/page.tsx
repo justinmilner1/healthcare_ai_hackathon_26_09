@@ -34,6 +34,7 @@ import { clinicianGmi } from "@/lib/gmi";
 import { countOf } from "@/lib/plural";
 import { emptyNarrativeText, narrativeNote, visitNotStarted, waitingOnPatientNote } from "@/lib/sourState";
 import { clinicianChartCaption, clinicianSpikeCardHeading, clinicianSpikePlacesHint } from "@/lib/spikePlaces";
+import { clinicianSleepCardHeading, clinicianSleepTileHint } from "@/lib/sleepSpan";
 import { clinicianLine, findVisit } from "@/lib/visit";
 import { visitLabel } from "@/lib/visits";
 import PrintControls from "./controls";
@@ -185,12 +186,14 @@ export default async function PrintPage({
                     value={String(bundle.spikeTotal)}
                     hint={clinicianSpikePlacesHint(bundle.spikes, bundle.status, bundle.spikeTotal)}
                   />
+                  {/* The screen's hint, out of lib/sleepSpan.ts, so the paper cannot average a span the
+                      brief counts -- the same bargain as the tiles above it (T218, §7.4). */}
                   {st.sleepAvgHours !== null ? (
                     <StatTile
                       label="Sleep"
                       value={st.sleepAvgHours.toFixed(1)}
                       unit="h/night"
-                      hint={st.recoveryAvg !== null ? `recovery ${st.recoveryAvg}%` : undefined}
+                      hint={clinicianSleepTileHint(bundle.sleep, st.days, st.recoveryAvg)}
                     />
                   ) : (
                     <StatTile label="Sleep" value="—" hint="no WHOOP data" />
@@ -282,7 +285,9 @@ export default async function PrintPage({
                   </div>
                 </section>
                 <section className="sour-card">
-                  <h2>Sleep</h2>
+                  {/* The screen's heading too (T218, §7.4): the sheet draws the same nights under the same
+                      `Glucose, last ...` card, so it cannot frame them more loosely than the brief does. */}
+                  <h2>{clinicianSleepCardHeading(bundle.sleep, st?.days ?? 0)}</h2>
                   <div className="mt-2">
                     <SleepChart nights={bundle.sleep} height={160} />
                   </div>
