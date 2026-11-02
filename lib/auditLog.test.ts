@@ -11,6 +11,8 @@ import {
   auditDetailJson,
   auditLede,
   auditRowSentence,
+  auditRowSpan,
+  auditSpanWords,
   AUDIT_ACTIONS,
   AUDIT_ACTION_NAMES,
   AUDIT_COLUMNS,
@@ -228,6 +230,7 @@ test("every allow-listed name is one a reader of §4.8 would accept", () => {
 const entry = (over: Partial<AuditEntry> = {}): AuditEntry => ({
   id: "c0aaaaaaaaaaaaaaaaaaaaaaa",
   at: "2026-10-14T09:30:00.000Z",
+  firstAt: "2026-10-14T09:29:18.000Z",
   actorType: "user",
   actorId: "c0bbbbbbbbbbbbbbbbbbbbbbb",
   actor: "Dr. Demo Endo",
@@ -242,7 +245,7 @@ test("the CSV has the header, one line per row, and CRLF endings", () => {
   const csv = auditCsv([entry()]);
   const lines = csv.split("\r\n");
   assert.equal(lines[0], [...AUDIT_CSV_HEADER].join(","));
-  assert.match(lines[1], /^2026-10-14T09:30:00\.000Z,Dr\. Demo Endo,user,/);
+  assert.match(lines[1], /^2026-10-14T09:30:00\.000Z,2026-10-14T09:29:18\.000Z,Dr\. Demo Endo,user,/);
   assert.equal(lines[2], "", "the file ends with a line break");
   assert.equal(auditCsv([]), `${[...AUDIT_CSV_HEADER].join(",")}\r\n`);
 });
@@ -408,6 +411,18 @@ test("the sentence follows the coalescing rule rather than describing one settin
   // verification is a second session, and a second send is a second message.
   assert.match(on, /verifications, sends and deletions are each their own row/);
   assert.match(off, /Every event is its own row/);
+
+  // T220: the two claims the store had no way of honouring until `firstAt`. The window is measured from the
+  // first read on the row, and the span the row covers is bounded by it — so the sentence names the window
+  // twice, once as the gate and once as the ceiling.
+  assert.match(on, /within a minute of the first/);
+  assert.match(on, /keeps the time it began/);
+  assert.match(on, /no row stands for more than a minute/);
+  // And it says so of whatever window the store is set to, never of a minute written out by hand.
+  const half = auditCoalescingSentence(30_000);
+  assert.match(half, /within 30 seconds of the first/);
+  assert.match(half, /no row stands for more than 30 seconds/);
+  assert.ok(!half.includes("minute"), half);
 });
 
 test("the lede enumerates the table's columns, in order, and stops there (T219 AC2)", () => {
@@ -452,6 +467,93 @@ test("the whole lede is §10.2's scope, the row, and the rule", () => {
   assert.match(lede, /Admins only/);
   // The default is the store's own window, so the page cannot be passed one and the store another.
   assert.equal(auditLede(), auditLede(READ_COALESCE_MS));
+});
+
+// ---------------------------------------------------------------------------------------------
+// The span a coalesced row stands for (§10.2, §10.7, T220).
+//
+// Until `firstAt` the row had one time on it, the latest read absorbed into it, and the window the store
+// looked back over was re-dated by every absorb — so the row covered a span of any length while the page
+// called it a minute. The store's end of that is held in lib/auditStore.test.ts, against real rows and a
+// real clock; these are the words the cell and the export print about it.
+
+test("a span is reported in units a person reads, and never as a zero", () => {
+  assert.equal(auditSpanWords(0), "under a second");
+  assert.equal(auditSpanWords(400), "under a second");
+  assert.equal(auditSpanWords(-5), "under a second", "a clock that went backwards is not a negative span");
+  assert.equal(auditSpanWords(1_000), "1 second");
+  assert.equal(auditSpanWords(1_400), "1 second");
+  assert.equal(auditSpanWords(42_000), "42 seconds");
+  assert.equal(auditSpanWords(59_600), "a minute", "rounding up to the window is still the window");
+  assert.equal(auditSpanWords(60_000), "a minute");
+  assert.equal(auditSpanWords(90_000), "90 seconds");
+  assert.equal(auditSpanWords(120_000), "2 minutes");
+});
+
+test("a row that stands for one event at one moment reports no span", () => {
+  const at = "2026-10-14T09:30:00.000Z";
+  // The ordinary row: `firstAt` is `at`, nothing was coalesced, and an admin is shown one time and no
+  // arithmetic about it.
+  assert.equal(auditRowSpan(entry({ at, firstAt: at, detail: { part: "summary" } })), null);
+  assert.equal(auditRowSpan(entry({ at, firstAt: at, detail: null })), null);
+  assert.equal(auditRowSpan(entry({ at, firstAt: at, detail: { part: "summary", count: 1 } })), null);
+  // Unparsable times are a hand-edited row (parseAuditDetail's reasoning): no claim rather than NaN.
+  assert.equal(auditRowSpan(entry({ at: "not a time", firstAt: at })), null);
+  assert.equal(auditRowSpan(entry({ at, firstAt: "not a time" })), null);
+});
+
+test("a coalesced row reports the span between its first read and its last (T220 AC1)", () => {
+  const span = auditRowSpan(entry({ at: "2026-10-14T09:30:00.000Z", firstAt: "2026-10-14T09:29:18.000Z", detail: { part: "summary", count: 7 } }));
+  assert.ok(span, "a row with two times and a count of 7 has a span");
+  assert.equal(span.ms, 42_000);
+  assert.equal(span.words, "42 seconds");
+  assert.equal(span.reads, 7, "how many reads the row stands for comes from its own count");
+});
+
+test("two reads inside one millisecond are a pair of reads, not a single one", () => {
+  // The count is the only evidence of the second read, and the row has to carry it rather than round the
+  // pair down to one event: `detail.count` is what an admin counts by.
+  const at = "2026-10-14T09:30:00.000Z";
+  const span = auditRowSpan(entry({ at, firstAt: at, detail: { count: 2 } }));
+  assert.ok(span);
+  assert.equal(span.ms, 0);
+  assert.equal(span.words, "under a second");
+  assert.equal(span.reads, 2);
+});
+
+test("a count that is not a usable number falls back to one read, and a backwards clock to no span", () => {
+  const at = "2026-10-14T09:30:00.000Z";
+  const earlier = "2026-10-14T09:29:18.000Z";
+  for (const count of [0, -3, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "4", null]) {
+    const span = auditRowSpan(entry({ at, firstAt: earlier, detail: { count } }));
+    assert.ok(span, `count ${String(count)} still has the 42s span between the two times`);
+    assert.equal(span.ms, 42_000);
+    assert.equal(span.reads, 1, `count ${String(count)} is not a whole number of reads above one`);
+  }
+  // `at` before `firstAt` can only be a clock that moved between two writes. The row still says how many.
+  const backwards = auditRowSpan(entry({ at: earlier, firstAt: at, detail: { count: 3 } }));
+  assert.ok(backwards);
+  assert.equal(backwards.ms, 0);
+  assert.equal(backwards.reads, 3);
+});
+
+test("the export carries the span as a field of its own (T220 AC6)", () => {
+  // §10.2 says "exportable", and an export that dropped `firstAt` would be a weaker record than the screen
+  // it was taken from — which is the whole of this ticket, one step downstream.
+  assert.ok(AUDIT_CSV_HEADER.includes("firstAt"), AUDIT_CSV_HEADER.join(","));
+  assert.equal([...AUDIT_CSV_HEADER].indexOf("firstAt"), [...AUDIT_CSV_HEADER].indexOf("at") + 1, "the two ends of the span are next to each other");
+  const line = auditCsv([entry({ at: "2026-10-14T09:30:00.000Z", firstAt: "2026-10-14T09:29:18.000Z" })]).split("\r\n")[1];
+  assert.ok(line.startsWith("2026-10-14T09:30:00.000Z,2026-10-14T09:29:18.000Z,"), line);
+});
+
+test("the audit page prints the span from this module rather than deciding it (T220 AC3)", () => {
+  const page = readFileSync(path.join(import.meta.dirname, "..", "app", "provider", "audit", "audit.tsx"), "utf8");
+  // The words and the "is there a span at all" decision are `auditRowSpan`'s, so the bound the sentence
+  // over the table promises and the span the cell prints come from one place.
+  assert.match(page, /auditRowSpan\(entry\)/);
+  assert.ok(!/firstAt\)\.getTime\(\)|Date\.parse\(entry\.firstAt/.test(page), "the page is doing the arithmetic itself");
+  // And no sixth column was added to carry it: the span rides in `When`, which the column list already has.
+  assert.equal(AUDIT_COLUMNS.length, 5);
 });
 
 test("the audit page takes both the sentence and its columns from this module (T219 AC3)", () => {

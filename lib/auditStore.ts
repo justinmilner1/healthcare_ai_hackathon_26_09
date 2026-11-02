@@ -13,9 +13,16 @@
 //   2. **Repeated identical reads inside a minute are one row.** The Sour page polls GET /api/patient/[id]
 //      up to twenty times while a summary is generated (app/provider/[id]/sour.tsx). Twenty rows per
 //      clinician per visit is not a record anybody can read, so a read that matches the previous one moves
-//      its `at` forward and counts itself in `detail.count` instead. Nothing is lost — the row says how many
-//      and when the last one was — and §10.2's question, "who read this visit and when", still has its
-//      answer. Verifications, sends and deletions are never coalesced: each one is its own event.
+//      its `at` forward and counts itself in `detail.count` instead. Verifications, sends and deletions are
+//      never coalesced: each one is its own event.
+//
+//      **The window is measured from the row's first read, not from its last (T220).** `absorbed` looks for
+//      a candidate by `firstAt`, which is written once and never again, so the span a row stands for —
+//      `firstAt` to `at` — can never exceed `coalesceMs`. It used to look by `at` and then move `at` to now,
+//      which made the window slide: a read every 59 seconds absorbed into the same row for ever, and that
+//      row stood for a span of any length while the page called it a one-minute window. Both halves of the
+//      span are on the row, so §10.2's question — "who read this visit and when" — is answered by the pair
+//      rather than by the latest of a group whose start nothing recorded.
 //
 //      This is also what the admin page says over its table, and it says it by reading the same constant:
 //      `auditCoalescingSentence` in lib/auditLog.ts branches on READ_COALESCE_MS, so changing the rule here
@@ -80,8 +87,13 @@ export async function recordAudit(entry: AuditWrite): Promise<void> {
   }
 }
 
-/** True when a row identical to this one is recent enough to count it instead: its `at` moves forward and
- *  `detail.count` goes up by one. */
+/** True when a row identical to this one *began* recently enough to count it instead: its `at` moves forward
+ *  and `detail.count` goes up by one, while `firstAt` stays where it was.
+ *
+ *  `firstAt` rather than `at` is the whole of T220. The row that absorbs has to be one whose own window is
+ *  still open, and a window that is re-dated by every read it absorbs is not a window — it is a cursor that
+ *  follows the polling. Bounding on the column nothing rewrites is what makes `at - firstAt <= coalesceMs`
+ *  true of every row the store writes, which is the bound the page and docs/AUDIT.md claim. */
 async function absorbed(entry: AuditWrite, detail: string | null): Promise<boolean> {
   const since = new Date(Date.now() - (entry.coalesceMs ?? 0));
   const previous = await db.auditLog.findFirst({
@@ -92,9 +104,15 @@ async function absorbed(entry: AuditWrite, detail: string | null): Promise<boole
       action: entry.action,
       entityType: entry.entityType,
       entityId: entry.entityId ?? null,
+      firstAt: { gte: since },
+      // Implied by the line above — `firstAt <= at` on every row — and kept because it is the half the
+      // `[practiceId, at]` index can narrow. Without it this lookup, which runs on every read of a visit,
+      // has nothing selective to use and walks the practice's whole trail.
       at: { gte: since },
     },
-    orderBy: { at: "desc" },
+    // The most recently *started* row: there is at most one open window per identical entry, and ordering by
+    // the column the filter is on keeps the two agreeing.
+    orderBy: { firstAt: "desc" },
   });
   if (!previous) return false;
   // Same action on the same thing, but the circumstances differ (a different part, a different request) —
@@ -106,6 +124,9 @@ async function absorbed(entry: AuditWrite, detail: string | null): Promise<boole
   const before = typeof counted.count === "number" && Number.isFinite(counted.count) ? counted.count : 1;
   // Serialized as it stands rather than back through auditDetail: this detail already passed that gate when
   // the row was written, and a second pass would drop its own `droppedFields` and report it as a drop.
+  //
+  // `firstAt` is not in the update, and that is the point: `at` is the latest of the group and `firstAt` the
+  // first of it, so the row carries its own span.
   await db.auditLog.update({
     where: { id: previous.id },
     data: { at: new Date(), detail: JSON.stringify({ ...counted, count: before + 1 }) },
@@ -233,6 +254,7 @@ export async function auditListing(practiceId: string, filter: AuditFilter): Pro
     entries: rows.map((row) => ({
       id: row.id,
       at: row.at.toISOString(),
+      firstAt: row.firstAt.toISOString(),
       actorType: row.actorType,
       actorId: row.actorId,
       actor: actorLabel(row.actorType, row.actorId, named),

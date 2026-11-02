@@ -18,6 +18,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import {
   actionLabel,
   auditLede,
+  auditRowSpan,
   AUDIT_ACTION_NAMES,
   AUDIT_COLUMNS,
   AUDIT_LIMITS,
@@ -51,6 +52,29 @@ const when = (iso: string) => {
 };
 
 /**
+ * The `When` cell: the row's latest event, and under it the span the row stands for when it stands for more
+ * than one (T220, §10.2, §10.7).
+ *
+ * Not a sixth column. A span is something only a coalesced read has, so a column of it would be empty on
+ * nearly every row; what an admin needs is for the time in the `When` cell to stop being the only thing the
+ * row says about when. `auditRowSpan` decides what that is — the words, the count and whether there is a
+ * span at all are in lib/auditLog.ts, next to the sentence over the table that promises the bound.
+ */
+const WhenCell = ({ entry }: { entry: AuditEntry }) => {
+  const span = auditRowSpan(entry);
+  return (
+    <span className="audit-when">
+      {when(entry.at)}
+      {span && (
+        <small className="audit-span" title={`${span.reads} identical reads, the first at ${when(entry.firstAt)}`}>
+          {span.reads} reads over {span.words}, from {when(entry.firstAt)}
+        </small>
+      )}
+    </span>
+  );
+};
+
+/**
  * What each column of AUDIT_COLUMNS puts in a cell. Keyed by the header, and typed `Record` over the union of
  * them, so a column added to lib/auditLog.ts is a column this file will not compile without — which is the
  * other half of T219's guard: the sentence over the table enumerates the list, and the table cannot get a
@@ -60,7 +84,7 @@ const when = (iso: string) => {
  * this user's own dashboard.
  */
 const CELLS: Record<AuditColumnHeader, (entry: AuditEntry, meId: string) => ReactNode> = {
-  When: (entry) => <span className="audit-when">{when(entry.at)}</span>,
+  When: (entry) => <WhenCell entry={entry} />,
   Who: (entry) => (
     <>
       <strong>{entry.actor}</strong>

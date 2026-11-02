@@ -231,13 +231,18 @@ export function coalesceWindowWords(ms: number): string {
 }
 
 /**
- * Whether a row is ever written twice, and when — the claim this ticket was filed about.
+ * Whether a row is ever written twice, and when — the claim T219 was filed about, and what T220 made true.
  *
  * Both branches are here so the sentence follows the rule rather than describing one setting of it. With
  * coalescing off, every event is its own row and nothing is ever rewritten, which is what the old lede said
- * and what would make it true again. With it on, an identical read inside the window is counted on the row
- * already there and that row's time becomes the latest of the group — so the time of the *first* read in a
- * window is not on the record, which is the consequence the old wording hid.
+ * and what would make it true again.
+ *
+ * With it on, the sentence now names the two things that make the window a window: the read has to fall
+ * inside it *of the first* read on the row, and the row carries both ends of the span. Until T220 the store
+ * measured the window from the last read it had absorbed and moved `at` to it, so the window slid and one
+ * row could stand for a span of any length while this sentence called it a minute — the page was not
+ * overstating the store's claim so much as the store had no bound to state. It has one now (`firstAt`,
+ * lib/auditStore.ts `absorbed`), and this is where an admin is told what it is.
  *
  * What does not change either way: verifications, sends and deletions are never coalesced (lib/auditStore.ts
  * says why — each is its own event). The wording keeps that distinction rather than flattening it into one
@@ -245,10 +250,49 @@ export function coalesceWindowWords(ms: number): string {
  */
 export function auditCoalescingSentence(coalesceMs: number = READ_COALESCE_MS): string {
   if (!(coalesceMs > 0)) return "Every event is its own row, and a row is never changed once it is written.";
+  const window = coalesceWindowWords(coalesceMs);
   return (
-    `A repeated identical read within ${coalesceWindowWords(coalesceMs)} is counted on the row already there, ` +
-    "whose time becomes the latest of them; verifications, sends and deletions are each their own row."
+    `A repeated identical read within ${window} of the first is counted on the row already there, which keeps ` +
+    `the time it began and shows the span up to the latest of them, so no row stands for more than ${window}; ` +
+    "verifications, sends and deletions are each their own row."
   );
+}
+
+/** How long a row stands for and how many events it counts: `ms` the gap in milliseconds, `words` that gap
+ *  as a cell prints it, `reads` the row's own `detail.count`. */
+export type AuditRowSpan = { ms: number; words: string; reads: number };
+
+/**
+ * The span a row stands for: the gap between the first event counted on it and the last. Null when the row
+ * is one event at one moment, which is every row but a coalesced read — there is no span to report and an
+ * admin should not be shown a zero.
+ *
+ * Here rather than in the page for the reason the labels and the sentence are (T205, T219): what a cell
+ * claims about the record is a decision, and §12.1 can ask about it without rendering anything. `reads`
+ * comes from `detail.count`, so a row that counted events faster than the clock can resolve still says how
+ * many it stands for instead of looking like a single read.
+ */
+export function auditRowSpan(entry: Pick<AuditEntry, "at" | "firstAt" | "detail">): AuditRowSpan | null {
+  const ended = Date.parse(entry.at);
+  const began = Date.parse(entry.firstAt);
+  const counted = entry.detail?.count;
+  const reads = typeof counted === "number" && Number.isFinite(counted) && counted > 1 ? Math.floor(counted) : 1;
+  if (!Number.isFinite(ended) || !Number.isFinite(began)) return null;
+  // A clock that went backwards between two writes is the one case where `at` precedes `firstAt`. Report the
+  // count and no span rather than a negative one: the row is still evidence of N reads.
+  const ms = Math.max(0, ended - began);
+  if (ms === 0 && reads === 1) return null;
+  return { ms, words: auditSpanWords(ms), reads };
+}
+
+/** A span in words. Shorter than a second is "under a second" rather than "0 seconds": two reads in one
+ *  millisecond are a real pair of reads and the row should not read as rounding them away. */
+export function auditSpanWords(ms: number): string {
+  const seconds = Math.round(Math.max(0, ms) / 1000);
+  if (seconds < 1) return "under a second";
+  if (seconds === 1) return "1 second";
+  if (seconds % 60 !== 0 || seconds < 60) return `${seconds} seconds`;
+  return coalesceWindowWords(seconds * 1000);
 }
 
 /** The lede over the audit table, as the page prints it: §10.2's scope, then what a row holds, then what the
@@ -380,6 +424,10 @@ export type AuditEntry = {
   id: string;
   /** ISO, not a Date: this shape crosses JSON to the audit screen (the same reason lib/team.ts gives). */
   at: string;
+  /** When the row's *first* event happened, which is `at` on every row except one read coalescing has
+   *  absorbed into. `firstAt` is written once and never again, so the pair is the span the row stands for
+   *  and `at - firstAt` is bounded by READ_COALESCE_MS (T220, lib/auditStore.ts `absorbed`). */
+  firstAt: string;
   actorType: string;
   actorId: string | null;
   /** Who, in words an admin recognises: a colleague's name or address, or "Patient" / "Scheduled job".
@@ -397,7 +445,9 @@ export const ACTOR_LABELS: Record<string, string> = { patient: "Patient (own lin
 // ---------------------------------------------------------------------------------------------
 // Export (§10.2 "exportable").
 
-export const AUDIT_CSV_HEADER = ["at", "actor", "actorType", "actorId", "action", "entityType", "entityId", "detail"] as const;
+/** `firstAt` sits next to `at` because the two are one fact — the span the row stands for — and the export
+ *  may not be weaker than the screen about it (§10.2 "exportable", T220 AC6). */
+export const AUDIT_CSV_HEADER = ["at", "firstAt", "actor", "actorType", "actorId", "action", "entityType", "entityId", "detail"] as const;
 
 /** A spreadsheet reads a leading =, +, - or @ as a formula, so a value that starts with one is prefixed with
  *  an apostrophe. Nothing in `detail` can begin that way, but `actor` is a name an admin typed. */
@@ -414,7 +464,7 @@ export function auditCsv(entries: readonly AuditEntry[]): string {
   const rows = [
     [...AUDIT_CSV_HEADER].join(","),
     ...entries.map((e) =>
-      [e.at, e.actor, e.actorType, e.actorId, e.action, e.entityType, e.entityId, e.detail ? JSON.stringify(e.detail) : ""]
+      [e.at, e.firstAt, e.actor, e.actorType, e.actorId, e.action, e.entityType, e.entityId, e.detail ? JSON.stringify(e.detail) : ""]
         .map(csvCell)
         .join(","),
     ),

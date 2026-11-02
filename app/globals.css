@@ -6261,6 +6261,18 @@ button.sweetie-agent-badge {
   white-space: nowrap;
 }
 
+/* The span a coalesced row stands for (T220), under the time the row ended. Its own line rather than a
+   second time on the same one: the cell is nowrap, and two full timestamps side by side push the table
+   past the width the five columns were sized for. */
+.audit-span {
+  display: block;
+  margin-top: 2px;
+  color: var(--ss-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
 .audit-actor-type,
 .audit-entity-type {
   display: block;
