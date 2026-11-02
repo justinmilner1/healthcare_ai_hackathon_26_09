@@ -423,10 +423,10 @@ test("the patient summary passes axe, empty and full", async ({ page, browser })
   expect(saved.patientSummary.questions, "the same for the questions").toEqual([]);
 
   // The span the patterns below are written for, read off the bundle rather than presumed (T217).
-  // `clarity_window.csv` is one calendar day, so the heading is `What your day showed` and the week's
-  // narrative e2e/flows.spec.ts renders would contradict every frame it appeared in — which is what it
-  // did, for two tickets, until a reviewer read the PNG. If this fixture is ever widened, this line fails
-  // first and names the reason.
+  // `clarity_window.csv` is one calendar day, so the heading is `What your day showed`, and the week's
+  // narrative e2e/flows.spec.ts renders contradicts every frame it appears over — which is what it did
+  // here until a reviewer read the PNG. If this fixture is ever widened, this line fails first and names
+  // the reason.
   const days = saved.stats.days as number;
   expect(days, "clarity_window.csv is one calendar day of readings").toBe(1);
 
