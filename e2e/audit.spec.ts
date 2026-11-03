@@ -5,8 +5,8 @@ import {
   auditLede,
   auditSpanClause,
   auditSpanSeconds,
-  auditStampsOrdered,
   auditSpanWords,
+  auditStampsOrdered,
   AUDIT_COLUMNS,
   READ_COALESCE_MS,
 } from "../lib/auditLog";
