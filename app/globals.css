@@ -6339,7 +6339,14 @@ button.sweetie-agent-badge {
     overflow-x: visible;
   }
 
-  .audit-table,
+  /* The table is spelled with both its classes, the rest with one, for the reason .settings-users is
+     (T101 above): this page is a `.provider-dashboard` too, and `.provider-dashboard .provider-table
+     { min-width: 1120px }` outranks a single class, so the `min-width: 0` below never reached the table.
+     The stacked rows were laid out 1120px wide inside a 351px card and clipped by `.provider-table-card`,
+     which is `overflow-x: hidden` — so the overspill did not even scroll, it simply was not there. Short
+     cells hid it; the first content wider than the card was T222's out-of-order span clause, which lost
+     "so no span is shown" off the right edge and left the sentence ending at "later than this row". */
+  .provider-table.audit-table,
   .audit-table tbody,
   .audit-table tr,
   .audit-table td {

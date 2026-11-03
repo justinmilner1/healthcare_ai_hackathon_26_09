@@ -95,6 +95,28 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await expect(table).toContainText("Patient link accepted");
   await expect(table).toContainText("Upload deleted");
   await expect(table).toContainText(demo.name);
+
+  // On the phone this is not a table: every row stacks into a labelled card, so nothing in it may be wider
+  // than the card that holds it. `.provider-table` carries `min-width: 1120px` on a `.provider-dashboard`
+  // page, and the stacked-row rule only outranks that by naming both classes (T101 did the same for
+  // `.settings-users`) — spelled with one, the rows were laid out 1120px wide inside a 351px card.
+  //
+  // Neither mobile helper can see that: `.provider-table-card` is `overflow-x: hidden`, so the overspill is
+  // clipped rather than scrolled and `document.scrollWidth` never moves (e2e/mobile.ts says so of
+  // `expectNoHorizontalScroll`), while `expectNothingScrollsSideways` only looks at `auto` and `scroll`.
+  // Short cells hid it until T222's out-of-order span clause, the first content wider than the card, lost
+  // "so no span is shown" off the right edge. The table's own width is the thing to measure, because
+  // `min-width` makes it wrong whatever the rows happen to contain.
+  if (test.info().project.name === "mobile") {
+    const measured = await table.evaluate((element) => ({
+      table: Math.round(element.getBoundingClientRect().width),
+      card: Math.round((element.closest(".provider-table-card") as HTMLElement).getBoundingClientRect().width),
+    }));
+    expect(
+      measured.table,
+      `the stacked audit table is ${measured.table}px inside a ${measured.card}px card, so the right of every row is clipped (design §6.5)`,
+    ).toBeLessThanOrEqual(measured.card);
+  }
   // The whole practice's trail is on this screen and every other spec in the run adds rows to it, so the
   // unfiltered shot has no fixed height: e2e/shot.ts leaves the page to the desktop, where a row is a line
   // of a table, and takes one screenful on the phone, where each row stacks into five labelled lines.

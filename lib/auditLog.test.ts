@@ -618,9 +618,12 @@ test("a row whose stamps print out of order states no span, and says so (T222 AC
   assert.ok(!clause.line.includes("under a second"), 'AC2 is absolute: no "under a second" over stamps that differ');
   assert.ok(!clause.title.includes("under a second"), clause.title);
   assert.ok(clause.title.includes("full precision"), "the title points at the export, which keeps the real figure");
-  // The line is a cell on a 375px card, where `.audit-table-scroll` is `overflow-x: visible` and a long
-  // enough line hangs the whole card off the right edge. It wraps (see `.audit-span` in app/globals.css),
-  // and it also stays within reach of the ordered line it stands in for rather than being a paragraph.
+  // The line is a cell on a 375px card, so it has to wrap inside it: `.audit-span` is `white-space: normal`
+  // against the `nowrap` it inherits from `.audit-when`, and the stacked table is held to the card's width
+  // by the `min-width: 0` in app/globals.css — which needs both of the table's classes to outrank
+  // `.provider-table`'s 1120px floor, or the line is clipped rather than wrapped and the card shows it
+  // ending at "later than this row". e2e/audit.spec.ts measures that width on the phone. Length is this
+  // file's half of it: the line stays within reach of the ordered one it stands in for, not a paragraph.
   assert.ok(clause.line.length < 100, `the span line is ${clause.line.length} characters: ${clause.line}`);
   assert.ok(clause.title.length > clause.line.length, "the reasoning belongs in the title, not in the cell");
 });
