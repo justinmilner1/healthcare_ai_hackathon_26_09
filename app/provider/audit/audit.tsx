@@ -19,6 +19,7 @@ import {
   actionLabel,
   auditLede,
   auditRowSpan,
+  auditSpanClause,
   AUDIT_ACTION_NAMES,
   AUDIT_COLUMNS,
   AUDIT_LIMITS,
@@ -59,15 +60,20 @@ const when = (iso: string) => {
  * nearly every row; what an admin needs is for the time in the `When` cell to stop being the only thing the
  * row says about when. `auditRowSpan` decides what that is — the words, the count and whether there is a
  * span at all are in lib/auditLog.ts, next to the sentence over the table that promises the bound.
+ *
+ * The clause itself comes from `auditSpanClause` rather than being assembled here (T222): a row whose two
+ * stamps print out of order gets a different sentence, and which sentence a record deserves is a decision
+ * §12.1 can ask about without rendering anything. This file supplies only the locale formatting.
  */
 const WhenCell = ({ entry }: { entry: AuditEntry }) => {
   const span = auditRowSpan(entry);
+  const clause = span && auditSpanClause(span, when(entry.firstAt));
   return (
     <span className="audit-when">
       {when(entry.at)}
-      {span && (
-        <small className="audit-span" title={`${span.reads} identical reads, the first at ${when(entry.firstAt)}`}>
-          {span.reads} reads over {span.words}, from {when(entry.firstAt)}
+      {clause && (
+        <small className="audit-span" title={clause.title}>
+          {clause.line}
         </small>
       )}
     </span>
