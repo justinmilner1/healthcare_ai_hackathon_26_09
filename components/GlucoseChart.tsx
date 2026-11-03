@@ -26,7 +26,7 @@ const SURFACE = "var(--viz-surface)";
  * the row under it cannot disagree about one spike.
  */
 export default function GlucoseChart({ readings, spikes, height = 280, patient = false }: { readings: GlucoseReading[]; spikes: Spike[]; height?: number; patient?: boolean }) {
-  // How wide the chart actually got. On a 375px phone the card leaves the plot about 205px for seven days,
+  // How wide the chart actually got. On a 375px phone the card leaves the plot about 177px for seven days,
   // and the fixed "5% of the span apart" rule below let four labels land inside 60px of each other —
   // unreadable (T23, design §6.5). Measured rather than guessed from a breakpoint, because the same chart
   // is drawn into a provider card and a print sheet at three different widths.
@@ -56,9 +56,10 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   //
   // The subtraction that turns the card into the drawing area is there too, and so are the props it is a
   // subtraction from — the `margin` and the `YAxis` below, which the axis rule has to agree with about
-  // where the axis is. `PLOT_CHROME` is 28px short of what Recharts lays out and stays that way here:
-  // lib/timeAxis.ts's label widths were measured against it (T190), so the number is that module's to
-  // move. lib/markerLabels.ts says why the rule is right in spite of it (T223).
+  // where the axis is. `PLOT_CHROME` is derived from exactly those props now (T224): it was a literal 80
+  // from T23 until then, 28px short of the 108 Recharts lays out, so every number either rule reasoned
+  // about named a drawing area wider than the one on screen. `data-axis-plot` below is that figure, and
+  // e2e/charts.ts holds it against the plot Recharts actually drew.
   const plot = plotWidth(width);
 
   // The time axis is lib/timeAxis.ts's, whole: which ticks and how they read, off the span and the plot

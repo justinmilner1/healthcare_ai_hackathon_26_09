@@ -22,8 +22,8 @@
 //    is the other half of the same bug — and an hour says little about a week. The tooltip over this same
 //    chart has always known the finer reading (`hour: "numeric"`), but a tooltip is a hover and §7.4's
 //    sheet is paper.
-// 2. **How many labels fit is a measurement, not a guess.** §6.5's 375px page leaves the plot 209px on the
-//    clinician's brief, 205px on the printed sheet and 237px on the patient's own summary, and the marker
+// 2. **How many labels fit is a measurement, not a guess.** §6.5's 375px page leaves the plot 181px on the
+//    clinician's brief, 177px on the printed sheet and 209px on the patient's own summary, and the marker
 //    labels on this same chart are already chosen against the measured width rather than a breakpoint
 //    (T23) — the same chart is drawn into a provider card, a phone and a print sheet at three different
 //    widths, so a count that suits one overlaps on another. `LABEL_WIDTH` below measures the labels
@@ -108,14 +108,22 @@ const grainOf = (step: number): Grain =>
  * **The measurement**, taken in the suite's own Chromium on the three surfaces' pages, through the span
  * Recharts measures with (`getStringSize`, `position: absolute; white-space: pre; font-size: 11px`), over
  * every label each grain can produce — seven weekdays, twenty-four hours, the minute labels, twelve
- * months of dates:
+ * months of dates. Re-taken for T224, on all four grains, in the same browser on the same six frames (a
+ * throwaway spec against the seeded week on the brief, the sheet and §2.7's page, at 375px and at desktop
+ * width) now that the plot they are compared against is the corrected one — and **unchanged to the
+ * digit**, because what they measure is a string in a font and not a plot:
  *
- * | Grain | Widest label it draws | Measured | Recharts needs | The old rule allowed |
+ * | Grain | Widest label it draws | Measured | Recharts needs | This rule allows |
  * |---|---|---|---|---|
- * | `day` | `"Wed"` | 22.56px | 27.56px | **26.5px** |
- * | `hour` | `"10 AM"` | 30.94px | 35.94px | 37.5px |
- * | `minute` | `"10:05 AM"` | 48.39px | 53.39px | 54px |
- * | `date` | `"May 30"` | 38.03px | 43.03px | **43px** |
+ * | `day` | `"Wed"` | 22.5625px | 27.56px | 29px |
+ * | `hour` | `"10 AM"` | 30.9375px | 35.94px | 37px |
+ * | `minute` | `"10:05 AM"` | 48.390625px | 53.39px | 55px |
+ * | `date` | `"May 30"` | 38.03125px | 43.03px | 45px |
+ *
+ * What T224 moved is the right-hand column, which is `LABEL_GAP` below and not these four: the widths
+ * were right about the labels all along and were being compared against a `plot` 28px wider than the
+ * drawing area, so the margin they were allowed to spend was paid for out of pixels the chart does not
+ * have.
  *
  * So the honest answer to T190's criterion 4 is yes: a weekday needs more than 26.5px at 11px. It needs
  * 27.56px, and the brief's 375px card gives its seven midnights 26.0px each — which is why `Sun` was not
@@ -132,27 +140,52 @@ const grainOf = (step: number): Grain =>
  * can check them against the table above.
  *
  * Rounded up to the pixel, because a tick coordinate is a fraction of a plot width and the comparison is
- * made against sub-pixel coordinates at both ends.
+ * made against sub-pixel coordinates at both ends. That rounding is a margin of its own, stacked on
+ * `LABEL_GAP`'s — 0.44px at the `day` grain, which is the grain that can least spare it. `LABEL_GAP` is
+ * where the whole budget the corrected plot leaves is accounted for, these four figures included.
  */
 const LABEL_WIDTH: Record<Grain, number> = { minute: 49, hour: 31, day: 23, date: 39 };
 
 /**
  * The clear space asked for between two labels, in pixels.
  *
- * Eight, not Recharts' own five, because five is the figure a label is dropped *at* rather than a figure
- * it is safe to plan against. The brief's seven weekdays sat 26.0px apart where the pairwise rule asks
+ * More than Recharts' own five, because five is the figure a label is dropped *at* rather than a figure it
+ * is safe to plan against. The brief's seven weekdays sat 26.0px apart where the rule T190 replaced asked
  * for 25.95 — inside a tenth of a pixel — and Recharts dropped one anyway: its walk measures and clamps
  * in device pixels from the end of the axis, so a model sitting on the boundary is a coin toss, and the
- * one it lost is a missing weekday on a clinician's brief. Three pixels buys the margin. It is not
- * generosity that costs an axis anything: `day` at 23 + 8 is 31px, and the three surfaces that keep all
- * seven weekdays give them 30px (the patient's page at 375px) to 125px each.
+ * one it lost is a missing weekday on a clinician's brief.
+ *
+ * **Six, not T190's eight (T224).** Eight was chosen against a `plot` that overstated the drawing area by
+ * 28px, so the margin it bought was paid for out of pixels the chart does not have. The budget, measured:
+ * the narrowest card that keeps all seven weekdays is §2.7's own page at 375px, whose plot is **209px**,
+ * and the seven midnights of the seeded week (Sat 00:00 to the following Fri 23:55) sit **29.87px** apart
+ * in it. One weekday needs 27.56px. So there are **2.3px** to spend on margin and not a pixel more, and
+ * the pitch this rule may ask for is at most `209 / 7` = 29.86px — which with `LABEL_WIDTH.day`'s 23 caps
+ * this constant at six:
+ *
+ * | `LABEL_GAP` | `day` pitch | margin over Recharts' 27.56px | narrowest plot that still keeps seven |
+ * |---|---|---|---|
+ * | 8 (T190) | 31px | 3.44px | 217px — **wider than the card**, so the seventh weekday goes |
+ * | 7 | 30px | 2.44px | 210px — still wider than the card |
+ * | **6** | **29px** | **1.44px** | **203px**, 6px of slack under the card as measured |
+ * | 5 | 28px | 0.44px | 196px, and the model is back on the boundary it must not sit on |
+ *
+ * Six is the only value with margin left at both ends. 1.44px rather than T190's 3.44px over Recharts is
+ * the truth of the geometry and not a loosening: those seven weekdays have 2.3px of real headroom on that
+ * card, and no constant here can make more of them. The 6px at the other end matters because the card is
+ * measured by a `ResizeObserver` at runtime rather than read off a breakpoint — a plot up to 6px narrower
+ * than the one measured still keeps its seven.
+ *
+ * It costs no other grain anything: `hour` at 31 + 6 is 37px against the 35.94px Recharts needs, `minute`
+ * 55px against 53.39px, `date` 45px against 43.03px, and every count the three surfaces draw today is
+ * unchanged — which is what lib/timeAxis.test.ts asserts at each of the six measured plots.
  *
  * `lib/markerLabels.ts` has a `LABEL_GAP` of its own, for the 10px marker labels over the rises (T23,
  * T197). That one is a gap in a collision test this product performs itself and then obeys, so nothing
  * downstream can overrule it; this one has to leave room for a test Recharts performs after we have
  * answered. They are not the same number and there is no reason they should be.
  */
-const LABEL_GAP = 8;
+const LABEL_GAP = 6;
 
 /**
  * How many labels to allow before the plot has been measured — the server render, and a browser with no

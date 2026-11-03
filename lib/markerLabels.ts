@@ -95,22 +95,32 @@ export const CHART_MARGIN = { top: 20, right: 56, bottom: 4, left: -8 } as const
 export const AXIS_TEXT_REACH = Y_AXIS.tickSize + Y_AXIS.tickMargin;
 
 /**
- * What components/GlucoseChart.tsx takes off the card to get `plot`, and what Recharts actually lays out.
+ * The chrome Recharts lays out around the plot, from the props above: the plot's left edge is at
+ * `margin.left + YAxis.width` = 52 and its right edge is `margin.right` = 56 in from the other side.
  *
- * These are not the same number and this ticket is not the one that reconciles them. `plot` has meant
- * `card - 80` since T23; Recharts puts the plot's left edge at `margin.left + YAxis.width` and its right
- * edge `margin.right` in from the other side, so the chrome it draws is 52 + 56 = 108 and every `plot` in
- * this product is 28px wider than the drawing area it names.
- *
- * Correcting it is lib/timeAxis.ts's ticket, not this one. That module's `LABEL_WIDTH` and `LABEL_GAP`
- * were measured against these same overstated widths (T190), so a `plot` 28px narrower makes its day grain
- * ask for six labels where it asks for seven today — and the patient's 375px card, whose seven weekdays sit
- * a comfortable 29.9px apart on screen against the 27.56px Recharts needs, would thin to four for no reason
- * a reader could see. T223 is only about where a label is painted, so `PLOT_CHROME` stays where T23 left it
- * and `LEFT_LIMIT` below is sized to be right in spite of it.
+ * Measured on the rendered charts as well as read off the props, which is what T224's criterion 5 keeps
+ * true from now on: `.recharts-cartesian-grid` starts at x = 52 on every one of the six frames the suite
+ * draws, and its box is exactly the card less this (e2e/charts.ts).
  */
-export const PLOT_CHROME = 80;
 export const DRAWN_CHROME = CHART_MARGIN.left + Y_AXIS.width + CHART_MARGIN.right;
+
+/**
+ * And what components/GlucoseChart.tsx takes off the card to get `plot`, which is the same number.
+ *
+ * It was a literal `80` from T23 until T224, and so **every `plot` in this product named a drawing area
+ * 28px wider than the one on screen**: on the rendered frames the component wrote `data-axis-plot` 209
+ * where Recharts drew 181 (the clinician's brief at 375px), 205 against 177 (§7.4's sheet) and 237
+ * against 209 (§2.7's own page); on the desk, 788 against 760, 581 against 553 and 894 against 866.
+ * Nothing measured *within* the plot noticed, because every gap inside it was the same fraction of the
+ * same overstated width. What noticed was the two rules that compare a position in the plot against a
+ * real number of pixels — this module's `LEFT_LIMIT` and lib/timeAxis.ts's `LABEL_WIDTH` — and both of
+ * them were sized to be right in spite of it, which is two numbers wrong in compensating directions.
+ *
+ * Derived rather than written down, so the two cannot drift apart again (T224 criterion 1): there is one
+ * figure here, it comes from the props the component hands Recharts, and lib/markerLabels.test.ts asserts
+ * `PLOT_CHROME === DRAWN_CHROME` where it used to assert that their difference was 28.
+ */
+export const PLOT_CHROME = DRAWN_CHROME;
 
 /** The drawing area a card `width` pixels wide leaves this chart, which is what `plot` means below. */
 export const plotWidth = (width: number): number => Math.max(0, width - PLOT_CHROME);
@@ -159,16 +169,18 @@ const DOT_GAP = 4;
  * edge rather than as a gap measured back to the tick text, because the gutter between the two is doing a
  * second job that a tighter boundary would spend.
  *
- * The tick text ends `AXIS_TEXT_REACH` further left again, so a label that only just keeps this is still
- * eight pixels clear of the digits. That eight is not spare change, it is what pays for `PLOT_CHROME`:
- * `plot` is 28px wider than the area Recharts draws into, so a label the arithmetic here puts exactly on
- * the plot's edge is really `half × 28 / plot` to the *left* of it. At the longest label this product
- * draws (sixteen characters, 43.2px of half-width) over the narrowest plot it draws (205px, §7.4's sheet
- * at 375px) that is 5.9px — inside the eight, with room to spare, and the test below holds the bound.
+ * The tick text ends `AXIS_TEXT_REACH` further left again, so a label that only just keeps this is eight
+ * pixels clear of the digits — all eight of them, now that `plot` is the area Recharts draws into (T224).
+ * Until that ticket it was not: `plot` was 28px too wide, so a label the arithmetic here put exactly on
+ * the plot's edge was really `half × 28 / plot` to the *left* of it, which at the longest label this
+ * product draws over the narrowest plot it draws spent 5.9px of the eight and left 2.1px. That 2.1px was
+ * consumed by label length and by nothing else: a `LABEL_CHARS` of 22 would have put the drift at 8.1px
+ * and a label back on the `250`, on a tree where every test still passed. The drift is zero now, so the
+ * gutter is margin rather than part-spent and the bound below is a statement about `AXIS_TEXT_REACH`
+ * alone (T224 criterion 4).
  *
- * So the rule is right about the chart on screen even though the number it is handed is not, and it says
- * so in its own terms rather than carrying the discrepancy into the arithmetic. Zero also needs no
- * `LABEL_GAP`-style clearance constant beside it: the clearance is the gutter, already measured.
+ * Zero also needs no `LABEL_GAP`-style clearance constant beside it: the clearance is the gutter, already
+ * measured.
  */
 const LEFT_LIMIT = 0;
 
