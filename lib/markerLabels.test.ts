@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MARKER_DOT, MARKER_REACH, halfLabelWidth, markerLabels, trimMarkerLabel } from "./markerLabels";
+import { AXIS_TEXT_REACH, DRAWN_CHROME, MARKER_DOT, MARKER_REACH, PLOT_CHROME, halfLabelWidth, markerLabels, plotWidth, trimMarkerLabel } from "./markerLabels";
 import type { Spike } from "./types";
 
 // T197 (design §2.6, §2.7, §7.4, §6.5, §12.1): which rises over the one glucose line all three surfaces
@@ -91,6 +91,117 @@ function expectNoMarkerOnALabel(spikes: Spike[], opts: { plot: number; patient?:
     });
   });
 }
+
+/**
+ * The property acceptance criterion 1 of T223 is: no drawn label reaches into the y-axis tick text.
+ *
+ * Asserted twice over, because the number this module is handed is not the plot Recharts draws. The first
+ * is the rule itself — a kept label starts at or inside the plot's left edge. The second is the claim that
+ * makes the rule enough: converted into the pixels actually on screen, where `plot` overstates the drawing
+ * area by `DRAWN_CHROME - PLOT_CHROME`, a label that keeps the rule is still clear of the digits. The
+ * second is the one that would catch a label long enough or a card narrow enough to spend the whole gutter.
+ */
+function expectNoLabelOnTheAxis(spikes: Spike[], opts: { plot: number; patient?: boolean; first?: number; last?: number }): void {
+  const first = opts.first ?? WEEK_FIRST;
+  const span = (opts.last ?? WEEK_LAST) - first;
+  const ordered = [...spikes].sort((a, b) => Date.parse(a.peak) - Date.parse(b.peak));
+  const drawnPlot = Math.max(0, opts.plot - (DRAWN_CHROME - PLOT_CHROME));
+  drawn(spikes, opts).forEach((label, i) => {
+    if (label === "-") return;
+    const frac = (Date.parse(ordered[i].peak) - first) / span;
+    const half = halfLabelWidth(label);
+    const left = frac * opts.plot - half;
+    assert.ok(left >= 0, `at ${opts.plot}px the label "${label}" starts ${(-left).toFixed(1)}px outside the plot`);
+    const onScreen = frac * drawnPlot - half;
+    assert.ok(
+      onScreen >= -AXIS_TEXT_REACH,
+      `at ${opts.plot}px the label "${label}" is drawn at ${onScreen.toFixed(1)}px, ` +
+        `${(-AXIS_TEXT_REACH - onScreen).toFixed(1)}px inside the y-axis tick text`,
+    );
+  });
+}
+
+// T223's own case, which is T221's fixture: `clarity_three_rises.csv` is one day from 06:00 to 23:55 whose
+// first rise peaks at 08:00, two hours in — 11.2% of the span — and carries the longest label this product
+// draws, a sixteen-character coordinate pair. Half of it is 21.6px, the rise is 19.8px along the sheet's
+// plot, and the label therefore began 1.8px *left of the plot itself* and ran back from there through the
+// `250`. Reproduced here as the arithmetic rather than as the fixture, so the numbers are legible: what
+// matters is a long label over a rise early in a window, and the fixture is one instance of it.
+const DAY_FIRST = Date.parse("2026-09-19T06:00:00.000Z");
+const DAY_LAST = Date.parse("2026-09-19T23:55:00.000Z");
+
+/** The three rises of that fixture, the first of them placed, as the chart is handed them. */
+const THREE_RISES: Spike[] = [
+  placedRise(Date.parse("2026-09-19T08:00:00.000Z"), 214, "37.777, -122.423"),
+  rise(Date.parse("2026-09-19T19:00:00.000Z"), 196),
+  rise(Date.parse("2026-09-19T22:30:00.000Z"), 188),
+];
+
+test("a long label over a rise early in the window is dropped rather than drawn through the axis", () => {
+  for (const plot of [BRIEF_375, PRINT_375]) {
+    const labels = drawn(THREE_RISES, { plot, first: DAY_FIRST, last: DAY_LAST });
+    assert.deepEqual(
+      labels,
+      ["-", "196", "188"],
+      `at ${plot}px the place label cannot clear the axis and the two that can are kept, and got ${labels.join(" | ")}`,
+    );
+  }
+});
+
+test("the same label on the same rise is kept once the chart is wide enough to hold it clear", () => {
+  // A desk, where 11.2% of the span is 73px and the label's 21.6px half starts well inside the plot. This
+  // is acceptance criterion 4 at the surface the ticket promises to leave alone: the rule drops a label
+  // because it does not fit, never because it is long.
+  const labels = drawn(THREE_RISES, { plot: DESK, first: DAY_FIRST, last: DAY_LAST });
+  assert.deepEqual(labels, ["37.777, -122.423", "196", "188"]);
+});
+
+test("the edge a label is held to is the plot's own, and the gutter beyond it is the margin", () => {
+  // A label centred exactly its own half-width along starts on the plot's left edge and is kept; half a
+  // pixel earlier it does not and is dropped. Half a pixel is the tolerance e2e/charts.ts reads the
+  // rendered boxes at, so this is the finest step worth asserting.
+  const span = DAY_LAST - DAY_FIRST;
+  const at = (px: number) => DAY_FIRST + Math.ceil((px / PRINT_375) * span);
+  const half = halfLabelWidth("37.777, -122.423");
+  const only = (centre: number) => [placedRise(at(centre), 214, "37.777, -122.423")];
+  const window = { plot: PRINT_375, first: DAY_FIRST, last: DAY_LAST };
+
+  assert.deepEqual(drawn(only(half), window), ["37.777, -122.423"], "on the edge is inside it");
+  assert.deepEqual(drawn(only(half - 0.5), window), ["-"], "and half a pixel short of it is not");
+
+  // And the margin that makes the edge the right place to put the boundary: `plot` is wider than the area
+  // Recharts draws into, so a label sitting on the arithmetic's edge is really a little left of the drawn
+  // one — by at most `half × (DRAWN_CHROME - PLOT_CHROME) / plot`, which has to stay inside the gutter.
+  // The worst case this product can reach is the longest label over the narrowest plot it draws.
+  const worst = (halfLabelWidth("a place you went") * (DRAWN_CHROME - PLOT_CHROME)) / PRINT_375;
+  assert.ok(worst < AXIS_TEXT_REACH, `the longest label on the narrowest card lands ${worst.toFixed(1)}px left of the plot, and the gutter is ${AXIS_TEXT_REACH}px`);
+  expectNoLabelOnTheAxis(only(half), window);
+});
+
+test("no label sits on the axis on any of the three surfaces 375px narrows", () => {
+  for (const plot of [BRIEF_375, PRINT_375, PATIENT_375, 190, 240, 300, DESK]) {
+    for (const spikes of [SEEDED_WEEK, SEEDED_WEEK_PLACED]) {
+      for (const patient of [false, true]) {
+        expectNoLabelOnTheAxis(spikes, { plot, patient });
+      }
+    }
+    expectNoLabelOnTheAxis(THREE_RISES, { plot, first: DAY_FIRST, last: DAY_LAST });
+  }
+});
+
+test("the drawing area the component passes is the card less the chrome it takes off", () => {
+  // Acceptance criterion 2: one function, called by the component and read by the rule, so neither can
+  // measure a chart the other is not looking at.
+  assert.equal(plotWidth(285), 285 - PLOT_CHROME, "the printed sheet's card at 375px");
+  assert.equal(plotWidth(0), 0, "nothing measured yet is no plot, not a negative one");
+  assert.equal(plotWidth(40), 0, "and a card narrower than its own chrome is not a negative plot either");
+
+  // And the figure the rule's margin is sized against, stated here so a change to either is a failing test
+  // rather than a silent drift: Recharts draws 28px more chrome than the component takes off.
+  assert.equal(DRAWN_CHROME, 108);
+  assert.equal(DRAWN_CHROME - PLOT_CHROME, 28);
+  assert.equal(AXIS_TEXT_REACH, 8);
+});
 
 // The ticket's own pair, in both directions. The seeded week's `Sun 1:55 PM 108 → 202` and
 // `Sun 10:30 PM 107 → 214` are 8h35m apart, which is 10.7px of the brief's 209px card — and the rule this
@@ -234,6 +345,17 @@ test("a place name longer than the label can carry is trimmed, and measured trim
 });
 
 test("one rise on its own is always labelled, and no rises is no labels", () => {
-  assert.deepEqual(drawn([rise(WEEK_FIRST + HOUR, 214)], { plot: BRIEF_375 }), ["214"], "nothing can collide with the only marker there is");
+  const span = WEEK_LAST - WEEK_FIRST;
+  assert.deepEqual(drawn([rise(WEEK_FIRST + span * 0.25, 214)], { plot: BRIEF_375 }), ["214"], "nothing can collide with the only marker there is");
   assert.equal(markerLabels([], { first: WEEK_FIRST, last: WEEK_LAST, plot: BRIEF_375, patient: false }).size, 0);
+
+  // Except by the axis, which is the one thing on this chart that is there whether or not anything else is
+  // (T223). A rise an hour into a seven-day window sits 1.2px along the brief's plot, so three characters
+  // centred on it are drawn almost wholly outside it, over the y-axis gutter and against the `250` — the
+  // same reading the caption's "where they fit" refuses between two labels, here against the one piece of
+  // text that cannot be dropped to make room. It is the only case in the suite where a chart of one rise
+  // draws no label, and no fixture holds it: the earliest rise any of them opens with is 08:00 on a day
+  // beginning at 06:00, which is the case tested above.
+  assert.deepEqual(drawn([rise(WEEK_FIRST + HOUR, 214)], { plot: BRIEF_375 }), ["-"], "an hour into the week is on top of the axis");
+  assert.deepEqual(drawn([rise(WEEK_FIRST + 12 * HOUR, 214)], { plot: BRIEF_375 }), ["214"], "and half a day in is clear of it");
 });
