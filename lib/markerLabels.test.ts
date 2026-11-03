@@ -123,10 +123,13 @@ function expectNoLabelOnTheAxis(spikes: Spike[], opts: { plot: number; patient?:
 
 // T223's own case, which is T221's fixture: `clarity_three_rises.csv` is one day from 06:00 to 23:55 whose
 // first rise peaks at 08:00, two hours in — 11.2% of the span — and carries the longest label this product
-// draws, a sixteen-character coordinate pair. Half of it is 21.6px, the rise is 19.8px along the sheet's
-// plot, and the label therefore began 1.8px *left of the plot itself* and ran back from there through the
-// `250`. Reproduced here as the arithmetic rather than as the fixture, so the numbers are legible: what
-// matters is a long label over a rise early in a window, and the fixture is one instance of it.
+// draws, a sixteen-character coordinate pair. Its half-width is 43.2px and the rise is 19.8px along the
+// 177px the sheet actually draws at 375px, so the label began 23.4px *left of the plot itself* and ran
+// back from there through the `250`. (In the arithmetic this module is handed it is 22.9px along a 205px
+// `plot` and 20.3px outside it — the same label off the same edge, measured before `PLOT_CHROME`'s 28px
+// is taken off. The rule is kept in those units; the frame shows the other.) Reproduced here as the
+// arithmetic rather than as the fixture, so the numbers are legible: what matters is a long label over a
+// rise early in a window, and the fixture is one instance of it.
 const DAY_FIRST = Date.parse("2026-09-19T06:00:00.000Z");
 const DAY_LAST = Date.parse("2026-09-19T23:55:00.000Z");
 
@@ -149,9 +152,10 @@ test("a long label over a rise early in the window is dropped rather than drawn 
 });
 
 test("the same label on the same rise is kept once the chart is wide enough to hold it clear", () => {
-  // A desk, where 11.2% of the span is 73px and the label's 21.6px half starts well inside the plot. This
-  // is acceptance criterion 4 at the surface the ticket promises to leave alone: the rule drops a label
-  // because it does not fit, never because it is long.
+  // A desk, where 11.2% of the span is 73px of drawn plot and the label's 43.2px half still starts well
+  // inside it — 75.9px along the 680px `plot` here, 32.7px clear of the edge. This is acceptance
+  // criterion 4 at the surface the ticket promises to leave alone: the rule drops a label because it does
+  // not fit, never because it is long.
   const labels = drawn(THREE_RISES, { plot: DESK, first: DAY_FIRST, last: DAY_LAST });
   assert.deepEqual(labels, ["37.777, -122.423", "196", "188"]);
 });
