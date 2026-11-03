@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TOOLTIP_SEPARATOR } from "@/components/chartTooltip";
-import { MARKER_DOT, MARKER_LABEL_FONT_SIZE, markerLabels } from "@/lib/markerLabels";
+import { CHART_MARGIN, MARKER_DOT, MARKER_LABEL_FONT_SIZE, Y_AXIS, markerLabels, plotWidth } from "@/lib/markerLabels";
 import { timeAxis } from "@/lib/timeAxis";
 import type { GlucoseReading, Spike } from "@/lib/types";
 
@@ -26,7 +26,7 @@ const SURFACE = "var(--viz-surface)";
  * the row under it cannot disagree about one spike.
  */
 export default function GlucoseChart({ readings, spikes, height = 280, patient = false }: { readings: GlucoseReading[]; spikes: Spike[]; height?: number; patient?: boolean }) {
-  // How wide the chart actually got. On a 375px phone the card leaves the plot about 270px for seven days,
+  // How wide the chart actually got. On a 375px phone the card leaves the plot about 205px for seven days,
   // and the fixed "5% of the span apart" rule below let four labels land inside 60px of each other —
   // unreadable (T23, design §6.5). Measured rather than guessed from a breakpoint, because the same chart
   // is drawn into a provider card and a print sheet at three different widths.
@@ -47,12 +47,19 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   const first = data[0].t;
   const last = data[data.length - 1].t;
 
-  // Direct labels are selective: a spike whose label would collide with an already-labeled one, or with any
-  // other rise's marker, keeps its marker but drops its label (tooltip and SpikeTable still carry it). The
-  // rule is lib/markerLabels.ts, whole — the widths, the gaps, the trim and the marker's own reach — for the
-  // reason the time axis below is not written here either (T187, T197, §12.1): it is arithmetic over a span
-  // and a measured width, so it belongs where a unit test can reach it at plots no fixture renders.
-  const plot = Math.max(0, width - PLOT_CHROME);
+  // Direct labels are selective: a spike whose label would collide with an already-labeled one, with any
+  // other rise's marker, or with the y-axis tick text to the left of the plot, keeps its marker but drops
+  // its label (tooltip and SpikeTable still carry it). The rule is lib/markerLabels.ts, whole — the widths,
+  // the gaps, the trim, the marker's own reach and the axis's — for the reason the time axis below is not
+  // written here either (T187, T197, T223, §12.1): it is arithmetic over a span and a measured width, so it
+  // belongs where a unit test can reach it at plots no fixture renders.
+  //
+  // The subtraction that turns the card into the drawing area is there too, and so are the props it is a
+  // subtraction from — the `margin` and the `YAxis` below, which the axis rule has to agree with about
+  // where the axis is. `PLOT_CHROME` is 28px short of what Recharts lays out and stays that way here:
+  // lib/timeAxis.ts's label widths were measured against it (T190), so the number is that module's to
+  // move. lib/markerLabels.ts says why the rule is right in spite of it (T223).
+  const plot = plotWidth(width);
 
   // The time axis is lib/timeAxis.ts's, whole: which ticks and how they read, off the span and the plot
   // this chart actually got. It used to be one line here — a tick per local midnight, labelled with the
@@ -71,7 +78,7 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
   return (
     <div ref={wrap} style={{ height }} data-axis-ticks={axis.ticks.length} data-axis-plot={Math.round(plot)}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 20, right: 56, bottom: 4, left: -8 }}>
+        <LineChart data={data} margin={CHART_MARGIN}>
           <CartesianGrid stroke={GRID} strokeWidth={1} vertical={false} />
           <XAxis
             dataKey="t"
@@ -84,7 +91,7 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
             tick={{ fill: MUTED, fontSize: 11 }}
             tickLine={false}
           />
-          <YAxis domain={[40, 320]} ticks={[70, 180, 250]} stroke={AXIS} tick={{ fill: MUTED, fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis width={Y_AXIS.width} tickSize={Y_AXIS.tickSize} tickMargin={Y_AXIS.tickMargin} domain={[40, 320]} ticks={[70, 180, 250]} stroke={AXIS} tick={{ fill: MUTED, fontSize: 11 }} tickLine={false} axisLine={false} />
           <ReferenceArea y1={70} y2={180} fill={SERIES} fillOpacity={0.1} stroke="none" />
           <Tooltip
             cursor={{ stroke: AXIS, strokeWidth: 1 }}
@@ -119,13 +126,3 @@ export default function GlucoseChart({ readings, spikes, height = 280, patient =
     </div>
   );
 }
-
-/**
- * The y-axis and the right margin the labels are kept clear of, from the LineChart margin above.
- *
- * The one number about this chart's geometry that stays in the component, and the only one T197 left here:
- * it is read off the `margin` prop a few lines up, so lib/ could not own it without being told the layout
- * it is a subtraction from. Both of the modules the component hands `plot` to — lib/timeAxis.ts and
- * lib/markerLabels.ts — take the drawing area as an argument for exactly that reason.
- */
-const PLOT_CHROME = 80;

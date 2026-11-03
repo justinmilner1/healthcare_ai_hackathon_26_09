@@ -18,9 +18,17 @@
 //   On the seeded week at 375px the clinician's `202` read with its last digit struck out by the dot of the
 //   `214` rise 8h35m later, on the brief, on the patient's summary and on the printed sheet.
 //
-// So a label is kept here only when it clears **both**: the last label kept, and every marker on the chart.
-// A label that loses is dropped, which is what the caption's "where they fit" has always meant and what the
-// tooltip and SpikeTable are for (components/SpikeTable.tsx carries every rise, labelled or not).
+// - **T223** is the third, and the one neither of those tickets had reason to look at: the chart's own
+//   **y-axis tick text**. Labels were held off each other and off the markers, and nothing held them off
+//   the `250` under the axis line. At 375px a rise that peaks high and early in the window puts its label
+//   straight through that tick — `37.777, -122.423` over the `250` on §7.4's sheet, sixteen characters of
+//   place name reaching left out of the plot and into the axis, with neither the tick nor the label left
+//   readable.
+//
+// So a label is kept here only when it clears **all three**: the last label kept, every marker on the chart,
+// and the axis text to the left of the plot. A label that loses is dropped, which is what the caption's
+// "where they fit" has always meant and what the tooltip and SpikeTable are for (components/SpikeTable.tsx
+// carries every rise, labelled or not).
 //
 // Pure, and in lib/ rather than in the component, for the reason lib/timeAxis.ts is (§12.1, T187): it is
 // arithmetic over a span and a width, so it can be held to a unit test at plots no fixture renders — the
@@ -52,6 +60,60 @@ export const MARKER_LABEL_FONT_SIZE = 10;
  * centred 9.5 CSS pixels away cannot share.
  */
 export const MARKER_REACH = MARKER_DOT.r + MARKER_DOT.strokeWidth / 2;
+
+/**
+ * The chart's own chrome, in the units components/GlucoseChart.tsx hands Recharts — the `margin` on the
+ * `LineChart` and the `width` of the `YAxis` inside it.
+ *
+ * T223's acceptance criterion 2, and the same move T197 made for the marker: the figures were written in
+ * the component and nowhere else, so a rule about where the axis is had no way to ask. They are here now
+ * and the component reads them, which is the whole point — a rule that measures the plot from one origin
+ * while the component draws it from another is a rule about a chart nobody is looking at.
+ *
+ * `tickSize` and `tickMargin` are Recharts' own defaults, restated rather than inherited for the reason
+ * `MARKER_DOT` restates the dot: `AXIS_TEXT_REACH` below is arithmetic over them, so a default that moved
+ * under us would leave the rule measuring the old axis with nothing on screen saying so.
+ */
+export const Y_AXIS = { width: 60, tickSize: 6, tickMargin: 2 } as const;
+
+/** The `margin` the chart is drawn with. `left` is negative: the y-axis gutter is wider than its labels need. */
+export const CHART_MARGIN = { top: 20, right: 56, bottom: 4, left: -8 } as const;
+
+/**
+ * How far to the left of the plot the y-axis tick text reaches, in pixels.
+ *
+ * Recharts lays a left axis out from the plot's edge backwards: the tick line ends `tickSize` short of it
+ * and the text is `tickMargin` short of that again, anchored at its end — so the `250`, the `180` and the
+ * `70` all finish exactly this far left of where the line starts, and everything further left is empty
+ * gutter. Measured off the committed desktop frame as well as read off Recharts: on
+ * `docs/screenshots/tickets/t221/desktop-provider-print-one-placed-of-three.png` the `250` ends at 354px
+ * and the grid starts at 362px.
+ *
+ * It is the margin the rule below is allowed to spend rather than a boundary the rule enforces — see
+ * `LEFT_LIMIT`.
+ */
+export const AXIS_TEXT_REACH = Y_AXIS.tickSize + Y_AXIS.tickMargin;
+
+/**
+ * What components/GlucoseChart.tsx takes off the card to get `plot`, and what Recharts actually lays out.
+ *
+ * These are not the same number and this ticket is not the one that reconciles them. `plot` has meant
+ * `card - 80` since T23; Recharts puts the plot's left edge at `margin.left + YAxis.width` and its right
+ * edge `margin.right` in from the other side, so the chrome it draws is 52 + 56 = 108 and every `plot` in
+ * this product is 28px wider than the drawing area it names.
+ *
+ * Correcting it is lib/timeAxis.ts's ticket, not this one. That module's `LABEL_WIDTH` and `LABEL_GAP`
+ * were measured against these same overstated widths (T190), so a `plot` 28px narrower makes its day grain
+ * ask for six labels where it asks for seven today — and the patient's 375px card, whose seven weekdays sit
+ * a comfortable 29.9px apart on screen against the 27.56px Recharts needs, would thin to four for no reason
+ * a reader could see. T223 is only about where a label is painted, so `PLOT_CHROME` stays where T23 left it
+ * and `LEFT_LIMIT` below is sized to be right in spite of it.
+ */
+export const PLOT_CHROME = 80;
+export const DRAWN_CHROME = CHART_MARGIN.left + Y_AXIS.width + CHART_MARGIN.right;
+
+/** The drawing area a card `width` pixels wide leaves this chart, which is what `plot` means below. */
+export const plotWidth = (width: number): number => Math.max(0, width - PLOT_CHROME);
 
 /**
  * Half the advance width of one character at the label's font size.
@@ -91,6 +153,26 @@ const LABEL_GAP = 10;
 const DOT_GAP = 4;
 
 /**
+ * The leftmost a label's left end may sit, in plot pixels (T223): the plot's own left edge.
+ *
+ * Which is the whole rule — **a label starts inside the plot or it is dropped** — and it is stated as that
+ * edge rather than as a gap measured back to the tick text, because the gutter between the two is doing a
+ * second job that a tighter boundary would spend.
+ *
+ * The tick text ends `AXIS_TEXT_REACH` further left again, so a label that only just keeps this is still
+ * eight pixels clear of the digits. That eight is not spare change, it is what pays for `PLOT_CHROME`:
+ * `plot` is 28px wider than the area Recharts draws into, so a label the arithmetic here puts exactly on
+ * the plot's edge is really `half × 28 / plot` to the *left* of it. At the longest label this product
+ * draws (sixteen characters, 43.2px of half-width) over the narrowest plot it draws (205px, §7.4's sheet
+ * at 375px) that is 5.9px — inside the eight, with room to spare, and the test below holds the bound.
+ *
+ * So the rule is right about the chart on screen even though the number it is handed is not, and it says
+ * so in its own terms rather than carrying the discrepancy into the arithmetic. Zero also needs no
+ * `LABEL_GAP`-style clearance constant beside it: the clearance is the gutter, already measured.
+ */
+const LEFT_LIMIT = 0;
+
+/**
  * The longest a label may be before it is trimmed, in characters.
  *
  * `markerLabel` never hands over anything longer than a real place name (T128), and sixteen is what the
@@ -128,7 +210,7 @@ export const halfLabelWidth = (label: string): number => label.length * HALF_CHA
  * takes off before calling. Zero means "not measured yet". `patient` is §2.7's page, and all it changes is
  * what a label over a placed rise is allowed to say (lib/spikePlaces.ts' `markerLabel`, T128).
  *
- * Two tests, and they look in different directions on purpose. The labels are chosen left to right, so a
+ * The first two tests look in different directions on purpose. The labels are chosen left to right, so a
  * label can only be measured against the ones already kept — that is T23's rule, unchanged. The *markers*
  * are not chosen at all: every spike has one before this function runs, so each candidate label is measured
  * against all of them, on both sides, including the markers of rises whose own labels this loop has just
@@ -137,6 +219,21 @@ export const halfLabelWidth = (label: string): number => label.length * HALF_CHA
  *
  * A spike's own marker is excluded, and only its own: `position: "top"` puts a label above the dot it
  * belongs to, which is the one dot it can never collide with.
+ *
+ * The third test looks in neither direction, because the axis does not move: it is the plot's own left
+ * edge, in the same pixels everything else here is in, so a label is measured against a fixed boundary
+ * rather than against anything on the line (`LEFT_LIMIT`).
+ *
+ * Horizontal only, and deliberately. The ticks sit at 70, 180 and 250 and every marker label is drawn
+ * above a peak over 180, so a label that reaches back into the gutter is beside one of them more often
+ * than not — and a rule that also asked *which* tick would have to model the plot's height, the y domain
+ * and the offset Recharts chooses for `position: "top"`, none of which this module is handed, and T190 is
+ * what estimating a number Recharts owns costs. Clearing the column outright is the answer that cannot be
+ * wrong about a chart it cannot see.
+ *
+ * It costs the one case the other two tests cannot reach: a rise so early in the window that its label is
+ * drawn mostly in the gutter is dropped even when it is the only rise on the chart. That is the caption's
+ * promise applied to the one piece of text on this chart that cannot be moved to make room (T223).
  */
 export function markerLabels(
   spikes: Spike[],
@@ -164,6 +261,7 @@ export function markerLabels(
   let lastLabelEnds = -Infinity;
   ordered.forEach((spike, i) => {
     const half = halfLabelWidth(labels[i]);
+    if (x[i] - half < LEFT_LIMIT) return;
     if (x[i] - half < lastLabelEnds) return;
     if (x.some((other, j) => j !== i && Math.abs(other - x[i]) < half + MARKER_REACH + DOT_GAP)) return;
     kept.set(spike, labels[i]);
