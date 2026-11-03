@@ -4,7 +4,7 @@ import { GMI_A1C_HINT, GMI_A1C_MIN_DAYS, GMI_SHORT_SPAN_HINT } from "../lib/gmi"
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { DRAINED, LOADED } from "./budget";
-import { expectMarkerLabelsClearOfMarkers, expectTimeAxisLabelled } from "./charts";
+import { expectMarkerLabelsClearOfAxis, expectMarkerLabelsClearOfMarkers, expectTimeAxisLabelled } from "./charts";
 import { patientEmail, verifyByApi } from "./patient";
 import { SCREENFUL, shot } from "./shot";
 
@@ -388,6 +388,8 @@ test("a visit with nothing to flag carries no flag block on either surface", asy
   // later kept only its marker, which landed on the `202`'s last digit. At 375px two of these five rises
   // go unlabelled, so the state the ticket is about is in this frame.
   await expectMarkerLabelsClearOfMarkers(page, "the clinician's brief, a week of readings", { someDropped: true });
+  // T223 (§2.6, §6.5): the same frame, against the y-axis tick text beside the labels.
+  await expectMarkerLabelsClearOfAxis(page, "the clinician's brief, a week of readings");
   await shot(page, "provider-sour-week-chart", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
 
   const opened = await page.goto(`/provider/visit/${visit.visitId}/print`);
@@ -729,6 +731,12 @@ test("a card where only some rises matched claims a link of none of them (T221)"
   const briefCaption = (await caption.textContent())?.trim();
   expect(briefCaption, "the brief's caption").toBeTruthy();
   await expect(page.locator(".recharts-surface").first()).toBeVisible(LOADED);
+  // T223 (§2.6, §6.5): this fixture is the sharp case, and the frame below is where the defect was found.
+  // Its first rise peaks two hours into a day beginning at 06:00 and carries the longest label this product
+  // draws, so at 375px the place label reaches back out of the plot and over the `250`. The rule drops it
+  // now; what this asserts is the promise either way — whatever labels survive, none is on the tick text.
+  await expectMarkerLabelsClearOfAxis(page, "the brief, one placed rise of three");
+  await expectMarkerLabelsClearOfMarkers(page, "the brief, one placed rise of three");
   await shot(page, "provider-sour-one-placed-of-three", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
 
   // §7.4's sheet, where one function serves both headings (T99, T157) — the copy carried into the room.
@@ -739,6 +747,10 @@ test("a card where only some rises matched claims a link of none of them (T221)"
   await expect(page.getByRole("heading", { name: "Spikes over 180", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: /linked to places?/ }), "a link on the sheet the brief does not claim").toHaveCount(0);
   await expect(page.locator(".sour-chart-caption"), "the sheet captions this chart differently from the brief").toHaveText(briefCaption!);
+  // T223 (§7.4, §6.5): the sheet's own chart, which is the tighter of the two and the frame the ticket
+  // measured — `docs/screenshots/tickets/t221/mobile-provider-print-one-placed-of-three.png`.
+  await expectMarkerLabelsClearOfAxis(page, "the sheet, one placed rise of three");
+  await expectMarkerLabelsClearOfMarkers(page, "the sheet, one placed rise of three");
   await shot(page, "provider-print-one-placed-of-three", { ...SCREENFUL, scrollTo: ".sour-chart-caption" });
 });
 

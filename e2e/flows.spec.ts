@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
-import { expectMarkerLabelsClearOfMarkers, expectSleepTooltipWithoutRecovery, expectTimeAxisLabelled } from "./charts";
+import { expectMarkerLabelsClearOfAxis, expectMarkerLabelsClearOfMarkers, expectSleepTooltipWithoutRecovery, expectTimeAxisLabelled } from "./charts";
 import { expectNoHorizontalScroll, expectTranscriptUncut } from "./mobile";
 import {
   COUNTDOWN,
@@ -306,6 +306,9 @@ test("summary generation goes through the job queue", async ({ page, request }) 
   // the markers may not be painted over the ones that did — the place labels on this week are sixteen
   // characters wide, which is where a neighbour's dot has the most label to land on.
   await expectMarkerLabelsClearOfMarkers(page, "the clinician's brief, a placed week", { someDropped: true });
+  // T223 (§2.6, §6.5): and off the axis beside them. These place labels are the sixteen-character
+  // coordinate pairs, which is the most label there is to land on the `250`.
+  await expectMarkerLabelsClearOfAxis(page, "the clinician's brief, a placed week");
   await shot(page, "provider-sour-chart-caption-placed", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T174 (§6.3, §7): the footer at the bottom of this same frame. The note at the top of it says patterns
   // and questions were not generated and both lists read "Not generated." — so the line that goes into the
@@ -1330,6 +1333,8 @@ test("patient summary: a rise with no place says so in the patient's words, not 
   // third of the four frames the ticket was filed from. The labels here are the patient's words for a stop
   // rather than the clinician's coordinates (lib/spikePlaces.ts), and they are just as wide.
   await expectMarkerLabelsClearOfMarkers(page, "the patient summary, mixed places", { someDropped: true });
+  // T223 (§2.7, §6.5): §2.7's page draws the same chart and makes the same promise in its own words.
+  await expectMarkerLabelsClearOfAxis(page, "the patient summary, mixed places");
 
   // T204 (§2.7, §6.5): and the caption in that frame says so. `someDropped: true` above *requires* that
   // this page draws fewer labels than markers at 375px — the Sun 10:30 PM rise is placed and keeps only

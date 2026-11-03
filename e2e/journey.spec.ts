@@ -7,7 +7,7 @@ import { freshEmail, signInAs, signOutOfBrowser } from "./auth";
 import { DRAINED, LOADED } from "./budget";
 import { expectTranscriptUncut } from "./mobile";
 import { AGREE, COUNTDOWN, enterCode, latestCode, patientEmail } from "./patient";
-import { expectChartTooltipsLabelled, expectMarkerLabelsClearOfMarkers } from "./charts";
+import { expectChartTooltipsLabelled, expectMarkerLabelsClearOfAxis, expectMarkerLabelsClearOfMarkers } from "./charts";
 import { MODAL, SCREENFUL, shot as rawShot, type ShotOptions } from "./shot";
 
 // T26 (design §12.2): "both flows against a seeded database: staff creates a visit, patient verifies and
@@ -480,6 +480,8 @@ test("the whole journey: staff books, the patient checks in, the clinician signs
   // ticket was filed from, and the caption asserted just above is the sentence it broke: labels "where
   // they fit" over a chart that had placed one where it did not.
   await expectMarkerLabelsClearOfMarkers(page, "the journey's brief", { someDropped: true });
+  // T223 (§2.6, §6.5): the unplaced week, whose labels are peak readings rather than place names.
+  await expectMarkerLabelsClearOfAxis(page, "the journey's brief");
   await shot(page, "12-sour-chart-caption", { ...SCREENFUL, scrollTo: ".sour-chart-card" });
   // T87 again, on the second of the three surfaces the same two components are drawn on (§2.6).
   await expectChartTooltipsLabelled(page, "the clinician's brief", (chart) =>

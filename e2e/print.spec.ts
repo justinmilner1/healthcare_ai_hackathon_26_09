@@ -4,7 +4,7 @@ import { waitingOnPatientNote } from "../lib/sourState";
 import { csrfToken, postJson } from "./api";
 import { freshEmail, signInAs, signInAsDemo, signOutOfBrowser } from "./auth";
 import { LOADED } from "./budget";
-import { expectMarkerLabelsClearOfMarkers } from "./charts";
+import { expectMarkerLabelsClearOfAxis, expectMarkerLabelsClearOfMarkers } from "./charts";
 import { patientEmail, verifyByApi } from "./patient";
 import { shot } from "./shot";
 
@@ -185,6 +185,9 @@ test("the Print button opens a sheet: the summary, with no navigation on it, on 
   // marker painted over a peak here is a number a clinician reads off paper with nothing to check it
   // against. Asserted under the print media query, because that is the layout the frame is taken in.
   await expectMarkerLabelsClearOfMarkers(page, "the printed sheet, as paper", { someDropped: true });
+  // T223 (§7.4, §6.5): the sheet is where this was filed from — its chart is the tightest of the three,
+  // and paper has no tooltip to check a struck-through tick against.
+  await expectMarkerLabelsClearOfAxis(page, "the printed sheet, as paper");
   await shot(page, "provider-print-media", { scrollTo: chartCard });
   await page.emulateMedia({ media: null });
 

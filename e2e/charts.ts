@@ -197,6 +197,20 @@ const markerDots = (page: Page): Locator => lineChart(page).locator(".recharts-r
 const markerLabels = (page: Page): Locator => lineChart(page).locator(".recharts-label");
 
 /**
+ * And the y-axis tick text the labels have to clear as well (T223): the `70`, the `180` and the `250`
+ * down the left of the same chart.
+ *
+ * `.recharts-yAxis-tick-labels`, which is the group `axisLabels` above names for the other axis and for the
+ * same reason — since Recharts 3.4 a tick label is portalled out of the axis group it belongs to, and only
+ * the label group's own class still says which axis it came from. `.recharts-yAxis-ticks` is what is left
+ * behind and it carries no text at all, so that selector matches nothing and waits out its budget instead
+ * of failing on the comparison, which is how it was caught. Scoped to this chart for the reason every other
+ * locator here is: these pages draw a second chart, and that one has a y-axis too.
+ */
+const yAxisTicks = (page: Page): Locator =>
+  lineChart(page).locator(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value");
+
+/**
  * Sub-pixel tolerance, in CSS pixels, before two boxes are called overlapping.
  *
  * Boxes that merely touch are not a defect, and an SVG coordinate is a fraction. Half a pixel is well under
@@ -266,6 +280,52 @@ export async function expectMarkerLabelsClearOfMarkers(
       expect(
         overlap(label, dot),
         `${where}: a marker at (${dot.x.toFixed(1)}, ${dot.y.toFixed(1)}) is painted over a label at (${label.x.toFixed(1)}, ${label.y.toFixed(1)}) in a ${plot}px plot`,
+      ).toBeLessThan(TOUCHING);
+    }
+  }
+}
+
+// T223 (design §2.6, §7.4, §6.5): the third thing in the same genre, and the one neither T23 nor T197 had
+// reason to look at — the chart's own y-axis tick text.
+//
+// The assertion above compares labels with marker dots and nothing else, so a label drawn straight through
+// the `250` kept it in full. That is what `mobile-provider-print-one-placed-of-three.png` was: sixteen
+// characters of place name over a rise that peaks high and early, reaching left out of the plot and into
+// the axis, with neither the tick nor the label left readable. The brief's taller chart is the near miss a
+// line below it, which is why this was easy to produce and easy to miss.
+//
+// A sibling rather than an extension of the one above, so what each is evidence about stays separable: that
+// one is T197's promise and is unchanged, this one is T223's. lib/markerLabels.ts holds the arithmetic at
+// plots no fixture renders (lib/markerLabels.test.ts); this is the half only a browser can answer — where
+// Recharts actually laid the axis out, and how wide the text in it really is.
+
+/**
+ * No label this chart drew is painted over the y-axis tick text beside it.
+ *
+ * Every drawn label against every tick, in viewport pixels, the way the marker comparison is made. There is
+ * no `someDropped` counterpart here: the rule drops a label that cannot clear the axis, and a chart that
+ * dropped one is indistinguishable from a chart that never had a rise there — so what this asserts is the
+ * promise itself, over however many labels survived, plus the fact that the ticks are on screen to be
+ * covered at all.
+ */
+export async function expectMarkerLabelsClearOfAxis(page: Page, where: string): Promise<void> {
+  const ticks = yAxisTicks(page);
+  await expect(ticks.first(), `${where}: the chart painted no y-axis ticks at all`).toBeVisible(DRAWN);
+  // Same wait as above, and for the same reason: before the ResizeObserver has run the labels were chosen
+  // by the share-of-the-span fallback, which has no width to hold against an edge.
+  const decisions = lineChartDecisions(page);
+  await expect(decisions, `${where}: the glucose chart never measured its own plot`).not.toHaveAttribute("data-axis-plot", "0", DRAWN);
+
+  const tickBoxes = await boxesOf(ticks);
+  const labelBoxes = await boxesOf(markerLabels(page));
+  const plot = await decisions.getAttribute("data-axis-plot");
+  expect(tickBoxes.length, `${where}: a chart with no tick boxes to compare against`).toBeGreaterThan(0);
+
+  for (const label of labelBoxes) {
+    for (const tick of tickBoxes) {
+      expect(
+        overlap(label, tick),
+        `${where}: a y-axis tick at (${tick.x.toFixed(1)}, ${tick.y.toFixed(1)}) is painted over a label at (${label.x.toFixed(1)}, ${label.y.toFixed(1)}) in a ${plot}px plot`,
       ).toBeLessThan(TOUCHING);
     }
   }
