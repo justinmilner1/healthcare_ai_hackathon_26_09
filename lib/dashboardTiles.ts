@@ -4,8 +4,9 @@
 // nothing about how many: "in this workspace" and "sharing data or chatting" read correctly at every `n`, so
 // they stay where they are read, in app/provider/dashboard.tsx.
 //
-// The other two count a noun, and those are the ones with a rule. "Needs attention" printed a fixed singular
-// over a plural count — on the seeded workspace the reviewer run of 2026-10-30 photographed
+// The other two have a branch that counts a noun, and those are the ones with a rule. "Needs attention"
+// printed a fixed singular over a plural count — on the seeded workspace the reviewer run of 2026-10-30
+// photographed
 //
 //     NEEDS ATTENTION
 //     7
@@ -26,12 +27,12 @@
 //
 // over an accent the sibling's `danger` was already gated on: nothing was ready, and the one tile drawing the
 // clinician's eye said something was waiting for them (T225). §2.6 sends that clinician to the brief; at zero
-// there is no brief to send them to. So the tile with two counted branches is derived here too, and the
-// enumeration above now names only the lines that really are safe.
+// there is no brief to send them to. That tile is derived here too now, and the enumeration above names only
+// the two lines that really are safe.
 //
-// So a counted line is derived here rather than written in the component, for the two reasons this repo keeps
-// giving: the agreement comes from `plural` in lib/plural.ts, which is the one rule for a counting noun and
-// exists so that a twelfth hand-spelled ternary does not, and a derivation in a `lib/` module is a thing
+// A counted line lives here rather than in the component for the two reasons this repo keeps giving: the
+// agreement comes from `plural` in lib/plural.ts, which is the one rule for a counting noun and exists so
+// that a twelfth hand-spelled ternary does not, and a derivation in a `lib/` module is a thing
 // lib/dashboardTiles.test.ts can hold to every branch — the component is a client component the unit suite
 // cannot render. lib/spikePlaces.ts owns the brief's captions on the same terms.
 
