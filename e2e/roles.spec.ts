@@ -141,7 +141,37 @@ test("an admin invites a colleague, sets the practice up, and the invited role i
   const emptyFooter = page.locator(".provider-footer");
   await expect(emptyFooter).toContainText("Verify every summary before acting on it");
   await expect(emptyFooter, "the claim T178 was filed for").not.toContainText(/AI-generated/i);
+
+  // T225 (§2.6, §7.3): the other false claim this very screen used to carry. "Summaries ready" printed
+  // "ready to review" under its `0`, so the practice whose dashboard this is — brand new, nothing booked,
+  // no `sour.run` ever run — was told a brief was waiting for it, and §2.6's clinician who followed that
+  // would land on nothing. The unit suite owns the wording of all three branches
+  // (lib/dashboardTiles.test.ts); what this owns is that the zero branch is the one the rendered page shows,
+  // which is the half no assertion could reach before — the tile's `small` is a text node nothing read.
+  const summaries = page.locator(".provider-metric", { hasText: "Summaries ready" });
+  await expect(summaries.locator("strong"), "a practice with no visits has no summaries").toHaveText("0", LOADED);
+  await expect(
+    summaries.locator("small"),
+    'zero summaries is "nothing summarized yet", not "ready to review" (T225)',
+  ).toHaveText("nothing summarized yet");
+  await expect(summaries.locator("small"), "the claim T225 was filed for").not.toContainText(/to review/i);
+  // And the accent, which was a bare prop where the sibling's `danger` was already gated on its count: at
+  // zero the one card highlighted on an empty dashboard was the one making the claim above.
+  await expect(
+    summaries,
+    "nothing is ready, so nothing is accented (T225)",
+  ).not.toHaveClass(/provider-metric-accent/);
+  // The sibling at its own zero, in the same frame: this is the register the line above was written to match,
+  // and the contrast between the two was what the bug report was read off.
+  const attention = page.locator(".provider-metric", { hasText: "Needs attention" });
+  await expect(attention.locator("small")).toHaveText("nothing flagged");
+  await expect(attention).not.toHaveClass(/provider-metric-danger/);
+
   await shot(page, "provider-dashboard-nothing-ready");
+  // §12.3's frame for T225, at both widths (§6.5). The tiles are below the hero on a phone, so the row is
+  // brought to the top of the viewport; `SCREENFUL` because the document below it is the rest of the
+  // dashboard (T81). The shot above is this screen's hero; this one is the card the ticket is about.
+  await shot(page, "provider-dashboard-summaries-zero", { ...SCREENFUL, scrollTo: ".provider-stats" });
 
   // The other half of what a brand-new practice sees (§2.1, §2.2): nothing is booked, so the patient-flow
   // card is its empty state — the mascot, "Your patient flow starts here.", what to do about it, and the
