@@ -10,7 +10,7 @@ import PersonaBrand from "@/components/PersonaBrand";
 import Stepper from "@/components/Stepper";
 import { can } from "@/lib/access";
 import { bookedOutcome, bookingPlan, type BookedOutcome } from "@/lib/booking";
-import { needsAttentionDetail } from "@/lib/dashboardTiles";
+import { needsAttentionDetail, summariesReadyDetail } from "@/lib/dashboardTiles";
 import { deliveryFaults, deliveryTooltip, NO_CODE_CAN_REACH, NO_CODE_TO_SEND } from "@/lib/delivery";
 import { DEMO_BLOCKED_LABEL, isDemoBlocked } from "@/lib/demo";
 import { IMPORT_INTRO, importInviteNote, type BatchHandover } from "@/lib/importNote";
@@ -368,7 +368,8 @@ export default function ProviderDashboard({
   const visits = provider?.visits ?? [];
   const ready = visits.filter((visit) => visit.hasSummary).length;
   // §7.3: a summary a clinician has signed off is not still waiting to be read, so the tile says how many of
-  // the ready ones are done rather than counting them all as outstanding.
+  // the ready ones are done rather than counting them all as outstanding. Which of the three readings that
+  // makes is summariesReadyDetail's to decide (lib/dashboardTiles.ts, T225).
   const reviewed = visits.filter((visit) => visit.review).length;
   const active = visits.filter(
     (visit) => !visit.hasSummary && (visit.answered > 0 || visit.uploads.length > 0),
@@ -476,7 +477,12 @@ export default function ProviderDashboard({
         <section className="provider-stats" aria-label="Practice overview">
           <Metric label="All visits" value={visits.length} detail="in this workspace" />
           <Metric label="Intake active" value={active} detail="sharing data or chatting" />
-          <Metric label="Summaries ready" value={ready} detail={reviewed ? `${reviewed} reviewed` : "ready to review"} accent />
+          <Metric
+            label="Summaries ready"
+            value={ready}
+            detail={summariesReadyDetail(ready, reviewed)}
+            accent={ready > 0}
+          />
           <Metric
             label="Needs attention"
             value={flagged}
