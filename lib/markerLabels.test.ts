@@ -278,9 +278,10 @@ test("the axis gutter is clearance in full, at every label length and plot (T224
 });
 
 // The ticket's own pair, in both directions. The seeded week's `Sun 1:55 PM 108 → 202` and
-// `Sun 10:30 PM 107 → 214` are 8h35m apart, which is 10.7px of the brief's 209px card — and the rule this
-// replaced labelled the first of them and then drew the second's marker over its last digit, so a clinician
-// read `20`.
+// `Sun 10:30 PM 107 → 214` are 8h35m apart, which is 9.3px of the brief's plot — the figure here was 10.7
+// until T224, which is that same gap on the 209px the card was thought to leave rather than the 181px
+// Recharts draws — and the rule this replaced labelled the first of them and then drew the second's marker
+// over its last digit, so a clinician read `20`.
 //
 // Which of the two peaks higher is what made the overlap *visible*: `position: "top"` puts a label about
 // 10px above its own marker, so the higher neighbour's dot lands at the label's text height while a lower
@@ -289,10 +290,10 @@ test("the axis gutter is clearance in full, at every label length and plot (T224
 // handed and would have to estimate, and T190 is what estimating a number Recharts owns costs. A label is
 // either clear of the marker or it is dropped; the caption promises only the labels that fit.
 test("the pair this ticket is about loses its label whether the neighbour peaks higher or lower", () => {
-  const higher = pair(10.7, [202, 214], { plot: BRIEF_375 });
-  const lower = pair(10.7, [202, 190], { plot: BRIEF_375 });
+  const higher = pair(9.3, [202, 214], { plot: BRIEF_375 });
+  const lower = pair(9.3, [202, 190], { plot: BRIEF_375 });
 
-  assert.deepEqual(drawn(higher, { plot: BRIEF_375 }), ["-", "-"], "a label 10.7px from the next marker is not a label that fits");
+  assert.deepEqual(drawn(higher, { plot: BRIEF_375 }), ["-", "-"], "a label 9.3px from the next marker is not a label that fits");
   assert.deepEqual(drawn(lower, { plot: BRIEF_375 }), ["-", "-"], "and the answer does not depend on which of the two peaks higher");
 
   expectNoMarkerOnALabel(higher, { plot: BRIEF_375 });
@@ -339,7 +340,8 @@ test("a label is measured against the markers of rises whose own labels were dro
 });
 
 // T23, unchanged: where the markers are far enough apart to be out of each other's way, the labels are still
-// thinned against each other. Four rises inside 60px of a 209px card is the case that ticket was filed about.
+// thinned against each other. Four rises inside 60px of the brief's 181px plot is the case that ticket was
+// filed about — 60px of `BRIEF_375` is what `px()` below stages, so the two move together.
 test("labels still clear each other, which is the rule this extends", () => {
   const span = WEEK_LAST - WEEK_FIRST;
   const px = (n: number) => (n / BRIEF_375) * span;

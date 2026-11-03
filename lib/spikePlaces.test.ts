@@ -4,7 +4,7 @@ import type { FixtureName } from "./fixtures";
 import { fixture, pinUtcTimeZone, sample } from "./fixtures";
 import { detectSpikes, parseClarityCsv } from "./glucose";
 import { labelVisits, parseTimeline, parseVisitsCsv, placeLabel } from "./location";
-import { markerLabels } from "./markerLabels";
+import { markerLabels, plotWidth } from "./markerLabels";
 import { matchSpikesToVisits } from "./match";
 import { plural } from "./plural";
 import { anyPlaceKnown, anyPlaceMissing, clinicianChartCaption, clinicianPlaceColumn, clinicianPlaceReport, clinicianSpikeCardHeading, clinicianSpikePlacesHint, distinctPlaceCount, markerLabel, matchedPlaceClause, NO_MATCH_CELL, NO_TIMELINE_HINT, patientChartCaption, patientPlaceName, patientSpikeCardHeading, placeIsUnnamed, spikeRelationCell, spikeVisitRelation, UNKNOWN_PLACE, UNNAMED_PLACE } from "./spikePlaces";
@@ -1249,13 +1249,22 @@ test("the labels clause agrees with the number of markers, through lib/plural.ts
   }
 });
 
+/** The card §6.5's 375px patient page measures for this chart, which `plotWidth` turns into the plot. */
+const PATIENT_CARD_375 = 317;
+
 test("a placed rise really does reach §2.7's chart with no label on it (T204)", () => {
   // The ticket's own reproduction, as the unit suite can hold it: the pair e2e/flows.spec.ts's mixed-places
   // test uploads — data/timeline_sample.json over data/dexcom_clarity_sample.csv, and no hand labels, so
-  // every placed stop is the sixteen-character `a place you went` (T128) — at the 237px plot §6.5's 375px
-  // page hands this chart (lib/markerLabels.test.ts measured it). The caption promises places over that
-  // chart, and lib/markerLabels.ts draws fewer labels than there are markers, which is exactly the state
-  // the new clause is for. `someDropped: true` is the same assertion on screen (e2e/charts.ts).
+  // every placed stop is the sixteen-character `a place you went` (T128) — at the 209px plot §6.5's 375px
+  // page hands this chart (lib/markerLabels.test.ts measured it). Taken off the card through `plotWidth`
+  // rather than written out, because that figure is exactly what T224 corrected: the literal here said 237
+  // until then, which is the same card less a `PLOT_CHROME` 28px short of the chrome Recharts lays out. A
+  // narrower plot only drops more labels, so this test's own subject is unaffected either way — what the
+  // derivation buys is that the next change to the chrome cannot leave it naming a frame nothing draws.
+  //
+  // The caption promises places over that chart, and lib/markerLabels.ts draws fewer labels than there are
+  // markers, which is exactly the state the new clause is for. `someDropped: true` is the same assertion on
+  // screen (e2e/charts.ts).
   pinUtcTimeZone();
   const glucose = parseClarityCsv(sample("dexcom_clarity_sample.csv"));
   const spikes = matchSpikesToVisits(detectSpikes(glucose), labelVisits(parseTimeline(sample("timeline_sample.json")), [])).slice(0, 5);
@@ -1265,7 +1274,7 @@ test("a placed rise really does reach §2.7's chart with no label on it (T204)",
 
   const first = Date.parse(glucose[0]!.t);
   const last = Date.parse(glucose[glucose.length - 1]!.t);
-  const kept = markerLabels(spikes, { first, last, plot: 237, patient: true });
+  const kept = markerLabels(spikes, { first, last, plot: plotWidth(PATIENT_CARD_375), patient: true });
   assert.ok(kept.size < spikes.length, `every label fit at 375px: ${[...kept.values()].join(", ")}`);
   const unlabelledPlace = spikes.find((s) => s.visit && !kept.has(s));
   assert.ok(unlabelledPlace, "no placed rise lost its label, so the bug's own state is unreachable here");
