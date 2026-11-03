@@ -16,11 +16,19 @@ import type { Spike } from "./types";
 // about a wall clock. A peak is an instant, and the only thing this module asks about one is how far along
 // the line it falls.
 
-/** The three plots §6.5's 375px page hands this chart, and a desk's, as lib/timeAxis.test.ts measured them. */
-const BRIEF_375 = 209;
-const PRINT_375 = 205;
-const PATIENT_375 = 237;
-const DESK = 680;
+/**
+ * The three plots §6.5's 375px page hands this chart, and a desk's, as lib/timeAxis.test.ts measured them.
+ *
+ * Re-measured for T224, and 28px narrower than they were: `PLOT_CHROME` was a literal 80 where Recharts
+ * lays out 108, so these used to be 209, 205, 237 and 680 — numbers naming a drawing area wider than the
+ * one on screen. Taken off the rendered charts rather than computed: `.recharts-cartesian-grid` is
+ * 181px wide on the brief at 375px, 177px on §7.4's sheet and 209px on §2.7's page, and 760, 553 and 866
+ * at desktop width. `DESK` is a desk's plot in round numbers, between the three of those.
+ */
+const BRIEF_375 = 181;
+const PRINT_375 = 177;
+const PATIENT_375 = 209;
+const DESK = 652;
 
 const HOUR = 3_600_000;
 
@@ -55,7 +63,18 @@ function pair(gapPx: number, peaks: [number, number], { plot, span = WEEK_LAST -
   // a hair short of itself: a peak is an ISO string, and one millisecond of this span is three ten-millionths
   // of a pixel — far below the half-pixel the boundary tests below step by, and far above nothing, which is
   // what the exact-boundary case needs.
-  return [rise(at, peaks[0]), rise(at + Math.ceil((gapPx / plot) * span), peaks[1])];
+  //
+  // `Math.ceil` alone is not enough for that, and the plots narrowing by 28px in T224 is what showed it:
+  // what the rule measures is the gap between two positions it works out separately, and where
+  // `gapPx / plot × span` lands on a whole millisecond, that subtraction comes back a float hair short —
+  // 18.099999999999994 for the 18.1 asked at the brief's 181px plot, which read as a gap one tick inside
+  // the boundary and dropped a label this test had asked to be exactly on it. So the millisecond is
+  // raised until the gap the rule will measure is the gap that was asked for, computed the way the rule
+  // computes it rather than from `ms` alone.
+  const xOf = (t: number) => ((t - WEEK_FIRST) / span) * plot;
+  let ms = Math.ceil((gapPx / plot) * span);
+  while (xOf(at + ms) - xOf(at) < gapPx) ms += 1;
+  return [rise(at, peaks[0]), rise(at + ms, peaks[1])];
 }
 
 /** What a chart would actually paint, in peak order: the label over each rise, or `-` where one was dropped. */
@@ -95,28 +114,30 @@ function expectNoMarkerOnALabel(spikes: Spike[], opts: { plot: number; patient?:
 /**
  * The property acceptance criterion 1 of T223 is: no drawn label reaches into the y-axis tick text.
  *
- * Asserted twice over, because the number this module is handed is not the plot Recharts draws. The first
- * is the rule itself — a kept label starts at or inside the plot's left edge. The second is the claim that
- * makes the rule enough: converted into the pixels actually on screen, where `plot` overstates the drawing
- * area by `DRAWN_CHROME - PLOT_CHROME`, a label that keeps the rule is still clear of the digits. The
- * second is the one that would catch a label long enough or a card narrow enough to spend the whole gutter.
+ * Asserted twice over, and the two have come together (T224). The first is the rule itself — a kept label
+ * starts at or inside the plot's left edge. The second is the promise the rule is there to keep: the
+ * label's left end is not inside the digits, which end `AXIS_TEXT_REACH` further left again. Until T224
+ * the second was a conversion as well as a weaker bound, because `plot` overstated the drawing area by
+ * `DRAWN_CHROME - PLOT_CHROME` and a label on the arithmetic's edge was really a little left of the drawn
+ * one. That difference is zero now, so what is left is the rule and the gutter it leaves untouched — and
+ * the weaker bound is still worth asserting separately, because it is the property, and a rule rewritten
+ * to measure back from the tick text rather than from the edge would have to keep it.
  */
 function expectNoLabelOnTheAxis(spikes: Spike[], opts: { plot: number; patient?: boolean; first?: number; last?: number }): void {
   const first = opts.first ?? WEEK_FIRST;
   const span = (opts.last ?? WEEK_LAST) - first;
   const ordered = [...spikes].sort((a, b) => Date.parse(a.peak) - Date.parse(b.peak));
-  const drawnPlot = Math.max(0, opts.plot - (DRAWN_CHROME - PLOT_CHROME));
+  assert.equal(PLOT_CHROME, DRAWN_CHROME, "the plot this is measuring in is the one Recharts draws (T224)");
   drawn(spikes, opts).forEach((label, i) => {
     if (label === "-") return;
     const frac = (Date.parse(ordered[i].peak) - first) / span;
     const half = halfLabelWidth(label);
     const left = frac * opts.plot - half;
     assert.ok(left >= 0, `at ${opts.plot}px the label "${label}" starts ${(-left).toFixed(1)}px outside the plot`);
-    const onScreen = frac * drawnPlot - half;
     assert.ok(
-      onScreen >= -AXIS_TEXT_REACH,
-      `at ${opts.plot}px the label "${label}" is drawn at ${onScreen.toFixed(1)}px, ` +
-        `${(-AXIS_TEXT_REACH - onScreen).toFixed(1)}px inside the y-axis tick text`,
+      left >= -AXIS_TEXT_REACH,
+      `at ${opts.plot}px the label "${label}" is drawn at ${left.toFixed(1)}px, ` +
+        `${(-AXIS_TEXT_REACH - left).toFixed(1)}px inside the y-axis tick text`,
     );
   });
 }
@@ -124,12 +145,11 @@ function expectNoLabelOnTheAxis(spikes: Spike[], opts: { plot: number; patient?:
 // T223's own case, which is T221's fixture: `clarity_three_rises.csv` is one day from 06:00 to 23:55 whose
 // first rise peaks at 08:00, two hours in — 11.2% of the span — and carries the longest label this product
 // draws, a sixteen-character coordinate pair. Its half-width is 43.2px and the rise is 19.8px along the
-// 177px the sheet actually draws at 375px, so the label began 23.4px *left of the plot itself* and ran
-// back from there through the `250`. (In the arithmetic this module is handed it is 22.9px along a 205px
-// `plot` and 20.3px outside it — the same label off the same edge, measured before `PLOT_CHROME`'s 28px
-// is taken off. The rule is kept in those units; the frame shows the other.) Reproduced here as the
-// arithmetic rather than as the fixture, so the numbers are legible: what matters is a long label over a
-// rise early in a window, and the fixture is one instance of it.
+// 177px the sheet draws at 375px, so the label began 23.4px *left of the plot itself* and ran back from
+// there through the `250`. Those are the units the rule is kept in now that `plot` is that same 177px
+// (T224); T223 had to state the frame and the arithmetic separately, because the two differed by 28px.
+// Reproduced here as the arithmetic rather than as the fixture, so the numbers are legible: what matters
+// is a long label over a rise early in a window, and the fixture is one instance of it.
 const DAY_FIRST = Date.parse("2026-09-19T06:00:00.000Z");
 const DAY_LAST = Date.parse("2026-09-19T23:55:00.000Z");
 
@@ -152,10 +172,10 @@ test("a long label over a rise early in the window is dropped rather than drawn 
 });
 
 test("the same label on the same rise is kept once the chart is wide enough to hold it clear", () => {
-  // A desk, where 11.2% of the span is 73px of drawn plot and the label's 43.2px half still starts well
-  // inside it — 75.9px along the 680px `plot` here, 32.7px clear of the edge. This is acceptance
-  // criterion 4 at the surface the ticket promises to leave alone: the rule drops a label because it does
-  // not fit, never because it is long.
+  // A desk, where 11.2% of the span is 73px of plot and the label's 43.2px half still starts well inside
+  // it — 72.8px along the 652px plot here, 29.6px clear of the edge. This is T223's acceptance criterion
+  // 4 at the surface that ticket promises to leave alone: the rule drops a label because it does not fit,
+  // never because it is long.
   const labels = drawn(THREE_RISES, { plot: DESK, first: DAY_FIRST, last: DAY_LAST });
   assert.deepEqual(labels, ["37.777, -122.423", "196", "188"]);
 });
@@ -173,12 +193,16 @@ test("the edge a label is held to is the plot's own, and the gutter beyond it is
   assert.deepEqual(drawn(only(half), window), ["37.777, -122.423"], "on the edge is inside it");
   assert.deepEqual(drawn(only(half - 0.5), window), ["-"], "and half a pixel short of it is not");
 
-  // And the margin that makes the edge the right place to put the boundary: `plot` is wider than the area
-  // Recharts draws into, so a label sitting on the arithmetic's edge is really a little left of the drawn
-  // one — by at most `half × (DRAWN_CHROME - PLOT_CHROME) / plot`, which has to stay inside the gutter.
-  // The worst case this product can reach is the longest label over the narrowest plot it draws.
-  const worst = (halfLabelWidth("a place you went") * (DRAWN_CHROME - PLOT_CHROME)) / PRINT_375;
-  assert.ok(worst < AXIS_TEXT_REACH, `the longest label on the narrowest card lands ${worst.toFixed(1)}px left of the plot, and the gutter is ${AXIS_TEXT_REACH}px`);
+  // And the margin that makes the edge the right place to put the boundary, restated now that none of it
+  // is spent (T224 criterion 4). T223 had to show that a label sitting on the arithmetic's edge was still
+  // clear of the digits although it was really drawn `half × (DRAWN_CHROME - PLOT_CHROME) / plot` further
+  // left: at the longest label this product draws over the narrowest plot it draws that was 5.9px of the
+  // 8px gutter, and a `LABEL_CHARS` of 22 would have spent 8.1px of it and put a label back on the `250`
+  // with every test still passing. The drift is zero, so the bound is about `AXIS_TEXT_REACH` and nothing
+  // else: the whole gutter is clearance, at every label length and every plot.
+  const drift = (halfLabelWidth("a place you went") * (DRAWN_CHROME - PLOT_CHROME)) / PRINT_375;
+  assert.equal(drift, 0, `a label on the plot's edge is drawn ${drift.toFixed(1)}px left of it`);
+  assert.ok(AXIS_TEXT_REACH > 0, "and the gutter the rule leaves untouched is the clearance it relies on");
   expectNoLabelOnTheAxis(only(half), window);
 });
 
@@ -193,18 +217,64 @@ test("no label sits on the axis on any of the three surfaces 375px narrows", () 
   }
 });
 
-test("the drawing area the component passes is the card less the chrome it takes off", () => {
-  // Acceptance criterion 2: one function, called by the component and read by the rule, so neither can
-  // measure a chart the other is not looking at.
+test("the drawing area the component passes is the one Recharts draws", () => {
+  // T223's acceptance criterion 2: one function, called by the component and read by the rule, so neither
+  // can measure a chart the other is not looking at.
   assert.equal(plotWidth(285), 285 - PLOT_CHROME, "the printed sheet's card at 375px");
+  assert.equal(plotWidth(285), PRINT_375, "which is the 177px the grid on that frame measures");
+  assert.equal(plotWidth(289), BRIEF_375, "the clinician's brief at 375px");
+  assert.equal(plotWidth(317), PATIENT_375, "and §2.7's own page at 375px");
   assert.equal(plotWidth(0), 0, "nothing measured yet is no plot, not a negative one");
   assert.equal(plotWidth(40), 0, "and a card narrower than its own chrome is not a negative plot either");
+  assert.equal(plotWidth(108), 0, "a card exactly its own chrome wide has no plot left");
 
-  // And the figure the rule's margin is sized against, stated here so a change to either is a failing test
-  // rather than a silent drift: Recharts draws 28px more chrome than the component takes off.
+  // T224's acceptance criterion 1, and what this test asserted the opposite of until that ticket: the
+  // chrome the component takes off the card *is* the chrome Recharts lays out. One figure, derived from
+  // the `margin` and the `YAxis` the component passes, so the two cannot drift apart again — a literal
+  // here was 28px short of the drawing area for every frame between T23 and T224.
   assert.equal(DRAWN_CHROME, 108);
-  assert.equal(DRAWN_CHROME - PLOT_CHROME, 28);
+  assert.equal(PLOT_CHROME, DRAWN_CHROME);
   assert.equal(AXIS_TEXT_REACH, 8);
+});
+
+// T224 (§12.1): the two properties the corrected width is supposed to buy, at plots no fixture renders.
+//
+// The first is that the plot is the drawing area at every card width and not only at the six the suite
+// draws — a sweep, because the figure used to be a literal and a literal is right at no width at all.
+// The second is the gutter: with `plot` corrected, a label the rule keeps starts inside the plot, so the
+// `AXIS_TEXT_REACH` between that edge and the `250` is clearance in full, at every label length this
+// product can produce and every width it can be drawn at. T223 could only say that of the lengths and
+// widths whose `half × 28 / plot` drift stayed inside the eight, which is what made a longer
+// `LABEL_CHARS` able to re-open it silently.
+test("the plot is the drawing area at every card width, not only the six that are drawn (T224)", () => {
+  for (let card = 0; card <= 1600; card += 1) {
+    assert.equal(plotWidth(card), Math.max(0, card - DRAWN_CHROME), `a card ${card}px wide`);
+  }
+});
+
+test("the axis gutter is clearance in full, at every label length and plot (T224)", () => {
+  // One rise, placed early enough in the window that a label over it is the case T223 is about, swept
+  // over every label length `trimMarkerLabel` can hand over and every plot between a print column and a
+  // wide desk. Whatever survives starts inside the plot; whatever does not is dropped. Either way nothing
+  // is drawn into the digits, and the margin is not being spent by the arithmetic.
+  const span = DAY_LAST - DAY_FIRST;
+  for (let chars = 1; chars <= 16; chars += 1) {
+    const name = "x".repeat(chars);
+    assert.equal(trimMarkerLabel(name), name, `${chars} characters are drawn whole`);
+    for (const plot of [120, 150, 177, 181, 209, 240, 300, 420, 553, 652, 760, 866, 1400]) {
+      for (const frac of [0.02, 0.05, 0.112, 0.2, 0.5]) {
+        const peak = DAY_FIRST + Math.round(span * frac);
+        const spikes = [placedRise(peak, 214, name)];
+        const labels = drawn(spikes, { plot, first: DAY_FIRST, last: DAY_LAST });
+        const left = frac * plot - halfLabelWidth(name);
+        if (labels[0] === "-") {
+          assert.ok(left < 0, `at ${plot}px a label of ${chars} characters ${frac} along starts at ${left.toFixed(1)}px and was dropped anyway`);
+          continue;
+        }
+        expectNoLabelOnTheAxis(spikes, { plot, first: DAY_FIRST, last: DAY_LAST });
+      }
+    }
+  }
 });
 
 // The ticket's own pair, in both directions. The seeded week's `Sun 1:55 PM 108 → 202` and
@@ -306,10 +376,33 @@ test("the desk keeps every label the seeded week had before this ticket", () => 
   expectNoMarkerOnALabel(SEEDED_WEEK, { plot: DESK });
 });
 
-test("the patient's 375px chart keeps the two place labels it draws today", () => {
+// And the one place correcting the width changed what is painted, which is the point of correcting it
+// (T224). §2.7's page at 375px drew three labels on the seeded week until this ticket — `206` and both of
+// the patient's "a place you went" — chosen against a 237px plot. Measured on that frame, the two place
+// labels came out 8.6px apart (left 160.5 to 237.8, and 246.4 to 323.7, in the suite's own Chromium), where
+// this module's `LABEL_GAP` asks for 10px of clear space between two labels: the rule was applied to a plot
+// 13% wider than the 209px Recharts drew, so every clearance it granted was 13% short on screen. It was the
+// second of them that was kept by the margin — half a pixel, on the overstated width — and it is the one
+// that goes now. Two labels at 375px, and the third rise keeps its marker and its row in SpikeTable, which
+// is what "the labels that fit" has always meant (lib/spikePlaces.ts' caption, T204).
+test("the patient's 375px chart keeps the place label that fits the plot Recharts draws", () => {
   const labels = drawn(SEEDED_WEEK_PLACED, { plot: PATIENT_375, patient: true });
-  assert.equal(labels.filter((l) => l === "a place you went").length, 2, `the two the page draws today, and got ${labels.join(" | ")}`);
+  assert.deepEqual(labels, ["206", "-", "-", "a place you went", "-"], `at ${PATIENT_375}px, and got ${labels.join(" | ")}`);
   expectNoMarkerOnALabel(SEEDED_WEEK_PLACED, { plot: PATIENT_375, patient: true });
+
+  // The two that no longer fit together, in the units the rule is in: the gap between their drawn edges is
+  // short of the clearance asked for, which is why one of them goes rather than both being painted close.
+  const span = WEEK_LAST - WEEK_FIRST;
+  const centre = (iso: string) => ((Date.parse(iso) - WEEK_FIRST) / span) * PATIENT_375;
+  const gap = centre("2026-09-25T19:40:00.000Z") - centre("2026-09-22T22:45:00.000Z") - 2 * halfLabelWidth("a place you went");
+  assert.ok(gap < 10, `the two place labels are ${gap.toFixed(1)}px apart on the drawn plot, and two labels ask for 10px`);
+
+  // Wide enough and both are back, which says the drop is about the width and not about the label.
+  assert.deepEqual(
+    drawn(SEEDED_WEEK_PLACED, { plot: DESK, patient: true }).filter((l) => l === "a place you went").length,
+    2,
+    "a desk holds both of them",
+  );
 });
 
 test("no marker sits on a label on any of the three surfaces 375px narrows", () => {

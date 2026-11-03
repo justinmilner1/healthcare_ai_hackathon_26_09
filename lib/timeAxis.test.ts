@@ -32,12 +32,18 @@ const PHONE = 230;
  * acceptance criteria 1 and 2 are about: the width where all seven arrive, and the width where they must
  * thin rather than have one dropped without saying so.
  *
- * Measured as `wrapper.clientWidth - 80`, which is what components/GlucoseChart.tsx passes: 289, 285 and 317
- * less the y-axis and right margin it takes off first.
+ * Measured as `wrapper.clientWidth - 108`, which is what components/GlucoseChart.tsx passes: 289, 285 and
+ * 317 less the y-axis and right margin it takes off first. The figure was 80 until T224 — 28px short of
+ * the chrome Recharts lays out — so these three constants were 209, 205 and 237, and named a drawing area
+ * wider than the one on screen. They are the width of `.recharts-cartesian-grid` on the three frames now,
+ * which is the plot itself: 181, 177 and 209px, and 760, 553 and 866 at desktop width.
+ *
+ * The middle case is the one that moved: 209 is §2.7's own card now rather than the clinician's brief, so
+ * it is the width where all seven weekdays arrive and no longer one of the two that thin.
  */
-const BRIEF_375 = 209;
-const PRINT_375 = 205;
-const PATIENT_375 = 237;
+const BRIEF_375 = 181;
+const PRINT_375 = 177;
+const PATIENT_375 = 209;
 
 /**
  * The widest weekday label this axis draws, in pixels at its 11px, and the gap Recharts refuses to paint
@@ -50,6 +56,8 @@ const PATIENT_375 = 237;
  * a test that read its own constants back could not tell a corrected model from the old one.
  */
 const WIDEST_WEEKDAY = 22.56;
+/** And the widest hour label, `"10 AM"`, measured the same way, for the sub-day axis below. */
+const WIDEST_HOUR = 30.94;
 const RECHARTS_MIN_TICK_GAP = 5;
 
 /** What a weekday label looks like, whatever the locale: the reader's own `weekday: "short"`. */
@@ -185,6 +193,68 @@ test("the brief's own 375px plot keeps every weekday it asks for, or asks for fe
   }
 });
 
+// T224 (design §2.6, §2.7, §7.4, §6.5, §12.1): the same rule, against the plot Recharts actually draws.
+//
+// `LABEL_WIDTH` and `LABEL_GAP` were measured against a `plot` 28px wider than the drawing area, so this
+// module was over-allowing by 28px and `LABEL_GAP`'s 8 was compensating for it — two numbers wrong in
+// opposite directions, which is why neither ticket's tests could see either. With the width corrected the
+// gap is 6, and what has to hold is both halves at once: the model never allows a pitch Recharts refuses,
+// and it never thins an axis that had room. The two are asserted as a pair here, at every plot between a
+// print column and a wide desk rather than at the six the suite renders, because the widths in between are
+// where a model right about one frame and wrong about the shape goes unnoticed (T190).
+test("the pitch the week's axis asks for is one Recharts paints, and is not needlessly coarse (T224)", () => {
+  const first = at(8, 19, 0);
+  const last = at(8, 25, 23, 55);
+  const NEEDED = WIDEST_WEEKDAY + RECHARTS_MIN_TICK_GAP;
+  // What one label gets, in pixels, on the axis this plot was given: the step in pixels, which is the
+  // figure Recharts measures its own labels against.
+  const pitchAt = (plot: number) => {
+    const axis = timeAxis(first, last, plot);
+    return axis.ticks.length >= 2 ? (plot * (axis.ticks[1] - axis.ticks[0])) / (last - first) : plot;
+  };
+
+  for (let plot = 120; plot <= 1400; plot += 1) {
+    assert.ok(pitchAt(plot) >= NEEDED, `at plot ${plot} the labels sit ${pitchAt(plot).toFixed(2)}px apart, and one needs ${NEEDED}px`);
+  }
+
+  // And the other direction, which no test had before T224: the plot at which the seven weekdays thin is
+  // found rather than written down, and it has to sit close to where Recharts would really drop one. A
+  // model that thinned at 217px — which is what `LABEL_GAP` of 8 did on a corrected plot — would be
+  // giving each of seven weekdays 31.0px where 27.56px is enough, and taking a day off §2.7's chart for
+  // 3.4px a label that nothing on screen needed.
+  let narrowest = 1400;
+  while (narrowest > 120 && timeAxis(first, last, narrowest - 1).ticks.length === 7) narrowest -= 1;
+  assert.equal(timeAxis(first, last, narrowest).ticks.length, 7, `plot ${narrowest} is where the seven start`);
+  assert.ok(timeAxis(first, last, narrowest - 1).ticks.length < 7, `and plot ${narrowest - 1} is below it`);
+  assert.ok(narrowest <= 209, `the seven thin at ${narrowest}px, which is wider than §2.7's own 209px card`);
+  const wasted = ((narrowest - 1) * 86_400_000) / (last - first) - NEEDED;
+  assert.ok(
+    wasted < 2,
+    `the axis thins at ${narrowest}px, where seven weekdays would still have had ${(wasted + NEEDED).toFixed(2)}px each against the ${NEEDED}px Recharts needs`,
+  );
+});
+
+// Criterion 3: the counts the six frames draw, pinned. These are what the rendered charts show today —
+// four weekdays on the two narrow clinician cards, all seven everywhere else — and the ticket's promise is
+// that correcting the width changes none of them.
+test("the six plots the three surfaces actually draw keep the weekday grain they have (T224)", () => {
+  const first = at(8, 19, 0);
+  const last = at(8, 25, 23, 55);
+  const frames: [string, number, number][] = [
+    ["the clinician's brief at 375px", BRIEF_375, 4],
+    ["§7.4's printed sheet at 375px", PRINT_375, 4],
+    ["§2.7's own page at 375px", PATIENT_375, 7],
+    ["the clinician's brief on a desk", 760, 7],
+    ["§7.4's sheet on a desk", 553, 7],
+    ["§2.7's page on a desk", 866, 7],
+  ];
+  for (const [where, plot, ticks] of frames) {
+    const axis = timeAxis(first, last, plot);
+    assert.equal(axis.ticks.length, ticks, `${where} (plot ${plot}) drew ${axis.ticks.map(axis.format).join(" · ")}`);
+    assert.equal(axis.unit, "day", where);
+  }
+});
+
 test("the sub-day hour axis T187 added is the one it was (T190 criterion 3)", () => {
   // Correcting the day grain's width must not move the hour grain's, and the counts below are the frames
   // T187 is judged on: data/fixtures/clarity_window.csv, 06:00 to 12:55, at the widths the three surfaces
@@ -233,10 +303,17 @@ test("a narrow plot gets fewer labels, not overlapping ones", () => {
   for (const t of phone.ticks) assert.ok(desk.ticks.includes(t), "the phone's ticks are the desk's, thinned");
 
   // The width is a measurement and not a breakpoint, so it holds at the widths between: nothing anywhere
-  // asks for more labels than the plot has room for at about 40px each.
+  // asks for more hour labels than Recharts will paint, which is its measured width plus `minTickGap`.
+  //
+  // "About 40px each" is what this said until T224, which was slack against the 39px the rule asked for
+  // then and is not slack against the 37px it asks for now: with the plot corrected, 260px really does
+  // hold seven hourly labels at 37.6px each, and the round number would have called that a failure. The
+  // bound is the browser's own figure instead, which is the thing worth asserting and cannot drift with
+  // `LABEL_GAP`.
   for (let plot = 120; plot <= 1400; plot += 20) {
     const axis = timeAxis(first, last, plot);
-    assert.ok(axis.ticks.length <= Math.max(2, Math.floor(plot / 40)), `${axis.ticks.length} labels in ${plot}px`);
+    const room = Math.max(2, Math.floor(plot / (WIDEST_HOUR + RECHARTS_MIN_TICK_GAP)));
+    assert.ok(axis.ticks.length <= room, `${axis.ticks.length} labels in ${plot}px, where ${room} fit`);
   }
 });
 

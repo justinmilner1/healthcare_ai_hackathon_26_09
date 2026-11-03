@@ -126,6 +126,51 @@ export async function expectSleepTooltipWithoutRecovery(page: Page, where: strin
 const axisLabels = (page: Page): Locator =>
   lineChart(page).locator(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value");
 
+/**
+ * The plot itself, as Recharts laid it out: the grid group inside this chart's wrapper (T224).
+ *
+ * `.recharts-cartesian-grid` is the handle because it *is* the plot — `CartesianGrid` draws one line per
+ * y-axis tick, each running the full width of the drawing area, so the group's box is that area's width
+ * exactly. Measured on all six frames the suite renders: the lines start at x = 52, which is
+ * `CHART_MARGIN.left + Y_AXIS.width`, and end `CHART_MARGIN.right` in from the other side. The
+ * alternatives are worse handles: `.recharts-surface` is the whole card including the axis and both
+ * margins, the x-axis group is as wide as its outermost tick label rather than as the plot, and the line
+ * itself is only as wide as the data in it.
+ *
+ * `vertical={false}` in components/GlucoseChart.tsx leaves only the horizontal lines, which is why the
+ * group's *height* is the span between the first and last gridline rather than the plot's — the width is
+ * the measurement this is about, and the one it can answer.
+ */
+const plotBox = (page: Page): Locator => lineChart(page).locator(".recharts-cartesian-grid");
+
+/**
+ * The width this chart reasoned about is the width it drew (T224, design §2.6, §2.7, §7.4, §6.5).
+ *
+ * `data-axis-plot` is what components/GlucoseChart.tsx handed lib/timeAxis.ts and lib/markerLabels.ts, and
+ * until T224 it was 28px more than the plot on screen: `PLOT_CHROME` was a literal 80 where Recharts lays
+ * out 108, so every rule that compared a position in the plot against a real number of pixels was reasoning
+ * about a chart nobody was looking at — 209 against 181 on the clinician's brief at 375px, 237 against 209
+ * on §2.7's page. Nothing in the suite compared the two, which is how it survived T23, T190, T197 and T223.
+ *
+ * Asserted here and in one place, so it covers every surface that reads its axis at all and so a future
+ * drift between the model and Recharts' own layout is a failing test rather than a number nobody is looking
+ * at. A pixel of tolerance: the component rounds the width its `ResizeObserver` reports, which is
+ * fractional, and Recharts rounds its own layout separately.
+ */
+const PLOT_TOLERANCE = 1;
+
+async function expectAxisPlotIsTheDrawnPlot(page: Page, where: string, decisions: Locator): Promise<void> {
+  const grid = plotBox(page);
+  await expect(grid, `${where}: the chart drew no grid, so there is no plot to measure`).toBeVisible(DRAWN);
+  const box = await grid.boundingBox();
+  const claimed = Number(await decisions.getAttribute("data-axis-plot"));
+  expect(box, `${where}: the chart's grid has no box`).not.toBeNull();
+  expect(
+    Math.abs((box?.width ?? 0) - claimed),
+    `${where}: the chart told lib/timeAxis.ts and lib/markerLabels.ts the plot was ${claimed}px and Recharts drew ${(box?.width ?? 0).toFixed(1)}px, so both rules are reasoning about a chart that is not on screen (T224)`,
+  ).toBeLessThanOrEqual(PLOT_TOLERANCE);
+}
+
 /** A weekday as `weekday: "short"` writes one, in the en-US locale these browsers run in. */
 const WEEKDAY = /^[A-Za-z]{2,4}$/;
 /** And a clock time as the axis writes one: "6 AM", "6:30 AM" — or a weekday, where a day turns over. */
@@ -160,6 +205,11 @@ export async function expectTimeAxisLabelled(page: Page, where: string, unit: "h
   await expect(decisions, `${where}: the glucose chart never measured its own plot`).not.toHaveAttribute("data-axis-plot", "0", DRAWN);
   const given = Number(await decisions.getAttribute("data-axis-ticks"));
   const plot = await decisions.getAttribute("data-axis-plot");
+
+  // And that the width those ticks were chosen against is the width they were drawn into (T224). Here
+  // rather than in a spec of its own: every surface that reads its axis reads it through this helper, so
+  // this is the one place that covers all of them.
+  await expectAxisPlotIsTheDrawnPlot(page, where, decisions);
 
   const labels = (await ticks.allTextContents()).map((s) => s.trim()).filter(Boolean);
 
