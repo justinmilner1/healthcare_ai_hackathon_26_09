@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { auditLede, auditSpanSeconds, auditSpanWords, AUDIT_COLUMNS, READ_COALESCE_MS } from "../lib/auditLog";
+import {
+  auditLede,
+  auditSpanClause,
+  auditSpanSeconds,
+  auditStampsOrdered,
+  auditSpanWords,
+  AUDIT_COLUMNS,
+  READ_COALESCE_MS,
+} from "../lib/auditLog";
 import { csrfToken, postJson } from "./api";
 import { signInAsDemo } from "./auth";
 import { LOADED } from "./budget";
@@ -154,12 +162,20 @@ test("the audit trail records reads, link use and deletions, and exports them wi
   await expect(coalesced.locator(".audit-when")).toContainText(stamps[0]);
   // The whole span line, not its first three words, so what sits between them is readable here at all.
   const line = (await spanCell.textContent())!.trim();
-  const words = line.replace(/^3 reads over /, "").replace(/, from .*$/, "");
-  expect(line, `the span line is not the shape this assertion reads: ${line}`).toBe(`3 reads over ${words}, from ${stamps[1]}`);
   const began = Date.parse(read!.firstAt);
   const ended = Date.parse(read!.at);
+  // The two writes are seconds apart on a clock that did not move, so this row is the ordered branch and the
+  // suite should say so rather than quietly reading whichever branch it landed in. The out-of-order branch —
+  // a clock that stepped back mid-run, which nothing here can stage — is held in lib/auditLog.test.ts.
+  expect(auditStampsOrdered(began, ended), `the run's own clock went backwards: ${read!.firstAt} to ${read!.at}`).toBe(true);
+  const words = line.replace(/^3 reads over /, "").replace(/, from .*$/, "");
+  expect(line, `the span line is not the shape this assertion reads: ${line}`).toBe(`3 reads over ${words}, from ${stamps[1]}`);
   const seconds = auditSpanSeconds(began, ended);
   expect(words, "the cell is wording the span itself rather than taking it from lib/auditLog.ts").toBe(auditSpanWords(began, ended));
+  // The whole clause, assembled where the decision lives: the cell may not word it independently (T222 AC3).
+  expect(line, "the cell's span line is not the clause lib/auditLog.ts decided on").toBe(
+    auditSpanClause({ ms: ended - began, seconds, words, reads: 3 }, stamps[1]).line,
+  );
   // The reader's own subtraction, done the one way that needs no locale string parsed: both stamps are a
   // function of their instant's floor to the second, so if adding the stated seconds to the first printed
   // stamp lands on the second printed stamp, the two are exactly that many seconds apart on screen.
