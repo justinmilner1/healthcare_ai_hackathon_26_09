@@ -374,13 +374,16 @@ export function auditSpanWords(fromMs: number, toMs: number): string | null {
 /** What the span line of a `When` cell reads, and what its `title` holds: the whole clause, decided here so
  *  that §12.1 can ask what a cell claims about a record without rendering anything (T205, T219, T222 AC3).
  *  The caller supplies `firstAt` already formatted, because the locale belongs to the page and the wording
- *  does not. */
+ *  does not.
+ *
+ *  `line` stays about as short as the ordered one it sits in for, because it is a table cell at 375px as
+ *  well as on a laptop; `title` is where the whole of why there is no span goes. */
 export type AuditSpanClause = { line: string; title: string };
 
 export function auditSpanClause(span: AuditRowSpan, firstAt: string): AuditSpanClause {
   if (span.words === null)
     return {
-      line: `${span.reads} reads, the first stamped ${firstAt} — later than this row's own time, so no span is shown`,
+      line: `${span.reads} reads, first stamped ${firstAt} — later than this row, so no span is shown`,
       title:
         `${span.reads} identical reads. The first is stamped ${firstAt}, which is later than this row's own ` +
         "time, so the clock moved between the two writes and the span between them cannot be stated. The " +

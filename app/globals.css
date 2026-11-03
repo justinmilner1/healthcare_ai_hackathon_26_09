@@ -6264,6 +6264,11 @@ button.sweetie-agent-badge {
 /* The span a coalesced row stands for (T220), under the time the row ended. Its own line rather than a
    second time on the same one: the cell is nowrap, and two full timestamps side by side push the table
    past the width the five columns were sized for. */
+/* `white-space: normal` against the `nowrap` inherited from `.audit-when`, which is there to keep a
+   timestamp from breaking mid-stamp. This line is prose rather than a stamp, and on a row whose two stamps
+   print out of order it is the longer sentence `auditSpanClause` returns (T222). At 375px nothing here is a
+   table and `.audit-table-scroll` is `overflow-x: visible`, so a line that cannot wrap widens the card
+   itself and hangs it off the right edge — the same failure `.audit-detail` is capped against above. */
 .audit-span {
   display: block;
   margin-top: 2px;
@@ -6271,6 +6276,7 @@ button.sweetie-agent-badge {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
+  white-space: normal;
 }
 
 .audit-actor-type,

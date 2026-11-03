@@ -611,13 +611,18 @@ test("a row whose stamps print out of order states no span, and says so (T222 AC
 
   // What the cell prints instead: the count, both stamps, and why there is no span.
   const clause = auditSpanClause(span, printed(iso(firstAt)));
-  assert.match(clause.line, /^3 reads, the first stamped /, clause.line);
+  assert.match(clause.line, /^3 reads, first stamped /, clause.line);
   assert.ok(clause.line.includes(printed(iso(firstAt))), "the first stamp stays on the screen");
   assert.ok(clause.line.includes("no span is shown"), clause.line);
   assert.ok(!/ over /.test(clause.line), `the clause still claims a span: ${clause.line}`);
   assert.ok(!clause.line.includes("under a second"), 'AC2 is absolute: no "under a second" over stamps that differ');
   assert.ok(!clause.title.includes("under a second"), clause.title);
   assert.ok(clause.title.includes("full precision"), "the title points at the export, which keeps the real figure");
+  // The line is a cell on a 375px card, where `.audit-table-scroll` is `overflow-x: visible` and a long
+  // enough line hangs the whole card off the right edge. It wraps (see `.audit-span` in app/globals.css),
+  // and it also stays within reach of the ordered line it stands in for rather than being a paragraph.
+  assert.ok(clause.line.length < 100, `the span line is ${clause.line.length} characters: ${clause.line}`);
+  assert.ok(clause.title.length > clause.line.length, "the reasoning belongs in the title, not in the cell");
 });
 
 test("an ordered row's clause is the sentence it always was (T222 AC3)", () => {
