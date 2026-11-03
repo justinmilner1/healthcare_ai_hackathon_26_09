@@ -12,7 +12,9 @@ import {
   auditLede,
   auditRowSentence,
   auditRowSpan,
+  auditSpanClause,
   auditSpanSeconds,
+  auditStampsOrdered,
   auditSpanWords,
   AUDIT_ACTIONS,
   AUDIT_ACTION_NAMES,
@@ -499,7 +501,15 @@ test("a span is reported in units a person reads, and never as a zero", () => {
   const t = iso("2026-10-14T09:30:00.000Z");
   assert.equal(auditSpanWords(t, t), "under a second");
   assert.equal(auditSpanWords(t, t + 400), "under a second", "same second on both stamps, so no visible gap");
-  assert.equal(auditSpanWords(t, t - 5), "under a second", "a clock that went backwards is not a negative span");
+  // Backwards inside one printed second is no *visible* disorder: both ends print the same stamp, so there
+  // is nothing for the words to contradict and "under a second" is exactly right (T222, `auditStampsOrdered`).
+  assert.equal(auditSpanWords(t + 400, t + 100), "under a second", "one stamp printed twice, whatever order the instants came in");
+  // Backwards across a boundary is visible, and then there is no honest wording of it at all. `t` is on the
+  // second, so even 5ms back prints the *previous* second — this line used to assert "under a second" over
+  // two stamps a second apart, which is the ticket's own bug in the test that was meant to pin the fix.
+  assert.equal(auditSpanWords(t, t - 5), null, "9:29:59 under 9:30:00 is a second of visible disorder");
+  assert.equal(auditSpanWords(t, t - 1_000), null, "two stamps a reader can put the wrong way round get no span words");
+  assert.equal(auditSpanWords(t, t - 42_000), null, 'the reviewer\'s measured row: 42s backwards is not "under a second"');
   assert.equal(auditSpanWords(t, t + 1_000), "1 second");
   assert.equal(auditSpanWords(t, t + 1_400), "1 second");
   assert.equal(auditSpanWords(t, t + 42_000), "42 seconds");
@@ -546,23 +556,80 @@ test("no pair of instants makes the words and the printed stamps disagree (T222 
   // done exhaustively rather than on the cases that happened to be noticed.
   const base = iso("2026-11-02T21:39:20.000Z");
   const fractions = [0, 1, 100, 400, 499, 500, 501, 600, 800, 900, 999];
-  for (const wholeSeconds of [0, 1, 2, 3, 41, 59, 60]) {
+  // Backwards whole-second offsets are in the sweep too, which is the hole T222's first pass left: every
+  // pair here used to run forwards, so the one direction where the words survived to contradict the stamps
+  // was the one direction never swept.
+  for (const wholeSeconds of [-42, -2, -1, 0, 1, 2, 3, 41, 59, 60]) {
     for (const from of fractions) {
       for (const to of fractions) {
         const a = base + from;
         const b = base + wholeSeconds * 1_000 + to;
         const seconds = auditSpanSeconds(a, b);
         const words = auditSpanWords(a, b);
+        if (words === null) {
+          // The only pairs without words are the ones whose stamps a reader can put the wrong way round.
+          assert.equal(auditStampsOrdered(a, b), false, `no words for ${printed(a)} to ${printed(b)}, which are in order`);
+          assert.notEqual(printed(a), printed(b), "a pair printing one stamp twice is in no visible disorder");
+          continue;
+        }
+        assert.ok(auditStampsOrdered(a, b), `${words} over ${printed(a)} and ${printed(b)}, which print out of order`);
         assert.ok(
           printedStampsAgree(a, b, seconds),
           `${words} is not the gap between ${printed(a)} and ${printed(b)}`,
         );
         if (printed(a) === printed(b)) assert.equal(words, "under a second", `${words} over one stamp printed twice`);
         else assert.notEqual(words, "under a second", `"under a second" over ${printed(a)} and ${printed(b)}`);
-        assert.equal(words, auditSpanWords(a, b), "the words are a function of the pair and nothing else");
+        // The property that bites, which the assertion here used to miss by comparing the function with
+        // itself: the wording is a function of the printed second count and of nothing else, so the same
+        // count reached from two stamps on the second words identically.
+        assert.equal(
+          words,
+          auditSpanWords(base, base + seconds * 1_000),
+          `${printed(a)} to ${printed(b)} is ${seconds}s and should word as one`,
+        );
       }
     }
   }
+});
+
+test("a row whose stamps print out of order states no span, and says so (T222 AC1, AC2)", () => {
+  // The reviewer's measured row, and the reason this came back: `absorbed` in lib/auditStore.ts writes
+  // `at: new Date()` on every absorb and never rewrites `firstAt`, so a clock that steps backwards between
+  // the first write and an absorb persists a row with `at` before `firstAt`. The floor in `auditRowSpan`
+  // turns that into a zero, and wording the zero printed "under a second" over two stamps 42 seconds apart.
+  const at = "2026-10-14T09:29:18.000Z";
+  const firstAt = "2026-10-14T09:30:00.000Z";
+  const span = auditRowSpan(entry({ at, firstAt, detail: { count: 3 } }));
+  assert.ok(span, "the row is still evidence of three reads");
+  assert.equal(span.reads, 3);
+  assert.equal(span.ms, 0, "a negative gap is not a span the record holds");
+  assert.equal(span.seconds, 0);
+  assert.equal(span.words, null, "and no words either: 42 seconds of visible disorder cannot be worded");
+  // The stamps really are 42 seconds apart on screen, which is what the old wording denied.
+  assert.notEqual(printed(iso(at)), printed(iso(firstAt)));
+  assert.equal(auditStampsOrdered(iso(firstAt), iso(at)), false);
+
+  // What the cell prints instead: the count, both stamps, and why there is no span.
+  const clause = auditSpanClause(span, printed(iso(firstAt)));
+  assert.match(clause.line, /^3 reads, the first stamped /, clause.line);
+  assert.ok(clause.line.includes(printed(iso(firstAt))), "the first stamp stays on the screen");
+  assert.ok(clause.line.includes("no span is shown"), clause.line);
+  assert.ok(!/ over /.test(clause.line), `the clause still claims a span: ${clause.line}`);
+  assert.ok(!clause.line.includes("under a second"), 'AC2 is absolute: no "under a second" over stamps that differ');
+  assert.ok(!clause.title.includes("under a second"), clause.title);
+  assert.ok(clause.title.includes("full precision"), "the title points at the export, which keeps the real figure");
+});
+
+test("an ordered row's clause is the sentence it always was (T222 AC3)", () => {
+  // The decision only changes the out-of-order row; the ordinary coalesced row reads exactly as T220 left it.
+  const firstAt = "2026-10-14T09:29:18.000Z";
+  const span = auditRowSpan(entry({ at: "2026-10-14T09:30:00.000Z", firstAt, detail: { count: 3 } }));
+  assert.ok(span);
+  const stamp = printed(iso(firstAt));
+  assert.deepEqual(auditSpanClause(span, stamp), {
+    line: `3 reads over 42 seconds, from ${stamp}`,
+    title: `3 identical reads, the first at ${stamp}`,
+  });
 });
 
 test("a coalesced row's own words agree with the stamps the cell prints beside them (T222 AC1, AC5)", () => {
@@ -629,12 +696,15 @@ test("a count that is not a usable number falls back to one read, and a backward
     assert.equal(span.ms, 42_000);
     assert.equal(span.reads, 1, `count ${String(count)} is not a whole number of reads above one`);
   }
-  // `at` before `firstAt` can only be a clock that moved between two writes. The row still says how many.
+  // `at` before `firstAt` can only be a clock that moved between two writes. The row still says how many —
+  // and states no span, rather than wording the floored zero as "under a second" over two stamps 42 seconds
+  // apart, which is what this assertion pinned as correct until T222's second pass (see the dedicated case
+  // above for the whole reading).
   const backwards = auditRowSpan(entry({ at: earlier, firstAt: at, detail: { count: 3 } }));
   assert.ok(backwards);
   assert.equal(backwards.ms, 0);
   assert.equal(backwards.seconds, 0, "and no negative count of seconds either");
-  assert.equal(backwards.words, "under a second");
+  assert.equal(backwards.words, null);
   assert.equal(backwards.reads, 3);
 });
 
@@ -653,6 +723,10 @@ test("the audit page prints the span from this module rather than deciding it (T
   // over the table promises and the span the cell prints come from one place.
   assert.match(page, /auditRowSpan\(entry\)/);
   assert.ok(!/firstAt\)\.getTime\(\)|Date\.parse\(entry\.firstAt/.test(page), "the page is doing the arithmetic itself");
+  // And the sentence as well as the span (T222 AC3): which clause a record deserves is this module's
+  // decision, so the page may not assemble one of its own around the words.
+  assert.match(page, /auditSpanClause\(span, when\(entry\.firstAt\)\)/);
+  assert.ok(!/reads over/.test(page), "the page is wording the span line itself");
   // And no sixth column was added to carry it: the span rides in `When`, which the column list already has.
   assert.equal(AUDIT_COLUMNS.length, 5);
 });
