@@ -264,8 +264,12 @@ export function auditCoalescingSentence(coalesceMs: number = READ_COALESCE_MS): 
  *
  *  `ms` and `seconds` are two different facts about one pair of instants and are meant to differ: `ms` is the
  *  gap the record holds and the bound of T220 is about, `seconds` is the gap the cell is able to show. Only
- *  `seconds` may be put into words, because the words sit between the two stamps they are counting. */
-export type AuditRowSpan = { ms: number; seconds: number; words: string; reads: number };
+ *  `seconds` may be put into words, because the words sit between the two stamps they are counting.
+ *
+ *  `words` is `null` on a row whose two stamps *print* out of order — `at` before `firstAt`, a clock that
+ *  moved between the first write and an absorb. There is no span a reader of those two stamps could check,
+ *  so the cell states none; `auditSpanClause` is what it says instead, and `auditSpanWords` says why. */
+export type AuditRowSpan = { ms: number; seconds: number; words: string | null; reads: number };
 
 /**
  * The span a row stands for: the gap between the first event counted on it and the last. Null when the row
@@ -284,7 +288,9 @@ export function auditRowSpan(entry: Pick<AuditEntry, "at" | "firstAt" | "detail"
   const reads = typeof counted === "number" && Number.isFinite(counted) && counted > 1 ? Math.floor(counted) : 1;
   if (!Number.isFinite(ended) || !Number.isFinite(began)) return null;
   // A clock that went backwards between two writes is the one case where `at` precedes `firstAt`. Report the
-  // count and no span rather than a negative one: the row is still evidence of N reads.
+  // count and no span rather than a negative one: the row is still evidence of N reads. `auditSpanWords`
+  // withholds the words when the two *printed* stamps are out of order, which is the only disorder a reader
+  // can see, and `auditSpanClause` says what the cell prints in their place (T222).
   const ms = Math.max(0, ended - began);
   if (ms === 0 && reads === 1) return null;
   return { ms, seconds: auditSpanSeconds(began, ended), words: auditSpanWords(began, ended), reads };
@@ -314,16 +320,76 @@ export function auditSpanSeconds(fromMs: number, toMs: number): number {
   return Math.max(0, Math.floor(toMs / 1000) - Math.floor(fromMs / 1000));
 }
 
-/** The span between two instants in words, as a cell prints it between the two stamps it is counting. Zero
- *  is "under a second" rather than "0 seconds": two reads inside one second are a real pair of reads and the
- *  row should not read as rounding them away — and the two stamps print identically, so there is no visible
- *  gap for those words to deny. Takes the two ends, never a duration: `auditSpanSeconds` says why. */
-export function auditSpanWords(fromMs: number, toMs: number): string {
+/**
+ * Whether the two stamps a cell prints are in the order the cell presents them — the first after "from", the
+ * second on the line above it. The question is about the *printed* stamps and not about the instants, because
+ * that is the only order a reader can see: `toLocaleString()` truncates to the second, so a pair 5ms out of
+ * order prints as one second twice and is in no visible disorder at all, while a pair a second out of order
+ * prints two stamps a reader can put the wrong way round.
+ *
+ * False for an unparsable end, which `auditRowSpan` has already turned into "no span" by the time it asks.
+ */
+export function auditStampsOrdered(fromMs: number, toMs: number): boolean {
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return false;
+  return Math.floor(toMs / 1000) >= Math.floor(fromMs / 1000);
+}
+
+/**
+ * The span between two instants in words, as a cell prints it between the two stamps it is counting. Zero
+ * is "under a second" rather than "0 seconds": two reads inside one second are a real pair of reads and the
+ * row should not read as rounding them away — and the two stamps print identically, so there is no visible
+ * gap for those words to deny. Takes the two ends, never a duration: `auditSpanSeconds` says why.
+ *
+ * `null` when the two stamps print out of order, which is the second half of T222 and a decision rather than
+ * a correction. `auditSpanSeconds` floors such a pair at zero, and wording *that* is how "under a second"
+ * came to be printed over two stamps 42 seconds apart — the ticket's own worst reading, at 42s instead of at
+ * one, denying a gap it was printing beside the denial.
+ *
+ * Three things could be done with it, and only one of them is honest about the record:
+ *
+ *   - **Order the two stamps before wording them.** The sentence comes out coherent and checkable, but "from"
+ *     would then name the stamp of the *last* absorb as the moment the row began. That is a false claim about
+ *     the record, and a false claim is worse than a missing one on the one page whose job is to be trusted.
+ *   - **Word the visible gap and drop the "from" framing.** The gap is real, but with `firstAt` off the
+ *     screen the reader has nothing to check it against — and the direction the words imply is the one the
+ *     record denies.
+ *   - **Withhold the span, keep everything that is still true.** What the row actually supports is how many
+ *     reads it stands for and the two stamps themselves. So the cell prints the count, prints both stamps,
+ *     and says why there is no span instead of asserting one.
+ *
+ * The third is what this does. It makes T222's criterion 2 absolute — "under a second" cannot appear over
+ * stamps that differ, because no span words are produced for such a pair at all — with no exception carved
+ * out for a clock that moved. The full-precision pair survives either way in `AUDIT_CSV_HEADER`, which is
+ * where the real figure lives and where an admin can do the subtraction the screen declines to.
+ */
+export function auditSpanWords(fromMs: number, toMs: number): string | null {
+  if (!auditStampsOrdered(fromMs, toMs)) return null;
   const seconds = auditSpanSeconds(fromMs, toMs);
   if (seconds < 1) return "under a second";
   if (seconds === 1) return "1 second";
   if (seconds % 60 !== 0 || seconds < 60) return `${seconds} seconds`;
   return coalesceWindowWords(seconds * 1000);
+}
+
+/** What the span line of a `When` cell reads, and what its `title` holds: the whole clause, decided here so
+ *  that §12.1 can ask what a cell claims about a record without rendering anything (T205, T219, T222 AC3).
+ *  The caller supplies `firstAt` already formatted, because the locale belongs to the page and the wording
+ *  does not. */
+export type AuditSpanClause = { line: string; title: string };
+
+export function auditSpanClause(span: AuditRowSpan, firstAt: string): AuditSpanClause {
+  if (span.words === null)
+    return {
+      line: `${span.reads} reads, the first stamped ${firstAt} — later than this row's own time, so no span is shown`,
+      title:
+        `${span.reads} identical reads. The first is stamped ${firstAt}, which is later than this row's own ` +
+        "time, so the clock moved between the two writes and the span between them cannot be stated. The " +
+        "exported CSV carries both stamps at full precision.",
+    };
+  return {
+    line: `${span.reads} reads over ${span.words}, from ${firstAt}`,
+    title: `${span.reads} identical reads, the first at ${firstAt}`,
+  };
 }
 
 /** The lede over the audit table, as the page prints it: §10.2's scope, then what a row holds, then what the
